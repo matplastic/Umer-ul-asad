@@ -1,0 +1,419 @@
+import React, { useState } from 'react';
+import { Pool, StageId } from '../types';
+import { STAGES } from '../data/mockData';
+import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter } from 'lucide-react';
+
+interface QualityInspectorProps {
+  pools: Pool[];
+  allTeams: any[];
+  onApproveStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string) => void;
+  onRejectStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string) => void;
+  inspectors?: { id: string; name: string; title: string }[];
+  onDeletePool?: (poolId: string, operatorName: string) => void;
+}
+
+export const QualityInspector: React.FC<QualityInspectorProps> = ({
+  pools,
+  allTeams,
+  onApproveStage,
+  onRejectStage,
+  inspectors = [],
+  onDeletePool,
+}) => {
+  const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || 'Insp. Sarah');
+  const [activePoolId, setActivePoolId] = useState<string | null>(null);
+  const [reviewerNotes, setReviewerNotes] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [filterMode, setFilterMode] = useState<'pending' | 'all'>('pending');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Sync selectedInspector if list changes on the fly
+  React.useEffect(() => {
+    if (inspectors.length > 0 && !inspectors.some(i => i.name === selectedInspector)) {
+      setSelectedInspector(inspectors[0].name);
+    }
+  }, [inspectors, selectedInspector]);
+
+  // Find all pools that have at least one stage waiting for QA check
+  const pendingPools = pools.filter((p) => {
+    if (p.currentStageIndex >= STAGES.length) return false;
+    const currentStageId = STAGES[p.currentStageIndex].id;
+    return p.stageHistory[currentStageId]?.status === 'PENDING_INSPECTION';
+  });
+
+  const displayedPools = (filterMode === 'pending' ? pendingPools : pools).filter(p => {
+    if (!searchQuery.trim()) return true;
+    const matchVal = searchQuery.toLowerCase();
+    return p.projectName.toLowerCase().includes(matchVal) || p.poolNo.toLowerCase().includes(matchVal);
+  });
+
+  const activeReviewPool = pools.find((p) => p.id === activePoolId);
+  const activeReviewStage = activeReviewPool && activeReviewPool.currentStageIndex < STAGES.length
+    ? STAGES[activeReviewPool.currentStageIndex]
+    : null;
+  const activeReviewHistory = activeReviewPool && activeReviewStage ? activeReviewPool.stageHistory[activeReviewStage.id] : null;
+  const activeReviewTeam = activeReviewHistory && allTeams.find(t => t.id === activeReviewHistory.teamId);
+
+  const isPendingInspection = activeReviewPool && activeReviewStage &&
+    activeReviewPool.stageHistory[activeReviewStage.id]?.status === 'PENDING_INSPECTION';
+
+  // Fallback selector
+  React.useEffect(() => {
+    if (displayedPools.length > 0 && (!activePoolId || !pools.some(p => p.id === activePoolId))) {
+      setActivePoolId(displayedPools[0].id);
+    } else if (displayedPools.length === 0) {
+      setActivePoolId(null);
+    }
+  }, [filterMode, searchQuery, pools.length]);
+
+  const handleApprove = () => {
+    if (!activeReviewPool || !activeReviewStage) return;
+    if (!reviewerNotes.trim()) {
+      setErrorMsg('Please write inspection notes before approving.');
+      return;
+    }
+    setErrorMsg('');
+    onApproveStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim());
+    setReviewerNotes('');
+    setActivePoolId(null);
+  };
+
+  const handleReject = () => {
+    if (!activeReviewPool || !activeReviewStage) return;
+    if (!reviewerNotes.trim()) {
+      setErrorMsg('Please specify rejection reasons (needs detailed notes for the team to fix).');
+      return;
+    }
+    setErrorMsg('');
+    onRejectStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim());
+    setReviewerNotes('');
+    setActivePoolId(null);
+  };
+
+  return (
+    <div className="space-y-6">
+      
+      {/* Title Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border border-slate-100 shadow-sm gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-805 text-slate-800 tracking-tight flex items-center gap-2">
+            <ShieldCheck className="h-6 w-6 text-emerald-500" />
+            Quality Control Inspection Gates
+          </h2>
+          <p className="text-sm text-slate-500 font-sans">
+            Review completed shop floor steps, verify build tolerances, and grant fabrication certificates.
+          </p>
+        </div>
+
+        {/* Credentials switcher */}
+        <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspector ID:</label>
+          <select
+            value={selectedInspector}
+            onChange={(e) => setSelectedInspector(e.target.value)}
+            className="bg-white border border-slate-200 text-xs text-slate-700 font-bold px-3 py-1.5 cursor-pointer focus:outline-none rounded-md"
+          >
+            {inspectors.length > 0 ? (
+              inspectors.map((inspector) => (
+                <option key={inspector.id} value={inspector.name}>
+                  {inspector.name} ({inspector.title})
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="Insp. Sarah">Insp. Sarah Wells (Structural Lead)</option>
+                <option value="Insp. Mike">Insp. Mike Vance (Plumbing Specialist)</option>
+                <option value="Insp. David">Insp. David Cole (Seals Quality Chief)</option>
+              </>
+            )}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        {/* Pending Items queue */}
+        <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col h-[650px]">
+          
+          {/* Dual Toggle Selection Tabs */}
+          <div className="grid grid-cols-2 gap-2 mb-4 border-b border-slate-100 pb-3">
+            <button
+              onClick={() => {
+                setFilterMode('pending');
+                setSearchQuery('');
+              }}
+              className={`py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+                filterMode === 'pending'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
+              }`}
+            >
+              <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
+              Awaiting Review ({pendingPools.length})
+            </button>
+            <button
+              onClick={() => {
+                setFilterMode('all');
+                setSearchQuery('');
+              }}
+              className={`py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+                filterMode === 'all'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
+              }`}
+            >
+              <Filter className="h-3.5 w-3.5 text-indigo-400" />
+              All Pools ({pools.length})
+            </button>
+          </div>
+
+          <div className="relative mb-3">
+            <Search className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Filter by No. or project name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:outline-none focus:bg-white text-slate-800"
+            />
+          </div>
+
+          {displayedPools.length === 0 ? (
+            <div className="text-center py-20 my-auto">
+              <ShieldCheck className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+              <p className="text-sm font-bold text-slate-500">No pools fit criteria</p>
+              <p className="text-xs text-slate-400 max-w-[240px] mx-auto mt-1">There are no fabrication items to retrieve in this queue.</p>
+            </div>
+          ) : (
+            <div className="space-y-2 overflow-y-auto pr-1 flex-1">
+              {displayedPools.map((pool) => {
+                const isSelected = pool.id === activePoolId;
+                const activeStage = pool.currentStageIndex < STAGES.length ? STAGES[pool.currentStageIndex] : null;
+                const activeHist = activeStage ? pool.stageHistory[activeStage.id] : null;
+                const team = activeHist ? allTeams.find(t => t.id === activeHist.teamId) : null;
+                const isUrgent = activeHist?.status === 'PENDING_INSPECTION';
+
+                return (
+                  <button
+                    key={pool.id}
+                    onClick={() => {
+                      setActivePoolId(pool.id);
+                      setErrorMsg('');
+                    }}
+                    className={`w-full p-4 text-left rounded-xl border transition-all cursor-pointer block ${
+                      isSelected
+                        ? 'border-emerald-500 bg-emerald-50/20 shadow-sm ring-1 ring-emerald-500'
+                        : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="font-mono text-xs font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 border rounded">
+                        {pool.poolNo}
+                      </span>
+                      {activeStage ? (
+                        <span 
+                          className="text-[10px] font-black px-2 py-0.5 rounded text-white" 
+                          style={{ backgroundColor: activeStage.color }}
+                        >
+                          {activeStage.name} {isUrgent ? '• PENDING' : ''}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded text-white bg-emerald-600 font-sans uppercase">
+                          COMPLETED
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="text-sm font-bold text-slate-800 line-clamp-1">{pool.projectName}</h4>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 font-mono">
+                      <span>Orient: <strong>{pool.orientation}</strong></span>
+                      <span>
+                        {team ? `Team: ${team.name}` : (activeStage ? 'Unassigned' : 'Completed')}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* active item review form */}
+        <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col min-h-[650px] justify-between">
+          
+          {activeReviewPool ? (
+            <div className="space-y-5 flex-1 flex flex-col justify-between">
+              
+              <div className="space-y-4">
+                {/* Header Info */}
+                <div className="border-b border-slate-100 pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-mono text-xs font-bold text-slate-400 block tracking-wider uppercase">Quality Inspection File</span>
+                      <h3 className="text-base font-black text-slate-800 tracking-tight mt-0.5">
+                        {activeReviewPool.projectName} &nbsp;
+                        <span className="font-mono text-sm font-extrabold text-blue-650 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded text-indigo-600">
+                          {activeReviewPool.poolNo}
+                        </span>
+                      </h3>
+                    </div>
+                    <div className={`flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl font-bold text-xs border font-mono ${
+                      isPendingInspection 
+                        ? 'bg-amber-50 text-amber-800 border-amber-200' 
+                        : (activeReviewStage ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-emerald-50 text-emerald-800 border-emerald-200')
+                    }`}>
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span>
+                        {activeReviewStage 
+                          ? `${activeReviewStage.name} ${isPendingInspection ? '(Awaiting QA)' : '(In Progress)'}` 
+                          : 'Certification Clear: Fully Built'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Pool Metadata summary */}
+                  <div className="grid grid-cols-3 gap-4 mt-4 bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-xs font-sans">
+                    <div>
+                      <span className="text-slate-405 block font-medium">Orientation</span>
+                      <strong className="text-slate-800 flex items-center gap-1 mt-0.5 font-bold">
+                        <Compass className="h-3.5 w-3.5 text-indigo-500" />
+                        {activeReviewPool.orientation}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-405 block font-medium">Shell Dimension</span>
+                      <strong className="text-slate-800 flex items-center gap-1 mt-0.5 font-bold">
+                        <Ruler className="h-3.5 w-3.5 text-emerald-500" />
+                        {activeReviewPool.dimensions}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-405 block font-medium">Active Team</span>
+                      <strong className="text-slate-800 mt-0.5 block truncate font-bold">
+                        {activeReviewTeam ? activeReviewTeam.name : 'No Assigned Team'}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {isPendingInspection ? (
+                  <>
+                    {/* QA Review Checklist */}
+                    <div className="space-y-2.5 font-sans">
+                      <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                        <ClipboardList className="h-4 w-4 text-emerald-550 text-indigo-500" />
+                        Quality Certification Checklist
+                      </h4>
+                      <div className="text-xs text-slate-600 bg-slate-50/55 p-3 rounded-xl border border-slate-100 space-y-2.5">
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" defaultChecked className="rounded border-slate-300 accent-emerald-500 cursor-pointer h-4 w-4" />
+                          <span>Confirm core structural dimensions match the initial released blueprint.</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" defaultChecked className="rounded border-slate-300 accent-emerald-500 cursor-pointer h-4 w-4" />
+                          <span>Inspect welds, rivets, seals or surface treatments for any voids or anomalies.</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" defaultChecked className="rounded border-slate-300 accent-emerald-500 cursor-pointer h-4 w-4" />
+                          <span>Run structural integrity load/pressure simulation routines.</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Review Input */}
+                    <div className="space-y-2.5 pt-2">
+                      <label className="block text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1">
+                        <FileText className="h-4 w-4 text-indigo-500" />
+                        Inspector Detailed Notes & Verdict Reasons
+                      </label>
+                      <textarea
+                        placeholder="e.g., Welds pass pristine visual scan, core shape alignment verified, ready to advance to primer."
+                        value={reviewerNotes}
+                        onChange={(e) => setReviewerNotes(e.target.value)}
+                        className="w-full text-slate-800 border p-3 border-slate-200 rounded-xl text-xs min-h-[100px] focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium bg-slate-50 focus:bg-white"
+                      />
+                    </div>
+
+                    {errorMsg && (
+                      <div className="p-3 bg-rose-50 border border-rose-100 text-rose-800 rounded-xl text-xs font-semibold flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                        <span>{errorMsg}</span>
+                      </div>
+                    )}
+
+                    {/* Action buttons footer for approval / rejection */}
+                    <div className="grid grid-cols-2 gap-4 pt-1 font-sans">
+                      <button
+                        onClick={handleReject}
+                        className="py-2.5 px-4 bg-slate-50 hover:bg-rose-50 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition-all flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                        title="Flag rejection & send back to team to fix"
+                      >
+                        <XCircle className="h-4 w-4" />
+                        <span>Reject & Rework</span>
+                      </button>
+
+                      <button
+                        onClick={handleApprove}
+                        className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm cursor-pointer transition-all flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                        title="Certify step completion and unlock net step"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Certify & Approve</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="bg-slate-50 border border-slate-150 p-5 rounded-xl text-center space-y-2 mt-4 font-sans">
+                    <AlertCircle className="h-7 w-7 text-indigo-400 mx-auto" />
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-widest">Active Monitoring Mode</h4>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      This pool record is currently at <strong className="text-slate-800">{activeReviewStage ? activeReviewStage.name : 'Fully Completed'}</strong> and is not awaiting active inspection in the queue.
+                    </p>
+                    <div className="text-slate-500 text-[10px] font-mono py-1 px-3 bg-white border border-slate-100 rounded inline-block font-bold">
+                      Manufacturing Index: {activeReviewPool.currentStageIndex} of 7 • Completed: {activeReviewPool.completedAt ? 'Yes' : 'No'}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Secure Deletion / Scrap Zone for Quality Engineer */}
+              <div className="border-t border-rose-100 bg-rose-50/20 p-4 rounded-xl mt-6 font-sans">
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
+                  <div className="text-left flex-1">
+                    <p className="text-xs font-extrabold text-rose-800 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Trash2 className="h-4 w-4 text-rose-500" />
+                      Quality Defect Scrap Zone
+                    </p>
+                    <p className="text-[10px] text-slate-450 mt-1 max-w-md font-medium text-slate-400">
+                      Scrap this pool entirely and purge all records from the shop floor list. Any assigned workshop team will be released. This action is final.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onDeletePool?.(activeReviewPool.id, selectedInspector);
+                      setActivePoolId(null);
+                    }}
+                    className="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs rounded-xl cursor-pointer transition-colors flex items-center justify-center gap-1.5 shadow-sm uppercase tracking-wider"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete & Scrap
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          ) : (
+            <div className="my-auto text-center py-20 flex flex-col items-center justify-center space-y-3 font-sans">
+              <ShieldCheck className="h-16 w-16 text-slate-200" />
+              <h4 className="text-base font-bold text-slate-500">No active review selection</h4>
+              <p className="text-xs text-slate-405 max-w-sm text-slate-400">Select an item awaiting approval or toggle to "All Pools" in the list on the left to verify its build tolerances or delete faulty pool records.</p>
+            </div>
+          )}
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+};

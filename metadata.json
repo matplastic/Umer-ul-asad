@@ -1,0 +1,6 @@
+{
+  "name": "MAT PLASTIC INDUSTRIES LLC Shop Floor ERP",
+  "description": "Multi-role manufacturing tracking dashboard for MAT PLASTIC INDUSTRIES LLC fabrication, stage step progress, team assignments, and quality inspector control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
