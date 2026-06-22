@@ -2623,7 +2623,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
               >
                 <CheckCircle className="h-4 w-4" />
-                <span>Save Project Record to Netlify Database</span>
+                <span>Save Project Record to Cloud SQL</span>
               </button>
             </div>
           </div>

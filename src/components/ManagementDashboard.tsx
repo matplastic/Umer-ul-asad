@@ -1095,7 +1095,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   };
 
   const handleRestoreBackup = async (fileId: string) => {
-    if (!window.confirm("WARNING: Restoring database state will replace all current persistent pools, logs, and team configurations. Do you want to continue?")) {
+    if (!window.confirm("WARNING: Restoring database state will replace all current in-memory pools, logs, and team configurations. Do you want to continue?")) {
       return;
     }
     setRestoreStatus('restoring');
@@ -2982,7 +2982,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           <td className="py-3 px-3 text-right">
                             <button
                               onClick={() => {
-                                if (window.confirm(`Are you absolutely sure you want to delete Project contract "${proj.projectName}" permanently from Netlify Database?`)) {
+                                if (window.confirm(`Are you absolutely sure you want to delete Project contract "${proj.projectName}" permanently from Cloud SQL?`)) {
                                   onDeleteProjectSummary?.(proj.id);
                                   alert('Project record deleted successfully.');
                                 }
@@ -6170,7 +6170,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         value={firebaseConfigState.apiKey}
                         onChange={(e) => setFirebaseConfigState({ ...firebaseConfigState, apiKey: e.target.value })}
                         className="w-full bg-slate-50 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                        placeholder="Firebase API key"
+                        placeholder="Enter Firebase API Key..."
                       />
                     </div>
                     <div>

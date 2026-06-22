@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, integer, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, jsonb } from 'drizzle-orm/pg-core';
 
 // Define the 'pools' table (allocated live production pools)
 export const pools = pgTable('pools', {
@@ -13,8 +13,6 @@ export const pools = pgTable('pools', {
   notes: text('notes'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
-  isDelivered: boolean('is_delivered').default(false),
-  deliveredAt: text('delivered_at'),
   currentStageIndex: integer('current_stage_index').notNull(),
   stageHistory: jsonb('stage_history').notNull(),
 });
@@ -56,7 +54,6 @@ export const logs = pgTable('logs', {
   teamName: text('team_name'),
   notes: text('notes'),
   operatorName: text('operator_name').notNull(),
-  inspectorPicture: text('inspector_picture'),
 });
 
 // Define the 'inspectors' table
@@ -96,7 +93,6 @@ export const monthlyTargets = pgTable('monthly_targets', {
   steelPrimerTarget: integer('steel_primer_target').notNull(),
   plumbingTarget: integer('plumbing_target').notNull(),
   claddingTarget: integer('cladding_target').notNull(),
-  skimmerFittingTarget: integer('skimmer_fitting_target').notNull().default(110),
   laminationTarget: integer('lamination_target').notNull(),
   mechanicalFittingTarget: integer('mechanical_fitting_target').notNull(),
   skimmerTestTarget: integer('skimmer_test_target').notNull().default(100),
@@ -148,4 +144,5 @@ export const employeePunches = pgTable('employee_punches', {
   machineId: text('machine_id').notNull(),
   date: text('date').notNull(),
 });
+
 

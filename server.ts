@@ -10,27 +10,10 @@ import { db } from './src/db/index.ts';
 import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches } from './src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 
-type FirebaseConfig = typeof firebaseConfig;
-
-function getRuntimeFirebaseConfig(baseConfig: FirebaseConfig): FirebaseConfig {
-  return {
-    ...baseConfig,
-    apiKey: process.env.FIREBASE_API_KEY || baseConfig.apiKey,
-    projectId: process.env.FIREBASE_PROJECT_ID || baseConfig.projectId,
-    appId: process.env.FIREBASE_APP_ID || baseConfig.appId,
-    authDomain: process.env.FIREBASE_AUTH_DOMAIN || baseConfig.authDomain,
-    firestoreDatabaseId: process.env.FIREBASE_DATABASE_ID || baseConfig.firestoreDatabaseId,
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || baseConfig.storageBucket,
-    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || baseConfig.messagingSenderId,
-    measurementId: process.env.FIREBASE_MEASUREMENT_ID || baseConfig.measurementId,
-  };
-}
-
 // Initialize Firebase Admin with correct projectId
 if (!getAdminApps().length) {
-  const activeConfig = getRuntimeFirebaseConfig(firebaseConfig);
   initializeAdminApp({
-    projectId: activeConfig.projectId,
+    projectId: firebaseConfig.projectId,
   });
 }
 const adminAuth = getAdminAuth();
@@ -282,11 +265,11 @@ let cachedUnifiedClient: UnifiedFirestoreClient | null = null;
 let cachedConfigKey = '';
 
 function getFirestoreDb() {
-  let activeConfig = getRuntimeFirebaseConfig(firebaseConfig);
+  let activeConfig = firebaseConfig;
   try {
     const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(configPath)) {
-      activeConfig = getRuntimeFirebaseConfig(JSON.parse(fs.readFileSync(configPath, 'utf8')));
+      activeConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     }
   } catch (err) {
     console.error('Error reading dynamic firebase configurations:', err);
@@ -525,9 +508,9 @@ app.get('/api/firebase-config', (req, res) => {
     const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(configPath)) {
       const data = fs.readFileSync(configPath, 'utf8');
-      res.json(getRuntimeFirebaseConfig(JSON.parse(data)));
+      res.json(JSON.parse(data));
     } else {
-      res.json(getRuntimeFirebaseConfig(firebaseConfig));
+      res.status(404).json({ error: 'Config file not found' });
     }
   } catch (err: any) {
     console.error('Error reading firebase-applet-config.json:', err);
@@ -578,7 +561,7 @@ app.post('/api/firebase-config/restore', async (req, res) => {
 
 // API Endpoints: state loaders and updates
 
-// 1. Get entire state from Netlify Database
+// 1. Get entire state from PostgreSQL
 app.get('/api/state', async (req, res) => {
   try {
     await restoreDbIfEmpty();
@@ -613,7 +596,7 @@ app.get('/api/state', async (req, res) => {
     });
   } catch (error: any) {
     console.error('Failed to load SQL state:', error);
-    res.status(500).json({ error: 'Failed to retrieve state from Netlify Database.' });
+    res.status(500).json({ error: 'Failed to retrieve state from Cloud SQL.' });
   }
 });
 
@@ -680,10 +663,10 @@ app.post('/api/state/reset', async (req, res) => {
     }
 
     await backupToFirestore();
-    res.json({ status: 'ok', msg: 'Netlify Database synchronized and updated successfully!' });
+    res.json({ status: 'ok', msg: 'Cloud SQL database synchronized and updated successfully!' });
   } catch (error: any) {
     console.error('Failed to reset and seed SQL database:', error);
-    res.status(500).json({ error: 'Failed to reset and seed Netlify Database.' });
+    res.status(500).json({ error: 'Failed to reset and seed Cloud SQL.' });
   }
 });
 

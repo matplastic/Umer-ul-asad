@@ -569,7 +569,7 @@ export default function App() {
     localStorage.setItem('apex_monthly_targets', JSON.stringify(updatedMonthlyTargets));
     localStorage.setItem('apex_employees', JSON.stringify(updatedEmployees));
 
-    // Async auto-save to Netlify Database PostgreSQL database
+    // Async auto-save to Cloud SQL PostgreSQL database
     saveEntireStateToFirestore(
       updatedPools,
       updatedTeams,
@@ -1279,7 +1279,7 @@ export default function App() {
 
   // Complete database purge (start entirely from a fresh layout)
   const handlePurgeAllData = async () => {
-    if (window.confirm('🚨 CRITICAL ACTION!\nAre you absolutely sure you want to delete ALL active pools, older projects, floor labor teams, planned pools, monthly targets, employees, and manufacturing history records permanently?\n\nThis will instantly clear both your browser cache AND your Netlify Database database allowing you to start completely from scratch.')) {
+    if (window.confirm('🚨 CRITICAL ACTION!\nAre you absolutely sure you want to delete ALL active pools, older projects, floor labor teams, planned pools, monthly targets, employees, and manufacturing history records permanently?\n\nThis will instantly clear both your browser cache AND your Cloud SQL database allowing you to start completely from scratch.')) {
       setPools([]);
       setTeams([]);
       setLogs([]);
@@ -1308,10 +1308,10 @@ export default function App() {
         setFirebaseError(null);
         alert('Database cleared successfully! You now have a 100% clean worksheet canvas. Start by adding your own staff or releasing new projects.');
       } catch (err: any) {
-        console.error('Core purge Netlify Database sync failure:', err);
+        console.error('Core purge Cloud SQL sync failure:', err);
         setFirebaseStatus('error');
         setFirebaseError(err?.message || String(err));
-        alert('Data cleared locally, but Netlify Database sync failed. Please check your cloud connection.');
+        alert('Data cleared locally, but Cloud SQL sync failed. Please check your cloud connection.');
       }
     }
   };
@@ -1351,7 +1351,7 @@ export default function App() {
     try {
       await dbRestoreRecycleBin(id);
       
-      // Reload entire state from Netlify Database to populate all restored rows
+      // Reload entire state from Cloud SQL to populate all restored rows
       const cloudData = await getEntireStateFromFirestore();
       setPools(cloudData.pools);
       setPlannedPools(cloudData.plannedPools);
@@ -2135,13 +2135,13 @@ export default function App() {
               ROLEPLAY SIMULATOR MODE
             </span>
             
-            {/* Netlify Database/Firestore Sync Status Badge */}
+            {/* Cloud SQL/Firestore Sync Status Badge */}
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/60 border border-slate-700/80 font-mono text-[10px]">
               {firebaseStatus === 'linking' && (
                 <>
                   <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" />
                   <span className="text-amber-300">
-                    {((import.meta as any).env?.VITE_API_URL) ? 'Netlify Database Connecting...' : 'Firestore Connecting...'}
+                    {((import.meta as any).env?.VITE_API_URL) ? 'Cloud SQL Connecting...' : 'Firestore Connecting...'}
                   </span>
                 </>
               )}
@@ -2152,14 +2152,14 @@ export default function App() {
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
                   <span className="text-emerald-400 font-bold">
-                    {((import.meta as any).env?.VITE_API_URL) ? 'Netlify Database Synced' : 'Firestore Live Connection'}
+                    {((import.meta as any).env?.VITE_API_URL) ? 'Cloud SQL Synced' : 'Firestore Live Connection'}
                   </span>
                 </>
               )}
               {firebaseStatus === 'error' && (
                 <>
                   <WifiOff className="h-3 w-3 text-rose-400 shrink-0" />
-                  <span className="text-rose-400 font-bold" title={firebaseError || 'Netlify Database limited access mode'}>
+                  <span className="text-rose-400 font-bold" title={firebaseError || 'Cloud SQL limited access mode'}>
                     Local Mode (Backup Only)
                   </span>
                 </>
