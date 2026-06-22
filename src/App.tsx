@@ -29,6 +29,7 @@ import {
   dbRestoreRecycleBin,
   dbPurgePoolRelatedData,
   dbDeletePool,
+  dbDeletePlannedPool,
   dbSaveEmployeePunch,
   dbDeleteEmployeePunch,
   dbSaveEmployeePunchesBulk,
@@ -1688,8 +1689,7 @@ export default function App() {
     saveState(pools, teams, logs, inspectors, engineers, updated);
 
     // Call Delete API endpoint direct if it has database reference
-    const headers = { 'Content-Type': 'application/json' };
-    await fetch(`/api/planned-pools/${planId}`, { method: 'DELETE', headers }).catch(console.error);
+    await dbDeletePlannedPool(planId).catch(console.error);
 
     // Refresh recycle bin state
     const cloudData = await getEntireStateFromFirestore().catch(() => null);
@@ -2135,21 +2135,25 @@ export default function App() {
               ROLEPLAY SIMULATOR MODE
             </span>
             
-            {/* Cloud SQL Sync Status Badge */}
+            {/* Cloud SQL/Firestore Sync Status Badge */}
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/60 border border-slate-700/80 font-mono text-[10px]">
               {firebaseStatus === 'linking' && (
                 <>
                   <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" />
-                  <span className="text-amber-300">Cloud SQL Connecting...</span>
+                  <span className="text-amber-300">
+                    {((import.meta as any).env?.VITE_API_URL) ? 'Cloud SQL Connecting...' : 'Firestore Connecting...'}
+                  </span>
                 </>
               )}
               {firebaseStatus === 'connected' && (
                 <>
                   <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  <span className="text-indigo-400 font-bold">Cloud SQL Synced</span>
+                  <span className="text-emerald-400 font-bold">
+                    {((import.meta as any).env?.VITE_API_URL) ? 'Cloud SQL Synced' : 'Firestore Live Connection'}
+                  </span>
                 </>
               )}
               {firebaseStatus === 'error' && (

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction } from '../types';
 import { STAGES } from '../data/mockData';
-import { dbSyncBioCloudPunches } from '../lib/firebaseService';
+import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
@@ -227,7 +227,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [isPerformingBackupRestore, setIsPerformingBackupRestore] = useState<boolean>(false);
 
   React.useEffect(() => {
-    fetch('/api/firebase-config')
+    fetch(getApiUrl('/api/firebase-config'))
       .then(res => res.json())
       .then(data => {
         if (data && typeof data === 'object') {
@@ -250,7 +250,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     e.preventDefault();
     setIsSavingFirebaseConfig(true);
     try {
-      const response = await fetch('/api/firebase-config', {
+      const response = await fetch(getApiUrl('/api/firebase-config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(firebaseConfigState),
@@ -271,7 +271,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const handleManualBackupToFirestore = async () => {
     setIsPerformingBackupSync(true);
     try {
-      const response = await fetch('/api/firebase-config/backup', { method: 'POST' });
+      const response = await fetch(getApiUrl('/api/firebase-config/backup'), { method: 'POST' });
       const data = await response.json();
       if (response.ok) {
         alert(data.msg || "Manual state replication completed successfully!");
@@ -292,7 +292,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     }
     setIsPerformingBackupRestore(true);
     try {
-      const response = await fetch('/api/firebase-config/restore', { method: 'POST' });
+      const response = await fetch(getApiUrl('/api/firebase-config/restore'), { method: 'POST' });
       const data = await response.json();
       if (response.ok) {
         alert(data.msg || "Plant ledger complete disaster recovery state pull successful!");
@@ -309,8 +309,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   };
 
   React.useEffect(() => {
-    fetch('/api/pins')
-      .then(res => res.json())
+    dbGetPins()
       .then(data => {
         if (data && typeof data === 'object') {
           setDepartmentPins(prev => ({ ...prev, ...data }));
@@ -326,12 +325,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     }
     setIsUpdatingPins(true);
     try {
-      const response = await fetch('/api/pins', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role, pin }),
-      });
-      if (response.ok) {
+      const result = await dbUpdatePin(role, pin);
+      if (result && (result.success || !result.error)) {
         setDepartmentPins(prev => ({ ...prev, [role]: pin }));
         setEditingPinRole(null);
         alert(`Successfully assigned and locked new security PIN for ${role.replace('_', ' ').toUpperCase()}!`);

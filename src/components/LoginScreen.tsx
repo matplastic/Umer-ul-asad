@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ViewRole } from '../types';
 import { Factory, ShieldAlert, KeyRound, ChevronRight, Info, Eye, EyeOff } from 'lucide-react';
+import { dbGetPins } from '../lib/firebaseService';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: { role: ViewRole; displayName: string }) => void;
@@ -109,8 +110,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   });
 
   React.useEffect(() => {
-    fetch('/api/pins')
-      .then(res => res.json())
+    dbGetPins()
       .then(data => {
         if (data && typeof data === 'object') {
           setPins(prev => ({ ...prev, ...data }));
@@ -390,7 +390,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
       {/* Footer system status */}
       <footer className="max-w-6xl w-full mx-auto border-t border-slate-800 py-4 text-center text-[10px] text-slate-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <p>© 2026 MAT PLASTIC INDUSTRIES LLC • Secure Network Handshake OK • PostgreSQL Connection Live</p>
+        <p>© 2026 MAT PLASTIC INDUSTRIES LLC • Secure Network Handshake OK • {((import.meta as any).env?.VITE_API_URL) ? 'PostgreSQL Connection Live' : 'Enterprise Cloud Database Live'}</p>
         <p className="font-mono text-slate-600">CLIENT_SECURE_BYPASS_VERIFICATION_V2</p>
       </footer>
       
