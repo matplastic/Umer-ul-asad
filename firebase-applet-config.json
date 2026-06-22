@@ -1,10 +1,8 @@
 {
-  "projectId": "gen-lang-client-0853869688",
-  "appId": "1:136110097173:web:e73ce874a333a965e21f1c",
-  "apiKey": "REPLACE_WITH_VITE_FIREBASE_API_KEY_IN_NETLIFY_ENV",
-  "authDomain": "gen-lang-client-0853869688.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-768156f1-0d39-4893-8da1-0602a028a056",
-  "storageBucket": "gen-lang-client-0853869688.firebasestorage.app",
-  "messagingSenderId": "136110097173",
-  "measurementId": "G-WTTKV03W9Q"
+  "apiKey": "AIzaSyADtkZJvDdrtbebPJw7nZYERHy39irZj_c",
+  "authDomain": "materp-fad7f.firebaseapp.com",
+  "projectId": "materp-fad7f",
+  "storageBucket": "materp-fad7f.firebasestorage.app",
+  "messagingSenderId": "261208029337",
+  "appId": "1:261208029337:web:11125823e0226c77432008"
 }
