@@ -10,7 +10,7 @@ import { db } from './src/db/index.ts';
 import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches } from './src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 
-// Initialize Firebase Admin (Static JSON import as required)
+// Initialize Firebase Admin with correct projectId
 if (!getAdminApps().length) {
   initializeAdminApp({
     projectId: firebaseConfig.projectId,
@@ -60,6 +60,210 @@ app.use((req, res, next) => {
 // DURABLE CLOUD PERSISTENCE AND DISASTER RECOVERY VIA FIRESTORE
 // ----------------------------------------------------
 
+function parseFirestoreValue(value: any): any {
+  if (!value) return null;
+  if ('stringValue' in value) return value.stringValue;
+  if ('integerValue' in value) return parseInt(value.integerValue, 10);
+  if ('doubleValue' in value) return parseFloat(value.doubleValue);
+  if ('booleanValue' in value) return value.booleanValue;
+  if ('nullValue' in value) return null;
+  if ('mapValue' in value) {
+    return parseFirestoreDocument(value.mapValue);
+  }
+  if ('arrayValue' in value) {
+    const list = value.arrayValue.values || [];
+    return list.map((item: any) => parseFirestoreValue(item));
+  }
+  if ('timestampValue' in value) return value.timestampValue;
+  return value;
+}
+
+function parseFirestoreDocument(doc: any): any {
+  const result: any = {};
+  const fields = doc.fields || {};
+  for (const key of Object.keys(fields)) {
+    result[key] = parseFirestoreValue(fields[key]);
+  }
+  return result;
+}
+
+function encodeFirestoreValue(val: any): any {
+  if (val === null || val === undefined) {
+    return { nullValue: null };
+  }
+  if (typeof val === 'string') {
+    return { stringValue: val };
+  }
+  if (typeof val === 'number') {
+    if (Number.isInteger(val)) {
+      return { integerValue: String(val) };
+    }
+    return { doubleValue: val };
+  }
+  if (typeof val === 'boolean') {
+    return { booleanValue: val };
+  }
+  if (Array.isArray(val)) {
+    return {
+      arrayValue: {
+        values: val.map(item => encodeFirestoreValue(item))
+      }
+    };
+  }
+  if (typeof val === 'object') {
+    return {
+      mapValue: {
+        fields: encodeFirestoreFields(val)
+      }
+    };
+  }
+  return { stringValue: String(val) };
+}
+
+function encodeFirestoreFields(obj: any): any {
+  const fields: any = {};
+  for (const key of Object.keys(obj)) {
+    fields[key] = encodeFirestoreValue(obj[key]);
+  }
+  return fields;
+}
+
+class FirestoreREST {
+  private baseUri: string;
+  private apiKey: string;
+
+  constructor(projectId: string, databaseId: string, apiKey: string) {
+    const dbId = databaseId || '(default)';
+    this.baseUri = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents`;
+    this.apiKey = apiKey;
+  }
+
+  private getUrl(path: string): string {
+    return `${this.baseUri}/${path}?key=${this.apiKey}`;
+  }
+
+  async getDoc(path: string): Promise<{ exists: boolean; data: () => any } | null> {
+    const url = this.getUrl(path);
+    try {
+      const res = await fetch(url);
+      if (res.status === 404) {
+        return { exists: false, data: () => null };
+      }
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Firestore REST error: ${res.status} ${res.statusText} - ${errText}`);
+      }
+      const rawDoc = await res.json();
+      return {
+        exists: true,
+        data: () => parseFirestoreDocument(rawDoc)
+      };
+    } catch (e: any) {
+      console.warn(`Firestore REST getDoc failed for path ${path}:`, e.message);
+      return null;
+    }
+  }
+
+  async setDoc(path: string, data: any): Promise<boolean> {
+    const url = this.getUrl(path);
+    const payload = {
+      fields: encodeFirestoreFields(data)
+    };
+    try {
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Firestore REST error: ${res.status} ${res.statusText} - ${errText}`);
+      }
+      return true;
+    } catch (e: any) {
+      console.warn(`Firestore REST setDoc failed for path ${path}:`, e.message);
+      return false;
+    }
+  }
+}
+
+class UnifiedFirestoreClient {
+  private adminDb: any = null;
+  private restDb: FirestoreREST;
+
+  constructor(projectId: string, databaseId: string, apiKey: string) {
+    try {
+      this.adminDb = getAdminFirestore(databaseId || undefined);
+    } catch (e: any) {
+      console.warn('Could not instantiate Admin Firestore, fallback mode will be active:', e.message);
+    }
+    this.restDb = new FirestoreREST(projectId, databaseId, apiKey);
+  }
+
+  collection(colName: string) {
+    return {
+      doc: (docName: string) => {
+        const fullPath = `${colName}/${docName}`;
+
+        return {
+          get: async () => {
+            if (this.adminDb) {
+              try {
+                const doc = await this.adminDb.collection(colName).doc(docName).get();
+                return {
+                  exists: doc.exists,
+                  data: () => doc.data()
+                };
+              } catch (err: any) {
+                // Silently fallback to REST SDK as the environment might utilize API Key authentication instead of Admin credentials
+              }
+            }
+            const restResult = await this.restDb.getDoc(fullPath);
+            if (restResult) {
+              return restResult;
+            }
+            return { exists: false, data: () => null };
+          },
+
+          set: async (data: any, options?: { merge?: boolean }) => {
+            let adminSuccess = false;
+            if (this.adminDb) {
+              try {
+                await this.adminDb.collection(colName).doc(docName).set(data, options);
+                adminSuccess = true;
+              } catch (err: any) {
+                // Silently fallback to REST SDK as the environment might utilize API Key authentication instead of Admin credentials
+              }
+            }
+
+            try {
+              let finalData = data;
+              if (options?.merge) {
+                const existing = await this.restDb.getDoc(fullPath);
+                if (existing?.exists) {
+                  const existingData = existing.data() || {};
+                  finalData = { ...existingData, ...data };
+                }
+              }
+              const restSuccess = await this.restDb.setDoc(fullPath, finalData);
+              if (!adminSuccess && !restSuccess) {
+                throw new Error(`Both Admin SDK and REST SDK failed to set document ${fullPath}`);
+              }
+            } catch (err: any) {
+              if (!adminSuccess) {
+                throw err;
+              }
+            }
+          }
+        };
+      }
+    };
+  }
+}
+
+let cachedUnifiedClient: UnifiedFirestoreClient | null = null;
+let cachedConfigKey = '';
+
 function getFirestoreDb() {
   let activeConfig = firebaseConfig;
   try {
@@ -71,7 +275,7 @@ function getFirestoreDb() {
     console.error('Error reading dynamic firebase configurations:', err);
   }
 
-  // Ensure Admin App is initialized with the active projectId
+  // Ensure Admin App is initialized (with the dynamic credentials config)
   const apps = getAdminApps();
   if (!apps.length) {
     initializeAdminApp({
@@ -79,11 +283,15 @@ function getFirestoreDb() {
     });
   }
 
-  const databaseId = activeConfig.firestoreDatabaseId;
-  if (databaseId && databaseId !== '(default)') {
-    return getAdminFirestore(databaseId);
+  const databaseId = activeConfig.firestoreDatabaseId || '(default)';
+  const uniqueKey = `${activeConfig.projectId}:${databaseId}:${activeConfig.apiKey}`;
+
+  if (!cachedUnifiedClient || cachedConfigKey !== uniqueKey) {
+    cachedUnifiedClient = new UnifiedFirestoreClient(activeConfig.projectId, databaseId, activeConfig.apiKey);
+    cachedConfigKey = uniqueKey;
   }
-  return getAdminFirestore();
+
+  return cachedUnifiedClient;
 }
 
 async function backupToFirestore() {

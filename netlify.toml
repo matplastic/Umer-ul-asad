@@ -1,0 +1,10 @@
+# Netlify deployment configuration for MAT-ERP SYSTEM
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[[redirects]]
+  # Redirect all routes to index.html for React Single Page App (SPA) client-side routing
+  from = "/*"
+  to = "/index.html"
+  status = 200

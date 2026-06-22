@@ -1,6 +1,11 @@
 import { auth } from './googleDrive.ts';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from '../types';
 
+export function getApiUrl(path: string): string {
+  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  return `${base}${path}`;
+}
+
 // Helper to construct request headers with the Firebase Auth ID Token (required for security)
 async function getHeaders() {
   const headers: Record<string, string> = {
@@ -22,7 +27,7 @@ async function getHeaders() {
 export async function getEntireStateFromFirestore() {
   try {
     const headers = await getHeaders();
-    const response = await fetch('/api/state', {
+    const response = await fetch(getApiUrl('/api/state'), {
       headers,
     });
     if (!response.ok) {
