@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pool, PoolOrientation } from '../types';
+import { Pool, PoolOrientation, PlannedPool } from '../types';
 import { 
   PlusCircle, 
   Search, 
@@ -38,19 +38,26 @@ interface ProductionEngineerProps {
     operatorName: string
   ) => void;
   engineers?: { id: string; name: string; title: string }[];
+  plannedPools?: PlannedPool[];
+  onReleasePlannedPool?: (planId: string, operatorName: string) => string | null;
 }
 
 export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({ 
   pools, 
   onCreatePool, 
   onCreatePoolBatch,
-  engineers = []
+  engineers = [],
+  plannedPools = [],
+  onReleasePlannedPool
 }) => {
   // Navigation for Form Tab
   const [formMode, setFormMode] = useState<'single' | 'batch'>('single');
 
   // Selected engineer who is publishing
   const [selectedEngineer, setSelectedEngineer] = useState(engineers[0]?.name || 'Eng. Karim R.');
+
+  // Pre-planned import dropdown selection state
+  const [selectedPlanId, setSelectedPlanId] = useState('');
 
   // Single form states
   const [projectName, setProjectName] = useState('');
@@ -118,6 +125,23 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
     }
     if (!poolNo.trim()) {
       setErrorMsg('Pool Number/ID is required.');
+      return;
+    }
+
+    if (selectedPlanId && onReleasePlannedPool) {
+      const releaseResultId = onReleasePlannedPool(selectedPlanId, selectedEngineer);
+      if (releaseResultId) {
+        setSuccessMsg(`Pre-planned Pool ${poolNo.toUpperCase()} ("${projectName}") successfully launched onto Steel Fabrication stage!`);
+        setSelectedPlanId('');
+        setProjectName('');
+        setPoolNo('');
+        setNotes('');
+        setDimensions('12m x 5m x 1.4m');
+        setShape('Rectangular');
+        setCurrentPage(1);
+      } else {
+        setErrorMsg('Failed to release the selected pre-planned pool design.');
+      }
       return;
     }
 
@@ -293,6 +317,67 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
           {/* Mode 1: Single Submit */}
           {formMode === 'single' && (
             <form onSubmit={handleSingleSubmit} className="space-y-4">
+              
+              {/* Optional Planning Department Import */}
+              {plannedPools && plannedPools.length > 0 && (
+                <div className="bg-indigo-50/70 border border-indigo-100 p-3 rounded-xl text-xs space-y-1.5">
+                  <div className="flex items-center justify-between font-bold text-indigo-700 uppercase tracking-widest text-[9.5px]">
+                    <span>Import Pre-Planned Allocation:</span>
+                    {selectedPlanId && (
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setSelectedPlanId('');
+                          setProjectName('');
+                          setPoolNo('');
+                          setNotes('');
+                          setDimensions('12m x 5m x 1.4m');
+                          setShape('Rectangular');
+                        }} 
+                        className="text-red-650 hover:underline font-extrabold"
+                      >
+                        Reset / Enter Custom
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={selectedPlanId}
+                    onChange={(e) => {
+                      const planId = e.target.value;
+                      setSelectedPlanId(planId);
+                      if (!planId) {
+                        setProjectName('');
+                        setPoolNo('');
+                        setNotes('');
+                        setDimensions('12m x 5m x 1.4m');
+                        setShape('Rectangular');
+                      } else {
+                        const matched = plannedPools.find(ap => ap.id === planId);
+                        if (matched) {
+                          setProjectName(matched.projectName);
+                          setPoolNo(matched.poolNo);
+                          setOrientation(matched.orientation);
+                          setDimensions(matched.dimensions);
+                          setShape(matched.shape);
+                          setNotes(matched.notes || '');
+                        }
+                      }
+                    }}
+                    className="w-full bg-white border border-indigo-200 text-slate-800 font-bold px-2.5 py-1.5 rounded-lg focus:outline-none text-xs"
+                  >
+                    <option value="">-- Select Registered Number --</option>
+                    {plannedPools.filter(ap => ap.status === 'PLANNED').map((ap) => (
+                      <option key={ap.id} value={ap.id}>
+                        {ap.poolNo} — {ap.projectName} ({ap.orientation})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9.5px] text-indigo-455 text-indigo-500 leading-tight">
+                    {selectedPlanId ? 'Locked to planning department specifications.' : 'Or fill custom details in the coordinates fields below.'}
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wide mb-1.5">
                   Pool ID / Shell Reference <span className="text-rose-500">*</span>
@@ -302,10 +387,11 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                   <input
                     type="text"
                     required
+                    disabled={!!selectedPlanId}
                     placeholder="e.g. P-1050"
                     value={poolNo}
                     onChange={(e) => setPoolNo(e.target.value)}
-                    className="w-full pl-8 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono font-bold"
+                    className="w-full pl-8 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono font-bold disabled:bg-slate-100 disabled:text-slate-500"
                   />
                 </div>
               </div>
@@ -317,10 +403,11 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                 <input
                   type="text"
                   required
+                  disabled={!!selectedPlanId}
                   placeholder="e.g. Oasis Resort Villa Group"
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
-                  className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium text-slate-800"
+                  className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium text-slate-800 disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </div>
 
@@ -333,8 +420,9 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                     <Compass className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
                     <select
                       value={orientation}
+                      disabled={!!selectedPlanId}
                       onChange={(e) => setOrientation(e.target.value as PoolOrientation)}
-                      className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-bold"
+                      className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-bold disabled:bg-slate-100 disabled:text-slate-500"
                     >
                       <option value="Normal">Normal</option>
                       <option value="Mirror">Mirror</option>
@@ -351,10 +439,11 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                     <input
                       type="text"
                       required
+                      disabled={!!selectedPlanId}
                       placeholder="e.g. Curved Infinity"
                       value={shape}
                       onChange={(e) => setShape(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
+                      className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium disabled:bg-slate-100 disabled:text-slate-500"
                     />
                   </div>
                 </div>
@@ -369,6 +458,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                   <input
                     type="text"
                     required
+                    disabled={!!selectedPlanId}
                     placeholder="e.g. 12m x 5m x 1.4m"
                     value={dimensions}
                     onChange={(e) => setDimensions(e.target.value)}

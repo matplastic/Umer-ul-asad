@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { Pool, StageId } from '../types';
 import { STAGES } from '../data/mockData';
-import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon } from 'lucide-react';
 
 interface QualityInspectorProps {
   pools: Pool[];
   allTeams: any[];
-  onApproveStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string) => void;
-  onRejectStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string) => void;
+  onApproveStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string, picture?: string) => void;
+  onRejectStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string, picture?: string) => void;
   inspectors?: { id: string; name: string; title: string }[];
   onDeletePool?: (poolId: string, operatorName: string) => void;
+  onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
 }
 
 export const QualityInspector: React.FC<QualityInspectorProps> = ({
@@ -19,13 +20,16 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   onRejectStage,
   inspectors = [],
   onDeletePool,
+  onSkipOrCarryOnSite,
 }) => {
   const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || 'Insp. Sarah');
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
+  const [uploadedPicture, setUploadedPicture] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [filterMode, setFilterMode] = useState<'pending' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
+  const [reviewStageId, setReviewStageId] = useState<StageId | null>(null);
 
   // Sync selectedInspector if list changes on the fly
   React.useEffect(() => {
@@ -33,6 +37,10 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       setSelectedInspector(inspectors[0].name);
     }
   }, [inspectors, selectedInspector]);
+
+  React.useEffect(() => {
+    setReviewStageId(null);
+  }, [activePoolId]);
 
   // Find all pools that have at least one stage waiting for QA check
   const pendingPools = pools.filter((p) => {
@@ -48,9 +56,10 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   });
 
   const activeReviewPool = pools.find((p) => p.id === activePoolId);
-  const activeReviewStage = activeReviewPool && activeReviewPool.currentStageIndex < STAGES.length
-    ? STAGES[activeReviewPool.currentStageIndex]
-    : null;
+  const activeReviewStageId = reviewStageId || (activeReviewPool && activeReviewPool.currentStageIndex < STAGES.length
+    ? STAGES[activeReviewPool.currentStageIndex].id
+    : null);
+  const activeReviewStage = STAGES.find(s => s.id === activeReviewStageId) || null;
   const activeReviewHistory = activeReviewPool && activeReviewStage ? activeReviewPool.stageHistory[activeReviewStage.id] : null;
   const activeReviewTeam = activeReviewHistory && allTeams.find(t => t.id === activeReviewHistory.teamId);
 
@@ -73,8 +82,9 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       return;
     }
     setErrorMsg('');
-    onApproveStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim());
+    onApproveStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim(), uploadedPicture || undefined);
     setReviewerNotes('');
+    setUploadedPicture(null);
     setActivePoolId(null);
   };
 
@@ -85,8 +95,9 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       return;
     }
     setErrorMsg('');
-    onRejectStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim());
+    onRejectStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim(), uploadedPicture || undefined);
     setReviewerNotes('');
+    setUploadedPicture(null);
     setActivePoolId(null);
   };
 
@@ -294,6 +305,94 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                       </strong>
                     </div>
                   </div>
+
+                  {/* Visual Stage Selector / Pipeline Tracker for Inspector */}
+                  <div className="mt-4 pt-3 border-t border-slate-100 text-left">
+                    <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block mb-2 font-mono">
+                      Workstation Stage Routing (Click to Inspect / Sign-Off)
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 font-sans">
+                      {STAGES.map((s, sIdx) => {
+                        const histVal = activeReviewPool.stageHistory[s.id];
+                        const sStatus = histVal ? histVal.status : 'NOT_STARTED';
+                        const isSelected = reviewStageId === s.id;
+                        
+                        let badgeBg = 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100';
+                        if (sStatus === 'APPROVED') {
+                          badgeBg = isSelected 
+                            ? 'bg-emerald-600 border-emerald-600 text-white font-bold' 
+                            : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100';
+                        } else if (sStatus === 'PENDING_INSPECTION') {
+                          badgeBg = isSelected 
+                            ? 'bg-amber-500 border-amber-500 text-white font-bold animate-pulse' 
+                            : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 font-bold';
+                        } else if (sStatus === 'SKIPPED') {
+                          badgeBg = isSelected 
+                            ? 'bg-red-500 border-red-500 text-white font-bold' 
+                            : 'bg-red-55 border-red-200 text-red-700 hover:bg-red-100 font-bold';
+                        } else if (sStatus === 'CARRIED_ON_SITE') {
+                          badgeBg = isSelected 
+                            ? 'bg-indigo-600 border-indigo-650 text-white font-bold' 
+                            : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100';
+                        } else if (sStatus === 'IN_PROGRESS') {
+                          badgeBg = isSelected 
+                            ? 'bg-blue-600 border-blue-650 text-white font-bold' 
+                            : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100';
+                        } else if (isSelected) {
+                          badgeBg = 'bg-slate-800 border-slate-800 text-white font-bold';
+                        }
+
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setReviewStageId(s.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[10.5px] border font-medium flex items-center gap-1 cursor-pointer transition-all ${badgeBg}`}
+                          >
+                            <span className="opacity-75">{sIdx + 1}.</span>
+                            <span>{s.name}</span>
+                            {sStatus === 'APPROVED' && <span className="text-[9px]">✓</span>}
+                            {sStatus === 'PENDING_INSPECTION' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />}
+                            {sStatus === 'SKIPPED' && <span className="text-[9px] font-black">⚠</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {activeReviewStage && onSkipOrCarryOnSite && (
+                    <div className="mt-4 p-4 bg-indigo-50/70 border border-indigo-150 rounded-xl space-y-2 text-slate-800 font-sans text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-indigo-800">Off-Sequence Delivery Alternatives</span>
+                        <span className="text-[9px] font-bold text-indigo-500 bg-white border border-indigo-100 px-1.5 py-0.5 rounded">Actionable Zone</span>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-tight font-medium">
+                        For these stages, we occasionally skip them or perform the carry on-site during ship dispatch. Select an option to record the status and unlock the next sequence:
+                      </p>
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSkipOrCarryOnSite(activeReviewPool.id, activeReviewStage.id, 'SKIPPED', selectedInspector);
+                            setActivePoolId(null);
+                          }}
+                          className="py-2 bg-white hover:bg-slate-50 text-slate-700 font-black text-xs rounded-lg border border-slate-200 text-center cursor-pointer transition-colors shadow-xs"
+                        >
+                          Skip For Now
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSkipOrCarryOnSite(activeReviewPool.id, activeReviewStage.id, 'CARRIED_ON_SITE', selectedInspector);
+                            setActivePoolId(null);
+                          }}
+                          className="py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-lg text-center cursor-pointer transition-colors shadow-sm"
+                        >
+                          Will Carry on Site
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {isPendingInspection ? (
@@ -332,6 +431,55 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                         onChange={(e) => setReviewerNotes(e.target.value)}
                         className="w-full text-slate-800 border p-3 border-slate-200 rounded-xl text-xs min-h-[100px] focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium bg-slate-50 focus:bg-white"
                       />
+                    </div>
+
+                    {/* Picture Upload Zone */}
+                    <div className="space-y-2.5 pt-1">
+                      <label className="block text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1">
+                        <Camera className="h-4 w-4 text-indigo-500" />
+                        Quality Inspection Evidence Photo (Optional)
+                      </label>
+                      
+                      {!uploadedPicture ? (
+                        <div className="border border-dashed border-slate-200 hover:border-indigo-400 bg-slate-50/50 rounded-xl p-3.5 transition-all text-center relative hover:bg-slate-50">
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setUploadedPicture(reader.result as string);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                          />
+                          <div className="flex flex-col items-center justify-center space-y-1.5">
+                            <UploadCloud className="h-6 w-6 text-slate-400" />
+                            <p className="text-xs font-bold text-slate-700">Click or drag to select build photo</p>
+                            <p className="text-[10px] text-slate-400">Device camera or image files (up to 10MB)</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center p-2 max-h-[180px]">
+                          <img 
+                            src={uploadedPicture} 
+                            alt="Quality Evidence Preview" 
+                            className="max-h-[160px] object-contain rounded-lg shadow-md"
+                            referrerPolicy="no-referrer"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setUploadedPicture(null)}
+                            className="absolute top-2 right-2 bg-slate-950/80 hover:bg-rose-600 text-white rounded-full p-1 border border-white/20 hover:scale-105 transition-all cursor-pointer"
+                          >
+                            <XCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {errorMsg && (
@@ -376,28 +524,21 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                 )}
               </div>
 
-              {/* Secure Deletion / Scrap Zone for Quality Engineer */}
-              <div className="border-t border-rose-100 bg-rose-50/20 p-4 rounded-xl mt-6 font-sans">
+              {/* Secured Management Deletion Notice */}
+              <div className="border-t border-slate-100 bg-slate-50 p-4 rounded-xl mt-6 font-sans">
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
                   <div className="text-left flex-1">
-                    <p className="text-xs font-extrabold text-rose-800 flex items-center gap-1.5 uppercase tracking-wider">
-                      <Trash2 className="h-4 w-4 text-rose-500" />
-                      Quality Defect Scrap Zone
+                    <p className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5 uppercase tracking-wider">
+                      <ShieldAlert className="h-4 w-4 text-amber-500" />
+                      Defect Scrap & Purge Records
                     </p>
-                    <p className="text-[10px] text-slate-450 mt-1 max-w-md font-medium text-slate-400">
-                      Scrap this pool entirely and purge all records from the shop floor list. Any assigned workshop team will be released. This action is final.
+                    <p className="text-[10px] text-slate-500 mt-1 max-w-md font-medium">
+                      Scrapping pool cards or purging manufacturing records is restricted to authorization levels held in the <strong>Management Portal</strong>.
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      onDeletePool?.(activeReviewPool.id, selectedInspector);
-                      setActivePoolId(null);
-                    }}
-                    className="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs rounded-xl cursor-pointer transition-colors flex items-center justify-center gap-1.5 shadow-sm uppercase tracking-wider"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete & Scrap
-                  </button>
+                  <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-500 px-2.5 py-1 rounded border border-slate-200">
+                    🔒 Restricted to Management
+                  </span>
                 </div>
               </div>
 

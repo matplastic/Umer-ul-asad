@@ -1,5 +1,13 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInWithPopup, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  User 
+} from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -11,8 +19,8 @@ const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/drive');
 provider.addScope('https://www.googleapis.com/auth/drive.file');
 
-// In-memory token storage (no localStorage cache for security)
-let cachedAccessToken: string | null = null;
+// Token storage with localStorage cache to keep Drive connection active upon reload
+let cachedAccessToken: string | null = localStorage.getItem('apex_gdrive_token');
 let isSigningIn = false;
 
 // Initialize auth listener
@@ -45,12 +53,38 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       throw new Error('Failed to get access token from Google Auth');
     }
     cachedAccessToken = credential.accessToken;
+    localStorage.setItem('apex_gdrive_token', cachedAccessToken);
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Google Sign-in error:', error);
     throw error;
   } finally {
     isSigningIn = false;
+  }
+};
+
+// Alternative Sign-In with Redirect (very useful in iframes if popups are blocked/nested)
+export const googleSignInRedirect = async (): Promise<void> => {
+  isSigningIn = true;
+  await signInWithRedirect(auth, provider);
+};
+
+// Check for redirection result
+export const checkRedirectResult = async (): Promise<{ user: User; accessToken: string } | null> => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result) {
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+        localStorage.setItem('apex_gdrive_token', cachedAccessToken);
+        return { user: result.user, accessToken: cachedAccessToken };
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Google checkRedirectResult error:', error);
+    return null;
   }
 };
 
@@ -63,6 +97,7 @@ export const getAccessToken = async (): Promise<string | null> => {
 export const googleSignOut = async () => {
   await auth.signOut();
   cachedAccessToken = null;
+  localStorage.removeItem('apex_gdrive_token');
 };
 
 // Helper to find or create parent folder

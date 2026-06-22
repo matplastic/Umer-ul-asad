@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "pool": {
+      "title": "Pool",
+      "description": "Manufacturing pool shell cards and their stage histories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the pool shell" },
+        "poolNumber": { "type": "string", "description": "Display pool serial number" },
+        "model": { "type": "string", "description": "Pool design model name" },
+        "color": { "type": "string", "description": "Gelcoat shell color pigment" },
+        "stage": { "type": "string", "description": "Current manufacturing workflow stage" },
+        "status": { "type": "string", "description": "Operational health status of the pool card" },
+        "createdAt": { "type": "string", "description": "Timestamp when this pool was registered" }
+      },
+      "required": ["id", "poolNumber", "model", "color", "stage", "status"]
+    },
+    "team": {
+      "title": "Work Team",
+      "description": "Floor workteams assigned to build tasks",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the team" },
+        "name": { "type": "string", "description": "Name or designation of the team" },
+        "section": { "type": "string", "description": "Production sector this team operates under" }
+      },
+      "required": ["id", "name", "section"]
+    },
+    "activityLog": {
+      "title": "Activity Log",
+      "description": "Traceability ledgers of all build events, inspections, and engineer sign-offs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the log event" },
+        "poolId": { "type": "string", "description": "Associated pool shell ID" },
+        "action": { "type": "string", "description": "Title of the action or step completed" },
+        "operator": { "type": "string", "description": "Person or team role executing the event" },
+        "timestamp": { "type": "string", "description": "ISO timestamp of completion" },
+        "status": { "type": "string", "description": "Sign-off status outcome" }
+      },
+      "required": ["id", "poolId", "action", "operator", "timestamp", "status"]
+    }
+  },
+  "firestore": {
+    "pools": {
+      "schema": "pool",
+      "description": "The master collection storing active pool shell build states"
+    },
+    "teams": {
+      "schema": "team",
+      "description": "Floor workteams tracking"
+    },
+    "logs": {
+      "schema": "activityLog",
+      "description": "Persistent factory floor log ledgers"
+    },
+    "inspectors": {
+      "schema": { "$ref": "#/entities/team" },
+      "description": "Quality assurance inspectors list"
+    },
+    "engineers": {
+      "schema": { "$ref": "#/entities/team" },
+      "description": "Process and production release engineers list"
+    }
+  }
+}

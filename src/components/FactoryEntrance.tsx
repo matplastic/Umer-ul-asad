@@ -39,6 +39,10 @@ export const FactoryEntrance: React.FC<FactoryEntranceProps> = ({ pools }) => {
     switch (hist.status) {
       case 'APPROVED':
         return 'bg-emerald-500 shadow-sm shadow-emerald-500/50';
+      case 'SKIPPED':
+        return 'bg-amber-550/80 shadow-sm shadow-amber-500/30 border border-amber-300';
+      case 'CARRIED_ON_SITE':
+        return 'bg-purple-500 shadow-sm shadow-purple-500/30 border border-purple-300';
       case 'IN_PROGRESS':
         return 'bg-blue-500 animate-pulse shadow-sm shadow-blue-500/50';
       case 'PENDING_INSPECTION':

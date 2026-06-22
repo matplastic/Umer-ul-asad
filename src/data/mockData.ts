@@ -1,12 +1,17 @@
-import { StageDefinition, Pool, Team, ActivityLog, StageId, StageHistory } from '../types';
+import { StageDefinition, Pool, Team, ActivityLog, StageId, StageHistory, PlannedPool } from '../types';
 
 export const STAGES: StageDefinition[] = [
   { id: 'steel_fabrication', name: 'Steel Fabrication', defaultTeamsCount: 5, color: '#3b82f6' }, // Blue
   { id: 'steel_primer', name: 'Steel Primer', defaultTeamsCount: 3, color: '#f59e0b' }, // Amber
   { id: 'plumbing', name: 'Plumbing', defaultTeamsCount: 7, color: '#06b6d4' }, // Cyan
   { id: 'cladding', name: 'Cladding', defaultTeamsCount: 4, color: '#8b5cf6' }, // Purple
+  { id: 'skimmer_fitting', name: 'Skimmer Fitting', defaultTeamsCount: 4, color: '#f97316' }, // Orange
   { id: 'lamination', name: 'Lamination', defaultTeamsCount: 5, color: '#ec4899' }, // Pink
+  { id: 'mechanical_fitting', name: 'Mechanical Fitting', defaultTeamsCount: 4, color: '#f43f5e' }, // Rose/Red
+  { id: 'skimmer_test', name: 'Skimmer Test', defaultTeamsCount: 3, color: '#f97316' }, // Orange
+  { id: 'door_cutting', name: 'Door Cutting', defaultTeamsCount: 3, color: '#84cc16' }, // Lime
   { id: 'mosaic', name: 'Mosaic', defaultTeamsCount: 6, color: '#10b981' }, // Emerald
+  { id: 'grouting', name: 'Grouting', defaultTeamsCount: 4, color: '#14b8a6' }, // Teal
   { id: 'acrylic', name: 'Acrylic', defaultTeamsCount: 3, color: '#6366f1' }, // Indigo
 ];
 
@@ -34,8 +39,13 @@ export const createEmptyHistory = (): { [key in StageId]: StageHistory } => {
     steel_primer: { stageId: 'steel_primer', status: 'NOT_STARTED', rejectionCount: 0 },
     plumbing: { stageId: 'plumbing', status: 'NOT_STARTED', rejectionCount: 0 },
     cladding: { stageId: 'cladding', status: 'NOT_STARTED', rejectionCount: 0 },
+    skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
     lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
+    mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
+    skimmer_test: { stageId: 'skimmer_test', status: 'NOT_STARTED', rejectionCount: 0 },
+    door_cutting: { stageId: 'door_cutting', status: 'NOT_STARTED', rejectionCount: 0 },
     mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
+    grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
     acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
   };
 };
@@ -50,7 +60,7 @@ export const getInitialData = () => {
   const defaultTeams = generateDefaultTeams();
   
   // Set up mock pools with realistic state
-  const mockPools: Pool[] = [
+  const mockPools: any[] = [
     {
       id: 'pool_1',
       projectName: 'Oasis Resort Main Pool',
@@ -106,8 +116,11 @@ export const getInitialData = () => {
           endTime: null,
           rejectionCount: 0,
         },
+        skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
+        mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
+        grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
         acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
       }
     },
@@ -133,8 +146,11 @@ export const getInitialData = () => {
         steel_primer: { stageId: 'steel_primer', status: 'NOT_STARTED', rejectionCount: 0 },
         plumbing: { stageId: 'plumbing', status: 'NOT_STARTED', rejectionCount: 0 },
         cladding: { stageId: 'cladding', status: 'NOT_STARTED', rejectionCount: 0 },
+        skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
+        mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
+        grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
         acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
       }
     },
@@ -183,8 +199,11 @@ export const getInitialData = () => {
           rejectionCount: 0,
         },
         cladding: { stageId: 'cladding', status: 'NOT_STARTED', rejectionCount: 0 },
+        skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
+        mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
+        grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
         acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
       }
     },
@@ -197,7 +216,7 @@ export const getInitialData = () => {
       shape: 'Bespoke Raised Plunge',
       notes: 'Double transparent side windows. Requires premium structural acrylic installation.',
       createdAt: dateMinusHours(120),
-      currentStageIndex: 7, // Completed!
+      currentStageIndex: 9, // Completed!
       stageHistory: {
         steel_fabrication: {
           stageId: 'steel_fabrication',
@@ -247,6 +266,18 @@ export const getInitialData = () => {
           inspectionTime: dateMinusHours(83),
           rejectionCount: 0,
         },
+        skimmer_fitting: {
+          stageId: 'skimmer_fitting',
+          status: 'APPROVED',
+          teamId: 'skimmer_fitting_t1',
+          startTime: dateMinusHours(84),
+          endTime: dateMinusHours(83),
+          durationMinutes: 60,
+          inspectorId: 'Insp. Mike',
+          inspectorNotes: 'Skimmers fitted perfectly.',
+          inspectionTime: dateMinusHours(83),
+          rejectionCount: 0,
+        },
         lamination: {
           stageId: 'lamination',
           status: 'APPROVED',
@@ -256,6 +287,18 @@ export const getInitialData = () => {
           durationMinutes: 780,
           inspectorId: 'Insp. David',
           inspectorNotes: 'Fiberglass coating thickness matches and sealed correct.',
+          inspectionTime: dateMinusHours(69),
+          rejectionCount: 0,
+        },
+        mechanical_fitting: {
+          stageId: 'mechanical_fitting',
+          status: 'APPROVED',
+          teamId: 'mechanical_fitting_t1',
+          startTime: dateMinusHours(70),
+          endTime: dateMinusHours(69),
+          durationMinutes: 60,
+          inspectorId: 'Insp. David',
+          inspectorNotes: 'Hydraulic and circulation equipment fitted perfectly inside mechanical bay.',
           inspectionTime: dateMinusHours(69),
           rejectionCount: 0,
         },
@@ -269,6 +312,18 @@ export const getInitialData = () => {
           inspectorId: 'Insp. David',
           inspectorNotes: 'Italian glass mosaic tiling installed beautifully. Grouting flawless.',
           inspectionTime: dateMinusHours(44),
+          rejectionCount: 0,
+        },
+        grouting: {
+          stageId: 'grouting',
+          status: 'APPROVED',
+          teamId: 'grouting_t1',
+          startTime: dateMinusHours(44),
+          endTime: dateMinusHours(35),
+          durationMinutes: 540,
+          inspectorId: 'Insp. David',
+          inspectorNotes: 'Flawless grouting finish on tiles.',
+          inspectionTime: dateMinusHours(34),
           rejectionCount: 0,
         },
         acrylic: {
@@ -323,8 +378,11 @@ export const getInitialData = () => {
         },
         plumbing: { stageId: 'plumbing', status: 'NOT_STARTED', rejectionCount: 0 },
         cladding: { stageId: 'cladding', status: 'NOT_STARTED', rejectionCount: 0 },
+        skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
+        mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
+        grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
         acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
       }
     }
@@ -332,7 +390,7 @@ export const getInitialData = () => {
 
   // Map initially busy teams
   mockPools.forEach(pool => {
-    if (pool.currentStageIndex < 7) {
+    if (pool.currentStageIndex < STAGES.length) {
       const activeStageId = STAGES[pool.currentStageIndex].id;
       const stageHist = pool.stageHistory[activeStageId];
       if (stageHist && (stageHist.status === 'IN_PROGRESS' || stageHist.status === 'PENDING_INSPECTION' || stageHist.status === 'REJECTED')) {
@@ -420,5 +478,80 @@ export const getInitialData = () => {
     }
   ];
 
-  return { pools: mockPools, teams: defaultTeams, logs: mockLogs };
+  const initialPlannedPools: PlannedPool[] = [
+    {
+      id: 'plan_1',
+      projectName: 'Villa Sapphire Infinity',
+      poolNo: 'PL-2091',
+      orientation: 'Mirror',
+      dimensions: '14m x 6m',
+      shape: 'Classic Rectangle',
+      status: 'PLANNED',
+      createdAt: dateMinusHours(72)
+    },
+    {
+      id: 'plan_2',
+      projectName: 'Lagoon Leisure Lap Pool',
+      poolNo: 'PL-3512',
+      orientation: 'Normal',
+      dimensions: '16m x 4m',
+      shape: 'Linear Lap Pool',
+      status: 'RELEASED',
+      releasedPoolId: 'pool_3',
+      createdAt: dateMinusHours(24)
+    },
+    {
+      id: 'plan_3',
+      projectName: 'Oasis Resort Main Pool',
+      poolNo: 'PL-4041',
+      orientation: 'Normal',
+      dimensions: '30m x 15m',
+      shape: 'Lagoon Lounge',
+      status: 'RELEASED',
+      releasedPoolId: 'pool_1',
+      createdAt: dateMinusHours(48)
+    },
+    {
+      id: 'plan_4',
+      projectName: 'Oceanic Horizon Estates',
+      poolNo: 'PL-8812',
+      orientation: 'Mirror',
+      dimensions: '12m x 5m',
+      shape: 'Infinity Curve',
+      status: 'PLANNED',
+      createdAt: dateMinusHours(12)
+    },
+    {
+      id: 'plan_5',
+      projectName: 'Oceanic Horizon Estates',
+      poolNo: 'PL-8813',
+      orientation: 'Normal',
+      dimensions: '10m x 4.5m',
+      shape: 'Classic Rectangle',
+      status: 'PLANNED',
+      createdAt: dateMinusHours(10)
+    },
+    {
+      id: 'plan_6',
+      projectName: 'Villa Jewel High-Rise',
+      poolNo: 'PL-9214',
+      orientation: 'Normal',
+      dimensions: '8m x 3.5m',
+      shape: 'Bespoke Plunge',
+      status: 'PLANNED',
+      createdAt: dateMinusHours(6)
+    }
+  ];
+
+  const fixedPools: Pool[] = mockPools.map(pool => {
+    const stageHistory = { ...pool.stageHistory } as any;
+    STAGES.forEach(s => {
+      if (!stageHistory[s.id]) {
+        stageHistory[s.id] = { stageId: s.id, status: 'NOT_STARTED', rejectionCount: 0 };
+      }
+    });
+    return { ...pool, stageHistory } as Pool;
+  });
+
+  return { pools: fixedPools, teams: defaultTeams, logs: mockLogs, plannedPools: initialPlannedPools };
 };

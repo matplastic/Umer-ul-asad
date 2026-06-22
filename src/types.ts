@@ -5,8 +5,13 @@ export type StageId =
   | 'steel_primer' 
   | 'plumbing' 
   | 'cladding' 
-  | 'lamination' 
+  | 'skimmer_fitting'
+  | 'lamination'
+  | 'mechanical_fitting'
+  | 'skimmer_test'
+  | 'door_cutting'
   | 'mosaic' 
+  | 'grouting'
   | 'acrylic';
 
 export interface StageDefinition {
@@ -21,7 +26,9 @@ export type StageStatus =
   | 'IN_PROGRESS' 
   | 'PENDING_INSPECTION' 
   | 'APPROVED' 
-  | 'REJECTED';
+  | 'REJECTED'
+  | 'SKIPPED'
+  | 'CARRIED_ON_SITE';
 
 export interface StageHistory {
   stageId: StageId;
@@ -34,6 +41,7 @@ export interface StageHistory {
   inspectorNotes?: string;
   inspectionTime?: string;
   rejectionCount: number;
+  inspectorPicture?: string;
 }
 
 export interface Pool {
@@ -43,11 +51,30 @@ export interface Pool {
   orientation: PoolOrientation;
   dimensions: string; // e.g. "12m x 5m"
   shape: string; // e.g. "Rectangular"
+  poolType?: string; // e.g. "Type 3" or "Type 1"
+  drawingUrl?: string; // B64 drawing or image reference
   notes?: string;
   createdAt: string;
   completedAt?: string | null;
-  currentStageIndex: number; // 0 to 6. 7 means fully completed.
+  currentStageIndex: number; // 0 to 7. 8 means fully completed.
   stageHistory: { [key in StageId]: StageHistory };
+  isDelivered?: boolean;
+  deliveredAt?: string | null;
+}
+
+export interface PlannedPool {
+  id: string;
+  projectName: string;
+  poolNo: string;
+  orientation: PoolOrientation;
+  dimensions: string;
+  shape: string;
+  poolType?: string;
+  drawingUrl?: string;
+  status: 'PLANNED' | 'RELEASED' | 'COMPLETED';
+  releasedPoolId?: string | null;
+  notes?: string;
+  createdAt: string;
 }
 
 export interface Team {
@@ -69,12 +96,87 @@ export interface ActivityLog {
   teamName?: string;
   notes?: string;
   operatorName: string;
+  inspectorPicture?: string;
 }
 
 export type ViewRole = 
+  | 'planning_department'
   | 'production_engineer'
   | 'stage_worker'
   | 'quality_inspector'
   | 'factory_entrance'
   | 'management'
-  | 'section_dashboard';
+  | 'section_dashboard'
+  | 'trolley_prod';
+
+export interface ProjectSummary {
+  id: string;
+  projectName: string;
+  orientation: string;
+  poolType: string;
+  totalPools: number;
+  deliveredPools: number;
+  producedPools: number;
+  remainingPools: number;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface MonthlyTarget {
+  id: string; // "YYYY-MM"
+  monthName: string;
+  mainTarget: number;
+  steelFabricationTarget: number;
+  steelPrimerTarget: number;
+  plumbingTarget: number;
+  claddingTarget: number;
+  skimmerFittingTarget: number;
+  laminationTarget: number;
+  mechanicalFittingTarget: number;
+  skimmerTestTarget: number;
+  doorCuttingTarget: number;
+  mosaicTarget: number;
+  groutingTarget: number;
+  acrylicTarget: number;
+  targetOee?: number | null;
+  notes?: string | null;
+}
+
+export interface TrolleyProduction {
+  id: string;
+  date: string;
+  teamName: string;
+  quantityProduced: number;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface Employee {
+  id: string;
+  name: string;
+  department: string;
+  role?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface EmployeePunch {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  punchType: 'IN' | 'OUT';
+  timestamp: string;
+  machineId: string;
+  date: string;
+}
+
+export interface RecycleBinItem {
+  id: string;
+  dataType: string; // 'all_pools_data' | 'trolley' | 'pool' | 'planned_pool' | 'project_summary'
+  deletedAt: string; // ISO string of when it was deleted
+  payload: any;
+}
+
+

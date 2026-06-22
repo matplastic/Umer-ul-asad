@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Pool, StageId, Team, StageDefinition } from '../types';
 import { STAGES } from '../data/mockData';
-import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2 } from 'lucide-react';
+import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 
 interface StageDashboardProps {
@@ -14,6 +14,7 @@ interface StageDashboardProps {
   onFinishStage: (poolId: string, stageId: StageId) => void;
   googleUser: any;
   onGoogleSignIn: () => void;
+  onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
 }
 
 export const StageDashboard: React.FC<StageDashboardProps> = ({
@@ -26,8 +27,10 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   onFinishStage,
   googleUser,
   onGoogleSignIn,
+  onSkipOrCarryOnSite,
 }) => {
   const [printPool, setPrintPool] = useState<Pool | null>(null);
+  const [viewingDrawingPool, setViewingDrawingPool] = useState<Pool | null>(null);
   const [driveUploading, setDriveUploading] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [driveError, setDriveError] = useState('');
 
@@ -102,25 +105,34 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   const stageTeams = teams.filter((t) => t.stageId === stage.id);
   const activeTeam = stageTeams.find((t) => t.id === selectedTeamId);
 
-  // Pools currently waiting to be worked on or worked on in this stage
-  const currentStagePools = pools.filter((p) => p.currentStageIndex === STAGES.findIndex((s) => s.id === stage.id));
+  // Pools currently waiting to be worked on or worked on in this stage (including skipped rework)
+  const stageIdx = STAGES.findIndex((s) => s.id === stage.id);
+  const currentStagePools = pools.filter((p) => {
+    const isCurrentStage = p.currentStageIndex === stageIdx;
+    const isSkippedRework = p.currentStageIndex > stageIdx && p.stageHistory[stage.id]?.status === 'SKIPPED';
+    return isCurrentStage || isSkippedRework;
+  });
 
-  // Available pools: in this stage index, and having status NOT_STARTED or REJECTED, and NO teamId yet
+  // Available pools: in this stage index or skipped, having status NOT_STARTED, REJECTED, or SKIPPED, and NO teamId yet
   const availablePools = currentStagePools.filter(
     (p) => {
-      const hist = p.stageHistory[stage.id];
-      return (hist.status === 'NOT_STARTED' || hist.status === 'REJECTED') && !hist.teamId;
+      const hist = p.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
+      return (hist.status === 'NOT_STARTED' || hist.status === 'REJECTED' || hist.status === 'SKIPPED') && !hist.teamId;
     }
   );
 
   // Pool claimed by the CURRENT active team (if any selected)
   const myClaimedPool = activeTeam && activeTeam.activePoolId 
-    ? pools.find((p) => p.id === activeTeam.activePoolId && p.currentStageIndex === STAGES.findIndex(s => s.id === stage.id))
+    ? pools.find((p) => p.id === activeTeam.activePoolId)
+    : null;
+
+  const myClaimedPoolHist = myClaimedPool
+    ? (myClaimedPool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 })
     : null;
 
   // Pools in this stage currently being worked on by other teams (or this team, but we'll show all occupied)
   const inProgressPools = currentStagePools.filter((p) => {
-    const hist = p.stageHistory[stage.id];
+    const hist = p.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
     return hist.status === 'IN_PROGRESS' || hist.status === 'PENDING_INSPECTION' || (hist.teamId && hist.status === 'REJECTED');
   });
 
@@ -140,6 +152,10 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
         return <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-200 animate-pulse">Awaiting QA</span>;
       case 'REJECTED':
         return <span className="bg-rose-105 bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded border border-rose-250 border-rose-200">Rework Required</span>;
+      case 'SKIPPED':
+        return <span className="bg-amber-50 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-200">Skipped (Bypassed)</span>;
+      case 'CARRIED_ON_SITE':
+        return <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded border border-purple-200">Carry on Site</span>;
       default:
         return <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-200">Pass</span>;
     }
@@ -239,7 +255,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </span>
                         <h4 className="text-sm font-bold text-slate-800 mt-1.5">{myClaimedPool.projectName}</h4>
                       </div>
-                      {getStatusBadge(myClaimedPool.stageHistory[stage.id].status)}
+                      {getStatusBadge(myClaimedPoolHist.status)}
                     </div>
 
                     <div className="text-xs text-slate-500 space-y-1 bg-white p-2.5 rounded-lg border border-slate-100">
@@ -256,22 +272,32 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       <span>Print Shop Traveler Slip</span>
                     </button>
 
-                    {myClaimedPool.stageHistory[stage.id].status === 'REJECTED' && (
+                    {myClaimedPoolHist.status === 'REJECTED' && (
                       <div className="p-2.5 bg-rose-50 border border-rose-100 text-rose-800 text-xs rounded-lg space-y-1 font-sans">
                         <p className="font-semibold flex items-center gap-1 text-rose-700">
                           <AlertTriangle className="h-3.5 w-3.5 text-rose-550" />
                           QA Rejection Note Checklist:
                         </p>
                         <p className="italic bg-white/60 p-2 rounded border border-rose-100 text-[11px] leading-relaxed">
-                          &quot;{myClaimedPool.stageHistory[stage.id].inspectorNotes || 'No notes left'}&quot;
+                          &quot;{myClaimedPoolHist.inspectorNotes || 'No notes left'}&quot;
                         </p>
+                        {myClaimedPoolHist.inspectorPicture && (
+                          <div className="mt-2 rounded-lg overflow-hidden border border-rose-200/50 shadow-xs max-h-[140px] bg-white p-1">
+                            <img 
+                              src={myClaimedPoolHist.inspectorPicture} 
+                              alt="Defect visual evidence" 
+                              className="max-h-[130px] w-full object-cover rounded-md" 
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
 
                     {/* Operational Actions */}
                     <div className="pt-2 border-t border-slate-150 border-slate-100 gap-2 flex flex-col">
                       
-                      {(myClaimedPool.stageHistory[stage.id].status === 'NOT_STARTED' || myClaimedPool.stageHistory[stage.id].status === 'REJECTED') && (
+                      {(myClaimedPoolHist.status === 'NOT_STARTED' || myClaimedPoolHist.status === 'REJECTED') && (
                         <button
                           onClick={() => onStartStage(myClaimedPool.id, stage.id)}
                           className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-100"
@@ -281,11 +307,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </button>
                       )}
 
-                      {myClaimedPool.stageHistory[stage.id].status === 'IN_PROGRESS' && (
+                      {myClaimedPoolHist.status === 'IN_PROGRESS' && (
                         <div>
                           <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold mb-2 p-1.5 bg-blue-50/50 rounded border border-blue-105">
                             <Clock className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-                            <span>Filing: Started on {new Date(myClaimedPool.stageHistory[stage.id].startTime!).toLocaleTimeString()}</span>
+                            <span>Filing: Started on {myClaimedPoolHist.startTime ? new Date(myClaimedPoolHist.startTime).toLocaleTimeString() : 'Unknown'}</span>
                           </div>
                           
                           <button
@@ -298,9 +324,36 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </div>
                       )}
 
-                      {myClaimedPool.stageHistory[stage.id].status === 'PENDING_INSPECTION' && (
+                      {myClaimedPoolHist.status === 'PENDING_INSPECTION' && (
                         <div className="p-3 bg-amber-50 border border-amber-100 text-amber-800 text-[11px] rounded-lg text-center font-medium">
                           Sent to Quality Inspection Queue.<br /> awaiting QA sign-off before proceeding upwards.
+                        </div>
+                      )}
+
+                      {onSkipOrCarryOnSite && (
+                        <div className="mt-3 pt-3 border-t border-slate-200">
+                          <span className="text-[10px] font-black text-slate-450 text-slate-500 block mb-1.5 uppercase tracking-wider">
+                            Off-Sequence Dispatch:
+                          </span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => onSkipOrCarryOnSite(myClaimedPool.id, stage.id, 'SKIPPED', activeTeam?.name || 'Shop Floor Team')}
+                              className="py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[10.5px] rounded border border-slate-200 text-center cursor-pointer shrink-0"
+                            >
+                              Skip For Now
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onSkipOrCarryOnSite(myClaimedPool.id, stage.id, 'CARRIED_ON_SITE', activeTeam?.name || 'Shop Floor Team')}
+                              className="py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-black text-[10.5px] rounded border border-indigo-200 text-center cursor-pointer shrink-0"
+                            >
+                              Carry On Site
+                            </button>
+                          </div>
+                          <p className="text-[9.5px] text-slate-400 mt-1.5 leading-tight">
+                            Will mark this stage bypassed and immediately unlock the next workstation queue.
+                          </p>
                         </div>
                       )}
                     </div>
@@ -366,7 +419,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {availablePools.map((pool) => {
-                  const hist = pool.stageHistory[stage.id];
+                  const hist = pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
                   return (
                     <div 
                       key={pool.id} 
@@ -374,13 +427,29 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                     >
                       <div>
                         <div className="flex justify-between items-center">
-                          <span className="font-mono text-[10.5px] font-black text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">
-                            {pool.poolNo}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-[10.5px] font-black text-slate-505 text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded">
+                              {pool.poolNo}
+                            </span>
+                            {pool.poolType && (
+                              <span className="font-mono text-[9px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
+                                {pool.poolType}
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1.5">
+                            {pool.drawingUrl && (
+                              <button
+                                onClick={() => setViewingDrawingPool(pool)}
+                                className="p-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded transition-colors cursor-pointer"
+                                title="View Blueprint / CAD Layout Drawing"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                             <button
                               onClick={() => setPrintPool(pool)}
-                              className="p-1 bg-white hover:bg-slate-150 border border-slate-200 rounded text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                              className="p-1.5 bg-white hover:bg-slate-150 border border-slate-200 rounded text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                               title="Print Traveler Report"
                             >
                               <Printer className="h-3.5 w-3.5" />
@@ -403,6 +472,28 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             </p>
                           )}
                         </div>
+
+                        {onSkipOrCarryOnSite && (
+                          <div className="mt-3 bg-indigo-50/50 hover:bg-indigo-50/75 p-2 rounded-xl border border-indigo-100/50 text-slate-800 space-y-1.5 transition-colors">
+                            <span className="text-[9.2px] uppercase tracking-wider font-extrabold text-indigo-700 block text-left">Off-Sequence Dispatch:</span>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => onSkipOrCarryOnSite(pool.id, stage.id, 'SKIPPED', activeTeam?.name || 'Shop Floor Team')}
+                                className="py-1 bg-white hover:bg-slate-50 text-slate-700 font-extrabold text-[10px] uppercase rounded border border-slate-200 text-center cursor-pointer shadow-xs"
+                              >
+                                Skip Section
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onSkipOrCarryOnSite(pool.id, stage.id, 'CARRIED_ON_SITE', activeTeam?.name || 'Shop Floor Team')}
+                                className="py-1 bg-white hover:bg-indigo-50 text-indigo-600 font-extrabold text-[10px] uppercase rounded border border-indigo-200 text-center cursor-pointer shadow-xs"
+                              >
+                                Carry On Site
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div className="mt-4 pt-3 border-t border-slate-200/50 flex items-center justify-between">
@@ -442,15 +533,20 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
             ) : (
               <div className="space-y-3">
                 {inProgressPools.map((pool) => {
-                  const hist = pool.stageHistory[stage.id];
+                  const hist = pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
                   const claimingTeam = teams.find(t => t.id === hist.teamId);
                   return (
                     <div key={pool.id} className="p-3.5 border border-slate-50 rounded-xl bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono px-1.5 py-0.5 bg-slate-220 bg-slate-200 text-slate-600 rounded text-[10.5px] font-bold">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded text-[10.5px] font-bold">
                             {pool.poolNo}
                           </span>
+                          {pool.poolType && (
+                            <span className="font-mono text-[9px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
+                              {pool.poolType}
+                            </span>
+                          )}
                           <strong className="text-slate-800 text-[13px]">{pool.projectName}</strong>
                         </div>
                         <div className="text-slate-500">
@@ -462,7 +558,16 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 text-right">
+                        {pool.drawingUrl && (
+                          <button
+                            onClick={() => setViewingDrawingPool(pool)}
+                            className="p-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded transition-colors cursor-pointer mr-1"
+                            title="View Blueprint / CAD Layout Drawing"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setPrintPool(pool)}
                           className="p-1 bg-white hover:bg-slate-100 border border-slate-200 rounded text-slate-500 hover:text-slate-800 transition-colors cursor-pointer mr-1"
@@ -495,7 +600,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
             ) : (
               <div className="space-y-2">
                 {approvedPools.map((pool) => {
-                  const hist = pool.stageHistory[stage.id];
+                  const hist = pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
                   const signTeam = teams.find(t => t.id === hist.teamId);
                   return (
                     <div key={pool.id} className="p-3 border border-slate-50 hover:bg-slate-50 rounded-lg flex items-center justify-between text-xs transition-colors">
@@ -832,6 +937,78 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
 
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====== DRAWING/BLUEPRINT VIEWER DIALOG OVERLAY FOR SHOP FLOOR ====== */}
+      {viewingDrawingPool !== null && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full overflow-hidden animate-scaleUp">
+            
+            {/* Header */}
+            <div className="bg-slate-900 text-slate-100 py-4 px-6 flex items-center justify-between">
+              <div>
+                <h3 className="font-extrabold text-sm tracking-wide flex items-center gap-2">
+                  <Eye className="h-4.5 w-4.5 text-indigo-400" />
+                  <span>CAD DRAWING BLUEPRINT</span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Showing blueprint layout for Pool <span className="text-white font-mono font-bold font-black">{viewingDrawingPool.poolNo}</span> ({viewingDrawingPool.poolType || 'Type Default'})
+                </p>
+              </div>
+              <button
+                onClick={() => setViewingDrawingPool(null)}
+                className="text-slate-400 hover:text-white transition-colors p-1.5 hover:bg-white/10 rounded-lg cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 bg-slate-950 flex flex-col items-center justify-center border-b border-slate-800">
+              <div className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-inner flex items-center justify-center">
+                {viewingDrawingPool.drawingUrl ? (
+                  <img 
+                    src={viewingDrawingPool.drawingUrl} 
+                    referrerPolicy="no-referrer"
+                    alt="Layout Drawing Spec" 
+                    className="max-h-[360px] max-w-full object-contain rounded-lg shadow-md"
+                  />
+                ) : (
+                  <div className="h-[200px] flex flex-col items-center justify-center text-slate-500 space-y-2">
+                    <span className="text-xs">No vector blueprint is loaded for this model.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Metadata Footer */}
+            <div className="bg-slate-50 p-4 px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-slate-600">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                <div>
+                  Project: <strong className="text-slate-800">{viewingDrawingPool.projectName}</strong>
+                </div>
+                <div>
+                  Orientation: <strong className="text-slate-800">{viewingDrawingPool.orientation}</strong>
+                </div>
+                <div>
+                  Dimensions: <strong className="text-slate-800">{viewingDrawingPool.dimensions}</strong>
+                </div>
+                {viewingDrawingPool.poolType && (
+                  <div>
+                    Pool Type: <strong className="text-indigo-600 font-mono font-bold">{viewingDrawingPool.poolType}</strong>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setViewingDrawingPool(null)}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-black px-4 py-2 rounded-xl text-xs cursor-pointer shadow-sm ml-auto"
+              >
+                Close Drawing Screen
+              </button>
+            </div>
+
           </div>
         </div>
       )}

@@ -408,6 +408,16 @@ export const SectionDashboardTV: React.FC<SectionDashboardTVProps> = ({ pools, t
                               REJECT REWORK
                             </span>
                           )}
+                          {stageHist?.status === 'SKIPPED' && (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-slate-600 border border-amber-200">
+                              SKIPPED FOR NOW
+                            </span>
+                          )}
+                          {stageHist?.status === 'CARRIED_ON_SITE' && (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                              CARRY ON SITE
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );

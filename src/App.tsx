@@ -1,15 +1,42 @@
 import { useState, useEffect } from 'react';
-import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation } from './types';
+import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from './types';
 import { STAGES, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector } from './components/RoleSelector';
+import { LoginScreen } from './components/LoginScreen';
 import { ProductionEngineer } from './components/ProductionEngineer';
 import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
 import { FactoryEntrance } from './components/FactoryEntrance';
 import { ManagementDashboard } from './components/ManagementDashboard';
 import { SectionDashboardTV } from './components/SectionDashboardTV';
-import { Info, RotateCcw, AlertCircle, HelpCircle } from 'lucide-react';
-import { initAuth, googleSignIn, googleSignOut } from './lib/googleDrive';
+import { PlanningDepartment } from './components/PlanningDepartment';
+import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
+import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X } from 'lucide-react';
+import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
+import { 
+  getEntireStateFromFirestore, 
+  saveEntireStateToFirestore,
+  dbSaveProjectSummary,
+  dbDeleteProjectSummary,
+  dbSaveMonthlyTarget,
+  dbDeleteMonthlyTarget,
+  dbSaveEmployee,
+  dbDeleteEmployee,
+  dbSaveTrolley,
+  dbDeleteTrolley,
+  dbAddRecycleBin,
+  dbDeleteRecycleBin,
+  dbRestoreRecycleBin,
+  dbPurgePoolRelatedData,
+  dbDeletePool,
+  dbSaveEmployeePunch,
+  dbDeleteEmployeePunch,
+  dbSaveEmployeePunchesBulk,
+  dbSaveEmployeesBulk,
+  dbClearAllEmployeePunches,
+  dbDeleteEmployeePunchesByDate,
+  dbSyncBioCloudPunches
+} from './lib/firebaseService';
 
 const DEFAULT_INSPECTORS = [
   { id: 'insp_1', name: 'Insp. Sarah Wells', title: 'Structural Quality Lead' },
@@ -22,25 +49,260 @@ const DEFAULT_ENGINEERS = [
   { id: 'eng_2', name: 'Eng. Fatima S.', title: 'Process Layout Specialist' },
 ];
 
+const DEFAULT_PROJECTS_SUMMARY: ProjectSummary[] = [
+  { id: 'proj-1', projectName: 'Tiger', orientation: 'Normal', poolType: 'Type 3', totalPools: 188, deliveredPools: 29, producedPools: 50, remainingPools: 109, notes: 'Fibrepool design for High-efficiency installation.', createdAt: new Date().toISOString() },
+  { id: 'proj-2', projectName: 'Panther Elite', orientation: 'Mirror', poolType: 'Type 1', totalPools: 400, deliveredPools: 120, producedPools: 180, remainingPools: 100, notes: 'Custom client specifications, mirror orientation.', createdAt: new Date().toISOString() }
+];
+
+const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [
+  { id: '2026-06', monthName: 'June 2026', mainTarget: 120, steelFabricationTarget: 145, steelPrimerTarget: 145, plumbingTarget: 130, claddingTarget: 130, skimmerFittingTarget: 130, laminationTarget: 125, mechanicalFittingTarget: 125, skimmerTestTarget: 120, doorCuttingTarget: 120, mosaicTarget: 120, groutingTarget: 125, acrylicTarget: 120, targetOee: 82, notes: 'Boost output in high demand summer month.' }
+];
+
+const DEFAULT_EMPLOYEES: Employee[] = [
+  { id: 'emp-1', name: 'John Doe', department: 'Steel Fabrication', role: 'Welder Specialist', email: 'john.doe@apexpools.com', phone: '+1 555-0192', notes: 'Day shift supervisor', createdAt: '2026-06-01T08:00:00.000Z' },
+  { id: 'emp-2', name: 'Alba Vance', department: 'Structural Lamination', role: 'Composite Technician', email: 'alba@apexpools.com', phone: '+1 555-0143', notes: 'Expert in vacuum bagging', createdAt: '2026-06-02T08:00:00.000Z' },
+  { id: 'emp-3', name: 'Marcus Chen', department: 'Quality Control', role: 'Lead inspector', email: 'marcus.c@apexpools.com', phone: '+1 555-0177', notes: 'Covers major mechanical inspections', createdAt: '2026-06-03T09:00:00.000Z' },
+  { id: 'emp-4', name: 'Sarah Jenkins', department: 'Planning', role: 'Production Planner', email: 'sarah.j@apexpools.com', phone: '+1 555-0155', notes: 'Contract release dispatcher', createdAt: '2026-06-04T08:30:00.000Z' },
+];
+
 export default function App() {
   const [pools, setPools] = useState<Pool[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [inspectors, setInspectors] = useState<{ id: string; name: string; title: string }[]>([]);
   const [engineers, setEngineers] = useState<{ id: string; name: string; title: string }[]>([]);
+  const [projectsSummary, setProjectsSummary] = useState<ProjectSummary[]>(() => {
+    const raw = localStorage.getItem('apex_projects_summary');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return DEFAULT_PROJECTS_SUMMARY;
+  });
+  const [monthlyTargets, setMonthlyTargets] = useState<MonthlyTarget[]>(() => {
+    const raw = localStorage.getItem('apex_monthly_targets');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return DEFAULT_MONTHLY_TARGETS;
+  });
+  const [plannedPools, setPlannedPools] = useState<PlannedPool[]>(() => {
+    const raw = localStorage.getItem('apex_planned_pools');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return [];
+  });
+  const [employees, setEmployees] = useState<Employee[]>(() => {
+    const raw = localStorage.getItem('apex_employees');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return DEFAULT_EMPLOYEES;
+  });
+
+  const [trolleys, setTrolleys] = useState<TrolleyProduction[]>(() => {
+    const raw = localStorage.getItem('apex_trolleys');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [recycleBin, setRecycleBin] = useState<RecycleBinItem[]>([]);
+
+  // Employee machine punch records storage
+  const [employeePunches, setEmployeePunches] = useState<EmployeePunch[]>(() => {
+    const raw = localStorage.getItem('apex_employee_punches');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return [];
+  });
 
   // Google Drive integration states
   const [googleUser, setGoogleUser] = useState<any>(null);
+  const [authNotification, setAuthNotification] = useState<{ title: string; message: string; type: 'info' | 'error' | 'success'; isAuthError?: boolean } | null>(null);
+
+  // Station terminal lock state
+  const [stationLock, setStationLock] = useState<{
+    isLocked: boolean;
+    role: ViewRole;
+    stageId: StageId | null;
+    teamId: string | null;
+    pin: string;
+    allowedRoles?: ViewRole[];
+  }>(() => {
+    const raw = localStorage.getItem('apex_station_lock');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return {
+      isLocked: false,
+      role: 'management',
+      stageId: null,
+      teamId: null,
+      pin: '1234',
+      allowedRoles: []
+    };
+  });
 
   // Simulation controls
-  const [currentRole, setCurrentRole] = useState<ViewRole>('management');
-  const [selectedStageId, setSelectedStageId] = useState<StageId>('steel_fabrication');
-  const [workerTeamId, setWorkerTeamId] = useState<string>('');
-  
-  // Guide helper box toggle
-  const [showGuide, setShowGuide] = useState(true);
+  const [currentRole, setCurrentRole] = useState<ViewRole>(() => {
+    const raw = localStorage.getItem('apex_station_lock');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.isLocked) return parsed.role;
+      } catch (e) {}
+    }
+    return 'management';
+  });
+  const [selectedStageId, setSelectedStageId] = useState<StageId>(() => {
+    const raw = localStorage.getItem('apex_station_lock');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.isLocked && parsed.stageId) return parsed.stageId;
+      } catch (e) {}
+    }
+    return 'steel_fabrication';
+  });
+  const [workerTeamId, setWorkerTeamId] = useState<string>(() => {
+    const raw = localStorage.getItem('apex_station_lock');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.isLocked && parsed.teamId) return parsed.teamId;
+      } catch (e) {}
+    }
+    return '';
+  });
 
-  // Load state from localStorage & register Auth listener on mount
+  // Custom non-blocking iframe-safe unlock modal states
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [unlockPinInput, setUnlockPinInput] = useState('');
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+
+  // Role-Based Access Control State
+  const [loggedInUser, setLoggedInUser] = useState<{ role: ViewRole; displayName: string } | null>(() => {
+    const raw = localStorage.getItem('apex_logged_in_user');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return null;
+  });
+
+  const handleLoginSuccess = (user: { role: ViewRole; displayName: string }) => {
+    setLoggedInUser(user);
+    localStorage.setItem('apex_logged_in_user', JSON.stringify(user));
+    setCurrentRole(user.role);
+    if (user.role === 'stage_worker') {
+      setSelectedStageId('steel_fabrication');
+    }
+  };
+
+  const handleLogout = () => {
+    setLoggedInUser(null);
+    localStorage.removeItem('apex_logged_in_user');
+  };
+
+  // Auto-enforce locked parameters whenever lock config changes
+  useEffect(() => {
+    if (stationLock.isLocked) {
+      if (stationLock.allowedRoles && stationLock.allowedRoles.length > 0) {
+        if (!stationLock.allowedRoles.includes(currentRole)) {
+          setCurrentRole(stationLock.allowedRoles[0]);
+        }
+      } else {
+        setCurrentRole(stationLock.role);
+      }
+      if (stationLock.stageId) {
+        setSelectedStageId(stationLock.stageId);
+      }
+      if (stationLock.teamId) {
+        setWorkerTeamId(stationLock.teamId);
+      }
+    }
+  }, [stationLock]);
+
+  const handleLockStation = (role: ViewRole, stageId: StageId | null, teamId: string | null, pin: string, allowedRoles?: ViewRole[]) => {
+    const lockConfig = {
+      isLocked: true,
+      role,
+      stageId,
+      teamId,
+      pin: pin.trim() || '1234',
+      allowedRoles: allowedRoles || [role]
+    };
+    setStationLock(lockConfig);
+    localStorage.setItem('apex_station_lock', JSON.stringify(lockConfig));
+    setCurrentRole(role);
+    if (stageId) setSelectedStageId(stageId);
+    if (teamId) setWorkerTeamId(teamId);
+  };
+
+  const handleUnlockStation = (enteredPin: string) => {
+    if (enteredPin === stationLock.pin) {
+      const unlocked = {
+        isLocked: false,
+        role: stationLock.role,
+        stageId: stationLock.stageId,
+        teamId: stationLock.teamId,
+        pin: stationLock.pin
+      };
+      setStationLock(unlocked);
+      localStorage.setItem('apex_station_lock', JSON.stringify(unlocked));
+      setIsUnlockModalOpen(false);
+      setUnlockPinInput('');
+      setUnlockError(null);
+      return true;
+    } else {
+      setUnlockError("Incorrect 4-Digit Access PIN. Please try again or use Emergency Bypass.");
+      return false;
+    }
+  };
+
+  const handleEmergencyUnlock = () => {
+    const unlocked = {
+      isLocked: false,
+      role: 'management' as ViewRole,
+      stageId: 'steel_fabrication' as StageId,
+      teamId: null,
+      pin: '1234'
+    };
+    setStationLock(unlocked);
+    localStorage.setItem('apex_station_lock', JSON.stringify(unlocked));
+    setCurrentRole('management');
+    setSelectedStageId('steel_fabrication');
+    setWorkerTeamId('');
+    setIsUnlockModalOpen(false);
+    setUnlockPinInput('');
+    setUnlockError(null);
+  };
+
+  // Firebase Integration states
+  const [firebaseStatus, setFirebaseStatus] = useState<'idle' | 'linking' | 'connected' | 'error'>('idle');
+  const [firebaseError, setFirebaseError] = useState<string | null>(null);
+
+  // Load state from Firestore & register Auth listener on mount
   useEffect(() => {
     const unsubscribe = initAuth(
       (user, token) => {
@@ -51,26 +313,138 @@ export default function App() {
       }
     );
 
-    const storedPools = localStorage.getItem('apex_pools');
-    const storedTeams = localStorage.getItem('apex_teams');
-    const storedLogs = localStorage.getItem('apex_logs');
-    const storedInspectors = localStorage.getItem('apex_inspectors');
-    const storedEngineers = localStorage.getItem('apex_engineers');
-
-    if (storedPools && storedTeams && storedLogs) {
+    // Check if user has just returned from a Google OAuth sign-in redirect flow
+    const handleRedirectResult = async () => {
       try {
-        setPools(JSON.parse(storedPools));
-        setTeams(JSON.parse(storedTeams));
-        setLogs(JSON.parse(storedLogs));
-        setInspectors(storedInspectors ? JSON.parse(storedInspectors) : DEFAULT_INSPECTORS);
-        setEngineers(storedEngineers ? JSON.parse(storedEngineers) : DEFAULT_ENGINEERS);
-      } catch (e) {
-        console.error('Error parsing stored pool data:', e);
-        loadDefaultMockData();
+        const result = await checkRedirectResult();
+        if (result) {
+          setGoogleUser(result.user);
+          setAuthNotification({
+            title: "Connection Successful",
+            message: "Successfully connected to Google Drive via secure redirect!",
+            type: "success"
+          });
+        }
+      } catch (err: any) {
+        console.error('Redirect result processing failed:', err);
       }
-    } else {
-      loadDefaultMockData();
-    }
+    };
+    handleRedirectResult();
+
+    const loadCloudData = async () => {
+      setFirebaseStatus('linking');
+      try {
+        const cloudData = await getEntireStateFromFirestore();
+        if ((cloudData as any).isInitialized || (cloudData.pools && cloudData.pools.length > 0)) {
+          // Cloud has records. Load them!
+          setPools(cloudData.pools);
+          setTeams(cloudData.teams);
+          setLogs(cloudData.logs);
+          setInspectors(cloudData.inspectors);
+          setEngineers(cloudData.engineers);
+          setPlannedPools(cloudData.plannedPools);
+          setProjectsSummary(cloudData.projectsSummary);
+          setMonthlyTargets(cloudData.monthlyTargets);
+          setEmployees(cloudData.employees);
+          if ((cloudData as any).trolleys) {
+            setTrolleys((cloudData as any).trolleys);
+            localStorage.setItem('apex_trolleys', JSON.stringify((cloudData as any).trolleys));
+          }
+          if ((cloudData as any).recycleBin) {
+            setRecycleBin((cloudData as any).recycleBin);
+          }
+          if ((cloudData as any).employeePunches) {
+            setEmployeePunches((cloudData as any).employeePunches);
+            localStorage.setItem('apex_employee_punches', JSON.stringify((cloudData as any).employeePunches));
+          }
+
+          // Update local backup
+          localStorage.setItem('apex_pools', JSON.stringify(cloudData.pools));
+          localStorage.setItem('apex_teams', JSON.stringify(cloudData.teams));
+          localStorage.setItem('apex_logs', JSON.stringify(cloudData.logs));
+          localStorage.setItem('apex_inspectors', JSON.stringify(cloudData.inspectors));
+          localStorage.setItem('apex_engineers', JSON.stringify(cloudData.engineers));
+          localStorage.setItem('apex_planned_pools', JSON.stringify(cloudData.plannedPools));
+          localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary));
+          localStorage.setItem('apex_monthly_targets', JSON.stringify(cloudData.monthlyTargets));
+          localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees));
+          setFirebaseStatus('connected');
+        } else {
+          // Database is empty or newly created/authenticated. Seed it with mock patterns.
+          const defaultData = getInitialData();
+          await saveEntireStateToFirestore(
+            defaultData.pools,
+            defaultData.teams,
+            defaultData.logs,
+            DEFAULT_INSPECTORS,
+            DEFAULT_ENGINEERS,
+            defaultData.plannedPools,
+            DEFAULT_PROJECTS_SUMMARY,
+            DEFAULT_MONTHLY_TARGETS,
+            DEFAULT_EMPLOYEES
+          );
+          setPools(defaultData.pools);
+          setTeams(defaultData.teams);
+          setLogs(defaultData.logs);
+          setInspectors(DEFAULT_INSPECTORS);
+          setEngineers(DEFAULT_ENGINEERS);
+          setPlannedPools(defaultData.plannedPools);
+          setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
+          setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
+          setEmployees(DEFAULT_EMPLOYEES);
+          localStorage.setItem('apex_planned_pools', JSON.stringify(defaultData.plannedPools));
+          localStorage.setItem('apex_projects_summary', JSON.stringify(DEFAULT_PROJECTS_SUMMARY));
+          localStorage.setItem('apex_monthly_targets', JSON.stringify(DEFAULT_MONTHLY_TARGETS));
+          localStorage.setItem('apex_employees', JSON.stringify(DEFAULT_EMPLOYEES));
+          setFirebaseStatus('connected');
+        }
+      } catch (err: any) {
+        console.error('Firestore connection or permission delay. Falling back to local copy:', err);
+        setFirebaseStatus('error');
+        setFirebaseError(err?.message || String(err));
+
+        // Sync with local copy fallback
+        const storedPools = localStorage.getItem('apex_pools');
+        const storedTeams = localStorage.getItem('apex_teams');
+        const storedLogs = localStorage.getItem('apex_logs');
+        const storedInspectors = localStorage.getItem('apex_inspectors');
+        const storedEngineers = localStorage.getItem('apex_engineers');
+        const storedPlannedPools = localStorage.getItem('apex_planned_pools');
+        const storedProjectsSummary = localStorage.getItem('apex_projects_summary');
+        const storedMonthlyTargets = localStorage.getItem('apex_monthly_targets');
+
+        if (storedPools && storedTeams && storedLogs) {
+          try {
+            setPools(JSON.parse(storedPools));
+            setTeams(JSON.parse(storedTeams));
+            setLogs(JSON.parse(storedLogs));
+            setInspectors(storedInspectors ? JSON.parse(storedInspectors) : DEFAULT_INSPECTORS);
+            setEngineers(storedEngineers ? JSON.parse(storedEngineers) : DEFAULT_ENGINEERS);
+            if (storedPlannedPools) {
+              setPlannedPools(JSON.parse(storedPlannedPools));
+            } else {
+              setPlannedPools(getInitialData().plannedPools);
+            }
+            if (storedProjectsSummary) {
+              setProjectsSummary(JSON.parse(storedProjectsSummary));
+            } else {
+              setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
+            }
+            if (storedMonthlyTargets) {
+              setMonthlyTargets(JSON.parse(storedMonthlyTargets));
+            } else {
+              setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
+            }
+          } catch (e) {
+            loadDefaultMockData();
+          }
+        } else {
+          loadDefaultMockData();
+        }
+      }
+    };
+
+    loadCloudData();
 
     return () => {
       if (typeof unsubscribe === 'function') {
@@ -81,12 +455,55 @@ export default function App() {
 
   const handleGoogleSignIn = async () => {
     try {
+      setAuthNotification(null);
       const result = await googleSignIn();
       if (result) {
         setGoogleUser(result.user);
+        setAuthNotification({
+          title: "Connection Successful",
+          message: "Successfully connected to Google Drive and activated state-sync snapshots!",
+          type: "success"
+        });
       }
     } catch (err: any) {
       console.error('Sign-in failed:', err);
+      const errorMsg = err?.message || String(err);
+      
+      let guidance = "Browsers often restrict authorization popups inside embedded iframe previews. If the login popup didn't show or closed instantly, click 'Open in New Tab' at the top-right of your screen and sign in there.";
+      
+      if (errorMsg.includes('popup-blocked')) {
+        guidance = "Your browser has blocked the authorization popup. Please disable your popup blocker for this site or open the application in a new tab.";
+      } else if (errorMsg.includes('storage-unsupported') || errorMsg.includes('iframe') || errorMsg.includes('cookies')) {
+        guidance = "Third-party cookies/storage are restricted in this preview framework. Please open the application in a new tab (button at the top-right corner of the screen) to sign in safely.";
+      } else if (errorMsg.includes('popup-closed-by-user')) {
+        guidance = "The sign-in popup was closed before completion. If this keeps happening automatically, please open this application in a new tab (top-right button on your screen) to authorize outside the iframe sandboxes.";
+      }
+      
+      setAuthNotification({
+        title: "Connection Notice",
+        message: `${guidance} (Details: ${err?.code || err?.message || 'closed'})`,
+        type: "error",
+        isAuthError: true
+      });
+    }
+  };
+
+  const handleGoogleSignInRedirect = async () => {
+    try {
+      setAuthNotification({
+        title: "Redirecting...",
+        message: "Redirecting you to Google login page. Your current session state is preserved.",
+        type: "info"
+      });
+      await googleSignInRedirect();
+    } catch (err: any) {
+      console.error('Sign-in redirect failed:', err);
+      setAuthNotification({
+        title: "Redirect Failed",
+        message: `Failed to initiate redirect sign-in: ${err?.code || err?.message || String(err)}`,
+        type: "error",
+        isAuthError: true
+      });
     }
   };
 
@@ -106,6 +523,11 @@ export default function App() {
     setLogs(data.logs);
     setInspectors(DEFAULT_INSPECTORS);
     setEngineers(DEFAULT_ENGINEERS);
+    setPlannedPools(data.plannedPools);
+    setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
+    setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
+    setTrolleys([]);
+    localStorage.removeItem('apex_trolleys');
     
     // Auto-select first team in fabrication stage
     const fabTeams = data.teams.filter(t => t.stageId === 'steel_fabrication');
@@ -113,7 +535,16 @@ export default function App() {
       setWorkerTeamId(fabTeams[0].id);
     }
 
-    saveState(data.pools, data.teams, data.logs, DEFAULT_INSPECTORS, DEFAULT_ENGINEERS);
+    saveState(
+      data.pools, 
+      data.teams, 
+      data.logs, 
+      DEFAULT_INSPECTORS, 
+      DEFAULT_ENGINEERS, 
+      data.plannedPools,
+      DEFAULT_PROJECTS_SUMMARY,
+      DEFAULT_MONTHLY_TARGETS
+    );
   };
 
   const saveState = (
@@ -121,14 +552,155 @@ export default function App() {
     updatedTeams: Team[], 
     updatedLogs: ActivityLog[],
     updatedInspectors = inspectors,
-    updatedEngineers = engineers
+    updatedEngineers = engineers,
+    updatedPlannedPools = plannedPools,
+    updatedProjectsSummary = projectsSummary,
+    updatedMonthlyTargets = monthlyTargets,
+    updatedEmployees = employees
   ) => {
     localStorage.setItem('apex_pools', JSON.stringify(updatedPools));
     localStorage.setItem('apex_teams', JSON.stringify(updatedTeams));
     localStorage.setItem('apex_logs', JSON.stringify(updatedLogs));
     localStorage.setItem('apex_inspectors', JSON.stringify(updatedInspectors));
     localStorage.setItem('apex_engineers', JSON.stringify(updatedEngineers));
+    localStorage.setItem('apex_planned_pools', JSON.stringify(updatedPlannedPools));
+    localStorage.setItem('apex_projects_summary', JSON.stringify(updatedProjectsSummary));
+    localStorage.setItem('apex_monthly_targets', JSON.stringify(updatedMonthlyTargets));
+    localStorage.setItem('apex_employees', JSON.stringify(updatedEmployees));
+
+    // Async auto-save to Cloud SQL PostgreSQL database
+    saveEntireStateToFirestore(
+      updatedPools,
+      updatedTeams,
+      updatedLogs,
+      updatedInspectors,
+      updatedEngineers,
+      updatedPlannedPools,
+      updatedProjectsSummary,
+      updatedMonthlyTargets,
+      updatedEmployees
+    )
+      .then(() => {
+        setFirebaseStatus('connected');
+        setFirebaseError(null);
+      })
+      .catch((err: any) => {
+        console.error('Cloud Firestore auto-save error:', err);
+        setFirebaseStatus('error');
+        setFirebaseError(err?.message || String(err));
+      });
   };
+
+  const handleSaveEmployee = (employee: Employee) => {
+    const existingIndex = employees.findIndex(e => e.id === employee.id);
+    let updated: Employee[];
+    if (existingIndex >= 0) {
+      updated = [...employees];
+      updated[existingIndex] = employee;
+    } else {
+      updated = [employee, ...employees];
+    }
+    setEmployees(updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, updated);
+    dbSaveEmployee(employee).catch(console.error);
+  };
+
+  const handleDeleteEmployee = (id: string) => {
+    const updated = employees.filter(e => e.id !== id);
+    setEmployees(updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, updated);
+    dbDeleteEmployee(id).catch(console.error);
+  };
+
+  const handleSaveEmployeePunch = (punch: EmployeePunch) => {
+    const updated = [punch, ...employeePunches];
+    setEmployeePunches(updated);
+    localStorage.setItem('apex_employee_punches', JSON.stringify(updated));
+    dbSaveEmployeePunch(punch).catch(console.error);
+  };
+
+  const handleDeleteEmployeePunch = (id: string) => {
+    const updated = employeePunches.filter(p => p.id !== id);
+    setEmployeePunches(updated);
+    localStorage.setItem('apex_employee_punches', JSON.stringify(updated));
+    dbDeleteEmployeePunch(id).catch(console.error);
+  };
+
+  const handleSaveEmployeePunchesBulk = (newPunches: EmployeePunch[]) => {
+    // filter duplicates
+    const existingIds = new Set(employeePunches.map(p => p.id));
+    const uniqueNew = newPunches.filter(p => !existingIds.has(p.id));
+    const updated = [...uniqueNew, ...employeePunches];
+    setEmployeePunches(updated);
+    localStorage.setItem('apex_employee_punches', JSON.stringify(updated));
+    dbSaveEmployeePunchesBulk(newPunches).catch(console.error);
+  };
+
+  const handleClearAllEmployeePunches = () => {
+    setEmployeePunches([]);
+    localStorage.setItem('apex_employee_punches', JSON.stringify([]));
+    dbClearAllEmployeePunches().catch(console.error);
+  };
+
+  const handleDeleteEmployeePunchesByDate = (date: string) => {
+    const updated = employeePunches.filter(p => p.date !== date);
+    setEmployeePunches(updated);
+    localStorage.setItem('apex_employee_punches', JSON.stringify(updated));
+    dbDeleteEmployeePunchesByDate(date).catch(console.error);
+  };
+
+  const handleSaveEmployeesBulk = (newStaffList: Employee[]) => {
+    const updated = [...employees];
+    newStaffList.forEach(emp => {
+      const idx = updated.findIndex(e => e.id === emp.id);
+      if (idx >= 0) {
+        updated[idx] = emp;
+      } else {
+        updated.unshift(emp);
+      }
+    });
+    setEmployees(updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, updated);
+    dbSaveEmployeesBulk(newStaffList).catch(console.error);
+  };
+
+  const handleSaveTrolley = (trolley: TrolleyProduction) => {
+    const existingIndex = trolleys.findIndex(t => t.id === trolley.id);
+    let updated: TrolleyProduction[];
+    if (existingIndex >= 0) {
+      updated = [...trolleys];
+      updated[existingIndex] = trolley;
+    } else {
+      updated = [trolley, ...trolleys];
+    }
+    setTrolleys(updated);
+    localStorage.setItem('apex_trolleys', JSON.stringify(updated));
+    dbSaveTrolley(trolley).catch(console.error);
+  };
+
+  const handleDeleteTrolley = async (id: string) => {
+    const trolleyToTrash = trolleys.find(t => t.id === id);
+    if (trolleyToTrash) {
+      const trashItem: RecycleBinItem = {
+        id: `trolley_trash_${id}_${Date.now()}`,
+        dataType: 'trolley',
+        deletedAt: new Date().toISOString(),
+        payload: trolleyToTrash
+      };
+      await dbAddRecycleBin(trashItem).catch(console.error);
+    }
+    const updated = trolleys.filter(t => t.id !== id);
+    setTrolleys(updated);
+    localStorage.setItem('apex_trolleys', JSON.stringify(updated));
+    await dbDeleteTrolley(id).catch(console.error);
+
+    // Refresh recycle bin state
+    const cloudData = await getEntireStateFromFirestore().catch(() => null);
+    if (cloudData && cloudData.recycleBin) {
+      setRecycleBin(cloudData.recycleBin);
+    }
+  };
+
 
   // State update dispatchers for dynamically changing names
   const handleUpdateTeams = (updatedTeams: Team[]) => {
@@ -157,6 +729,470 @@ export default function App() {
     saveState(updatedPools, teams, updatedLogs, inspectors, engineers);
   };
 
+  const handleDirectOverridePool = (
+    poolSpec: {
+      id?: string;
+      projectName: string;
+      poolNo: string;
+      orientation: PoolOrientation;
+      dimensions: string;
+      shape: string;
+      poolType: string;
+      notes?: string;
+      isDelivered?: boolean;
+      currentStageIndex: number;
+    },
+    operatorName: string
+  ) => {
+    const existingPoolIndex = pools.findIndex(p => 
+      p.id === poolSpec.id || 
+      (p.projectName.toLowerCase() === poolSpec.projectName.toLowerCase() && p.poolNo.toLowerCase() === poolSpec.poolNo.toLowerCase())
+    );
+
+    let updatedPools = [...pools];
+    let pool: Pool;
+    let isNew = false;
+
+    if (existingPoolIndex >= 0) {
+      pool = { ...updatedPools[existingPoolIndex] };
+    } else {
+      isNew = true;
+      pool = {
+        id: poolSpec.id || 'pool-' + Date.now(),
+        projectName: poolSpec.projectName,
+        poolNo: poolSpec.poolNo,
+        orientation: poolSpec.orientation,
+        dimensions: poolSpec.dimensions || '12m x 5m',
+        shape: poolSpec.shape || 'Rectangular',
+        poolType: poolSpec.poolType || 'Type 3',
+        notes: poolSpec.notes || '',
+        createdAt: new Date().toISOString(),
+        currentStageIndex: 0,
+        stageHistory: createEmptyHistory()
+      };
+    }
+
+    // Update fields
+    pool.orientation = poolSpec.orientation;
+    pool.dimensions = poolSpec.dimensions;
+    pool.shape = poolSpec.shape;
+    pool.poolType = poolSpec.poolType;
+    if (poolSpec.notes !== undefined) pool.notes = poolSpec.notes;
+    pool.currentStageIndex = poolSpec.currentStageIndex;
+
+    if (poolSpec.isDelivered) {
+      pool.isDelivered = true;
+      pool.deliveredAt = new Date().toISOString();
+      if (!pool.completedAt) pool.completedAt = new Date().toISOString();
+    } else {
+      pool.isDelivered = false;
+      pool.deliveredAt = null;
+      if (pool.currentStageIndex >= STAGES.length) {
+        if (!pool.completedAt) pool.completedAt = new Date().toISOString();
+      } else {
+        pool.completedAt = null;
+      }
+    }
+
+    // Direct stage history consistency mapping
+    const updatedStageHistory = { ...pool.stageHistory };
+    STAGES.forEach((stage, idx) => {
+      if (idx < poolSpec.currentStageIndex) {
+        if (updatedStageHistory[stage.id].status !== 'APPROVED') {
+          updatedStageHistory[stage.id] = {
+            ...updatedStageHistory[stage.id],
+            status: 'APPROVED',
+            startTime: updatedStageHistory[stage.id].startTime || new Date().toISOString(),
+            endTime: updatedStageHistory[stage.id].endTime || new Date().toISOString(),
+            inspectorNotes: updatedStageHistory[stage.id].inspectorNotes || 'Directly approved via override portal'
+          };
+        }
+      } else if (idx === poolSpec.currentStageIndex && poolSpec.currentStageIndex < STAGES.length) {
+        updatedStageHistory[stage.id] = {
+          ...updatedStageHistory[stage.id],
+          status: 'NOT_STARTED',
+          startTime: null,
+          endTime: null,
+          teamId: undefined
+        };
+      } else {
+        updatedStageHistory[stage.id] = {
+          ...updatedStageHistory[stage.id],
+          status: 'NOT_STARTED',
+          startTime: null,
+          endTime: null
+        };
+      }
+    });
+    pool.stageHistory = updatedStageHistory;
+
+    if (existingPoolIndex >= 0) {
+      updatedPools[existingPoolIndex] = pool;
+    } else {
+      updatedPools.push(pool);
+    }
+
+    // Generate descriptive log
+    const stageNameStatus = poolSpec.isDelivered 
+      ? 'Delivered' 
+      : (poolSpec.currentStageIndex >= STAGES.length 
+          ? 'Fully Produced / Ready' 
+          : STAGES[poolSpec.currentStageIndex]?.name || 'Pre-Production');
+
+    const logEntry: ActivityLog = {
+      id: 'log-' + Date.now(),
+      timestamp: new Date().toISOString(),
+      poolId: pool.id,
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      stageId: poolSpec.currentStageIndex < STAGES.length ? STAGES[poolSpec.currentStageIndex]?.id : 'acrylic',
+      type: poolSpec.isDelivered ? 'APPROVED' : (isNew ? 'CREATED' : 'STAGE_FINISHED'),
+      notes: `Direct portal override. Set to: ${stageNameStatus}. Notes: ${poolSpec.notes || 'None'}`,
+      operatorName: operatorName || 'Planning Department Manager'
+    };
+
+    const updatedLogs = [logEntry, ...logs];
+
+    // Keep project summaries in dynamic recalculation sync!
+    const projectPools = updatedPools.filter(p => p.projectName.toLowerCase() === pool.projectName.toLowerCase());
+    const existingProjectIndex = projectsSummary.findIndex(p => p.projectName.toLowerCase() === pool.projectName.toLowerCase());
+    const updatedProjects = [...projectsSummary];
+
+    const totalCount = existingProjectIndex >= 0 
+      ? Math.max(projectPools.length, projectsSummary[existingProjectIndex].totalPools) 
+      : projectPools.length;
+    const producedCount = projectPools.filter(p => p.currentStageIndex >= STAGES.length).length;
+    const deliveredCount = projectPools.filter(p => p.isDelivered).length;
+
+    if (existingProjectIndex >= 0) {
+      const existingProject = projectsSummary[existingProjectIndex];
+      const nextTotal = Math.max(totalCount, existingProject.totalPools);
+      
+      const updatedProjRec: ProjectSummary = {
+        ...existingProject,
+        totalPools: nextTotal,
+        producedPools: producedCount,
+        deliveredPools: deliveredCount,
+        remainingPools: Math.max(0, nextTotal - deliveredCount)
+      };
+      updatedProjects[existingProjectIndex] = updatedProjRec;
+      dbSaveProjectSummary(updatedProjRec).catch(console.error);
+    } else {
+      const newProjRec: ProjectSummary = {
+        id: 'proj-' + Date.now(),
+        projectName: pool.projectName,
+        orientation: pool.orientation,
+        poolType: pool.poolType || 'Type 3',
+        totalPools: Math.max(1, totalCount),
+        producedPools: producedCount,
+        deliveredPools: deliveredCount,
+        remainingPools: Math.max(0, Math.max(1, totalCount) - deliveredCount),
+        notes: `Auto-created via Direct Update overrides`,
+        createdAt: new Date().toISOString()
+      };
+      updatedProjects.push(newProjRec);
+      dbSaveProjectSummary(newProjRec).catch(console.error);
+    }
+
+    setPools(updatedPools);
+    setLogs(updatedLogs);
+    setProjectsSummary(updatedProjects);
+
+    saveState(
+      updatedPools,
+      teams,
+      updatedLogs,
+      inspectors,
+      engineers,
+      plannedPools,
+      updatedProjects,
+      monthlyTargets
+    );
+  };
+
+  const handleDirectOverridePoolsBatch = (
+    specs: {
+      projectName: string;
+      poolNo: string;
+      orientation: PoolOrientation;
+      dimensions: string;
+      shape: string;
+      poolType: string;
+      notes?: string;
+      isDelivered?: boolean;
+      currentStageIndex: number;
+      isPlanned: boolean;
+    }[],
+    operatorName: string
+  ): boolean => {
+    let updatedPools = [...pools];
+    let updatedPlannedPools = [...plannedPools];
+    let updatedLogs = [...logs];
+    let updatedProjects = [...projectsSummary];
+    const nowStr = new Date().toISOString();
+
+    specs.forEach((spec, index) => {
+      const computedPoolNo = spec.poolNo.trim().toUpperCase();
+      const cleanProjName = spec.projectName.trim() || 'Excel Sync';
+
+      if (spec.isPlanned) {
+        // Move to or update in plannedPools
+        // Remove from pools if it exists there
+        updatedPools = updatedPools.filter(p => p.poolNo.toUpperCase() !== computedPoolNo);
+
+        const planIdx = updatedPlannedPools.findIndex(p => p.poolNo.toUpperCase() === computedPoolNo);
+        if (planIdx >= 0) {
+          updatedPlannedPools[planIdx] = {
+            ...updatedPlannedPools[planIdx],
+            projectName: cleanProjName,
+            orientation: spec.orientation,
+            dimensions: spec.dimensions || '12m x 5m',
+            shape: spec.shape || 'Rectangular',
+            poolType: spec.poolType || 'Type 1',
+            notes: spec.notes || 'Updated via Direct Stage Excel Sync'
+          };
+        } else {
+          updatedPlannedPools.push({
+            id: `plan_${Date.now()}_sync_${index}_${Math.random().toString(36).substring(2, 5)}`,
+            projectName: cleanProjName,
+            poolNo: computedPoolNo,
+            orientation: spec.orientation,
+            dimensions: spec.dimensions || '12m x 5m',
+            shape: spec.shape || 'Rectangular',
+            poolType: spec.poolType || 'Type 1',
+            status: 'PLANNED',
+            notes: spec.notes || 'Created via Direct Stage Excel Sync',
+            createdAt: nowStr
+          });
+        }
+      } else {
+        // Move/Update in pools (floor)
+        // Remove from plannedPools if it exists there
+        updatedPlannedPools = updatedPlannedPools.filter(p => p.poolNo.toUpperCase() !== computedPoolNo);
+
+        const existingPoolIndex = updatedPools.findIndex(p => p.poolNo.toUpperCase() === computedPoolNo);
+        let pool: Pool;
+        let isNew = false;
+
+        if (existingPoolIndex >= 0) {
+          pool = { ...updatedPools[existingPoolIndex] };
+        } else {
+          isNew = true;
+          pool = {
+            id: `pool_${Date.now()}_sync_${index}_${Math.random().toString(36).substring(2, 5)}`,
+            projectName: cleanProjName,
+            poolNo: computedPoolNo,
+            orientation: spec.orientation,
+            dimensions: spec.dimensions || '12m x 5m',
+            shape: spec.shape || 'Rectangular',
+            poolType: spec.poolType || 'Type 3',
+            notes: spec.notes || '',
+            createdAt: nowStr,
+            currentStageIndex: 0,
+            stageHistory: createEmptyHistory()
+          };
+        }
+
+        // Update properties
+        pool.projectName = cleanProjName;
+        pool.orientation = spec.orientation;
+        pool.dimensions = spec.dimensions || pool.dimensions;
+        pool.shape = spec.shape || pool.shape;
+        pool.poolType = spec.poolType || pool.poolType;
+        if (spec.notes !== undefined) pool.notes = spec.notes;
+        pool.currentStageIndex = spec.currentStageIndex;
+
+        if (spec.isDelivered) {
+          pool.isDelivered = true;
+          pool.deliveredAt = nowStr;
+          if (!pool.completedAt) pool.completedAt = nowStr;
+        } else {
+          pool.isDelivered = false;
+          pool.deliveredAt = null;
+          if (pool.currentStageIndex >= STAGES.length) {
+            if (!pool.completedAt) pool.completedAt = nowStr;
+          } else {
+            pool.completedAt = null;
+          }
+        }
+
+        // Validate complete stage history consistency
+        const updatedStageHistory = { ...pool.stageHistory };
+        STAGES.forEach((stage, sIdx) => {
+          if (sIdx < spec.currentStageIndex) {
+            if (!updatedStageHistory[stage.id] || updatedStageHistory[stage.id].status !== 'APPROVED') {
+              updatedStageHistory[stage.id] = {
+                stageId: stage.id,
+                status: 'APPROVED',
+                startTime: updatedStageHistory[stage.id]?.startTime || nowStr,
+                endTime: updatedStageHistory[stage.id]?.endTime || nowStr,
+                inspectorNotes: updatedStageHistory[stage.id]?.inspectorNotes || 'Approved via direct Excel sync overrides',
+                rejectionCount: updatedStageHistory[stage.id]?.rejectionCount || 0
+              };
+            }
+          } else if (sIdx === spec.currentStageIndex && spec.currentStageIndex < STAGES.length) {
+            updatedStageHistory[stage.id] = {
+              stageId: stage.id,
+              status: 'NOT_STARTED',
+              startTime: null,
+              endTime: null,
+              teamId: undefined,
+              rejectionCount: updatedStageHistory[stage.id]?.rejectionCount || 0
+            };
+          } else {
+            updatedStageHistory[stage.id] = {
+              stageId: stage.id,
+              status: 'NOT_STARTED',
+              startTime: null,
+              endTime: null,
+              rejectionCount: updatedStageHistory[stage.id]?.rejectionCount || 0
+            };
+          }
+        });
+        pool.stageHistory = updatedStageHistory;
+
+        if (existingPoolIndex >= 0) {
+          updatedPools[existingPoolIndex] = pool;
+        } else {
+          updatedPools.push(pool);
+        }
+
+        // Log entry
+        const stageNameStatus = spec.isDelivered 
+          ? 'Delivered' 
+          : (spec.currentStageIndex >= STAGES.length 
+              ? 'Fully Produced / Ready' 
+              : STAGES[spec.currentStageIndex]?.name || 'Pre-Production');
+
+        updatedLogs.unshift({
+          id: `log_batch_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 5)}`,
+          timestamp: nowStr,
+          poolId: pool.id,
+          poolNo: pool.poolNo,
+          projectName: pool.projectName,
+          type: spec.isDelivered ? 'APPROVED' : (isNew ? 'CREATED' : 'STAGE_FINISHED'),
+          stageId: spec.currentStageIndex < STAGES.length ? STAGES[spec.currentStageIndex]?.id : 'acrylic',
+          notes: `Batch Excel overriding. Synchronized state status: ${stageNameStatus}.`,
+          operatorName: operatorName || 'Planning Department Manager'
+        });
+      }
+    });
+
+    // Recompute projectsSummary
+    const allProjNames = Array.from(new Set([
+      ...updatedPools.map(p => p.projectName.toLowerCase()),
+      ...updatedPlannedPools.map(p => p.projectName.toLowerCase())
+    ]));
+
+    allProjNames.forEach(proj => {
+      const projectPools = updatedPools.filter(p => p.projectName.toLowerCase() === proj);
+      const totalPlanned = updatedPlannedPools.filter(p => p.projectName.toLowerCase() === proj).length;
+      const producedCount = projectPools.filter(p => p.currentStageIndex >= STAGES.length).length;
+      const deliveredCount = projectPools.filter(p => p.isDelivered).length;
+
+      const totalCount = projectPools.length + totalPlanned;
+      const existingProjectIndex = updatedProjects.findIndex(p => p.projectName.toLowerCase() === proj);
+
+      if (existingProjectIndex >= 0) {
+        const existingProject = updatedProjects[existingProjectIndex];
+        const updatedProjRec: ProjectSummary = {
+          ...existingProject,
+          totalPools: Math.max(existingProject.totalPools, totalCount),
+          producedPools: producedCount,
+          deliveredPools: deliveredCount,
+          remainingPools: Math.max(0, Math.max(existingProject.totalPools, totalCount) - deliveredCount)
+        };
+        updatedProjects[existingProjectIndex] = updatedProjRec;
+        dbSaveProjectSummary(updatedProjRec).catch(console.error);
+      } else {
+        const samplePool = updatedPools.find(p => p.projectName.toLowerCase() === proj) || updatedPlannedPools.find(p => p.projectName.toLowerCase() === proj);
+        const newProjRec: ProjectSummary = {
+          id: 'proj-' + Date.now() + '_' + Math.random().toString(36).substring(2, 5),
+          projectName: samplePool?.projectName || proj,
+          orientation: samplePool?.orientation || 'Normal',
+          poolType: samplePool?.poolType || 'Type 3',
+          totalPools: totalCount,
+          producedPools: producedCount,
+          deliveredPools: deliveredCount,
+          remainingPools: Math.max(0, totalCount - deliveredCount),
+          notes: `Created via batch Excel synchronization`,
+          createdAt: nowStr
+        };
+        updatedProjects.push(newProjRec);
+        dbSaveProjectSummary(newProjRec).catch(console.error);
+      }
+    });
+
+    setPools(updatedPools);
+    setPlannedPools(updatedPlannedPools);
+    setLogs(updatedLogs);
+    setProjectsSummary(updatedProjects);
+
+    saveState(
+      updatedPools,
+      teams,
+      updatedLogs,
+      inspectors,
+      engineers,
+      updatedPlannedPools,
+      updatedProjects,
+      monthlyTargets
+    );
+
+    return true;
+  };
+
+  const handleSaveProjectSummary = (summary: ProjectSummary) => {
+    const existingIndex = projectsSummary.findIndex(p => p.id === summary.id);
+    let updated: ProjectSummary[];
+    if (existingIndex >= 0) {
+      updated = [...projectsSummary];
+      updated[existingIndex] = summary;
+    } else {
+      updated = [summary, ...projectsSummary];
+    }
+    setProjectsSummary(updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, updated, monthlyTargets);
+    dbSaveProjectSummary(summary).catch(console.error);
+  };
+
+  const handleDeleteProjectSummary = async (id: string) => {
+    const targetProj = projectsSummary.find(p => p.id === id);
+    if (targetProj) {
+      const trashItem: RecycleBinItem = {
+        id: `project_trash_${id}_${Date.now()}`,
+        dataType: 'project_summary',
+        deletedAt: new Date().toISOString(),
+        payload: targetProj
+      };
+      await dbAddRecycleBin(trashItem).catch(console.error);
+    }
+    const updated = projectsSummary.filter(p => p.id !== id);
+    setProjectsSummary(updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, updated, monthlyTargets);
+    await dbDeleteProjectSummary(id).catch(console.error);
+
+    // Refresh recycle bin state
+    const cloudData = await getEntireStateFromFirestore().catch(() => null);
+    if (cloudData && cloudData.recycleBin) {
+      setRecycleBin(cloudData.recycleBin);
+    }
+  };
+
+  const handleSaveMonthlyTarget = (target: MonthlyTarget) => {
+    const existingIndex = monthlyTargets.findIndex(t => t.id === target.id);
+    let updated: MonthlyTarget[];
+    if (existingIndex >= 0) {
+      updated = [...monthlyTargets];
+      updated[existingIndex] = target;
+    } else {
+      updated = [target, ...monthlyTargets];
+    }
+    setMonthlyTargets(updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, updated);
+    dbSaveMonthlyTarget(target).catch(console.error);
+  };
+
   const handleRestoreState = (recovered: {
     pools: Pool[];
     teams: Team[];
@@ -179,13 +1215,22 @@ export default function App() {
     );
   };
 
-  const handleDeletePool = (poolId: string, operatorName: string) => {
+  const handleDeletePool = async (poolId: string, operatorName: string) => {
     const targetPool = pools.find(p => p.id === poolId);
     if (!targetPool) return;
 
     if (!window.confirm(`Are you absolutely sure you want to delete and scrap Pool [${targetPool.poolNo}] for "${targetPool.projectName}"? All manufacturing records for this pool will be deleted permanently.`)) {
       return;
     }
+
+    // Save to Recycle Bin
+    const trashItem: RecycleBinItem = {
+      id: `pool_trash_${poolId}_${Date.now()}`,
+      dataType: 'pool',
+      deletedAt: new Date().toISOString(),
+      payload: targetPool
+    };
+    await dbAddRecycleBin(trashItem).catch(console.error);
 
     const updatedPools = pools.filter(p => p.id !== poolId);
     
@@ -206,7 +1251,7 @@ export default function App() {
       stageId: 'steel_fabrication',
       type: 'REJECTED',
       operatorName: operatorName || 'Quality Engineer',
-      notes: `Pool/Shell card scrapped and deleted. All ongoing build steps set to terminated.`
+      notes: `Pool/Shell card scrapped and moved to Recycle Bin.`
     };
 
     const updatedLogs = [...logs, newLog];
@@ -215,12 +1260,130 @@ export default function App() {
     setTeams(updatedTeams);
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers);
+    await dbDeletePool(poolId).catch(console.error);
+
+    // Refresh recycle bin state
+    const cloudData = await getEntireStateFromFirestore().catch(() => null);
+    if (cloudData && cloudData.recycleBin) {
+      setRecycleBin(cloudData.recycleBin);
+    }
   };
 
   // Reset local state
   const handleResetData = () => {
     if (window.confirm('Are you sure you want to reset all manufacturing logs, pools status records, and team assignments to original demonstration state?')) {
       loadDefaultMockData();
+    }
+  };
+
+  // Complete database purge (start entirely from a fresh layout)
+  const handlePurgeAllData = async () => {
+    if (window.confirm('🚨 CRITICAL ACTION!\nAre you absolutely sure you want to delete ALL active pools, older projects, floor labor teams, planned pools, monthly targets, employees, and manufacturing history records permanently?\n\nThis will instantly clear both your browser cache AND your Cloud SQL database allowing you to start completely from scratch.')) {
+      setPools([]);
+      setTeams([]);
+      setLogs([]);
+      setInspectors([]);
+      setEngineers([]);
+      setPlannedPools([]);
+      setProjectsSummary([]);
+      setMonthlyTargets([]);
+      setEmployees([]);
+      setTrolleys([]);
+
+      localStorage.removeItem('apex_pools');
+      localStorage.removeItem('apex_teams');
+      localStorage.removeItem('apex_logs');
+      localStorage.removeItem('apex_inspectors');
+      localStorage.removeItem('apex_engineers');
+      localStorage.removeItem('apex_planned_pools');
+      localStorage.removeItem('apex_projects_summary');
+      localStorage.removeItem('apex_monthly_targets');
+      localStorage.removeItem('apex_employees');
+      localStorage.removeItem('apex_trolleys');
+
+      try {
+        await saveEntireStateToFirestore([], [], [], [], [], [], [], [], []);
+        setFirebaseStatus('connected');
+        setFirebaseError(null);
+        alert('Database cleared successfully! You now have a 100% clean worksheet canvas. Start by adding your own staff or releasing new projects.');
+      } catch (err: any) {
+        console.error('Core purge Cloud SQL sync failure:', err);
+        setFirebaseStatus('error');
+        setFirebaseError(err?.message || String(err));
+        alert('Data cleared locally, but Cloud SQL sync failed. Please check your cloud connection.');
+      }
+    }
+  };
+
+  // Option in management portal to delete all pool related data but not team and other employees data and save to recycle bin
+  const handlePurgePoolRelatedData = async () => {
+    if (!window.confirm('🚨 DANGER ZONE - PURGE ALL CONTRACTS & BUILDS!\nAre you absolutely sure you want to delete ALL active pools, older planned pools, and contract summary indexes from the application?\n\n- This will NOT affect shop floor teams or employees.\n- Deleted records will stay in the Recycle Bin for 3 days and can be recovered/restored.')) {
+      return;
+    }
+    try {
+      const backupId = `purge_pools_${Date.now()}`;
+      await dbPurgePoolRelatedData(backupId);
+
+      // Instantly clear client states
+      setPools([]);
+      setPlannedPools([]);
+      setProjectsSummary([]);
+
+      localStorage.setItem('apex_pools', JSON.stringify([]));
+      localStorage.setItem('apex_planned_pools', JSON.stringify([]));
+      localStorage.setItem('apex_projects_summary', JSON.stringify([]));
+
+      // Fetch fresh cloud state to update recycle bin
+      const cloudData = await getEntireStateFromFirestore().catch(() => null);
+      if (cloudData) {
+        if (cloudData.recycleBin) setRecycleBin(cloudData.recycleBin);
+      }
+
+      alert('All pool related logs, pools, and summary cards deleted successfully! A backup has been saved in the Recycle Bin available for 3 days.');
+    } catch (err: any) {
+      console.error('Core pool-only purge failure:', err);
+      alert('Failed to purge pool data: ' + err.message);
+    }
+  };
+
+  const handleRestoreRecycleBinItem = async (id: string) => {
+    try {
+      await dbRestoreRecycleBin(id);
+      
+      // Reload entire state from Cloud SQL to populate all restored rows
+      const cloudData = await getEntireStateFromFirestore();
+      setPools(cloudData.pools);
+      setPlannedPools(cloudData.plannedPools);
+      setProjectsSummary(cloudData.projectsSummary);
+      setTrolleys(cloudData.trolleys);
+      setRecycleBin(cloudData.recycleBin);
+
+      localStorage.setItem('apex_pools', JSON.stringify(cloudData.pools));
+      localStorage.setItem('apex_planned_pools', JSON.stringify(cloudData.plannedPools));
+      localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary));
+      localStorage.setItem('apex_trolleys', JSON.stringify(cloudData.trolleys));
+
+      alert('Item restored successfully from Recycle Bin!');
+    } catch (err: any) {
+      console.error('Restore recycle item failure:', err);
+      alert('Failed to restore item: ' + err.message);
+    }
+  };
+
+  const handleDeleteRecycleBinItem = async (id: string) => {
+    if (!window.confirm('Are you sure you want to permanently empty this item from the Recycle Bin? This action is irreversible.')) {
+      return;
+    }
+    try {
+      await dbDeleteRecycleBin(id);
+      
+      // Update local state
+      const updated = recycleBin.filter(item => item.id !== id);
+      setRecycleBin(updated);
+      alert('Item permanently deleted from trash.');
+    } catch (err: any) {
+      console.error('Delete recycle item failure:', err);
+      alert('Failed to delete item: ' + err.message);
     }
   };
 
@@ -320,6 +1483,277 @@ export default function App() {
     setPools(updatedPools);
     setLogs(updatedLogs);
     saveState(updatedPools, teams, updatedLogs);
+  };
+
+  // ==========================================
+  // PLANNED POOL OPERATIONS (Planning Portal)
+  // ==========================================
+  const handleAddPlannedPool = (plannedSpec: {
+    projectName: string;
+    poolNo: string;
+    orientation: PoolOrientation;
+    dimensions: string;
+    shape: string;
+    poolType?: string;
+    drawingUrl?: string;
+    notes?: string;
+  }) => {
+    // Check if unique poolNo exists across both live & planned to prevent double entry
+    if (plannedPools.some(p => p.poolNo.trim().toUpperCase() === plannedSpec.poolNo.trim().toUpperCase())) {
+      alert(`Pool code "${plannedSpec.poolNo}" is already pre-planned in this workstation.`);
+      return false;
+    }
+    if (pools.some(p => p.poolNo.trim().toUpperCase() === plannedSpec.poolNo.trim().toUpperCase())) {
+      alert(`Pool code "${plannedSpec.poolNo}" is already in active production on the floor.`);
+      return false;
+    }
+
+    const newPlan: PlannedPool = {
+      id: `plan_${Date.now()}`,
+      projectName: plannedSpec.projectName,
+      poolNo: plannedSpec.poolNo.trim().toUpperCase(),
+      orientation: plannedSpec.orientation,
+      dimensions: plannedSpec.dimensions || '12m x 5m',
+      shape: plannedSpec.shape || 'Rectangular',
+      poolType: plannedSpec.poolType || 'Type 1',
+      drawingUrl: plannedSpec.drawingUrl,
+      status: 'PLANNED',
+      notes: plannedSpec.notes || '',
+      createdAt: new Date().toISOString()
+    };
+
+    const updated = [newPlan, ...plannedPools];
+    setPlannedPools(updated);
+    saveState(pools, teams, logs, inspectors, engineers, updated);
+    return true;
+  };
+
+  const handleAddPlannedPoolBatch = (batchSpec: {
+    projectName: string;
+    prefix: string;
+    startRange: number;
+    count: number;
+    orientation: PoolOrientation;
+    dimensions: string;
+    shape: string;
+    poolType?: string;
+    drawingUrl?: string;
+    notes?: string;
+  }) => {
+    const newPlans: PlannedPool[] = [];
+    let duplicatesCount = 0;
+
+    for (let i = 0; i < batchSpec.count; i++) {
+      const numVal = batchSpec.startRange + i;
+      const computedPoolNo = `${batchSpec.prefix}${numVal}`.toUpperCase();
+
+      // Check duplicate
+      const isDupPlanned = plannedPools.some(p => p.poolNo === computedPoolNo) || newPlans.some(p => p.poolNo === computedPoolNo);
+      const isDupLive = pools.some(p => p.poolNo === computedPoolNo);
+
+      if (isDupPlanned || isDupLive) {
+        duplicatesCount++;
+        continue;
+      }
+
+      newPlans.push({
+        id: `plan_${Date.now()}_b${i}_${Math.random().toString(36).substring(2, 6)}`,
+        projectName: batchSpec.projectName,
+        poolNo: computedPoolNo,
+        orientation: batchSpec.orientation,
+        dimensions: batchSpec.dimensions || '12m x 5m',
+        shape: batchSpec.shape || 'Rectangular',
+        poolType: batchSpec.poolType || 'Type 1',
+        drawingUrl: batchSpec.drawingUrl,
+        status: 'PLANNED',
+        notes: batchSpec.notes ? `${batchSpec.notes} (Pre-planned Batch)` : 'Pre-planned Batch',
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    if (newPlans.length === 0) {
+      alert("All pool numbers in this range already exist. No new pools were generated.");
+      return;
+    }
+
+    const updated = [...newPlans, ...plannedPools];
+    setPlannedPools(updated);
+
+    // Also add an activity log to trace this planning bulk entry!
+    const planningLog: ActivityLog = {
+      id: `log_plan_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      poolId: 'bulk_planning',
+      poolNo: 'PLANNING',
+      projectName: batchSpec.projectName,
+      stageId: 'steel_fabrication',
+      type: 'CREATED',
+      operatorName: 'Planning Office',
+      notes: `Pre-registered batch of ${newPlans.length} pools under "${batchSpec.projectName}" in planning portal. (Skipped ${duplicatesCount} duplicates)`
+    };
+    const updatedLogs = [planningLog, ...logs];
+    setLogs(updatedLogs);
+    saveState(pools, teams, updatedLogs, inspectors, engineers, updated);
+
+    alert(`Successfully generated and registered ${newPlans.length} pools for project "${batchSpec.projectName}".${duplicatesCount > 0 ? ` (Skipped ${duplicatesCount} duplicates.)` : ''}`);
+  };
+
+  const handleImportPlannedPools = (importedList: {
+    projectName: string;
+    poolNo: string;
+    orientation: PoolOrientation;
+    dimensions: string;
+    shape: string;
+    poolType?: string;
+    drawingUrl?: string;
+    notes?: string;
+  }[]) => {
+    const newPlans: PlannedPool[] = [];
+    let dupsCount = 0;
+    const nowStr = new Date().toISOString();
+
+    importedList.forEach((item, index) => {
+      const computedPoolNo = item.poolNo.trim().toUpperCase();
+      const isDupPlanned = plannedPools.some(p => p.poolNo === computedPoolNo) || newPlans.some(p => p.poolNo === computedPoolNo);
+      const isDupLive = pools.some(p => p.poolNo === computedPoolNo);
+
+      if (isDupPlanned || isDupLive) {
+        dupsCount++;
+        return;
+      }
+
+      newPlans.push({
+        id: `plan_${Date.now()}_import_${index}_${Math.random().toString(36).substring(2, 6)}`,
+        projectName: item.projectName || 'Excel Import',
+        poolNo: computedPoolNo,
+        orientation: item.orientation || 'Normal',
+        dimensions: item.dimensions || '12m x 5m',
+        shape: item.shape || 'Rectangular',
+        poolType: item.poolType || 'Type 1',
+        drawingUrl: item.drawingUrl || '',
+        status: 'PLANNED',
+        notes: item.notes || 'Imported from Excel',
+        createdAt: nowStr
+      });
+    });
+
+    if (newPlans.length === 0) {
+      alert(`All parsed pools in the spreadsheet already exist in register or active production.`);
+      return false;
+    }
+
+    const updated = [...newPlans, ...plannedPools];
+    setPlannedPools(updated);
+
+    // Also trace it in activity logs!
+    const importLog: ActivityLog = {
+      id: `log_import_${Date.now()}`,
+      timestamp: nowStr,
+      poolId: 'bulk_import',
+      poolNo: 'IMPORT',
+      projectName: 'Bulk Projects',
+      type: 'CREATED',
+      stageId: 'steel_fabrication',
+      notes: `Imported ${newPlans.length} pool designs from Excel file. Filtered out ${dupsCount} duplicates.`,
+      operatorName: 'Planning Office Staff'
+    };
+    const updatedLogs = [importLog, ...logs];
+    setLogs(updatedLogs);
+
+    saveState(pools, teams, updatedLogs, inspectors, engineers, updated);
+    alert(`Success! Imported ${newPlans.length} pools from Excel successfully.${dupsCount > 0 ? ` Filtered out ${dupsCount} duplicate codes.` : ''}`);
+    return true;
+  };
+
+  const handleDeletePlannedPool = async (planId: string) => {
+    const design = plannedPools.find(p => p.id === planId);
+    if (!design) return;
+    if (design.status !== 'PLANNED') {
+      alert("Cannot delete a released or completed pool from the planning list.");
+      return;
+    }
+    if (!window.confirm(`Remove pre-planned pool ${design.poolNo} from the index?`)) return;
+
+    // Save to Recycle Bin
+    const trashItem: RecycleBinItem = {
+      id: `planned_pool_trash_${planId}_${Date.now()}`,
+      dataType: 'planned_pool',
+      deletedAt: new Date().toISOString(),
+      payload: design
+    };
+    await dbAddRecycleBin(trashItem).catch(console.error);
+
+    const updated = plannedPools.filter(p => p.id !== planId);
+    setPlannedPools(updated);
+    saveState(pools, teams, logs, inspectors, engineers, updated);
+
+    // Call Delete API endpoint direct if it has database reference
+    const headers = { 'Content-Type': 'application/json' };
+    await fetch(`/api/planned-pools/${planId}`, { method: 'DELETE', headers }).catch(console.error);
+
+    // Refresh recycle bin state
+    const cloudData = await getEntireStateFromFirestore().catch(() => null);
+    if (cloudData && cloudData.recycleBin) {
+      setRecycleBin(cloudData.recycleBin);
+    }
+  };
+
+  const handleReleasePlannedPool = (planId: string, operatorName: string) => {
+    const designIndex = plannedPools.findIndex(p => p.id === planId);
+    if (designIndex === -1) return null;
+    const design = plannedPools[designIndex];
+    if (design.status !== 'PLANNED') {
+      alert("This pool shell is already released or completed.");
+      return null;
+    }
+
+    // Now spawn the LIVE pool card
+    const livePoolId = `pool_${Date.now()}`;
+    const newPool: Pool = {
+      id: livePoolId,
+      projectName: design.projectName,
+      poolNo: design.poolNo,
+      orientation: design.orientation,
+      dimensions: design.dimensions,
+      shape: design.shape,
+      poolType: design.poolType || 'Type 1',
+      drawingUrl: design.drawingUrl,
+      notes: design.notes ? `${design.notes} (Source: Planning Portal)` : 'Source: Planning Portal',
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      currentStageIndex: 0, // Starts at Steel Fabrication
+      stageHistory: createEmptyHistory()
+    };
+
+    // Update plannedPool status
+    const updatedPlans = [...plannedPools];
+    updatedPlans[designIndex] = {
+      ...design,
+      status: 'RELEASED',
+      releasedPoolId: livePoolId
+    };
+
+    // Audit log
+    const newLog: ActivityLog = {
+      id: `log_release_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      poolId: livePoolId,
+      poolNo: design.poolNo,
+      projectName: design.projectName,
+      stageId: 'steel_fabrication',
+      type: 'CREATED',
+      operatorName: operatorName || 'Planning Office',
+      notes: `Released Pre-Planned Pool [${design.poolNo}] into active fabrication. Current stage: Steel Fabrication.`
+    };
+
+    const updatedPools = [...pools, newPool];
+    const updatedLogs = [newLog, ...logs];
+
+    setPools(updatedPools);
+    setPlannedPools(updatedPlans);
+    setLogs(updatedLogs);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, updatedPlans);
+    return livePoolId;
   };
 
   // 2. Claim Pool (Stage worker claims available pool card)
@@ -446,7 +1880,7 @@ export default function App() {
   };
 
   // 5. Approve Stage (By Quality Inspector)
-  const handleApproveStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string) => {
+  const handleApproveStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string) => {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -459,6 +1893,7 @@ export default function App() {
     stageHist.inspectorId = inspectorId;
     stageHist.inspectorNotes = notes;
     stageHist.inspectionTime = new Date().toISOString();
+    stageHist.inspectorPicture = inspectorPicture;
     pool.stageHistory[stageId] = stageHist;
 
     const originalWorkspecTeamId = stageHist.teamId;
@@ -471,13 +1906,21 @@ export default function App() {
       return t;
     });
 
-    // Advance pool to the next stage index
-    const nextIndex = pool.currentStageIndex + 1;
-    pool.currentStageIndex = nextIndex;
+    const stageIndex = STAGES.findIndex(s => s.id === stageId);
+    let updatedPlans = [...plannedPools];
+    const nextIndex = stageIndex + 1;
+    if (stageIndex === pool.currentStageIndex) {
+      // Advance pool to the next stage index
+      pool.currentStageIndex = nextIndex;
 
-    // If advanced past 7 (all stages complete), stamp completedAt
-    if (nextIndex >= STAGES.length) {
-      pool.completedAt = new Date().toISOString();
+      // If advanced past all stages, stamp completedAt and update corresponding PlannedPool
+      if (nextIndex >= STAGES.length) {
+        pool.completedAt = new Date().toISOString();
+        updatedPlans = plannedPools.map(pp => 
+          pp.releasedPoolId === pool.id ? { ...pp, status: 'COMPLETED' as const } : pp
+        );
+        setPlannedPools(updatedPlans);
+      }
     }
 
     const newLog: ActivityLog = {
@@ -489,7 +1932,8 @@ export default function App() {
       stageId,
       type: 'APPROVED',
       operatorName: inspectorId,
-      notes: `QC APPROVED: ${notes}. Unlocked stage: ${nextIndex < STAGES.length ? STAGES[nextIndex].name : 'Final Completion Shipment'}`
+      notes: `QC APPROVED: ${notes}. Unlocked stage: ${nextIndex < STAGES.length ? STAGES[nextIndex].name : 'Final Completion Shipment'}`,
+      inspectorPicture
     };
 
     const updatedLogs = [...logs, newLog];
@@ -497,11 +1941,11 @@ export default function App() {
     setPools(updatedPools);
     setTeams(updatedTeams);
     setLogs(updatedLogs);
-    saveState(updatedPools, updatedTeams, updatedLogs);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans);
   };
 
   // 6. Reject Stage (Sends pool back for rework)
-  const handleRejectStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string) => {
+  const handleRejectStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string) => {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -515,6 +1959,7 @@ export default function App() {
     stageHist.inspectorNotes = notes;
     stageHist.inspectionTime = new Date().toISOString();
     stageHist.rejectionCount = (stageHist.rejectionCount || 0) + 1;
+    stageHist.inspectorPicture = inspectorPicture;
     
     // Reset startTime and endTime for clean rework tracking
     stageHist.startTime = null;
@@ -543,7 +1988,8 @@ export default function App() {
       stageId,
       type: 'REJECTED',
       operatorName: inspectorId,
-      notes: `QC REJECTED: ${notes}. Returned to Available stage queue for re-finishing.`
+      notes: `QC REJECTED: ${notes}. Returned to Available stage queue for re-finishing.`,
+      inspectorPicture
     };
 
     const updatedLogs = [...logs, newLog];
@@ -552,6 +1998,69 @@ export default function App() {
     setTeams(updatedTeams);
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs);
+  };
+
+  const handleSkipOrCarryOnSite = (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => {
+    const poolIndex = pools.findIndex(p => p.id === poolId);
+    if (poolIndex === -1) return;
+
+    const updatedPools = [...pools];
+    const pool = updatedPools[poolIndex];
+    const stageHist = { ...pool.stageHistory[stageId] };
+
+    // Record skipped / custom carry status
+    stageHist.status = option;
+    stageHist.endTime = new Date().toISOString();
+    stageHist.inspectorId = operatorName;
+    stageHist.inspectorNotes = option === 'SKIPPED' ? 'Skipped this section for now' : 'Will be carry on site';
+    stageHist.inspectionTime = new Date().toISOString();
+    pool.stageHistory[stageId] = stageHist;
+
+    const originalWorkspecTeamId = stageHist.teamId;
+
+    // Release team if assigned to BUSY status
+    const updatedTeams = teams.map(t => {
+      if (t.id === originalWorkspecTeamId) {
+        return { ...t, status: 'IDLE' as const, activePoolId: null };
+      }
+      return t;
+    });
+
+    // Advance pool to the next stage index
+    const stageIndex = STAGES.findIndex(s => s.id === stageId);
+    let updatedPlans = [...plannedPools];
+    const nextIndex = stageIndex + 1;
+    if (stageIndex === pool.currentStageIndex) {
+      pool.currentStageIndex = nextIndex;
+
+      if (nextIndex >= STAGES.length) {
+        pool.completedAt = new Date().toISOString();
+        updatedPlans = plannedPools.map(pp => 
+          pp.releasedPoolId === pool.id ? { ...pp, status: 'COMPLETED' as const } : pp
+        );
+        setPlannedPools(updatedPlans);
+      }
+    }
+
+    const labelStr = option === 'SKIPPED' ? 'SKIPPED FOR NOW' : 'WILL BE CARRY ON SITE';
+    const newLog: ActivityLog = {
+      id: `log_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      poolId: pool.id,
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      stageId,
+      type: 'APPROVED',
+      operatorName,
+      notes: `STAGE DISPATCH ACTION: Marked as ${labelStr}. Advanced and unlocked next stage: ${nextIndex < STAGES.length ? STAGES[nextIndex].name : 'Finished Shipment'}`
+    };
+
+    const updatedLogs = [...logs, newLog];
+
+    setPools(updatedPools);
+    setTeams(updatedTeams);
+    setLogs(updatedLogs);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans);
   };
 
   const handleStageChange = (stageId: StageId) => {
@@ -566,69 +2075,111 @@ export default function App() {
 
   const currentStageInfo = STAGES.find(s => s.id === selectedStageId) || STAGES[0];
 
+  if (!loggedInUser) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-between font-sans selection:bg-blue-250 antialiased">
       
-      {/* Simulation Helper banner */}
-      <div className="bg-slate-900 border-b border-slate-800 py-2.5 px-4 text-[11px] text-slate-350">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-1.5">
+      {/* Station Lock Overlay Banner */}
+      {stationLock.isLocked && (
+        <div className="bg-amber-500 border-b border-amber-600/30 text-slate-950 px-4 py-2 text-xs font-black flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 bg-cyan-900/30 text-cyan-400 border border-cyan-805 rounded font-bold font-mono">
-              ROLEPLAY SIMULATOR MODE
+            <span className="inline-block p-1 bg-amber-600 text-amber-50 rounded-md animate-pulse">
+              <ShieldAlert className="h-4 w-4" />
             </span>
-            <span className="text-slate-450 text-slate-400">
-              Switch roles using the portal buttons to test the cross-functional pipeline in real-time.
+            <span className="uppercase tracking-wider font-mono">
+              🔒 Section Workstation Locked Mode: {
+                (stationLock.allowedRoles && stationLock.allowedRoles.length > 1) ? (
+                  `Dedicated Multi-Portal (${stationLock.allowedRoles.map(r => 
+                    r === 'stage_worker' ? 'Stage Shop Floor' : 
+                    r === 'trolley_prod' ? 'Trolley Ledger' : r
+                  ).join(' + ')})`
+                ) : (
+                  stationLock.role === 'management' ? 'Management Center Only' :
+                  stationLock.role === 'trolley_prod' ? 'Trolley Production Ledger' :
+                  stationLock.role === 'planning_department' ? 'Planning Dept. Portal' :
+                  stationLock.role === 'quality_inspector' ? 'Quality Assurance Panel' :
+                  stationLock.role === 'production_engineer' ? 'Production Eng. Release' :
+                  stationLock.role === 'section_dashboard' ? 'Section TV Display' :
+                  stationLock.role === 'factory_entrance' ? 'Factory Entrance TV' :
+                  `${STAGES.find(s => s.id === stationLock.stageId)?.name || 'Stage Floor'} Terminal`
+                )
+              }
             </span>
           </div>
-
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setShowGuide(!showGuide)}
-              className="text-slate-300 hover:text-white font-semibold flex items-center gap-1 cursor-pointer"
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] bg-slate-950 text-amber-400 font-mono px-2 py-0.5 rounded uppercase font-black">
+              Authorized Device Input
+            </span>
+            <button
+              onClick={() => {
+                setUnlockError(null);
+                setUnlockPinInput('');
+                setIsUnlockModalOpen(true);
+              }}
+              className="bg-slate-950 hover:bg-slate-800 text-white hover:text-cyan-300 font-bold px-3 py-1 text-[11px] rounded-lg cursor-pointer transition-colors"
             >
-              <HelpCircle className="h-3.5 w-3.5 text-blue-400" />
-              <span>{showGuide ? 'Hide Instructions' : 'View Core Walkthrough'}</span>
+              Unlock Terminal
             </button>
-            <span className="text-slate-700">|</span>
-            <button 
-              onClick={handleResetData}
-              className="text-slate-300 hover:text-rose-400 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Reset State</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Guide walkthrough toggle display */}
-      {showGuide && (
-        <div className="bg-blue-50 border-b border-blue-105 p-4 text-[11px] text-blue-900 font-medium">
-          <div className="max-w-7xl mx-auto flex gap-3.5">
-            <Info className="h-5.5 w-5.5 text-blue-500 flex-shrink-0" />
-            <div className="space-y-1">
-              <p className="font-bold text-blue-955 text-blue-950 uppercase tracking-wide">Rapid Test Drive Walkthrough:</p>
-              <ol className="list-decimal pl-4 space-y-1.5 mt-1 text-blue-800">
-                <li>
-                  Go to <strong className="text-slate-900">Production Eng.</strong> to release a new pool (e.g., P-1050 Sunset Villa) with specific orientation details.
-                </li>
-                <li>
-                  Go to <strong className="text-slate-900">Stage Shop Floor</strong>, assign yourself to a team (e.g., Team 1), click <strong className="text-slate-900">Claim Task</strong> on your new pool, and click <strong className="text-slate-900">Start Stage Timer</strong>.
-                </li>
-                <li>
-                  Click <strong className="text-slate-900">Complete & Request QA Signoff</strong> to pass the pool to Quality Assurance.
-                </li>
-                <li>
-                  Switch to <strong className="text-slate-900">Quality Assurance</strong>, check the checklists, write feedback notes, and click <strong className="text-slate-900">Certify & Approve Stage</strong> to promote the pool to Stage 2 (Steel Primer).
-                </li>
-                <li>
-                  Monitor the global matrix at the <strong className="text-slate-900">Factory Entrance TV</strong> or analyze performance trends on the <strong className="text-slate-900">Management Portal</strong>!
-                </li>
-              </ol>
-            </div>
           </div>
         </div>
       )}
+
+      {/* Simulation Helper banner */}
+      <div className="bg-slate-900 border-b border-slate-800 py-2.5 px-4 text-[11px] text-slate-350">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-1.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="px-2 py-0.5 bg-cyan-900/30 text-cyan-400 border border-cyan-800 rounded font-bold font-mono text-[10px]">
+              ROLEPLAY SIMULATOR MODE
+            </span>
+            
+            {/* Cloud SQL Sync Status Badge */}
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/60 border border-slate-700/80 font-mono text-[10px]">
+              {firebaseStatus === 'linking' && (
+                <>
+                  <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" />
+                  <span className="text-amber-300">Cloud SQL Connecting...</span>
+                </>
+              )}
+              {firebaseStatus === 'connected' && (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                  </span>
+                  <span className="text-indigo-400 font-bold">Cloud SQL Synced</span>
+                </>
+              )}
+              {firebaseStatus === 'error' && (
+                <>
+                  <WifiOff className="h-3 w-3 text-rose-400 shrink-0" />
+                  <span className="text-rose-400 font-bold" title={firebaseError || 'Cloud SQL limited access mode'}>
+                    Local Mode (Backup Only)
+                  </span>
+                </>
+              )}
+            </div>
+
+            <span className="text-slate-400 hidden xl:inline">
+              | Switch roles using the portal buttons to test the cross-functional pipeline in real-time.
+            </span>
+          </div>
+
+          {!stationLock.isLocked && (
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={handleResetData}
+                className="text-slate-300 hover:text-rose-400 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset State</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Primary navigation selector */}
       <RoleSelector
@@ -642,16 +2193,41 @@ export default function App() {
         googleUser={googleUser}
         onGoogleSignIn={handleGoogleSignIn}
         onGoogleSignOut={handleGoogleSignOut}
+        stationLock={stationLock}
+        loggedInUser={loggedInUser}
+        onLogout={handleLogout}
       />
 
       {/* Central View Dashboard Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {currentRole === 'planning_department' && (
+          <PlanningDepartment
+            plannedPools={plannedPools}
+            pools={pools}
+            onAddPlannedPool={handleAddPlannedPool}
+            onAddPlannedPoolBatch={handleAddPlannedPoolBatch}
+            onDeletePlannedPool={handleDeletePlannedPool}
+            onReleasePlannedPool={handleReleasePlannedPool}
+            engineers={engineers}
+            projectsSummary={projectsSummary}
+            onSaveProjectSummary={handleSaveProjectSummary}
+            onDeleteProjectSummary={handleDeleteProjectSummary}
+            monthlyTargets={monthlyTargets}
+            onSaveMonthlyTarget={handleSaveMonthlyTarget}
+            onDirectOverridePool={handleDirectOverridePool}
+            onAddPlannedPoolsList={handleImportPlannedPools}
+            onDirectOverridePoolsBatch={handleDirectOverridePoolsBatch}
+          />
+        )}
+
         {currentRole === 'production_engineer' && (
           <ProductionEngineer
             pools={pools}
             onCreatePool={handleCreatePool}
             onCreatePoolBatch={handleCreatePoolBatch}
             engineers={engineers}
+            plannedPools={plannedPools}
+            onReleasePlannedPool={handleReleasePlannedPool}
           />
         )}
 
@@ -666,6 +2242,7 @@ export default function App() {
             onFinishStage={handleFinishStage}
             googleUser={googleUser}
             onGoogleSignIn={handleGoogleSignIn}
+            onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
           />
         )}
 
@@ -677,6 +2254,7 @@ export default function App() {
             onRejectStage={handleRejectStage}
             inspectors={inspectors}
             onDeletePool={handleDeletePool}
+            onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
           />
         )}
 
@@ -701,6 +2279,32 @@ export default function App() {
             onGoogleSignIn={handleGoogleSignIn}
             onGoogleSignOut={handleGoogleSignOut}
             onRestoreState={handleRestoreState}
+            stationLock={stationLock}
+            onLockStation={handleLockStation}
+            onUnlockStation={handleUnlockStation}
+            onRequestUnlock={() => setIsUnlockModalOpen(true)}
+            onPurgeAllData={handlePurgeAllData}
+            recycleBin={recycleBin}
+            onPurgePoolRelatedData={handlePurgePoolRelatedData}
+            onRestoreRecycleBinItem={handleRestoreRecycleBinItem}
+            onDeleteRecycleBinItem={handleDeleteRecycleBinItem}
+            projectsSummary={projectsSummary}
+            monthlyTargets={monthlyTargets}
+            employees={employees}
+            trolleys={trolleys}
+            onSaveEmployee={handleSaveEmployee}
+            onDeleteEmployee={handleDeleteEmployee}
+            onDeleteProjectSummary={handleDeleteProjectSummary}
+            onDeletePlannedPool={handleDeletePlannedPool}
+            onDeletePool={handleDeletePool}
+            onDeleteTrolley={handleDeleteTrolley}
+            employeePunches={employeePunches}
+            onAddEmployeePunch={handleSaveEmployeePunch}
+            onDeleteEmployeePunch={handleDeleteEmployeePunch}
+            onAddEmployeePunchesBulk={handleSaveEmployeePunchesBulk}
+            onAddEmployeesBulk={handleSaveEmployeesBulk}
+            onClearAllEmployeePunches={handleClearAllEmployeePunches}
+            onDeleteEmployeePunchesByDate={handleDeleteEmployeePunchesByDate}
           />
         )}
 
@@ -711,6 +2315,14 @@ export default function App() {
             logs={logs}
           />
         )}
+
+        {currentRole === 'trolley_prod' && (
+          <TrolleyProductionTracker
+            trolleys={trolleys}
+            onSaveTrolley={handleSaveTrolley}
+            onDeleteTrolley={handleDeleteTrolley}
+          />
+        )}
       </main>
 
       {/* Simple Footer */}
@@ -719,6 +2331,229 @@ export default function App() {
           <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Flow Scheduling Engine</p>
         </div>
       </footer>
+
+      {/* Dynamic Iframe-Safe Custom Unlock PIN Modal Overlay */}
+      {isUnlockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 text-slate-100 w-full max-w-sm rounded-2xl shadow-2xl p-6 relative overflow-hidden">
+            {/* Header decor bar */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-amber-500" />
+            
+            <div className="text-center space-y-2 mb-6">
+              <div className="inline-flex p-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-full mb-1">
+                <ShieldAlert className="h-6 w-6 animate-pulse" />
+              </div>
+              <h3 className="text-lg font-black tracking-tight text-white uppercase">
+                Authorize Terminal Unlock
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                To exit workstation-locked mode and restore full site-wide management permissions, input your Security PIN block.
+              </p>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handleUnlockStation(unlockPinInput);
+            }} className="space-y-4">
+              
+              <div className="space-y-2">
+                <input
+                  type="password"
+                  maxLength={8}
+                  autoFocus
+                  placeholder="PIN"
+                  value={unlockPinInput}
+                  onChange={(e) => {
+                    setUnlockError(null);
+                    setUnlockPinInput(e.target.value.replace(/\D/g, ''));
+                  }}
+                  className="w-full text-center bg-slate-950 border border-slate-800 text-2xl font-black font-mono tracking-[0.5em] text-cyan-400 placeholder:text-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                />
+                
+                {unlockError && (
+                  <p className="text-xs text-rose-400 font-bold text-center bg-rose-950/20 py-1.5 px-2 rounded-lg border border-rose-900/40 animate-pulse">
+                    ⚠️ {unlockError}
+                  </p>
+                )}
+              </div>
+
+              {/* Numerical Quick Touchpad key block */}
+              <div className="grid grid-cols-3 gap-2">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => {
+                      setUnlockError(null);
+                      if (unlockPinInput.length < 8) {
+                        setUnlockPinInput(prev => prev + num);
+                      }
+                    }}
+                    className="py-2.5 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/40 text-sm font-black rounded-lg cursor-pointer transition-all active:scale-95"
+                  >
+                    {num}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUnlockError(null);
+                    setUnlockPinInput('');
+                  }}
+                  className="py-2.5 bg-slate-800/20 hover:bg-slate-800/45 text-xs text-slate-400 font-bold rounded-lg cursor-pointer transition-all"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUnlockError(null);
+                    if (unlockPinInput.length < 8) {
+                      setUnlockPinInput(prev => prev + '0');
+                    }
+                  }}
+                  className="py-2.5 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/40 text-sm font-black rounded-lg cursor-pointer transition-all active:scale-95"
+                >
+                  0
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUnlockError(null);
+                    setUnlockPinInput(prev => prev.slice(0, -1));
+                  }}
+                  className="py-2.5 bg-slate-800/20 hover:bg-slate-800/45 text-xs text-slate-400 font-bold rounded-lg cursor-pointer transition-all"
+                >
+                  Delete
+                </button>
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="submit"
+                  disabled={!unlockPinInput}
+                  className="w-full bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-black text-xs py-3 rounded-lg uppercase tracking-wider cursor-pointer transition-all"
+                >
+                  Submit PIN Code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsUnlockModalOpen(false);
+                    setUnlockPinInput('');
+                    setUnlockError(null);
+                  }}
+                  className="w-full bg-slate-800/40 hover:bg-slate-800 text-slate-300 font-bold text-xs py-2 rounded-lg cursor-pointer transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              {/* Non-brick Safety Emergency Bypass Section */}
+              <div className="pt-3 border-t border-slate-800 text-center space-y-1.5">
+                <p className="text-[10px] text-slate-500">
+                  Forgot PIN? Default setup code is <span className="text-slate-300 font-mono font-bold">1234</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleEmergencyUnlock();
+                  }}
+                  className="text-[10px] text-amber-500/80 hover:text-amber-400 underline cursor-pointer font-bold transition-all block mx-auto"
+                >
+                  Emergency Bypass (Forced Unlock)
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Google Auth Global Status Overlay / Toast */}
+      {authNotification && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl relative text-slate-100 space-y-4">
+            <button 
+              onClick={() => setAuthNotification(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-100 cursor-pointer p-1 rounded-full hover:bg-slate-800 transition-all"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            
+            <div className="flex items-start gap-4">
+              {authNotification.type === 'success' ? (
+                <div className="p-2.5 bg-emerald-500/10 rounded-xl text-emerald-400 shrink-0">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+              ) : authNotification.type === 'error' ? (
+                <div className="p-2.5 bg-amber-500/10 rounded-xl text-amber-400 shrink-0">
+                  <AlertCircle className="h-6 w-6" />
+                </div>
+              ) : (
+                <div className="p-2.5 bg-blue-500/10 rounded-xl text-blue-400 shrink-0">
+                  <Info className="h-6 w-6" />
+                </div>
+              )}
+              
+              <div className="space-y-1 flex-1">
+                <h3 className="text-sm font-black text-white tracking-tight uppercase">
+                  {authNotification.title}
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed font-sans font-medium">
+                  {authNotification.message}
+                </p>
+              </div>
+            </div>
+            
+            {authNotification.isAuthError ? (
+              <div className="pt-3 border-t border-slate-800 space-y-2">
+                <button
+                  onClick={() => {
+                    setAuthNotification(null);
+                    handleGoogleSignInRedirect();
+                  }}
+                  className="w-full bg-indigo-650 hover:bg-indigo-700 bg-indigo-600 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer transition-all uppercase tracking-wider font-mono shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Use Redirect Sign-In
+                </button>
+                <button
+                  onClick={() => {
+                    window.open(window.location.href, '_blank');
+                  }}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer transition-all uppercase tracking-wider font-mono shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  <Info className="h-3.5 w-3.5" /> Open App in New Tab (Prevents Blocks)
+                </button>
+                <button
+                  onClick={() => {
+                    setAuthNotification(null);
+                    handleGoogleSignIn();
+                  }}
+                  className="w-full bg-slate-800/50 hover:bg-slate-800 text-slate-300 font-bold text-xs py-2 rounded-xl cursor-pointer transition-all uppercase tracking-normal"
+                >
+                  Retry Original popup
+                </button>
+                <button
+                  onClick={() => setAuthNotification(null)}
+                  className="w-full text-slate-500 hover:text-slate-400 font-bold text-[11px] pt-1"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="pt-2">
+                <button
+                  onClick={() => setAuthNotification(null)}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer transition-all uppercase tracking-wider font-mono shadow-sm"
+                >
+                  Acknowledge
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
     </div>
   );
