@@ -132,7 +132,7 @@ export async function getEntireStateFromFirestore() {
       employeePunches: (data.employeePunches as EmployeePunch[]) || [],
     };
   } catch (error) {
-    console.error('Error fetching state from Cloud SQL server proxy:', error);
+    console.error('Error fetching state from Netlify Database server proxy:', error);
     throw error;
   }
 }
@@ -210,7 +210,7 @@ export async function saveEntireStateToFirestore(
     }
     return await response.json();
   } catch (error) {
-    console.error('Error syncing complete state to Cloud SQL:', error);
+    console.error('Error syncing complete state to Netlify Database:', error);
     throw error;
   }
 }
