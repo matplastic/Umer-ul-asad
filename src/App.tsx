@@ -11,6 +11,7 @@ import { ManagementDashboard } from './components/ManagementDashboard';
 import { SectionDashboardTV } from './components/SectionDashboardTV';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
+import { HRPortal } from './components/HRPortal';
 import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
@@ -2327,6 +2328,25 @@ export default function App() {
             onDeleteTrolley={handleDeleteTrolley}
           />
         )}
+        {currentRole === 'trolley_prod' && (
+          <TrolleyProductionTracker
+            trolleys={trolleys}
+            onSaveTrolley={handleSaveTrolley}
+            onDeleteTrolley={handleDeleteTrolley}
+          />
+        )}
+
+        {/* ← PASTE THIS NEW BLOCK HERE (line 2330) */}
+        {currentRole === 'hr_portal' && (
+          <HRPortal
+            employees={employees}
+            employeePunches={employeePunches}
+            onSaveEmployee={handleSaveEmployee}
+            onDeleteEmployee={handleDeleteEmployee}
+          />
+        )}
+
+      </main>   {/* line 2331 — this already exists, don't duplicate it */}
       </main>
 
       {/* Simple Footer */}
