@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ViewRole } from '../types';
-import { Factory, ShieldAlert, KeyRound, ChevronRight, Info, Eye, EyeOff } from 'lucide-react';
+import { Factory, ShieldAlert, KeyRound, ChevronRight, Info } from 'lucide-react';
 import { dbGetPins } from '../lib/firebaseService';
 
 interface LoginScreenProps {
@@ -86,7 +86,6 @@ const USER_PROFILES: UserProfile[] = [
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
   const [pinInput, setPinInput] = useState<string>('');
-  const [showPin, setShowPin] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   const [pins, setPins] = useState<Record<string, string>>({
@@ -153,7 +152,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       {/* Top Banner Identity */}
       <header className="max-w-6xl w-full mx-auto flex items-center justify-between py-4 border-b border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-tr from-cyan-500 to-indigo-600 p-2.5 rounded-xl shadow-inner text-white">
+          <div className="bg-gradient-to-tr from-cyan-500 to-indigo-650 p-2.5 rounded-xl shadow-inner text-white">
             <Factory className="h-6 w-6" />
           </div>
           <div>
@@ -234,3 +233,4 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               {/* Header Profile Summary */}
               <div className="flex items-center justify-between border-b border-slate-700/50 pb-4">
                 <div>
+                  <h3 className="text-sm font-black text-white">{selectedProfile.title}</h3>
