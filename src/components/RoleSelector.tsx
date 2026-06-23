@@ -50,11 +50,13 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           
           {/* Brand/Identity & Google Drive Connectivity Status */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full lg:w-auto">
-            <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-tr from-cyan-500 to-blue-600 p-2.5 rounded-xl shadow-inner text-white animate-pulse">
-                <Factory className="h-6 w-6" />
-              </div>
-              <div>
+           <div className="flex items-center gap-3">
+  <img
+    src="/logo.png"
+    alt="MAT Plastic Industries LLC"
+    className="h-12 w-auto object-contain"
+  />
+  <div>
                 <h1 className="text-xl font-bold tracking-tight text-white font-sans flex items-center gap-1.5 flex-wrap">
                   MAT PLASTIC INDUSTRIES LLC <span className="text-cyan-400 font-mono text-xs uppercase px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-full">Manufacturing ERP</span>
                 </h1>
