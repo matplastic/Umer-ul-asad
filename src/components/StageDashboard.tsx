@@ -10,8 +10,8 @@ interface StageDashboardProps {
   teams: Team[];
   selectedTeamId: string;
   onClaimPool: (poolId: string, teamId: string, stageId: StageId) => void;
-  onStartStage: (poolId: string, stageId: StageId) => void;
-  onFinishStage: (poolId: string, stageId: StageId) => void;
+  onStartStage: (poolId: string, stageId: StageId, customDateTime?: string) => void;
+  onFinishStage: (poolId: string, stageId: StageId, customDateTime?: string) => void;
   googleUser: any;
   onGoogleSignIn: () => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
@@ -33,6 +33,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   const [viewingDrawingPool, setViewingDrawingPool] = useState<Pool | null>(null);
   const [driveUploading, setDriveUploading] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [driveError, setDriveError] = useState('');
+
+  // Backdate support: custom date-time for start and finish
+  const todayStr = new Date().toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
+  const [stageStartDateTime, setStageStartDateTime] = useState(todayStr);
+  const [stageFinishDateTime, setStageFinishDateTime] = useState(todayStr);
 
   const handleUploadTravelerToDrive = async (pool: Pool) => {
     setDriveUploading('uploading');
@@ -298,13 +303,22 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                     <div className="pt-2 border-t border-slate-150 border-slate-100 gap-2 flex flex-col">
                       
                       {(myClaimedPoolHist.status === 'NOT_STARTED' || myClaimedPoolHist.status === 'REJECTED') && (
-                        <button
-                          onClick={() => onStartStage(myClaimedPool.id, stage.id)}
-                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-100"
-                        >
-                          <Play className="h-3.5 w-3.5 fill-current" />
-                          <span>Start Stage Production Timer</span>
-                        </button>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Start Date & Time</label>
+                          <input
+                            type="datetime-local"
+                            value={stageStartDateTime}
+                            onChange={e => setStageStartDateTime(e.target.value)}
+                            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                          />
+                          <button
+                            onClick={() => onStartStage(myClaimedPool.id, stage.id, new Date(stageStartDateTime).toISOString())}
+                            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-100"
+                          >
+                            <Play className="h-3.5 w-3.5 fill-current" />
+                            <span>Start Stage Production Timer</span>
+                          </button>
+                        </div>
                       )}
 
                       {myClaimedPoolHist.status === 'IN_PROGRESS' && (
@@ -313,9 +327,17 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             <Clock className="h-3.5 w-3.5 text-blue-500 animate-spin" />
                             <span>Filing: Started on {myClaimedPoolHist.startTime ? new Date(myClaimedPoolHist.startTime).toLocaleTimeString() : 'Unknown'}</span>
                           </div>
-                          
+                          <div className="space-y-2 mb-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Finish Date & Time</label>
+                            <input
+                              type="datetime-local"
+                              value={stageFinishDateTime}
+                              onChange={e => setStageFinishDateTime(e.target.value)}
+                              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                            />
+                          </div>
                           <button
-                            onClick={() => onFinishStage(myClaimedPool.id, stage.id)}
+                            onClick={() => onFinishStage(myClaimedPool.id, stage.id, new Date(stageFinishDateTime).toISOString())}
                             className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-blue-150"
                           >
                             <CheckSquare className="h-3.5 w-3.5" />
