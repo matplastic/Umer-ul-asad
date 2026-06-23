@@ -191,6 +191,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   const [directPoolType, setDirectPoolType] = useState('Type 3');
   const [directNotes, setDirectNotes] = useState('');
   const [directStageSelect, setDirectStageSelect] = useState('0'); // '0' to STAGES.length - 1, STAGES.length for Completed, 'delivered' for Delivered
+  const [directEntryDate, setDirectEntryDate] = useState(new Date().toISOString().slice(0, 10)); // backdate support
   const [overrideOperatorName, setOverrideOperatorName] = useState('Planning Admin');
   const [directSuccessMessage, setDirectSuccessMessage] = useState<string | null>(null);
 
@@ -3105,7 +3106,8 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 poolType: directPoolType,
                 notes: directNotes,
                 isDelivered: isDeliv,
-                currentStageIndex: parseStageNum
+                currentStageIndex: parseStageNum,
+                createdAt: directEntryDate ? new Date(directEntryDate + 'T08:00:00').toISOString() : undefined
               }, overrideOperatorName.trim() || 'Planning Admin');
 
               setDirectSuccessMessage(`Pool "${directPoolNo.trim()}" in project "${finalPrj}" successfully updated to: ${isDeliv ? 'Delivered' : STAGES[parseStageNum]?.name || 'Completed'}!`);
@@ -3268,6 +3270,17 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                       🚚 MARK AS DELIVERED / COMPLETED OUT-OF-FACTORY
                     </option>
                   </select>
+                </div>
+
+                {/* Entry Date — backdate support */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 block">Entry Date <span className="text-slate-400 font-normal normal-case">(backdate if needed)</span></label>
+                  <input
+                    type="date"
+                    value={directEntryDate}
+                    onChange={(e) => setDirectEntryDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
                 </div>
 
                 {/* Operator Sign-off Name */}
