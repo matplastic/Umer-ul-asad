@@ -1,7 +1,7 @@
 import React from 'react';
 import { ViewRole, StageId } from '../types';
 import { STAGES } from '../data/mockData';
-import { Wrench, Shield, Monitor, BarChart3, HardHat, Factory, Tv, Cloud, LogOut, ClipboardList, Boxes } from 'lucide-react';
+import { Wrench, Shield, Monitor, BarChart3, HardHat, Factory, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog } from 'lucide-react';
 
 interface RoleSelectorProps {
   currentRole: ViewRole;
@@ -210,6 +210,17 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                   >
                     <Boxes className="h-4 w-4 text-rose-450" />
                     <span>Trolley Prod</span>
+                  </button>
+                  <button
+                    onClick={() => onChangeRole('hr_portal')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
+                      currentRole === 'hr_portal'
+                        ? 'bg-violet-600 text-white shadow-md shadow-violet-900/50 scale-105'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <UserCog className="h-4 w-4" />
+                    <span>HR Portal</span>
                   </button>
 
                   <div className="h-6 w-px bg-slate-700 mx-1 hidden sm:block" />
