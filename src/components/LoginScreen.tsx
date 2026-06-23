@@ -89,6 +89,15 @@ const USER_PROFILES: UserProfile[] = [
     description:
       'Floor monitor dashboard displaying station bottlenecks and live performance OEE metrics.',
   },
+  {
+    role: 'hr_portal',
+    title: 'HR Management Portal',
+    subtitle: 'Employees, Payroll, Leave & Warnings',
+    colorClass: 'from-violet-600 to-purple-600 shadow-violet-500/10',
+    bgIconClass: 'bg-violet-50 text-violet-600',
+    description:
+      'Manage employee directory, attendance records, monthly payroll, leave requests, disciplinary warnings, and HR reports.',
+  },
 ];
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
@@ -153,6 +162,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       setErrorMsg('Invalid Access PIN. Please input the customized passcode assigned to your department.');
       setPinInput('');
     }
+    const [pins, setPins] = useState<Record<string, string>>({
+    management: '',
+    planning_department: '',
+    production_engineer: '',
+    quality_inspector: '',
+    stage_worker: '',
+    trolley_prod: '',
+    factory_entrance: '',
+    section_dashboard: '',
+    hr_portal: '',   // ← add this line
+  });
   };
 
   const keypadKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
