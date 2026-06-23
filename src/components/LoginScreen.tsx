@@ -114,6 +114,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     trolley_prod: '',
     factory_entrance: '',
     section_dashboard: '',
+    hr_portal: '',
   });
 
   React.useEffect(() => {
@@ -162,17 +163,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       setErrorMsg('Invalid Access PIN. Please input the customized passcode assigned to your department.');
       setPinInput('');
     }
-    const [pins, setPins] = useState<Record<string, string>>({
-    management: '',
-    planning_department: '',
-    production_engineer: '',
-    quality_inspector: '',
-    stage_worker: '',
-    trolley_prod: '',
-    factory_entrance: '',
-    section_dashboard: '',
-    hr_portal: '',   // ← add this line
-  });
   };
 
   const keypadKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
