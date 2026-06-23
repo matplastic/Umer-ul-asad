@@ -25,6 +25,7 @@ interface ProductionEngineerProps {
     shape: string;
     notes: string;
     operatorName: string;
+    createdAt?: string;
   }) => void;
   onCreatePoolBatch: (
     projectName: string,
@@ -66,6 +67,9 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
   const [dimensions, setDimensions] = useState('12m x 5m x 1.4m');
   const [shape, setShape] = useState('Rectangular');
   const [notes, setNotes] = useState('');
+
+  // Entry date for backdating (defaults to today)
+  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
 
   // Batch form states
   const [batchProjectName, setBatchProjectName] = useState('');
@@ -159,7 +163,8 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
       dimensions: dimensions.trim(),
       shape: shape.trim(),
       notes: notes.trim(),
-      operatorName: selectedEngineer
+      operatorName: selectedEngineer,
+      createdAt: entryDate ? new Date(entryDate + 'T08:00:00').toISOString() : new Date().toISOString()
     });
 
     setSuccessMsg(`Pool ${poolNo.toUpperCase()} ("${projectName}") successfully registered and released to Steel Fabrication!`);
@@ -480,6 +485,18 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                     className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs h-20 min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wide mb-1.5">
+                  Entry Date <span className="text-slate-400 font-normal normal-case">(backdate if needed)</span>
+                </label>
+                <input
+                  type="date"
+                  value={entryDate}
+                  onChange={(e) => setEntryDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono"
+                />
               </div>
 
               <button
