@@ -6066,6 +6066,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   { key: 'trolley_prod', title: 'Trolley Production', subtitle: 'Yield & Fabrications Tracker', default: '5555', color: 'border-rose-150 hover:bg-rose-50/10' },
                   { key: 'factory_entrance', title: 'Factory Entrance TV', subtitle: 'Informational logistics display', default: '6666', color: 'border-cyan-150 hover:bg-cyan-50/10' },
                   { key: 'section_dashboard', title: 'Section TV Dashboard', subtitle: 'Floor bottlenecks/OEE progress', default: '7777', color: 'border-teal-150 hover:bg-teal-50/10' },
+{ key: 'hr_portal', title: 'HR Management Portal', subtitle: 'Employees, Payroll, Leave & Warnings', default: '8888', color: 'border-violet-150 hover:bg-violet-50/10' },
                 ].map((profile) => {
                   const currentPin = departmentPins[profile.key] || profile.default;
                   const isEditing = editingPinRole === profile.key;
