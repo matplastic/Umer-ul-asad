@@ -2346,7 +2346,6 @@ export default function App() {
           />
         )}
 
-      </main>   {/* line 2331 — this already exists, don't duplicate it */}
       </main>
 
       {/* Simple Footer */}
