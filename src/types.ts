@@ -107,7 +107,8 @@ export type ViewRole =
   | 'factory_entrance'
   | 'management'
   | 'section_dashboard'
-  | 'trolley_prod';
+  | 'trolley_prod'
+  | 'hr_portal';
 
 export interface ProjectSummary {
   id: string;
