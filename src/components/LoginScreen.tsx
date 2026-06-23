@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ViewRole } from '../types';
-import { Factory, ShieldAlert, KeyRound, ChevronRight, Info, Eye, EyeOff } from 'lucide-react';
+import { Factory, KeyRound, Info, ChevronRight, ShieldAlert } from 'lucide-react';
 import { dbGetPins } from '../lib/firebaseService';
 
 interface LoginScreenProps {
@@ -11,7 +11,6 @@ interface UserProfile {
   role: ViewRole;
   title: string;
   subtitle: string;
-  defaultPin: string;
   colorClass: string;
   bgIconClass: string;
   description: string;
@@ -22,91 +21,90 @@ const USER_PROFILES: UserProfile[] = [
     role: 'management',
     title: 'Executive Management',
     subtitle: 'Full Central Admin & Data Portal',
-    defaultPin: '1234',
     colorClass: 'from-blue-600 to-indigo-600 shadow-blue-500/10',
-    bgIconClass: 'bg-blue-50 text-blue-650',
-    description: 'Central controls, full access to daily punches, metrics, targets, team overrides, and database configurations.',
+    bgIconClass: 'bg-blue-50 text-blue-600',
+    description:
+      'Central controls, full access to daily punches, metrics, targets, team overrides, and database configurations.',
   },
   {
     role: 'planning_department',
     title: 'Planning Department',
     subtitle: 'Scheduling & Direct Stage Excel Sync',
-    defaultPin: '1111',
     colorClass: 'from-indigo-600 to-purple-600 shadow-indigo-500/10',
-    bgIconClass: 'bg-indigo-50 text-indigo-650',
-    description: 'Register production pools, set monthly production targets, configure Excel imports, and release planned tasks.',
+    bgIconClass: 'bg-indigo-50 text-indigo-600',
+    description:
+      'Register production pools, set monthly production targets, configure Excel imports, and release planned tasks.',
   },
   {
     role: 'production_engineer',
     title: 'Production Engineering',
     subtitle: 'Fabrication Releases & Workcell Controls',
-    defaultPin: '2222',
     colorClass: 'from-amber-600 to-orange-500 shadow-amber-500/10',
-    bgIconClass: 'bg-amber-50 text-amber-650',
-    description: 'Trigger primary fabrications, execute work order listings, and manage floor queues.',
+    bgIconClass: 'bg-amber-50 text-amber-600',
+    description:
+      'Trigger primary fabrications, execute work order listings, and manage floor queues.',
   },
   {
     role: 'quality_inspector',
     title: 'Quality Assurance',
     subtitle: 'QA Inspections & Non-Conformance Reports',
-    defaultPin: '3333',
     colorClass: 'from-emerald-600 to-teal-600 shadow-emerald-500/10',
-    bgIconClass: 'bg-emerald-50 text-emerald-650',
-    description: 'Audit finished stages, file rejection counts and inspector pictures, change status to approved.',
+    bgIconClass: 'bg-emerald-50 text-emerald-600',
+    description:
+      'Audit finished stages, file rejection counts and inspector pictures, change status to approved.',
   },
   {
     role: 'stage_worker',
     title: 'Stage Shop Floor',
     subtitle: 'Station Workstation & Claiming Queue',
-    defaultPin: '4444',
     colorClass: 'from-purple-600 to-pink-600 shadow-purple-500/10',
-    bgIconClass: 'bg-purple-50 text-purple-650',
-    description: 'Claim production items, record station timers, register start & finish signals for shop floors.',
+    bgIconClass: 'bg-purple-50 text-purple-600',
+    description:
+      'Claim production items, record station timers, register start & finish signals for shop floors.',
   },
   {
     role: 'trolley_prod',
     title: 'Trolley Production Supervisor',
     subtitle: 'Trolley Yield & Yield Log Tracker',
-    defaultPin: '5555',
     colorClass: 'from-rose-600 to-pink-500 shadow-rose-500/10',
-    bgIconClass: 'bg-rose-50 text-rose-650',
-    description: 'Independent tracking logs for trolley fabrications, daily yield entries, and output performance reports.',
+    bgIconClass: 'bg-rose-50 text-rose-600',
+    description:
+      'Independent tracking logs for trolley fabrications, daily yield entries, and output performance reports.',
   },
   {
     role: 'factory_entrance',
     title: 'Factory Entrance TV Monitor',
     subtitle: 'Live Delivery Status Kiosk',
-    defaultPin: '6666',
     colorClass: 'from-cyan-600 to-teal-500 shadow-cyan-500/10',
-    bgIconClass: 'bg-cyan-50 text-cyan-650',
-    description: 'General informational display for drivers and logistics personnel at factory gates.',
+    bgIconClass: 'bg-cyan-50 text-cyan-600',
+    description:
+      'General informational display for drivers and logistics personnel at factory gates.',
   },
   {
     role: 'section_dashboard',
     title: 'Section TV Dashboard',
     subtitle: 'Live Progress Matrix Display',
-    defaultPin: '7777',
     colorClass: 'from-teal-600 to-emerald-500 shadow-teal-500/10',
-    bgIconClass: 'bg-teal-50 text-teal-650',
-    description: 'Floor monitor dashboard displaying station bottlenecks and live performance OEE metrics.',
+    bgIconClass: 'bg-teal-50 text-teal-600',
+    description:
+      'Floor monitor dashboard displaying station bottlenecks and live performance OEE metrics.',
   },
 ];
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
   const [pinInput, setPinInput] = useState<string>('');
-  const [showPin, setShowPin] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
+
   const [pins, setPins] = useState<Record<string, string>>({
-    management: '1234',
-    planning_department: '1111',
-    production_engineer: '2222',
-    quality_inspector: '3333',
-    stage_worker: '4444',
-    trolley_prod: '5555',
-    factory_entrance: '6666',
-    section_dashboard: '7777',
+    management: '',
+    planning_department: '',
+    production_engineer: '',
+    quality_inspector: '',
+    stage_worker: '',
+    trolley_prod: '',
+    factory_entrance: '',
+    section_dashboard: '',
   });
 
   React.useEffect(() => {
@@ -144,33 +142,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     if (e) e.preventDefault();
     if (!selectedProfile) return;
 
-    const actualPin = pins[selectedProfile.role] || selectedProfile.defaultPin;
+    const actualPin = pins[selectedProfile.role];
 
-    if (pinInput === actualPin) {
+    if (actualPin && pinInput === actualPin) {
       onLoginSuccess({
         role: selectedProfile.role,
         displayName: selectedProfile.title,
       });
     } else {
       setErrorMsg('Invalid Access PIN. Please input the customized passcode assigned to your department.');
+      setPinInput('');
     }
   };
 
-  // Auto handle quick click entry for faster user validation in iframe
-  const handleQuickFill = () => {
-    if (selectedProfile) {
-      setPinInput(pins[selectedProfile.role] || selectedProfile.defaultPin);
-      setErrorMsg(null);
-    }
-  };
+  const keypadKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col justify-between p-4 sm:p-6 md:p-8 font-sans text-slate-100 antialiased selection:bg-indigo-500/40">
-      
-      {/* Top Banner Identity */}
+
+      {/* Top Banner */}
       <header className="max-w-6xl w-full mx-auto flex items-center justify-between py-4 border-b border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-tr from-cyan-500 to-indigo-650 p-2.5 rounded-xl shadow-inner text-white">
+          <div className="bg-gradient-to-tr from-cyan-500 to-indigo-600 p-2.5 rounded-xl shadow-inner text-white">
             <Factory className="h-6 w-6" />
           </div>
           <div>
@@ -185,22 +178,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         </div>
       </header>
 
-      {/* Main Login Flow Grid */}
+      {/* Main Grid */}
       <main className="max-w-6xl w-full mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-8 items-stretch">
-        
-        {/* Left Side: Profile Selector (7 columns) */}
-        <div className="lg:col-span-7 bg-slate-800/40 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between gap-6 backdrop-blur-md">
-          <div className="space-y-2">
-            <h2 className="text-base font-black uppercase text-slate-350 tracking-wider flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse"></span>
+
+        {/* Left: Profile Selector */}
+        <div className="lg:col-span-7 bg-slate-800/40 border border-slate-800 rounded-2xl p-6 flex flex-col gap-6 backdrop-blur-md">
+          <div className="space-y-1">
+            <h2 className="text-base font-black uppercase text-slate-300 tracking-wider flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
               Department Portals
             </h2>
-            <p className="text-xs text-slate-400 text-slate-300">
+            <p className="text-xs text-slate-400">
               Select your department profile from the register below to access your active portal. Access permissions are strictly audited.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 my-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {USER_PROFILES.map(profile => {
               const isSelected = selectedProfile?.role === profile.role;
               return (
@@ -209,152 +202,143 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   onClick={() => handleProfileSelect(profile)}
                   className={`text-left p-4 rounded-xl border transition-all duration-150 flex items-start gap-3 cursor-pointer group ${
                     isSelected
-                      ? 'bg-slate-800 border-indigo-500 shadow-lg shadow-indigo-950/40 scale-[1.02]'
-                      : 'bg-slate-850/60 hover:bg-slate-800 border-slate-750 hover:border-slate-700'
+                      ? 'bg-slate-800 border-indigo-500 shadow-lg ring-1 ring-indigo-500'
+                      : 'bg-slate-900/40 border-slate-800 hover:bg-slate-800/60 hover:border-slate-700'
                   }`}
                 >
-                  <div className={`p-2.5 rounded-lg shrink-0 ${profile.bgIconClass} bg-slate-700 text-slate-200 group-hover:scale-105 duration-100`}>
-                    <Factory className="h-4.5 w-4.5 stroke-[2.5]" />
+                  <div className={`p-2 rounded-lg shrink-0 ${profile.bgIconClass}`}>
+                    <KeyRound className="h-4 w-4" />
                   </div>
                   <div className="space-y-0.5 min-w-0">
-                    <p className={`text-xs font-black leading-none ${isSelected ? 'text-white' : 'text-slate-205 text-slate-200'}`}>
+                    <h3 className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors truncate">
                       {profile.title}
-                    </p>
-                    <p className="text-[10px] text-slate-400 truncate leading-tight">
-                      {profile.subtitle}
-                    </p>
-                    <p className="text-[9px] text-slate-500 line-clamp-1 leading-normal pt-1 group-hover:text-slate-400 transition-colors">
-                      {profile.description}
-                    </p>
+                    </h3>
+                    <p className="text-[11px] text-slate-400 truncate">{profile.subtitle}</p>
+                    {profile.description && (
+                      <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">{profile.description}</p>
+                    )}
                   </div>
                 </button>
               );
             })}
           </div>
 
-          {/* Quick Notice Badge */}
-          <div className="bg-slate-850/60 border border-slate-750 rounded-xl p-3 flex items-start gap-2 text-xs text-slate-400">
-            <Info className="h-4.5 w-4.5 text-cyan-400 shrink-0 mt-0.5" />
+          {/* Role Description Footer */}
+          <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 flex gap-3 items-start mt-auto">
+            <Info className="h-4 w-4 text-cyan-400 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <span className="font-bold text-slate-200 block text-[11px] leading-tight">Role-Based Access Control Rules</span>
-              <p className="text-[10px] leading-relaxed">
-                Management accounts enjoy central bypass access enabling active view role selection on any portal. Non-management department operators are restricted onto their single-screen operational ledger.
+              <h4 className="text-xs font-bold text-slate-200">Role-Based Access Control Rules</h4>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                {selectedProfile
+                  ? selectedProfile.description
+                  : 'Management accounts enjoy central bypass access enabling active view role selection on any portal. Non-management department operators are restricted onto their single-screen operational ledger.'}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Right Side: Keypad Entry Panel (5 columns) */}
-        <div className="lg:col-span-5 bg-slate-850 border border-slate-750 rounded-2xl p-6 flex flex-col justify-between gap-6 shadow-2xl relative overflow-hidden">
-          {/* Header gradient banner line */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+        {/* Right: Keypad Authentication */}
+        <div className="lg:col-span-5 bg-gradient-to-b from-slate-800/90 to-slate-900/90 border border-slate-700/60 rounded-2xl p-6 flex flex-col gap-6 shadow-2xl relative overflow-hidden">
+
+          {/* Decorative gradient border top */}
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-t-2xl" />
 
           {selectedProfile ? (
-            <div className="space-y-5 flex-1 flex flex-col justify-between">
-              
-              {/* Profile details */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2.5 rounded-lg ${selectedProfile.bgIconClass} bg-slate-800`}>
-                    <KeyRound className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-black text-white">{selectedProfile.title}</p>
-                    <p className="text-[10px] text-indigo-400 font-semibold">{selectedProfile.subtitle}</p>
-                  </div>
+            <form onSubmit={handleLoginSubmit} className="flex flex-col gap-6 flex-1">
+
+              {/* Profile Header */}
+              <div className="flex items-center gap-3 border-b border-slate-700/50 pb-4">
+                <div className={`p-2 rounded-lg shrink-0 ${selectedProfile.bgIconClass}`}>
+                  <KeyRound className="h-4 w-4" />
                 </div>
-                <button
-                  type="button"
-                  onClick={handleQuickFill}
-                  className="bg-slate-800 hover:bg-slate-750 text-cyan-400 hover:text-cyan-300 font-mono font-bold text-[10px] px-2.5 py-1 rounded-md border border-slate-700 transition-colors"
-                >
-                  Quick PIN Autoload
-                </button>
+                <div>
+                  <h3 className="text-sm font-black text-white">{selectedProfile.title}</h3>
+                  <p className="text-[11px] text-indigo-400 font-medium">{selectedProfile.subtitle}</p>
+                </div>
               </div>
 
-              {/* Pin dots */}
-              <div className="space-y-3">
-                <div className="flex justify-center items-center gap-4 py-2">
-                  {[0, 1, 2, 3].map((idx) => (
+              {/* PIN Display Dots */}
+              <div className="flex flex-col items-center gap-3 py-2">
+                <div className="flex items-center gap-4">
+                  {[0, 1, 2, 3].map(i => (
                     <div
-                      key={idx}
-                      className={`h-4.5 w-4.5 rounded-full border-2 transition-all duration-150 ${
-                        idx < pinInput.length
-                          ? 'bg-gradient-to-tr from-cyan-400 to-indigo-500 border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.4)] scale-110'
-                          : 'border-slate-650 bg-slate-900'
+                      key={i}
+                      className={`h-4 w-4 rounded-full border-2 transition-all duration-150 ${
+                        i < pinInput.length
+                          ? 'bg-cyan-400 border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.6)]'
+                          : 'bg-transparent border-slate-600'
                       }`}
                     />
                   ))}
                 </div>
-                {errorMsg ? (
-                  <p className="text-center text-[10px] text-rose-400 font-bold bg-rose-950/30 border border-rose-900/40 p-2 rounded-lg">
-                    {errorMsg}
-                  </p>
-                ) : (
-                  <p className="text-center text-[10px] text-slate-400 font-mono tracking-wide leading-none">
-                    ENTER 4-DIGIT ACCESS PIN
-                  </p>
+                <p className="text-[10px] tracking-[0.25em] uppercase text-slate-500 font-mono">
+                  Enter 4-Digit Access PIN
+                </p>
+                {errorMsg && (
+                  <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 w-full">
+                    <ShieldAlert className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-red-400 leading-relaxed">{errorMsg}</p>
+                  </div>
                 )}
               </div>
 
-              {/* Secure Physical Keypad Grid */}
-              <div className="grid grid-cols-3 gap-2 mx-auto w-full max-w-[260px] py-2">
-                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(num => (
+              {/* Numeric Keypad */}
+              <div className="grid grid-cols-3 gap-2.5">
+                {keypadKeys.map(num => (
                   <button
                     key={num}
                     type="button"
                     onClick={() => handleKeyPress(num)}
-                    className="h-12 w-full bg-slate-800 hover:bg-slate-700 active:bg-slate-650 text-white hover:text-cyan-300 text-lg font-bold font-mono rounded-xl transition-all shadow-inner border border-slate-750 flex items-center justify-center cursor-pointer"
+                    className="h-14 rounded-xl bg-slate-800 border border-slate-700 text-white text-xl font-bold hover:bg-slate-700 hover:border-slate-600 active:scale-95 transition-all duration-100 shadow-md"
                   >
                     {num}
                   </button>
                 ))}
+
+                {/* Bottom row: CLEAR, 0, DEL */}
                 <button
                   type="button"
                   onClick={handleClear}
-                  className="h-12 w-full bg-slate-900 hover:bg-slate-800 text-[11px] text-slate-400 hover:text-slate-350 font-bold uppercase rounded-xl transition-all border border-slate-800 flex items-center justify-center cursor-pointer"
+                  className="h-14 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 text-xs font-bold uppercase tracking-widest hover:bg-slate-700 hover:text-white active:scale-95 transition-all duration-100"
                 >
                   Clear
                 </button>
                 <button
                   type="button"
                   onClick={() => handleKeyPress('0')}
-                  className="h-12 w-full bg-slate-800 hover:bg-slate-700 active:bg-slate-650 text-white hover:text-cyan-300 text-lg font-bold font-mono rounded-xl transition-all shadow-inner border border-slate-750 flex items-center justify-center cursor-pointer"
+                  className="h-14 rounded-xl bg-slate-800 border border-slate-700 text-white text-xl font-bold hover:bg-slate-700 hover:border-slate-600 active:scale-95 transition-all duration-100 shadow-md"
                 >
                   0
                 </button>
                 <button
                   type="button"
                   onClick={handleDelete}
-                  className="h-12 w-full bg-slate-900 hover:bg-slate-800 text-[11px] text-slate-400 hover:text-amber-455 hover:text-amber-400 font-bold uppercase rounded-xl transition-all border border-slate-800 flex items-center justify-center cursor-pointer"
+                  className="h-14 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 text-xs font-bold uppercase tracking-widest hover:bg-slate-700 hover:text-white active:scale-95 transition-all duration-100"
                 >
                   Del
                 </button>
               </div>
 
-              {/* Login Button Action */}
+              {/* Submit Button */}
               <button
-                type="button"
-                onClick={() => handleLoginSubmit()}
+                type="submit"
                 disabled={pinInput.length !== 4}
-                className="w-full bg-gradient-to-r from-blue-600 to-indigo-650 hover:from-blue-500 hover:to-indigo-500 text-white font-black hover:font-bold tracking-wide uppercase text-xs rounded-xl py-3.5 shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-cyan-500/10 active:scale-95"
+                className="w-full h-14 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 transition-all duration-150 shadow-lg shadow-indigo-500/20 active:scale-[0.98]"
               >
-                <span>Authorize & Sign In</span>
-                <ChevronRight className="h-4.5 w-4.5" />
+                Authorize & Sign In
+                <ChevronRight className="h-4 w-4" />
               </button>
-
-            </div>
+            </form>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center space-y-4 py-12">
-              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 text-slate-400 animate-bounce">
-                <ShieldAlert className="h-8 w-8 text-indigo-400" />
+            /* No Profile Selected State */
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 py-10 text-center">
+              <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700">
+                <ShieldAlert className="h-8 w-8 text-slate-500" />
               </div>
-              <div className="space-y-1 max-w-[280px]">
-                <h3 className="text-xs font-black text-slate-201 text-slate-200 uppercase tracking-widest leading-none">
-                  Authorization Required
-                </h3>
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  Please pick a department credentials profile from the left matrix list to initiate PIN verification.
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-slate-300">No Department Selected</h3>
+                <p className="text-xs text-slate-500 max-w-[220px]">
+                  Please select a department portal from the left panel to begin authentication.
                 </p>
               </div>
             </div>
@@ -362,38 +346,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         </div>
       </main>
 
-      {/* Verification Instructions Credentials Guide */}
-      <section className="max-w-6xl w-full mx-auto bg-slate-950 border border-slate-800/80 rounded-2xl p-5 mb-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-        <div className="md:col-span-4 space-y-1">
-          <span className="text-[10px] font-black uppercase text-cyan-400 font-mono tracking-widest block">MAT Reference Box</span>
-          <h4 className="text-sm font-black text-white">Temporary Staff Demo PINS</h4>
-          <p className="text-[10px] text-slate-400 leading-relaxed">
-            For evaluation within safety sandboxes, use these predefined authorization credentials to navigate any workstation portal.
-          </p>
-        </div>
-        <div className="md:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-          {USER_PROFILES.map(item => (
-            <div 
-              key={item.role} 
-              onClick={() => handleProfileSelect(item)}
-              className="bg-slate-900 border border-slate-800 hover:border-slate-700 hover:bg-slate-850 p-2.5 rounded-xl flex flex-col justify-between gap-1 cursor-pointer transition-all hover:scale-102"
-            >
-              <div className="font-semibold text-slate-205 text-slate-200 leading-tight truncate">{item.title}</div>
-              <div className="flex items-center justify-between text-[10px] pt-1 border-t border-slate-800/60 mt-1">
-                <span className="text-indigo-400 font-mono font-bold">PIN: {item.defaultPin}</span>
-                <span className="text-[9px] text-slate-500 font-mono uppercase shrink-0">Click to load</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Footer system status */}
-      <footer className="max-w-6xl w-full mx-auto border-t border-slate-800 py-4 text-center text-[10px] text-slate-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <p>© 2026 MAT PLASTIC INDUSTRIES LLC • Secure Network Handshake OK • {((import.meta as any).env?.VITE_API_URL) ? 'PostgreSQL Connection Live' : 'Enterprise Cloud Database Live'}</p>
-        <p className="font-mono text-slate-600">CLIENT_SECURE_BYPASS_VERIFICATION_V2</p>
+      {/* Footer */}
+      <footer className="max-w-6xl w-full mx-auto py-4 border-t border-slate-800 flex items-center justify-between">
+        <p className="text-[10px] text-slate-600">
+          © {new Date().getFullYear()} MAT Plastic Industries LLC — All access is monitored and logged.
+        </p>
+        <p className="text-[10px] text-slate-700 font-mono">ERP v2.0 · Secure Gate</p>
       </footer>
-      
     </div>
   );
 };
