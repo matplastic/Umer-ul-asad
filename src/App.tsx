@@ -743,6 +743,7 @@ export default function App() {
       notes?: string;
       isDelivered?: boolean;
       currentStageIndex: number;
+      createdAt?: string;
     },
     operatorName: string
   ) => {
@@ -768,7 +769,7 @@ export default function App() {
         shape: poolSpec.shape || 'Rectangular',
         poolType: poolSpec.poolType || 'Type 3',
         notes: poolSpec.notes || '',
-        createdAt: new Date().toISOString(),
+        createdAt: poolSpec.createdAt || new Date().toISOString(),
         currentStageIndex: 0,
         stageHistory: createEmptyHistory()
       };
@@ -1398,6 +1399,7 @@ export default function App() {
     shape: string;
     notes: string;
     operatorName: string;
+    createdAt?: string;
   }) => {
     const newPool: Pool = {
       id: `pool_${Date.now()}`,
@@ -1407,7 +1409,7 @@ export default function App() {
       dimensions: spec.dimensions,
       shape: spec.shape,
       notes: spec.notes,
-      createdAt: new Date().toISOString(),
+      createdAt: spec.createdAt || new Date().toISOString(),
       completedAt: null,
       currentStageIndex: 0, // Starts at Steel Fabrication (Stage index 0)
       stageHistory: createEmptyHistory()
@@ -1804,7 +1806,7 @@ export default function App() {
   };
 
   // 3. Start Stage Timer
-  const handleStartStage = (poolId: string, stageId: StageId) => {
+  const handleStartStage = (poolId: string, stageId: StageId, customDateTime?: string) => {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -1812,14 +1814,14 @@ export default function App() {
     const pool = updatedPools[poolIndex];
     const stageHist = { ...pool.stageHistory[stageId] };
     stageHist.status = 'IN_PROGRESS';
-    stageHist.startTime = new Date().toISOString();
+    stageHist.startTime = customDateTime || new Date().toISOString();
     pool.stageHistory[stageId] = stageHist;
 
     const team = teams.find(t => t.id === stageHist.teamId);
 
     const newLog: ActivityLog = {
       id: `log_${Date.now()}`,
-      timestamp: new Date().toISOString(),
+      timestamp: customDateTime || new Date().toISOString(),
       poolId: pool.id,
       poolNo: pool.poolNo,
       projectName: pool.projectName,
@@ -1827,7 +1829,7 @@ export default function App() {
       type: 'STAGE_STARTED',
       teamName: team?.name,
       operatorName: team?.name || 'Shop Floor Team',
-      notes: `Started stage fabrication timer on the floor.`
+      notes: `Started stage fabrication timer on the floor.${customDateTime ? ' (Backdated entry)' : ''}`
     };
 
     const updatedLogs = [...logs, newLog];
@@ -1837,7 +1839,7 @@ export default function App() {
   };
 
   // 4. Complete / Finish Stage (Promotes to QA validation)
-  const handleFinishStage = (poolId: string, stageId: StageId) => {
+  const handleFinishStage = (poolId: string, stageId: StageId, customDateTime?: string) => {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -1846,7 +1848,7 @@ export default function App() {
     const stageHist = { ...pool.stageHistory[stageId] };
     
     stageHist.status = 'PENDING_INSPECTION';
-    const nowStr = new Date().toISOString();
+    const nowStr = customDateTime || new Date().toISOString();
     stageHist.endTime = nowStr;
 
     // Calculate duration
@@ -1871,7 +1873,7 @@ export default function App() {
       type: 'STAGE_FINISHED',
       teamName: team?.name,
       operatorName: team?.name || 'Shop Floor Team',
-      notes: `Stage fabrication completed in ${stageHist.durationMinutes} mins. Sent to Quality Inspection Queue.`
+      notes: `Stage fabrication completed in ${stageHist.durationMinutes} mins. Sent to Quality Inspection Queue.${customDateTime ? ' (Backdated entry)' : ''}`
     };
 
     const updatedLogs = [...logs, newLog];
