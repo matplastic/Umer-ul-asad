@@ -19,10 +19,23 @@ async function getFirestoreDocArray(docName: string): Promise<any[]> {
   return [];
 }
 
+// Recursively removes undefined values — Firestore rejects them
+function removeUndefined(value: any): any {
+  if (Array.isArray(value)) return value.map(removeUndefined);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, removeUndefined(v)])
+    );
+  }
+  return value;
+}
+
 async function setFirestoreDocArray(docName: string, data: any[]): Promise<void> {
   try {
     const docRef = doc(clientDb, 'system_state', docName);
-    await setDoc(docRef, { data });
+    await setDoc(docRef, { data: removeUndefined(data) });
   } catch (err) {
     console.error(`Direct client Firestore write error for '${docName}':`, err);
     throw err;
@@ -907,4 +920,3 @@ export async function dbUpdatePin(role: string, pin: string) {
     throw e;
   }
 }
-
