@@ -72,6 +72,22 @@ async function getHeaders() {
 }
 
 // 1. Get entire Unified Production Ledger state from PostgreSQL database or client Firestore
+// Lightweight poll — only fetches pools + teams (2 reads instead of 12)
+// Used by background polling on shop floor portals to minimize Firebase costs
+export async function getLiveStateFromFirestore(): Promise<{ pools: any[]; teams: any[]; logs: any[] } | null> {
+  try {
+    const [pools, teams, logs] = await Promise.all([
+      getFirestoreDocArray('pools'),
+      getFirestoreDocArray('teams'),
+      getFirestoreDocArray('logs'),
+    ]);
+    return { pools, teams, logs };
+  } catch (err) {
+    console.warn('Lightweight poll failed:', err);
+    return null;
+  }
+}
+
 export async function getEntireStateFromFirestore() {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
