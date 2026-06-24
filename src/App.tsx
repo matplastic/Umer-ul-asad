@@ -168,11 +168,20 @@ export default function App() {
 
   // Simulation controls
   const [currentRole, setCurrentRole] = useState<ViewRole>(() => {
-    const raw = localStorage.getItem('apex_station_lock');
-    if (raw) {
+    // First: check if station is locked — that takes priority
+    const lockRaw = localStorage.getItem('apex_station_lock');
+    if (lockRaw) {
       try {
-        const parsed = JSON.parse(raw);
+        const parsed = JSON.parse(lockRaw);
         if (parsed.isLocked) return parsed.role;
+      } catch (e) {}
+    }
+    // Second: restore the role from the logged-in user session (fixes refresh bug)
+    const userRaw = localStorage.getItem('apex_logged_in_user');
+    if (userRaw) {
+      try {
+        const parsed = JSON.parse(userRaw);
+        if (parsed?.role) return parsed.role;
       } catch (e) {}
     }
     return 'management';
