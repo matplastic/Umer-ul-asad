@@ -15,7 +15,7 @@ import {
   Edit2, Plus, Trash2, UserPlus, Check, X, Briefcase, FolderPlus,
   ShieldCheck, ShieldAlert, Activity, Cloud, Loader2, CheckCircle2, HardDrive,
   Lock, Unlock, Info, Calendar, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes,
-  UploadCloud, AlertTriangle, KeyRound
+  UploadCloud, AlertTriangle, KeyRound, RefreshCw
 } from 'lucide-react';
 
 interface ManagementDashboardProps {
@@ -73,6 +73,9 @@ interface ManagementDashboardProps {
   onAddEmployeesBulk?: (employees: any[]) => void;
   onClearAllEmployeePunches?: () => void;
   onDeleteEmployeePunchesByDate?: (date: string) => void;
+  onRefreshAll?: () => void;
+  isFullSyncing?: boolean;
+  lastSyncTime?: string | null;
 }
 
 export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
@@ -116,6 +119,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   onAddEmployeesBulk,
   onClearAllEmployeePunches,
   onDeleteEmployeePunchesByDate,
+  onRefreshAll,
+  isFullSyncing,
+  lastSyncTime,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
@@ -1631,8 +1637,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </div>
       </div>
 
-      {/* Tabs navigation */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-1.5 shadow-sm flex flex-wrap gap-1">
+      {/* Tabs navigation + Refresh All button */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-1.5 shadow-sm flex flex-wrap gap-1 items-center">
         <button
           onClick={() => setActiveTab('analytics')}
           className={`flex-1 min-w-[120px] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
@@ -1642,6 +1648,21 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           <BarChart2 className="h-4 w-4 text-blue-500" />
           Analytics / Bottlenecks
         </button>
+
+        {/* ── Refresh All Data button ── */}
+        {onRefreshAll && (
+          <button
+            onClick={onRefreshAll}
+            disabled={isFullSyncing}
+            className="ml-auto flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm shrink-0"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFullSyncing ? 'animate-spin' : ''}`} />
+            {isFullSyncing ? 'Refreshing...' : 'Refresh All Data'}
+            {lastSyncTime && !isFullSyncing && (
+              <span className="text-indigo-200 font-normal">· {lastSyncTime}</span>
+            )}
+          </button>
+        )}
 
         <button
           onClick={() => setActiveTab('projects_portal')}
