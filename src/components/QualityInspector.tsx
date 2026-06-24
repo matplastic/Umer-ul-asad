@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Pool, StageId } from '../types';
 import { STAGES } from '../data/mockData';
-import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw } from 'lucide-react';
 
 interface QualityInspectorProps {
   pools: Pool[];
@@ -11,6 +11,8 @@ interface QualityInspectorProps {
   inspectors?: { id: string; name: string; title: string }[];
   onDeletePool?: (poolId: string, operatorName: string) => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
+  onRefresh?: () => void;
+  isSyncing?: boolean;
 }
 
 export const QualityInspector: React.FC<QualityInspectorProps> = ({
@@ -21,6 +23,8 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   inspectors = [],
   onDeletePool,
   onSkipOrCarryOnSite,
+  onRefresh,
+  isSyncing,
 }) => {
   const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || 'Insp. Sarah');
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
@@ -116,28 +120,40 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
           </p>
         </div>
 
-        {/* Credentials switcher */}
-        <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
-          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspector ID:</label>
-          <select
-            value={selectedInspector}
-            onChange={(e) => setSelectedInspector(e.target.value)}
-            className="bg-white border border-slate-200 text-xs text-slate-700 font-bold px-3 py-1.5 cursor-pointer focus:outline-none rounded-md"
-          >
-            {inspectors.length > 0 ? (
-              inspectors.map((inspector) => (
-                <option key={inspector.id} value={inspector.name}>
-                  {inspector.name} ({inspector.title})
-                </option>
-              ))
-            ) : (
-              <>
-                <option value="Insp. Sarah">Insp. Sarah Wells (Structural Lead)</option>
-                <option value="Insp. Mike">Insp. Mike Vance (Plumbing Specialist)</option>
-                <option value="Insp. David">Insp. David Cole (Seals Quality Chief)</option>
-              </>
-            )}
-          </select>
+        {/* Credentials switcher + Sync */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspector ID:</label>
+            <select
+              value={selectedInspector}
+              onChange={(e) => setSelectedInspector(e.target.value)}
+              className="bg-white border border-slate-200 text-xs text-slate-700 font-bold px-3 py-1.5 cursor-pointer focus:outline-none rounded-md"
+            >
+              {inspectors.length > 0 ? (
+                inspectors.map((inspector) => (
+                  <option key={inspector.id} value={inspector.name}>
+                    {inspector.name} ({inspector.title})
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="Insp. Sarah">Insp. Sarah Wells (Structural Lead)</option>
+                  <option value="Insp. Mike">Insp. Mike Vance (Plumbing Specialist)</option>
+                  <option value="Insp. David">Insp. David Cole (Seals Quality Chief)</option>
+                </>
+              )}
+            </select>
+          </div>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'Syncing...' : 'Sync Latest'}
+            </button>
+          )}
         </div>
       </div>
 
