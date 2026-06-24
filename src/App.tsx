@@ -18,6 +18,7 @@ import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedir
 import { 
   getEntireStateFromFirestore, 
   saveEntireStateToFirestore,
+  getLiveStateFromFirestore,
   dbSaveProjectSummary,
   dbDeleteProjectSummary,
   dbSaveMonthlyTarget,
@@ -227,7 +228,52 @@ export default function App() {
     localStorage.removeItem('apex_logged_in_user');
   };
 
-  // Auto-enforce locked parameters whenever lock config changes
+  // ── Manual cloud refresh (used by Stage Floor & QA portals) ─────────────────
+  const [isSyncing, setIsSyncing] = useState(false);
+  const refreshFromCloud = async () => {
+    setIsSyncing(true);
+    try {
+      const freshData = await getLiveStateFromFirestore();
+      if (freshData) {
+        if (freshData.pools) setPools(freshData.pools);
+        if (freshData.teams) setTeams(freshData.teams);
+        if (freshData.logs) setLogs(freshData.logs);
+      }
+    } catch (e) {
+      console.error('Manual refresh failed:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // ── Full refresh for Management — pulls ALL data fresh from Firestore ────────
+  const [isFullSyncing, setIsFullSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const refreshAllFromCloud = async () => {
+    setIsFullSyncing(true);
+    try {
+      const freshData = await getEntireStateFromFirestore();
+      if (freshData) {
+        if (freshData.pools) setPools(freshData.pools);
+        if (freshData.teams) setTeams(freshData.teams);
+        if (freshData.logs) setLogs(freshData.logs);
+        if (freshData.inspectors) setInspectors(freshData.inspectors);
+        if (freshData.engineers) setEngineers(freshData.engineers);
+        if (freshData.plannedPools) setPlannedPools(freshData.plannedPools);
+        if (freshData.projectsSummary) setProjectsSummary(freshData.projectsSummary);
+        if (freshData.monthlyTargets) setMonthlyTargets(freshData.monthlyTargets);
+        if (freshData.employees) setEmployees(freshData.employees);
+        if ((freshData as any).trolleys) setTrolleys((freshData as any).trolleys);
+        if ((freshData as any).employeePunches) setEmployeePunches((freshData as any).employeePunches);
+        if ((freshData as any).recycleBin) setRecycleBin((freshData as any).recycleBin);
+        setLastSyncTime(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      }
+    } catch (e) {
+      console.error('Full refresh failed:', e);
+    } finally {
+      setIsFullSyncing(false);
+    }
+  };
   useEffect(() => {
     if (stationLock.isLocked) {
       if (stationLock.allowedRoles && stationLock.allowedRoles.length > 0) {
@@ -449,10 +495,43 @@ export default function App() {
 
     loadCloudData();
 
+    // ── Real-time polling for Stage, QA, and Planning portals ──────────────────
+    // Uses lightweight fetch (only pools + teams + logs = 3 reads per poll)
+    // instead of full fetch (12 reads). At 20s intervals with 5 devices:
+    // 5 × (8h × 3600 ÷ 20) × 3 = 21,600 reads/day — well within free tier.
+    const POLL_ROLES = ['stage_worker', 'quality_inspector', 'planning_department', 'section_dashboard', 'factory_entrance'];
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (pollInterval) return;
+      pollInterval = setInterval(async () => {
+        try {
+          const stationRaw = localStorage.getItem('apex_station_lock');
+          const lock = stationRaw ? JSON.parse(stationRaw) : null;
+          const activeRole = lock?.role || '';
+
+          // Only poll if currently on a shop floor / QA role
+          if (!POLL_ROLES.includes(activeRole)) return;
+
+          const freshData = await getLiveStateFromFirestore();
+          if (freshData) {
+            if (freshData.pools) setPools(freshData.pools);
+            if (freshData.teams) setTeams(freshData.teams);
+            if (freshData.logs) setLogs(freshData.logs);
+          }
+        } catch {
+          // Silent fail — don't disrupt the UI on network errors
+        }
+      }, 180000); // 3 minutes = 3 reads per poll × safe for 10+ devices
+    };
+
+    startPolling();
+
     return () => {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }
+      if (pollInterval) clearInterval(pollInterval);
     };
   }, []);
 
@@ -2253,6 +2332,8 @@ export default function App() {
             googleUser={googleUser}
             onGoogleSignIn={handleGoogleSignIn}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
+            onRefresh={refreshFromCloud}
+            isSyncing={isSyncing}
           />
         )}
 
@@ -2265,6 +2346,8 @@ export default function App() {
             inspectors={inspectors}
             onDeletePool={handleDeletePool}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
+            onRefresh={refreshFromCloud}
+            isSyncing={isSyncing}
           />
         )}
 
@@ -2315,6 +2398,9 @@ export default function App() {
             onAddEmployeesBulk={handleSaveEmployeesBulk}
             onClearAllEmployeePunches={handleClearAllEmployeePunches}
             onDeleteEmployeePunchesByDate={handleDeleteEmployeePunchesByDate}
+            onRefreshAll={refreshAllFromCloud}
+            isFullSyncing={isFullSyncing}
+            lastSyncTime={lastSyncTime}
           />
         )}
 
