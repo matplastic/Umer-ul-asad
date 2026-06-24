@@ -8,6 +8,7 @@ import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
 import { FactoryEntrance } from './components/FactoryEntrance';
 import { ManagementDashboard } from './components/ManagementDashboard';
+import { MonthlyKPIDashboard } from './components/MonthlyKPIDashboard';
 import { SectionDashboardTV } from './components/SectionDashboardTV';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
@@ -1501,6 +1502,7 @@ export default function App() {
     poolType?: string;
     drawingUrl?: string;
     notes?: string;
+    createdAt?: string;
   }) => {
     // Check if unique poolNo exists across both live & planned to prevent double entry
     if (plannedPools.some(p => p.poolNo.trim().toUpperCase() === plannedSpec.poolNo.trim().toUpperCase())) {
@@ -1523,7 +1525,7 @@ export default function App() {
       drawingUrl: plannedSpec.drawingUrl,
       status: 'PLANNED',
       notes: plannedSpec.notes || '',
-      createdAt: new Date().toISOString()
+      createdAt: plannedSpec.createdAt || new Date().toISOString()
     };
 
     const updated = [newPlan, ...plannedPools];
@@ -1611,6 +1613,7 @@ export default function App() {
     poolType?: string;
     drawingUrl?: string;
     notes?: string;
+    createdAt?: string;
   }[]) => {
     const newPlans: PlannedPool[] = [];
     let dupsCount = 0;
@@ -1637,7 +1640,7 @@ export default function App() {
         drawingUrl: item.drawingUrl || '',
         status: 'PLANNED',
         notes: item.notes || 'Imported from Excel',
-        createdAt: nowStr
+        createdAt: item.createdAt || nowStr
       });
     });
 
@@ -2313,6 +2316,16 @@ export default function App() {
             onClearAllEmployeePunches={handleClearAllEmployeePunches}
             onDeleteEmployeePunchesByDate={handleDeleteEmployeePunchesByDate}
           />
+        )}
+
+        {/* Monthly KPI Dashboard — Management only */}
+        {currentRole === 'management' && (
+          <div className="mt-6">
+            <MonthlyKPIDashboard
+              pools={pools}
+              plannedPools={plannedPools}
+            />
+          </div>
         )}
 
         {currentRole === 'section_dashboard' && (
