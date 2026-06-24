@@ -37,6 +37,7 @@ interface PlanningDepartmentProps {
     poolType?: string;
     drawingUrl?: string;
     notes?: string;
+    createdAt?: string;
   }) => boolean;
   onAddPlannedPoolBatch: (spec: {
     projectName: string;
@@ -162,6 +163,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   const [dimensions, setDimensions] = useState('12m x 5m');
   const [shape, setShape] = useState('Classic Rectangle');
   const [poolType, setPoolType] = useState('Type 3');
+  const [planningDate, setPlanningDate] = useState(new Date().toISOString().slice(0, 10));
   const [drawingUrl, setDrawingUrl] = useState<string>('');
   const [notes, setNotes] = useState('');
 
@@ -217,6 +219,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   const [excelFileName, setExcelFileName] = useState<string>('');
   const [excelRawHeaders, setExcelRawHeaders] = useState<string[]>([]);
   const [excelRawRows, setExcelRawRows] = useState<any[]>([]);
+  const [excelImportDate, setExcelImportDate] = useState(new Date().toISOString().slice(0, 10));
   const [excelMapping, setExcelMapping] = useState<Record<string, string>>({
     projectName: '',
     poolNo: '',
@@ -375,7 +378,8 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
         dimensions: p.dimensions,
         shape: p.shape,
         poolType: p.poolType,
-        notes: p.notes ? `${p.notes} (Imported)` : 'Imported from Excel spreadsheet'
+        notes: p.notes ? `${p.notes} (Imported)` : 'Imported from Excel spreadsheet',
+        createdAt: excelImportDate ? new Date(excelImportDate + 'T08:00:00').toISOString() : new Date().toISOString()
       })));
 
       if (success) {
@@ -967,7 +971,8 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       shape,
       poolType: poolType.trim() || 'Type 3',
       drawingUrl: assignedDrawing,
-      notes: notes.trim()
+      notes: notes.trim(),
+      createdAt: planningDate ? new Date(planningDate + 'T08:00:00').toISOString() : new Date().toISOString()
     });
 
     if (success) {
@@ -1789,6 +1794,17 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 />
               </div>
 
+              {/* Planning Date */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 block">Planning Date <span className="text-slate-400 font-normal normal-case">(pick any date — past or future)</span></label>
+                <input
+                  type="date"
+                  value={planningDate}
+                  onChange={(e) => setPlanningDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-indigo-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 {/* Orientation Selector */}
                 <div className="space-y-1.5">
@@ -2445,6 +2461,16 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                         The system will instantiate <strong className="text-indigo-950 text-[12px]">{previewsImportPools.filter(p => !p.isDuplicate && !p.isInvalid).length}</strong> new planned pools.
                         Duplicates and empty keys ({previewsImportPools.filter(p => p.isDuplicate || p.isInvalid).length}) will be filtered out to protect system indexes safely.
                       </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-indigo-800 uppercase tracking-wider block">Import Date <span className="font-normal normal-case text-indigo-600">(pick month/date for this batch)</span></label>
+                      <input
+                        type="date"
+                        value={excelImportDate}
+                        onChange={e => setExcelImportDate(e.target.value)}
+                        className="border border-indigo-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                      />
                     </div>
 
                     <button
