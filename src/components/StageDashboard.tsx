@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Pool, StageId, Team, StageDefinition } from '../types';
 import { STAGES } from '../data/mockData';
-import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye } from 'lucide-react';
+import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 
 interface StageDashboardProps {
@@ -10,11 +10,13 @@ interface StageDashboardProps {
   teams: Team[];
   selectedTeamId: string;
   onClaimPool: (poolId: string, teamId: string, stageId: StageId) => void;
-  onStartStage: (poolId: string, stageId: StageId, customDateTime?: string) => void;
-  onFinishStage: (poolId: string, stageId: StageId, customDateTime?: string) => void;
+  onStartStage: (poolId: string, stageId: StageId) => void;
+  onFinishStage: (poolId: string, stageId: StageId) => void;
   googleUser: any;
   onGoogleSignIn: () => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
+  onRefresh?: () => void;
+  isSyncing?: boolean;
 }
 
 export const StageDashboard: React.FC<StageDashboardProps> = ({
@@ -28,16 +30,13 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   googleUser,
   onGoogleSignIn,
   onSkipOrCarryOnSite,
+  onRefresh,
+  isSyncing,
 }) => {
   const [printPool, setPrintPool] = useState<Pool | null>(null);
   const [viewingDrawingPool, setViewingDrawingPool] = useState<Pool | null>(null);
   const [driveUploading, setDriveUploading] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [driveError, setDriveError] = useState('');
-
-  // Backdate support: custom date-time for start and finish
-  const todayStr = new Date().toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
-  const [stageStartDateTime, setStageStartDateTime] = useState(todayStr);
-  const [stageFinishDateTime, setStageFinishDateTime] = useState(todayStr);
 
   const handleUploadTravelerToDrive = async (pool: Pool) => {
     setDriveUploading('uploading');
@@ -187,6 +186,16 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
             <p className="text-sm text-slate-150 text-slate-100/90 mt-1 px-1">
               Active and waiting manufacturing cards for pool shell structures. Claim and track timing precisely.
             </p>
+            {onRefresh && (
+              <button
+                onClick={onRefresh}
+                disabled={isSyncing}
+                className="mt-2 ml-1 flex items-center gap-1.5 text-[10px] font-bold bg-white/15 hover:bg-white/25 text-white px-3 py-1.5 rounded-full border border-white/20 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                {isSyncing ? 'Syncing...' : 'Sync Latest Data'}
+              </button>
+            )}
           </div>
           <div className="flex gap-3 bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/10">
             <div className="text-center px-2">
@@ -304,15 +313,12 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       
                       {(myClaimedPoolHist.status === 'NOT_STARTED' || myClaimedPoolHist.status === 'REJECTED') && (
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Start Date & Time</label>
-                          <input
-                            type="datetime-local"
-                            value={stageStartDateTime}
-                            onChange={e => setStageStartDateTime(e.target.value)}
-                            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                          />
+                          <div className="flex items-center gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+                            <Clock className="h-3.5 w-3.5 text-slate-400" />
+                            Start time will be recorded automatically
+                          </div>
                           <button
-                            onClick={() => onStartStage(myClaimedPool.id, stage.id, new Date(stageStartDateTime).toISOString())}
+                            onClick={() => onStartStage(myClaimedPool.id, stage.id)}
                             className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-100"
                           >
                             <Play className="h-3.5 w-3.5 fill-current" />
@@ -325,19 +331,14 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         <div>
                           <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold mb-2 p-1.5 bg-blue-50/50 rounded border border-blue-105">
                             <Clock className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-                            <span>Filing: Started on {myClaimedPoolHist.startTime ? new Date(myClaimedPoolHist.startTime).toLocaleTimeString() : 'Unknown'}</span>
+                            <span>Started: {myClaimedPoolHist.startTime ? new Date(myClaimedPoolHist.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'Timer running...'}</span>
                           </div>
-                          <div className="space-y-2 mb-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Finish Date & Time</label>
-                            <input
-                              type="datetime-local"
-                              value={stageFinishDateTime}
-                              onChange={e => setStageFinishDateTime(e.target.value)}
-                              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-                            />
+                          <div className="flex items-center gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 mb-2">
+                            <Clock className="h-3.5 w-3.5 text-slate-400" />
+                            Finish time will be recorded automatically
                           </div>
                           <button
-                            onClick={() => onFinishStage(myClaimedPool.id, stage.id, new Date(stageFinishDateTime).toISOString())}
+                            onClick={() => onFinishStage(myClaimedPool.id, stage.id)}
                             className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-blue-150"
                           >
                             <CheckSquare className="h-3.5 w-3.5" />
