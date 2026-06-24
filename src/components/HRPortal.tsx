@@ -2,8 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Employee, EmployeePunch } from '../types';
 import {
   Users, Clock, DollarSign, CalendarOff, AlertTriangle, BarChart2,
-  Plus, Search, Trash2, Edit2, CheckCircle, XCircle, Download,
-  ChevronDown, ChevronUp, Filter, X, Save, FileText
+  Plus, Search, Trash2, Edit2, CheckCircle, XCircle,
+  Filter, X, Save, FileText, ShieldAlert, Stethoscope
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -43,6 +43,29 @@ interface PayrollRecord {
   netSalary: number;
   status: 'Draft' | 'Paid';
   paidAt?: string;
+}
+
+interface AccidentReport {
+  id: string;
+  date: string;
+  employeeId: string;
+  employeeName: string;
+  department: string;
+  description: string;
+  actionTaken: string;
+  status: 'Open' | 'Under Investigation' | 'Closed';
+  createdAt: string;
+}
+
+interface MedicalRecord {
+  id: string;
+  date: string;
+  employeeId: string;
+  employeeName: string;
+  disease: string;
+  notes: string;
+  approvedBy: string;
+  createdAt: string;
 }
 
 interface HRPortalProps {
@@ -91,7 +114,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   onSaveEmployee,
   onDeleteEmployee,
 }) => {
-  const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'reports'>('directory');
+  const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'reports'>('directory');
 
   // ── Leave state (localStorage-backed) ──
   const [leaves, setLeaves] = useState<LeaveRequest[]>(() => {
@@ -110,6 +133,18 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     try { return JSON.parse(localStorage.getItem('hr_payroll') || '[]'); } catch { return []; }
   });
   const savePayroll = (p: PayrollRecord[]) => { setPayroll(p); localStorage.setItem('hr_payroll', JSON.stringify(p)); };
+
+  // ── Accident state ──
+  const [accidents, setAccidents] = useState<AccidentReport[]>(() => {
+    try { return JSON.parse(localStorage.getItem('hr_accidents') || '[]'); } catch { return []; }
+  });
+  const saveAccidents = (a: AccidentReport[]) => { setAccidents(a); localStorage.setItem('hr_accidents', JSON.stringify(a)); };
+
+  // ── Medical state ──
+  const [medicals, setMedicals] = useState<MedicalRecord[]>(() => {
+    try { return JSON.parse(localStorage.getItem('hr_medicals') || '[]'); } catch { return []; }
+  });
+  const saveMedicals = (m: MedicalRecord[]) => { setMedicals(m); localStorage.setItem('hr_medicals', JSON.stringify(m)); };
 
   // ─────────────────────────────────────────────────────────────────────────────
   // DIRECTORY TAB
@@ -956,12 +991,323 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ACCIDENTS TAB
+  // ─────────────────────────────────────────────────────────────────────────────
+  const AccidentsTab = () => {
+    const [showForm, setShowForm] = useState(false);
+    const [form, setForm] = useState<Partial<AccidentReport>>({ status: 'Open', date: new Date().toISOString().slice(0, 10) });
+    const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Under Investigation' | 'Closed'>('All');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+
+    const filtered = accidents.filter(a => {
+      const matchStatus = statusFilter === 'All' || a.status === statusFilter;
+      const matchFrom = !dateFrom || a.date >= dateFrom;
+      const matchTo = !dateTo || a.date <= dateTo;
+      return matchStatus && matchFrom && matchTo;
+    }).sort((a, b) => b.date.localeCompare(a.date));
+
+    const handleSave = () => {
+      if (!form.employeeId || !form.description || !form.date) return;
+      const emp = employees.find(e => e.id === form.employeeId);
+      const record: AccidentReport = {
+        id: uid(),
+        date: form.date,
+        employeeId: form.employeeId,
+        employeeName: emp?.name || '',
+        department: emp?.department || form.department || '',
+        description: form.description,
+        actionTaken: form.actionTaken || '',
+        status: form.status as AccidentReport['status'] || 'Open',
+        createdAt: new Date().toISOString(),
+      };
+      saveAccidents([record, ...accidents]);
+      setShowForm(false);
+      setForm({ status: 'Open', date: new Date().toISOString().slice(0, 10) });
+    };
+
+    const updateStatus = (id: string, status: AccidentReport['status']) => {
+      saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a));
+    };
+
+    const openCount = accidents.filter(a => a.status === 'Open').length;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex flex-wrap gap-2 items-center">
+            {(['All', 'Open', 'Under Investigation', 'Closed'] as const).map(s => (
+              <button key={s} onClick={() => setStatusFilter(s)}
+                className={`text-xs font-bold px-3 py-1.5 rounded-full border transition-colors ${
+                  statusFilter === s ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-600 border-slate-200 hover:border-rose-400'
+                }`}>
+                {s} {s === 'Open' && openCount > 0 ? `(${openCount})` : ''}
+              </button>
+            ))}
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" placeholder="From" />
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" placeholder="To" />
+          </div>
+          <button onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors">
+            <Plus className="h-4 w-4" /> Report Accident
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-800 flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-rose-600" /> Accident Report</h3>
+                <button onClick={() => setShowForm(false)}><X className="h-5 w-5 text-slate-400" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Incident Date *</label>
+                  <input type="date" value={form.date || ''} onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Employee *</label>
+                  <select value={form.employeeId || ''} onChange={e => setForm(p => ({ ...p, employeeId: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white">
+                    <option value="">Select...</option>
+                    {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Accident Description *</label>
+                  <textarea rows={3} value={form.description || ''} onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+                    placeholder="Describe what happened, where, and how..."
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none" />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Action Taken</label>
+                  <textarea rows={2} value={form.actionTaken || ''} onChange={e => setForm(p => ({ ...p, actionTaken: e.target.value }))}
+                    placeholder="First aid, hospital visit, investigation started..."
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Status</label>
+                  <select value={form.status || 'Open'} onChange={e => setForm(p => ({ ...p, status: e.target.value as AccidentReport['status'] }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white">
+                    {['Open', 'Under Investigation', 'Closed'].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={handleSave} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-lg text-sm flex items-center justify-center gap-2">
+                  <Save className="h-4 w-4" /> Submit Report
+                </button>
+                <button onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                {['Date', 'Employee', 'Department', 'Description', 'Action Taken', 'Status', 'Actions'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-12 text-slate-400 text-sm">No accident reports found</td></tr>
+              ) : filtered.map(a => (
+                <tr key={a.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-600 text-xs font-mono whitespace-nowrap">{fmtDate(a.date)}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-800">{a.employeeName}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{a.department}</td>
+                  <td className="px-4 py-3 text-slate-600 max-w-[180px] truncate text-xs">{a.description}</td>
+                  <td className="px-4 py-3 text-slate-500 max-w-[140px] truncate text-xs">{a.actionTaken || '—'}</td>
+                  <td className="px-4 py-3">
+                    <select value={a.status} onChange={e => updateStatus(a.id, e.target.value as AccidentReport['status'])}
+                      className={`text-xs font-bold px-2 py-0.5 rounded-full border bg-white focus:outline-none ${
+                        a.status === 'Closed' ? 'text-emerald-700 border-emerald-200' :
+                        a.status === 'Under Investigation' ? 'text-amber-700 border-amber-200' :
+                        'text-rose-700 border-rose-200'
+                      }`}>
+                      {['Open', 'Under Investigation', 'Closed'].map(s => <option key={s}>{s}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => { if (window.confirm('Delete this report?')) saveAccidents(accidents.filter(x => x.id !== a.id)); }}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // MEDICAL FORMS TAB
+  // ─────────────────────────────────────────────────────────────────────────────
+  const MedicalTab = () => {
+    const [showForm, setShowForm] = useState(false);
+    const [form, setForm] = useState<Partial<MedicalRecord>>({ date: new Date().toISOString().slice(0, 10) });
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [search, setSearch] = useState('');
+
+    const filtered = medicals.filter(m => {
+      const matchSearch = m.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+        m.disease.toLowerCase().includes(search.toLowerCase());
+      const matchFrom = !dateFrom || m.date >= dateFrom;
+      const matchTo = !dateTo || m.date <= dateTo;
+      return matchSearch && matchFrom && matchTo;
+    }).sort((a, b) => b.date.localeCompare(a.date));
+
+    const handleSave = () => {
+      if (!form.employeeId || !form.disease) return;
+      const emp = employees.find(e => e.id === form.employeeId);
+      const record: MedicalRecord = {
+        id: uid(),
+        date: form.date || new Date().toISOString().slice(0, 10),
+        employeeId: form.employeeId,
+        employeeName: emp?.name || '',
+        disease: form.disease,
+        notes: form.notes || '',
+        approvedBy: form.approvedBy || '',
+        createdAt: new Date().toISOString(),
+      };
+      saveMedicals([record, ...medicals]);
+      setShowForm(false);
+      setForm({ date: new Date().toISOString().slice(0, 10) });
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or disease..."
+                className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-400 w-44" />
+            </div>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400" />
+            <span className="text-xs text-slate-400">to</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400" />
+          </div>
+          <button onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors">
+            <Plus className="h-4 w-4" /> Add Medical Form
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-800 flex items-center gap-2"><Stethoscope className="h-5 w-5 text-teal-600" /> Medical Form</h3>
+                <button onClick={() => setShowForm(false)}><X className="h-5 w-5 text-slate-400" /></button>
+              </div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">Date</label>
+                    <input type="date" value={form.date || ''} onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">Employee *</label>
+                    <select value={form.employeeId || ''} onChange={e => setForm(p => ({ ...p, employeeId: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                      <option value="">Select...</option>
+                      {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Disease / Medical Condition *</label>
+                  <input type="text" value={form.disease || ''} onChange={e => setForm(p => ({ ...p, disease: e.target.value }))}
+                    placeholder="e.g. Fever, Back Pain, Diabetes..."
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Notes / Doctor Advice</label>
+                  <textarea rows={3} value={form.notes || ''} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+                    placeholder="Rest period, medication, follow-up required..."
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Approved By (HR/Manager)</label>
+                  <input type="text" value={form.approvedBy || ''} onChange={e => setForm(p => ({ ...p, approvedBy: e.target.value }))}
+                    placeholder="HR Manager or Supervisor name"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={handleSave} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 rounded-lg text-sm flex items-center justify-center gap-2">
+                  <Save className="h-4 w-4" /> Save Medical Form
+                </button>
+                <button onClick={() => setShowForm(false)} className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                {['Date', 'Employee', 'Disease / Condition', 'Notes', 'Approved By', 'Actions'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.length === 0 ? (
+                <tr><td colSpan={6} className="text-center py-12 text-slate-400 text-sm">No medical forms found</td></tr>
+              ) : filtered.map(m => (
+                <tr key={m.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-600 text-xs font-mono whitespace-nowrap">{fmtDate(m.date)}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-800">{m.employeeName}</td>
+                  <td className="px-4 py-3">
+                    <span className="bg-teal-50 text-teal-700 text-xs font-bold px-2 py-0.5 rounded-full">{m.disease}</span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 text-xs max-w-[180px] truncate">{m.notes || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{m.approvedBy || '—'}</td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => { if (window.confirm('Delete this record?')) saveMedicals(medicals.filter(x => x.id !== m.id)); }}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // TABS CONFIG
+  // ─────────────────────────────────────────────────────────────────────────────
+
   const tabs = [
     { id: 'directory', label: 'Directory', icon: <Users className="h-4 w-4" /> },
     { id: 'attendance', label: 'Attendance', icon: <Clock className="h-4 w-4" /> },
     { id: 'payroll', label: 'Payroll', icon: <DollarSign className="h-4 w-4" /> },
     { id: 'leave', label: 'Leave', icon: <CalendarOff className="h-4 w-4" /> },
     { id: 'warnings', label: 'Warnings', icon: <AlertTriangle className="h-4 w-4" /> },
+    { id: 'accidents', label: 'Accidents', icon: <ShieldAlert className="h-4 w-4" /> },
+    { id: 'medical', label: 'Medical', icon: <Stethoscope className="h-4 w-4" /> },
     { id: 'reports', label: 'Reports', icon: <BarChart2 className="h-4 w-4" /> },
   ] as const;
 
@@ -1019,6 +1365,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       {activeTab === 'payroll' && <PayrollTab />}
       {activeTab === 'leave' && <LeaveTab />}
       {activeTab === 'warnings' && <WarningsTab />}
+      {activeTab === 'accidents' && <AccidentsTab />}
+      {activeTab === 'medical' && <MedicalTab />}
       {activeTab === 'reports' && <ReportsTab />}
     </div>
   );
