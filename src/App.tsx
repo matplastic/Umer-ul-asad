@@ -32,6 +32,7 @@ import {
   dbRestoreRecycleBin,
   dbPurgePoolRelatedData,
   dbDeletePool,
+  dbSavePlannedPool,
   dbDeletePlannedPool,
   dbSaveEmployeePunch,
   dbDeleteEmployeePunch,
@@ -1633,7 +1634,9 @@ export default function App() {
 
     const updated = [newPlan, ...plannedPools];
     setPlannedPools(updated);
-    saveState(pools, teams, logs, inspectors, engineers, updated, projectsSummary, monthlyTargets, employees);
+    // Use targeted save — avoids stale-closure overwrite of other collections
+    localStorage.setItem('apex_planned_pools', JSON.stringify(updated));
+    dbSavePlannedPool(newPlan).catch(console.error);
     return true;
   };
 
@@ -1702,7 +1705,10 @@ export default function App() {
     };
     const updatedLogs = [planningLog, ...logs];
     setLogs(updatedLogs);
-    saveState(pools, teams, updatedLogs, inspectors, engineers, updated, projectsSummary, monthlyTargets, employees);
+    // Use targeted saves — avoids stale-closure overwrite of other collections
+    localStorage.setItem('apex_planned_pools', JSON.stringify(updated));
+    localStorage.setItem('apex_logs', JSON.stringify(updatedLogs));
+    newPlans.forEach(plan => dbSavePlannedPool(plan).catch(console.error));
 
     alert(`Successfully generated and registered ${newPlans.length} pools for project "${batchSpec.projectName}".${duplicatesCount > 0 ? ` (Skipped ${duplicatesCount} duplicates.)` : ''}`);
   };
@@ -1770,8 +1776,11 @@ export default function App() {
     const updatedLogs = [importLog, ...logs];
     setLogs(updatedLogs);
 
-    saveState(pools, teams, updatedLogs, inspectors, engineers, updated, projectsSummary, monthlyTargets, employees);
-    alert(`Success! Imported ${newPlans.length} pools from Excel successfully.${dupsCount > 0 ? ` Filtered out ${dupsCount} duplicate codes.` : ""}`);
+    // Use targeted saves — avoids stale-closure overwrite of other collections
+    localStorage.setItem('apex_planned_pools', JSON.stringify(updated));
+    localStorage.setItem('apex_logs', JSON.stringify(updatedLogs));
+    newPlans.forEach(plan => dbSavePlannedPool(plan).catch(console.error));
+    alert(`Success! Imported ${newPlans.length} pools from Excel successfully.${dupsCount > 0 ? ` Filtered out ${dupsCount} duplicate codes.` : ''}`);
     return true;
   };
 
@@ -1795,7 +1804,8 @@ export default function App() {
 
     const updated = plannedPools.filter(p => p.id !== planId);
     setPlannedPools(updated);
-    saveState(pools, teams, logs, inspectors, engineers, updated, projectsSummary, monthlyTargets, employees);
+    // Use targeted save — avoids stale-closure overwrite of other collections
+    localStorage.setItem('apex_planned_pools', JSON.stringify(updated));
 
     // Call Delete API endpoint direct if it has database reference
     await dbDeletePlannedPool(planId).catch(console.error);
@@ -1861,7 +1871,9 @@ export default function App() {
     setPools(updatedPools);
     setPlannedPools(updatedPlans);
     setLogs(updatedLogs);
-    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, updatedPlans);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, updatedPlans, projectsSummary, monthlyTargets, employees);
+    // Also targeted-save the planned pool status update
+    dbSavePlannedPool(updatedPlans[designIndex]).catch(console.error);
     return livePoolId;
   };
 
