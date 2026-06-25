@@ -15,6 +15,7 @@ interface StageDashboardProps {
   googleUser: any;
   onGoogleSignIn: () => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
+  onRequestUndoClaim?: (poolId: string, stageId: StageId, teamName: string, reason: string) => void;
   onRefresh?: () => void;
   isSyncing?: boolean;
 }
@@ -30,6 +31,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   googleUser,
   onGoogleSignIn,
   onSkipOrCarryOnSite,
+  onRequestUndoClaim,
   onRefresh,
   isSyncing,
 }) => {
@@ -353,31 +355,27 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </div>
                       )}
 
-                      {onSkipOrCarryOnSite && (
+                      {/* Request QA to undo claim — replaces Skip/Carry which is now QA-only */}
+                      {onRequestUndoClaim && (
                         <div className="mt-3 pt-3 border-t border-slate-200">
-                          <span className="text-[10px] font-black text-slate-450 text-slate-500 block mb-1.5 uppercase tracking-wider">
-                            Off-Sequence Dispatch:
+                          <span className="text-[10px] font-black text-slate-500 block mb-1.5 uppercase tracking-wider">
+                            Wrong Assignment?
                           </span>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => onSkipOrCarryOnSite(myClaimedPool.id, stage.id, 'SKIPPED', activeTeam?.name || 'Shop Floor Team')}
-                              className="py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[10.5px] rounded border border-slate-200 text-center cursor-pointer shrink-0"
-                            >
-                              Skip For Now
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onSkipOrCarryOnSite(myClaimedPool.id, stage.id, 'CARRIED_ON_SITE', activeTeam?.name || 'Shop Floor Team')}
-                              className="py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-black text-[10.5px] rounded border border-indigo-200 text-center cursor-pointer shrink-0"
-                            >
-                              Carry On Site
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const reason = window.prompt(`Request QA to undo claim for ${myClaimedPool.poolNo}?\n\nEnter reason (e.g. "Claimed under wrong team name"):`);
+                              if (reason) onRequestUndoClaim(myClaimedPool.id, stage.id, activeTeam?.name || 'Unknown Team', reason);
+                            }}
+                            className="w-full py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-black text-[10.5px] rounded border border-amber-200 text-center cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <span>⚠</span> Request QA to Undo Claim
+                          </button>
                           <p className="text-[9.5px] text-slate-400 mt-1.5 leading-tight">
-                            Will mark this stage bypassed and immediately unlock the next workstation queue.
+                            Sends a request to Quality Assurance to unclaim this pool so the correct team can pick it.
                           </p>
                         </div>
+                      )}
                       )}
                     </div>
                   </div>
@@ -496,27 +494,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           )}
                         </div>
 
-                        {onSkipOrCarryOnSite && (
-                          <div className="mt-3 bg-indigo-50/50 hover:bg-indigo-50/75 p-2 rounded-xl border border-indigo-100/50 text-slate-800 space-y-1.5 transition-colors">
-                            <span className="text-[9.2px] uppercase tracking-wider font-extrabold text-indigo-700 block text-left">Off-Sequence Dispatch:</span>
-                            <div className="grid grid-cols-2 gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => onSkipOrCarryOnSite(pool.id, stage.id, 'SKIPPED', activeTeam?.name || 'Shop Floor Team')}
-                                className="py-1 bg-white hover:bg-slate-50 text-slate-700 font-extrabold text-[10px] uppercase rounded border border-slate-200 text-center cursor-pointer shadow-xs"
-                              >
-                                Skip Section
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onSkipOrCarryOnSite(pool.id, stage.id, 'CARRIED_ON_SITE', activeTeam?.name || 'Shop Floor Team')}
-                                className="py-1 bg-white hover:bg-indigo-50 text-indigo-600 font-extrabold text-[10px] uppercase rounded border border-indigo-200 text-center cursor-pointer shadow-xs"
-                              >
-                                Carry On Site
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        {/* Skip/Carry moved to QA portal only */}
                       </div>
 
                       <div className="mt-4 pt-3 border-t border-slate-200/50 flex items-center justify-between">
