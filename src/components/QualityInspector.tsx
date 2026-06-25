@@ -3,6 +3,18 @@ import { Pool, StageId } from '../types';
 import { STAGES } from '../data/mockData';
 import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw } from 'lucide-react';
 
+interface UndoClaimRequest {
+  id: string;
+  poolId: string;
+  poolNo: string;
+  projectName: string;
+  stageId: StageId;
+  stageName: string;
+  teamName: string;
+  reason: string;
+  requestedAt: string;
+}
+
 interface QualityInspectorProps {
   pools: Pool[];
   allTeams: any[];
@@ -11,6 +23,9 @@ interface QualityInspectorProps {
   inspectors?: { id: string; name: string; title: string }[];
   onDeletePool?: (poolId: string, operatorName: string) => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
+  pendingUndoRequests?: UndoClaimRequest[];
+  onApproveUndo?: (requestId: string, poolId: string, stageId: StageId, inspectorName: string) => void;
+  onRejectUndo?: (requestId: string) => void;
   onRefresh?: () => void;
   isSyncing?: boolean;
 }
@@ -23,6 +38,9 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   inspectors = [],
   onDeletePool,
   onSkipOrCarryOnSite,
+  pendingUndoRequests = [],
+  onApproveUndo,
+  onRejectUndo,
   onRefresh,
   isSyncing,
 }) => {
@@ -107,7 +125,59 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
 
   return (
     <div className="space-y-6">
-      
+
+      {/* ── Undo Claim Requests Panel ─────────────────────────────────────────── */}
+      {pendingUndoRequests.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-lg">⚠</span>
+            <h3 className="font-black text-amber-800 text-sm uppercase tracking-wider">
+              Undo Claim Requests ({pendingUndoRequests.length})
+            </h3>
+            <span className="ml-auto text-xs text-amber-600 font-semibold">
+              Workers requesting you to unclaim a pool so correct team can pick it
+            </span>
+          </div>
+          <div className="space-y-3">
+            {pendingUndoRequests.map(req => (
+              <div key={req.id} className="bg-white rounded-xl border border-amber-200 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-black text-slate-800 text-sm">{req.poolNo}</span>
+                    <span className="text-slate-400 text-xs">—</span>
+                    <span className="text-slate-600 text-xs">{req.projectName}</span>
+                    <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{req.stageName}</span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    <span className="font-semibold text-slate-700">Team:</span> {req.teamName}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    <span className="font-semibold text-slate-700">Reason:</span> {req.reason}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Requested: {new Date(req.requestedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onApproveUndo && onApproveUndo(req.id, req.poolId, req.stageId as StageId, selectedInspector)}
+                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition-colors"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve Undo
+                  </button>
+                  <button
+                    onClick={() => onRejectUndo && onRejectUndo(req.id)}
+                    className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-3 py-2 rounded-lg transition-colors"
+                  >
+                    <XCircle className="h-3.5 w-3.5" /> Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Title Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border border-slate-100 shadow-sm gap-4">
         <div>
