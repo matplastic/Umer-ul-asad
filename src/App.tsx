@@ -1633,7 +1633,7 @@ export default function App() {
 
     const updated = [newPlan, ...plannedPools];
     setPlannedPools(updated);
-    saveState(pools, teams, logs, inspectors, engineers, updated);
+    saveState(pools, teams, logs, inspectors, engineers, updated, projectsSummary, monthlyTargets, employees);
     return true;
   };
 
@@ -1702,7 +1702,7 @@ export default function App() {
     };
     const updatedLogs = [planningLog, ...logs];
     setLogs(updatedLogs);
-    saveState(pools, teams, updatedLogs, inspectors, engineers, updated);
+    saveState(pools, teams, updatedLogs, inspectors, engineers, updated, projectsSummary, monthlyTargets, employees);
 
     alert(`Successfully generated and registered ${newPlans.length} pools for project "${batchSpec.projectName}".${duplicatesCount > 0 ? ` (Skipped ${duplicatesCount} duplicates.)` : ''}`);
   };
@@ -1770,8 +1770,8 @@ export default function App() {
     const updatedLogs = [importLog, ...logs];
     setLogs(updatedLogs);
 
-    saveState(pools, teams, updatedLogs, inspectors, engineers, updated);
-    alert(`Success! Imported ${newPlans.length} pools from Excel successfully.${dupsCount > 0 ? ` Filtered out ${dupsCount} duplicate codes.` : ''}`);
+    saveState(pools, teams, updatedLogs, inspectors, engineers, updated, projectsSummary, monthlyTargets, employees);
+    alert(`Success! Imported ${newPlans.length} pools from Excel successfully.${dupsCount > 0 ? ` Filtered out ${dupsCount} duplicate codes.` : ""}`);
     return true;
   };
 
@@ -1795,7 +1795,7 @@ export default function App() {
 
     const updated = plannedPools.filter(p => p.id !== planId);
     setPlannedPools(updated);
-    saveState(pools, teams, logs, inspectors, engineers, updated);
+    saveState(pools, teams, logs, inspectors, engineers, updated, projectsSummary, monthlyTargets, employees);
 
     // Call Delete API endpoint direct if it has database reference
     await dbDeletePlannedPool(planId).catch(console.error);
