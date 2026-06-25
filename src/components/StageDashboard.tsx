@@ -376,7 +376,6 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           </p>
                         </div>
                       )}
-                      )}
                     </div>
                   </div>
                 ) : (
