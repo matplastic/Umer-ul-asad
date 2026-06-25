@@ -1784,6 +1784,16 @@ export default function App() {
     return true;
   };
 
+  const handleUpdatePlannedPool = (planId: string, updatedFields: { projectName?: string }) => {
+    const idx = plannedPools.findIndex(p => p.id === planId);
+    if (idx === -1) return;
+    const updated = [...plannedPools];
+    updated[idx] = { ...updated[idx], ...updatedFields };
+    setPlannedPools(updated);
+    localStorage.setItem('apex_planned_pools', JSON.stringify(updated));
+    dbSavePlannedPool(updated[idx]).catch(console.error);
+  };
+
   const handleDeletePlannedPool = async (planId: string) => {
     const design = plannedPools.find(p => p.id === planId);
     if (!design) return;
@@ -2410,6 +2420,7 @@ export default function App() {
             onAddPlannedPool={handleAddPlannedPool}
             onAddPlannedPoolBatch={handleAddPlannedPoolBatch}
             onDeletePlannedPool={handleDeletePlannedPool}
+            onUpdatePlannedPool={handleUpdatePlannedPool}
             onReleasePlannedPool={handleReleasePlannedPool}
             engineers={engineers}
             projectsSummary={projectsSummary}
