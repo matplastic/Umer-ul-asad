@@ -200,6 +200,8 @@ export async function saveEntireStateToFirestore(
 
   if (!base) {
     console.log('Saving entire state directly to Firestore... (Server-less mode)');
+    // NOTE: trolleys, recycleBin, employeePunches are managed by their own fine-grained
+    // db functions and must NOT be overwritten here — only update what was explicitly passed
     await Promise.all([
       setFirestoreDocArray('pools', poolsList),
       setFirestoreDocArray('plannedPools', plannedPoolsList),
@@ -210,9 +212,6 @@ export async function saveEntireStateToFirestore(
       setFirestoreDocArray('projectsSummary', finalProjects),
       setFirestoreDocArray('monthlyTargets', monthlyTargetsList),
       setFirestoreDocArray('employees', employeesList),
-      setFirestoreDocArray('trolleys', []),
-      setFirestoreDocArray('recycleBin', []),
-      setFirestoreDocArray('employeePunches', [])
     ]);
     return { success: true };
   }
