@@ -52,6 +52,7 @@ interface PlanningDepartmentProps {
     notes?: string;
   }) => void;
   onDeletePlannedPool: (planId: string) => void;
+  onUpdatePlannedPool?: (planId: string, updatedFields: { projectName?: string }) => void;
   onReleasePlannedPool: (planId: string, operatorName: string) => string | null;
   engineers: { id: string; name: string }[];
   projectsSummary?: ProjectSummary[];
@@ -107,6 +108,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   onAddPlannedPool,
   onAddPlannedPoolBatch,
   onDeletePlannedPool,
+  onUpdatePlannedPool,
   onReleasePlannedPool,
   engineers,
   projectsSummary = [],
@@ -154,8 +156,12 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   // Expanded projects dictionary for Dashboard breakdown
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
 
+  // Inline edit state for project name correction
+  const [editProjectId, setEditProjectId] = useState<string | null>(null);
+  const [editProjectValue, setEditProjectValue] = useState('');
+
   // New Single Pool state
-  const [singleProject, setSingleProject] = useState('Villa Sapphire Infinity');
+  const [singleProject, setSingleProject] = useState('');
   const [customProject, setCustomProject] = useState('');
   const [useCustomProject, setUseCustomProject] = useState(false);
   const [poolNo, setPoolNo] = useState('');
@@ -168,7 +174,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   const [notes, setNotes] = useState('');
 
   // Bulk Pool state
-  const [bulkProject, setBulkProject] = useState('Villa Sapphire Infinity');
+  const [bulkProject, setBulkProject] = useState('');
   const [customBulkProject, setCustomBulkProject] = useState('');
   const [useCustomBulkProject, setUseCustomBulkProject] = useState(false);
   const [prefix, setPrefix] = useState('PL-');
@@ -936,15 +942,9 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   const knownProjects = useMemo(() => {
     const list = new Set<string>();
     plannedPools.forEach(p => list.add(p.projectName));
-    // Seed some defaults if initially empty
-    if (list.size === 0) {
-      list.add('Villa Sapphire Infinity');
-      list.add('Lagoon Leisure Lap Pool');
-      list.add('Oasis Resort Main Pool');
-      list.add('Oceanic Horizon Estates');
-    }
-    return Array.from(list);
-  }, [plannedPools]);
+    pools.forEach(p => { if (p.projectName) list.add(p.projectName); });
+    return Array.from(list).sort();
+  }, [plannedPools, pools]);
 
   // Handle single pool submission
   const onSubmitSingle = (e: React.FormEvent) => {
@@ -1646,7 +1646,43 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 
                           {/* Project Source */}
                           <td className="py-4.5 px-4 font-bold text-slate-700">
-                            {plan.projectName}
+                            {editProjectId === plan.id ? (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={editProjectValue}
+                                  onChange={e => setEditProjectValue(e.target.value)}
+                                  className="border border-indigo-400 rounded-lg px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                  autoFocus
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      onUpdatePlannedPool?.(plan.id, { projectName: editProjectValue.trim() });
+                                      setEditProjectId(null);
+                                    }
+                                    if (e.key === 'Escape') setEditProjectId(null);
+                                  }}
+                                />
+                                <button
+                                  onClick={() => { onUpdatePlannedPool?.(plan.id, { projectName: editProjectValue.trim() }); setEditProjectId(null); }}
+                                  className="text-[10px] bg-indigo-600 text-white px-2 py-1 rounded-lg cursor-pointer font-bold"
+                                >✓</button>
+                                <button
+                                  onClick={() => setEditProjectId(null)}
+                                  className="text-[10px] bg-slate-200 text-slate-600 px-2 py-1 rounded-lg cursor-pointer"
+                                >✕</button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 group">
+                                <span>{plan.projectName}</span>
+                                {plan.status === 'PLANNED' && (
+                                  <button
+                                    onClick={() => { setEditProjectId(plan.id); setEditProjectValue(plan.projectName); }}
+                                    className="opacity-0 group-hover:opacity-100 text-[9px] text-indigo-400 hover:text-indigo-600 cursor-pointer transition-opacity"
+                                    title="Edit project name"
+                                  >✎</button>
+                                )}
+                              </div>
+                            )}
                           </td>
 
                           {/* Dimensions & shape */}
@@ -1774,6 +1810,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                     onChange={(e) => setSingleProject(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-705 cursor-pointer focus:outline-none"
                   >
+                    <option value="">— Select Project —</option>
                     {knownProjects.map(p => (
                       <option key={p} value={p}>{p}</option>
                     ))}
@@ -1988,6 +2025,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                     onChange={(e) => setBulkProject(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-700 cursor-pointer focus:outline-none"
                   >
+                    <option value="">— Select Project —</option>
                     {knownProjects.map(p => (
                       <option key={p} value={p}>{p}</option>
                     ))}
