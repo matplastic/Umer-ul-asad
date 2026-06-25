@@ -124,6 +124,21 @@ export default function App() {
 
   const [recycleBin, setRecycleBin] = useState<RecycleBinItem[]>([]);
 
+  // Undo claim requests from shop floor workers
+  const [pendingUndoRequests, setPendingUndoRequests] = useState<{
+    id: string;
+    poolId: string;
+    poolNo: string;
+    projectName: string;
+    stageId: string;
+    stageName: string;
+    teamName: string;
+    reason: string;
+    requestedAt: string;
+  }[]>(() => {
+    try { return JSON.parse(localStorage.getItem('pending_undo_requests') || '[]'); } catch { return []; }
+  });
+
   // Employee machine punch records storage
   const [employeePunches, setEmployeePunches] = useState<EmployeePunch[]>(() => {
     const raw = localStorage.getItem('apex_employee_punches');
@@ -2094,6 +2109,84 @@ export default function App() {
     saveState(updatedPools, updatedTeams, updatedLogs);
   };
 
+  // ── Request Undo Claim (from Shop Floor worker) ───────────────────────────────
+  const handleRequestUndoClaim = (poolId: string, stageId: StageId, teamName: string, reason: string) => {
+    const pool = pools.find(p => p.id === poolId);
+    if (!pool) return;
+    const stage = STAGES.find(s => s.id === stageId);
+    const newRequest = {
+      id: `undo_${Date.now()}`,
+      poolId,
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      stageId,
+      stageName: stage?.name || stageId,
+      teamName,
+      reason,
+      requestedAt: new Date().toISOString(),
+    };
+    const updated = [newRequest, ...pendingUndoRequests];
+    setPendingUndoRequests(updated);
+    localStorage.setItem('pending_undo_requests', JSON.stringify(updated));
+    alert(`✅ Request sent to QA! They will review and unclaim pool ${pool.poolNo} so you can re-pick it.`);
+  };
+
+  // ── QA Approves Undo (unclaims the pool stage so correct team can pick) ──────
+  const handleApproveUndo = (requestId: string, poolId: string, stageId: StageId, inspectorName: string) => {
+    const poolIndex = pools.findIndex(p => p.id === poolId);
+    if (poolIndex === -1) return;
+
+    const updatedPools = [...pools];
+    const pool = { ...updatedPools[poolIndex] };
+    const stageHist = { ...pool.stageHistory[stageId] };
+
+    // Reset the stage so any team can claim it again
+    stageHist.teamId = null as any;
+    stageHist.status = 'NOT_STARTED';
+    stageHist.startTime = null as any;
+    stageHist.endTime = null as any;
+    pool.stageHistory[stageId] = stageHist;
+
+    // Also free the team that was assigned
+    const updatedTeams = teams.map(t =>
+      t.activePoolId === poolId && t.stageId === stageId
+        ? { ...t, status: 'IDLE' as const, activePoolId: null }
+        : t
+    );
+
+    updatedPools[poolIndex] = pool;
+
+    const newLog: any = {
+      id: `log_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      poolId: pool.id,
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      stageId,
+      type: 'QA_UNDO_CLAIM',
+      operatorName: inspectorName,
+      notes: `QA approved undo claim. Pool unclaimed and reset for re-assignment.`
+    };
+
+    const updatedLogs = [...logs, newLog];
+    setPools(updatedPools);
+    setTeams(updatedTeams);
+    setLogs(updatedLogs);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, plannedPools);
+
+    // Remove from pending requests
+    const updatedRequests = pendingUndoRequests.filter(r => r.id !== requestId);
+    setPendingUndoRequests(updatedRequests);
+    localStorage.setItem('pending_undo_requests', JSON.stringify(updatedRequests));
+  };
+
+  // ── QA Rejects Undo ───────────────────────────────────────────────────────────
+  const handleRejectUndo = (requestId: string) => {
+    const updatedRequests = pendingUndoRequests.filter(r => r.id !== requestId);
+    setPendingUndoRequests(updatedRequests);
+    localStorage.setItem('pending_undo_requests', JSON.stringify(updatedRequests));
+  };
+
   const handleSkipOrCarryOnSite = (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
@@ -2341,6 +2434,7 @@ export default function App() {
             googleUser={googleUser}
             onGoogleSignIn={handleGoogleSignIn}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
+            onRequestUndoClaim={handleRequestUndoClaim}
             onRefresh={refreshFromCloud}
             isSyncing={isSyncing}
           />
@@ -2355,6 +2449,9 @@ export default function App() {
             inspectors={inspectors}
             onDeletePool={handleDeletePool}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
+            pendingUndoRequests={pendingUndoRequests}
+            onApproveUndo={handleApproveUndo}
+            onRejectUndo={handleRejectUndo}
             onRefresh={refreshFromCloud}
             isSyncing={isSyncing}
           />
