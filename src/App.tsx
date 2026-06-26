@@ -19,7 +19,6 @@ import {
   getEntireStateFromFirestore, 
   saveEntireStateToFirestore,
   getLiveStateFromFirestore,
-  subscribeToLiveState,
   dbSaveProjectSummary,
   dbDeleteProjectSummary,
   dbSaveMonthlyTarget,
@@ -44,15 +43,32 @@ import {
   dbSyncBioCloudPunches
 } from './lib/firebaseService';
 
-const DEFAULT_INSPECTORS: { id: string; name: string; title: string }[] = [];
+const DEFAULT_INSPECTORS = [
+  { id: 'insp_1', name: 'Insp. Sarah Wells', title: 'Structural Quality Lead' },
+  { id: 'insp_2', name: 'Insp. Mike Vance', title: 'Plumbing Specialist' },
+  { id: 'insp_3', name: 'Insp. David Cole', title: 'Seals Quality Chief' },
+];
 
-const DEFAULT_ENGINEERS: { id: string; name: string; title: string }[] = [];
+const DEFAULT_ENGINEERS = [
+  { id: 'eng_1', name: 'Eng. Karim R.', title: 'Lead Production Engineer' },
+  { id: 'eng_2', name: 'Eng. Fatima S.', title: 'Process Layout Specialist' },
+];
 
-const DEFAULT_PROJECTS_SUMMARY: ProjectSummary[] = [];
+const DEFAULT_PROJECTS_SUMMARY: ProjectSummary[] = [
+  { id: 'proj-1', projectName: 'Tiger', orientation: 'Normal', poolType: 'Type 3', totalPools: 188, deliveredPools: 29, producedPools: 50, remainingPools: 109, notes: 'Fibrepool design for High-efficiency installation.', createdAt: new Date().toISOString() },
+  { id: 'proj-2', projectName: 'Panther Elite', orientation: 'Mirror', poolType: 'Type 1', totalPools: 400, deliveredPools: 120, producedPools: 180, remainingPools: 100, notes: 'Custom client specifications, mirror orientation.', createdAt: new Date().toISOString() }
+];
 
-const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [];
+const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [
+  { id: '2026-06', monthName: 'June 2026', mainTarget: 120, steelFabricationTarget: 145, steelPrimerTarget: 145, plumbingTarget: 130, claddingTarget: 130, skimmerFittingTarget: 130, laminationTarget: 125, mechanicalFittingTarget: 125, skimmerTestTarget: 120, doorCuttingTarget: 120, mosaicTarget: 120, groutingTarget: 125, acrylicTarget: 120, targetOee: 82, notes: 'Boost output in high demand summer month.' }
+];
 
-const DEFAULT_EMPLOYEES: Employee[] = [];
+const DEFAULT_EMPLOYEES: Employee[] = [
+  { id: 'emp-1', name: 'John Doe', department: 'Steel Fabrication', role: 'Welder Specialist', email: 'john.doe@apexpools.com', phone: '+1 555-0192', notes: 'Day shift supervisor', createdAt: '2026-06-01T08:00:00.000Z' },
+  { id: 'emp-2', name: 'Alba Vance', department: 'Structural Lamination', role: 'Composite Technician', email: 'alba@apexpools.com', phone: '+1 555-0143', notes: 'Expert in vacuum bagging', createdAt: '2026-06-02T08:00:00.000Z' },
+  { id: 'emp-3', name: 'Marcus Chen', department: 'Quality Control', role: 'Lead inspector', email: 'marcus.c@apexpools.com', phone: '+1 555-0177', notes: 'Covers major mechanical inspections', createdAt: '2026-06-03T09:00:00.000Z' },
+  { id: 'emp-4', name: 'Sarah Jenkins', department: 'Planning', role: 'Production Planner', email: 'sarah.j@apexpools.com', phone: '+1 555-0155', notes: 'Contract release dispatcher', createdAt: '2026-06-04T08:30:00.000Z' },
+];
 
 export default function App() {
   const [pools, setPools] = useState<Pool[]>([]);
@@ -393,77 +409,6 @@ export default function App() {
       setFirebaseStatus('linking');
       try {
         const cloudData = await getEntireStateFromFirestore();
-
-        // ── One-time auto-cleanup of legacy demo seed records ──────────────
-        // The previous build seeded Firestore with hard-coded demo entries
-        // (Tiger, Panther Elite, June 2026 targets, demo employees/pools).
-        // We purge them once per device and persist a localStorage flag.
-        const PHANTOM_FLAG_KEY = 'apex_demo_phantom_purged_v1';
-        if (!localStorage.getItem(PHANTOM_FLAG_KEY)) {
-          const DEMO_PROJECT_IDS = new Set(['proj-1', 'proj-2']);
-          const DEMO_PROJECT_NAMES = new Set(['Tiger', 'Panther Elite']);
-          const DEMO_TARGET_IDS = new Set(['2026-06']);
-          const DEMO_EMPLOYEE_IDS = new Set(['emp-1', 'emp-2', 'emp-3', 'emp-4']);
-          const DEMO_INSPECTOR_IDS = new Set(['insp_1', 'insp_2', 'insp_3']);
-          const DEMO_ENGINEER_IDS = new Set(['eng_1', 'eng_2']);
-          const DEMO_POOL_IDS = new Set(['pool_1','pool_2','pool_3','pool_4','pool_5','pool_6']);
-          const DEMO_PLAN_IDS = new Set(['plan_1','plan_2','plan_3','plan_4','plan_5','plan_6']);
-          const DEMO_PROJECT_NAMES_LOWER = new Set([
-            'oasis resort main pool','aqua sky residence','metroplex public center',
-            'sunset estate twin','platinum villa retreat','riverbend community','villa jewel high-rise'
-          ]);
-
-          const cleanedProjects = (cloudData.projectsSummary || []).filter((p: any) =>
-            !DEMO_PROJECT_IDS.has(p.id) && !DEMO_PROJECT_NAMES.has(p.projectName)
-          );
-          const cleanedTargets = (cloudData.monthlyTargets || []).filter((t: any) => !DEMO_TARGET_IDS.has(t.id));
-          const cleanedEmployees = (cloudData.employees || []).filter((e: any) => !DEMO_EMPLOYEE_IDS.has(e.id));
-          const cleanedInspectors = (cloudData.inspectors || []).filter((i: any) => !DEMO_INSPECTOR_IDS.has(i.id));
-          const cleanedEngineers = (cloudData.engineers || []).filter((e: any) => !DEMO_ENGINEER_IDS.has(e.id));
-          const cleanedPools = (cloudData.pools || []).filter((p: any) =>
-            !DEMO_POOL_IDS.has(p.id) && !DEMO_PROJECT_NAMES_LOWER.has((p.projectName || '').toLowerCase())
-          );
-          const cleanedPlanned = (cloudData.plannedPools || []).filter((p: any) =>
-            !DEMO_PLAN_IDS.has(p.id) && !DEMO_PROJECT_NAMES_LOWER.has((p.projectName || '').toLowerCase())
-          );
-
-          const removedAnything =
-            cleanedProjects.length !== (cloudData.projectsSummary || []).length ||
-            cleanedTargets.length !== (cloudData.monthlyTargets || []).length ||
-            cleanedEmployees.length !== (cloudData.employees || []).length ||
-            cleanedInspectors.length !== (cloudData.inspectors || []).length ||
-            cleanedEngineers.length !== (cloudData.engineers || []).length ||
-            cleanedPools.length !== (cloudData.pools || []).length ||
-            cleanedPlanned.length !== (cloudData.plannedPools || []).length;
-
-          if (removedAnything) {
-            try {
-              await saveEntireStateToFirestore(
-                cleanedPools,
-                cloudData.teams || [],
-                cloudData.logs || [],
-                cleanedInspectors,
-                cleanedEngineers,
-                cleanedPlanned,
-                cleanedProjects,
-                cleanedTargets,
-                cleanedEmployees
-              );
-              cloudData.pools = cleanedPools;
-              cloudData.plannedPools = cleanedPlanned;
-              cloudData.projectsSummary = cleanedProjects;
-              cloudData.monthlyTargets = cleanedTargets;
-              cloudData.employees = cleanedEmployees;
-              cloudData.inspectors = cleanedInspectors;
-              cloudData.engineers = cleanedEngineers;
-              console.log('[apex-cleanup] Legacy demo seed records purged from Firestore.');
-            } catch (e) {
-              console.warn('[apex-cleanup] Phantom purge failed (will retry next load):', e);
-            }
-          }
-          localStorage.setItem(PHANTOM_FLAG_KEY, '1');
-        }
-
         if ((cloudData as any).isInitialized || (cloudData.pools && cloudData.pools.length > 0)) {
           // Cloud has records. Load them!
           setPools(cloudData.pools);
@@ -575,65 +520,43 @@ export default function App() {
 
     loadCloudData();
 
-    // ── Real-time Firestore onSnapshot subscriptions ───────────────────────────
-    // Push-based live sync across every device: when PC-A approves a pool,
-    // PC-B / PC-C / TV dashboards refresh instantly with no manual refresh.
-    const unsubLive = subscribeToLiveState(({ collection, data }) => {
-      switch (collection) {
-        case 'pools':
-          setPools(data);
-          localStorage.setItem('apex_pools', JSON.stringify(data));
-          break;
-        case 'plannedPools':
-          setPlannedPools(data);
-          localStorage.setItem('apex_planned_pools', JSON.stringify(data));
-          break;
-        case 'teams':
-          setTeams(data);
-          localStorage.setItem('apex_teams', JSON.stringify(data));
-          break;
-        case 'logs':
-          setLogs(data);
-          localStorage.setItem('apex_logs', JSON.stringify(data));
-          break;
-        case 'inspectors':
-          setInspectors(data);
-          break;
-        case 'engineers':
-          setEngineers(data);
-          break;
-        case 'projectsSummary':
-          setProjectsSummary(data.filter((p: any) => p.id !== 'SENTINEL_DB_INITIALIZED'));
-          localStorage.setItem('apex_projects_summary', JSON.stringify(data));
-          break;
-        case 'monthlyTargets':
-          setMonthlyTargets(data);
-          localStorage.setItem('apex_monthly_targets', JSON.stringify(data));
-          break;
-        case 'employees':
-          setEmployees(data);
-          localStorage.setItem('apex_employees', JSON.stringify(data));
-          break;
-        case 'trolleys':
-          setTrolleys(data);
-          localStorage.setItem('apex_trolleys', JSON.stringify(data));
-          break;
-        case 'recycleBin':
-          setRecycleBin(data);
-          break;
-        case 'employeePunches':
-          setEmployeePunches(data);
-          localStorage.setItem('apex_employee_punches', JSON.stringify(data));
-          break;
-      }
-      setLastSyncTime(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    });
+    // ── Real-time polling for Stage, QA, and Planning portals ──────────────────
+    // Uses lightweight fetch (only pools + teams + logs = 3 reads per poll)
+    // instead of full fetch (12 reads). At 20s intervals with 5 devices:
+    // 5 × (8h × 3600 ÷ 20) × 3 = 21,600 reads/day — well within free tier.
+    const POLL_ROLES = ['stage_worker', 'quality_inspector', 'planning_department', 'section_dashboard', 'factory_entrance'];
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (pollInterval) return;
+      pollInterval = setInterval(async () => {
+        try {
+          const stationRaw = localStorage.getItem('apex_station_lock');
+          const lock = stationRaw ? JSON.parse(stationRaw) : null;
+          const activeRole = lock?.role || '';
+
+          // Only poll if currently on a shop floor / QA role
+          if (!POLL_ROLES.includes(activeRole)) return;
+
+          const freshData = await getLiveStateFromFirestore();
+          if (freshData) {
+            if (freshData.pools) setPools(freshData.pools);
+            if (freshData.teams) setTeams(freshData.teams);
+            if (freshData.logs) setLogs(freshData.logs);
+          }
+        } catch {
+          // Silent fail — don't disrupt the UI on network errors
+        }
+      }, 180000); // 3 minutes = 3 reads per poll × safe for 10+ devices
+    };
+
+    startPolling();
 
     return () => {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }
-      if (typeof unsubLive === 'function') unsubLive();
+      if (pollInterval) clearInterval(pollInterval);
     };
   }, []);
 
@@ -2457,17 +2380,6 @@ export default function App() {
             </span>
           </div>
 
-          {!stationLock.isLocked && (
-            <div className="flex items-center gap-3">
-              <button 
-                onClick={handleResetData}
-                className="text-slate-300 hover:text-rose-400 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                <span>Reset State</span>
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
