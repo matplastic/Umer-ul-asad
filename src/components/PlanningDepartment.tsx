@@ -1,3 +1,4 @@
+// Build cache bust: 20260626_1134
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { PlannedPool, Pool, PoolOrientation, ViewRole, ProjectSummary, MonthlyTarget } from '../types';
