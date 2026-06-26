@@ -54,21 +54,15 @@ const DEFAULT_ENGINEERS = [
   { id: 'eng_2', name: 'Eng. Fatima S.', title: 'Process Layout Specialist' },
 ];
 
-const DEFAULT_PROJECTS_SUMMARY: ProjectSummary[] = [
-  { id: 'proj-1', projectName: 'Tiger', orientation: 'Normal', poolType: 'Type 3', totalPools: 188, deliveredPools: 29, producedPools: 50, remainingPools: 109, notes: 'Fibrepool design for High-efficiency installation.', createdAt: new Date().toISOString() },
-  { id: 'proj-2', projectName: 'Panther Elite', orientation: 'Mirror', poolType: 'Type 1', totalPools: 400, deliveredPools: 120, producedPools: 180, remainingPools: 100, notes: 'Custom client specifications, mirror orientation.', createdAt: new Date().toISOString() }
-];
+const DEFAULT_PROJECTS_SUMMARY: ProjectSummary[] = [];
 
-const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [
-  { id: '2026-06', monthName: 'June 2026', mainTarget: 120, steelFabricationTarget: 145, steelPrimerTarget: 145, plumbingTarget: 130, claddingTarget: 130, skimmerFittingTarget: 130, laminationTarget: 125, mechanicalFittingTarget: 125, skimmerTestTarget: 120, doorCuttingTarget: 120, mosaicTarget: 120, groutingTarget: 125, acrylicTarget: 120, targetOee: 82, notes: 'Boost output in high demand summer month.' }
-];
+const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [];
 
-const DEFAULT_EMPLOYEES: Employee[] = [
-  { id: 'emp-1', name: 'John Doe', department: 'Steel Fabrication', role: 'Welder Specialist', email: 'john.doe@apexpools.com', phone: '+1 555-0192', notes: 'Day shift supervisor', createdAt: '2026-06-01T08:00:00.000Z' },
-  { id: 'emp-2', name: 'Alba Vance', department: 'Structural Lamination', role: 'Composite Technician', email: 'alba@apexpools.com', phone: '+1 555-0143', notes: 'Expert in vacuum bagging', createdAt: '2026-06-02T08:00:00.000Z' },
-  { id: 'emp-3', name: 'Marcus Chen', department: 'Quality Control', role: 'Lead inspector', email: 'marcus.c@apexpools.com', phone: '+1 555-0177', notes: 'Covers major mechanical inspections', createdAt: '2026-06-03T09:00:00.000Z' },
-  { id: 'emp-4', name: 'Sarah Jenkins', department: 'Planning', role: 'Production Planner', email: 'sarah.j@apexpools.com', phone: '+1 555-0155', notes: 'Contract release dispatcher', createdAt: '2026-06-04T08:30:00.000Z' },
-];
+// BUGFIX: previously this list contained demo employees (John Doe, Alba Vance,
+// Marcus Chen, Sarah Jenkins) that kept reappearing as "demo data" after the
+// user wiped the database. Demo employees are now permanently disabled — the
+// HR portal starts empty until real employees are added.
+const DEFAULT_EMPLOYEES: Employee[] = [];
 
 export default function App() {
   const [pools, setPools] = useState<Pool[]>([]);
@@ -409,7 +403,28 @@ export default function App() {
       setFirebaseStatus('linking');
       try {
         const cloudData = await getEntireStateFromFirestore();
-        if ((cloudData as any).isInitialized || (cloudData.pools && cloudData.pools.length > 0)) {
+        // BUGFIX: previous check (`cloudData.pools.length > 0`) caused real
+        // data wipe — if the user had employees/plannedPools/projects but
+        // pools happened to be empty, the `else` branch ran and overwrote
+        // Firestore with DEFAULT demo data. Now we trust the firebaseService
+        // `isInitialized` flag (which inspects every collection) and we also
+        // double-check here against every collection so demo seeding only
+        // ever happens on a completely empty database.
+        const anyCloudData =
+          (cloudData.pools && cloudData.pools.length > 0) ||
+          (cloudData.plannedPools && cloudData.plannedPools.length > 0) ||
+          (cloudData.projectsSummary && cloudData.projectsSummary.length > 0) ||
+          (cloudData.monthlyTargets && cloudData.monthlyTargets.length > 0) ||
+          (cloudData.employees && cloudData.employees.length > 0) ||
+          (cloudData.teams && cloudData.teams.length > 0) ||
+          (cloudData.logs && cloudData.logs.length > 0) ||
+          ((cloudData as any).trolleys && (cloudData as any).trolleys.length > 0) ||
+          ((cloudData as any).employeePunches && (cloudData as any).employeePunches.length > 0) ||
+          ((cloudData as any).recycleBin && (cloudData as any).recycleBin.length > 0) ||
+          (cloudData.inspectors && cloudData.inspectors.length > 0) ||
+          (cloudData.engineers && cloudData.engineers.length > 0);
+
+        if ((cloudData as any).isInitialized || anyCloudData) {
           // Cloud has records. Load them!
           setPools(cloudData.pools);
           setTeams(cloudData.teams);
@@ -444,18 +459,23 @@ export default function App() {
           localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees));
           setFirebaseStatus('connected');
         } else {
-          // Database is empty or newly created/authenticated. Seed it with mock patterns.
-          const defaultData = getInitialData();
+          // BUGFIX: truly empty database. We now seed ONLY the structural
+          // defaults (empty teams skeleton + inspectors/engineers lookup
+          // lists) and write the SENTINEL_DB_INITIALIZED marker so that
+          // future loads always know the DB is initialized — even when every
+          // user-data collection is empty. We DO NOT seed any demo pools,
+          // employees, projects, planned-pools or monthly-targets anymore.
+          const defaultData = getInitialData(); // returns empty pools/logs + teams skeleton
           await saveEntireStateToFirestore(
-            defaultData.pools,
-            defaultData.teams,
-            defaultData.logs,
+            defaultData.pools,        // []
+            defaultData.teams,        // teams skeleton (structural, not demo)
+            defaultData.logs,         // []
             DEFAULT_INSPECTORS,
             DEFAULT_ENGINEERS,
-            defaultData.plannedPools,
-            DEFAULT_PROJECTS_SUMMARY,
-            DEFAULT_MONTHLY_TARGETS,
-            DEFAULT_EMPLOYEES
+            defaultData.plannedPools, // []
+            DEFAULT_PROJECTS_SUMMARY, // [] — sentinel auto-appended by service
+            DEFAULT_MONTHLY_TARGETS,  // []
+            DEFAULT_EMPLOYEES         // []
           );
           setPools(defaultData.pools);
           setTeams(defaultData.teams);
@@ -624,6 +644,12 @@ export default function App() {
   };
 
   const loadDefaultMockData = () => {
+    // BUGFIX: this fallback used to call saveState(...) which writes to
+    // Firestore — meaning a transient network blip on first load could
+    // overwrite the real cloud DB with demo defaults. We now only populate
+    // local React state so the UI stays functional. No demo data is ever
+    // written to the cloud here. When the user comes back online with valid
+    // data, loadCloudData() will hydrate from Firestore on the next reload.
     const data = getInitialData();
     setPools(data.pools);
     setTeams(data.teams);
@@ -635,23 +661,14 @@ export default function App() {
     setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
     setTrolleys([]);
     localStorage.removeItem('apex_trolleys');
-    
+
     // Auto-select first team in fabrication stage
     const fabTeams = data.teams.filter(t => t.stageId === 'steel_fabrication');
     if (fabTeams.length > 0) {
       setWorkerTeamId(fabTeams[0].id);
     }
 
-    saveState(
-      data.pools, 
-      data.teams, 
-      data.logs, 
-      DEFAULT_INSPECTORS, 
-      DEFAULT_ENGINEERS, 
-      data.plannedPools,
-      DEFAULT_PROJECTS_SUMMARY,
-      DEFAULT_MONTHLY_TARGETS
-    );
+    // NOTE: intentionally NOT calling saveState() here — see comment above.
   };
 
   const saveState = (
