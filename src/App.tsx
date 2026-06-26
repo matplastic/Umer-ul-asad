@@ -666,27 +666,34 @@ export default function App() {
     updatedMonthlyTargets = monthlyTargets,
     updatedEmployees = employees
   ) => {
-    localStorage.setItem('apex_pools', JSON.stringify(updatedPools));
+    // Safety check — never save empty arrays if current state has data
+    // This prevents stale closures from wiping real data
+    const safePools = updatedPools.length > 0 ? updatedPools : (pools.length > 0 ? pools : updatedPools);
+    const safePlanned = updatedPlannedPools.length > 0 ? updatedPlannedPools : (plannedPools.length > 0 ? plannedPools : updatedPlannedPools);
+    const safeEmployees = updatedEmployees.length > 0 ? updatedEmployees : (employees.length > 0 ? employees : updatedEmployees);
+    const safeLogs = updatedLogs.length > 0 ? updatedLogs : (logs.length > 0 ? logs : updatedLogs);
+
+    localStorage.setItem('apex_pools', JSON.stringify(safePools));
     localStorage.setItem('apex_teams', JSON.stringify(updatedTeams));
-    localStorage.setItem('apex_logs', JSON.stringify(updatedLogs));
+    localStorage.setItem('apex_logs', JSON.stringify(safeLogs));
     localStorage.setItem('apex_inspectors', JSON.stringify(updatedInspectors));
     localStorage.setItem('apex_engineers', JSON.stringify(updatedEngineers));
-    localStorage.setItem('apex_planned_pools', JSON.stringify(updatedPlannedPools));
+    localStorage.setItem('apex_planned_pools', JSON.stringify(safePlanned));
     localStorage.setItem('apex_projects_summary', JSON.stringify(updatedProjectsSummary));
     localStorage.setItem('apex_monthly_targets', JSON.stringify(updatedMonthlyTargets));
-    localStorage.setItem('apex_employees', JSON.stringify(updatedEmployees));
+    localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
 
     // Async auto-save to Cloud SQL PostgreSQL database
     saveEntireStateToFirestore(
-      updatedPools,
+      safePools,
       updatedTeams,
-      updatedLogs,
+      safeLogs,
       updatedInspectors,
       updatedEngineers,
-      updatedPlannedPools,
+      safePlanned,
       updatedProjectsSummary,
       updatedMonthlyTargets,
-      updatedEmployees
+      safeEmployees
     )
       .then(() => {
         setFirebaseStatus('connected');
