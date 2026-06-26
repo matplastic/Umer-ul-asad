@@ -58,10 +58,6 @@ const DEFAULT_PROJECTS_SUMMARY: ProjectSummary[] = [];
 
 const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [];
 
-// BUGFIX: previously this list contained demo employees (John Doe, Alba Vance,
-// Marcus Chen, Sarah Jenkins) that kept reappearing as "demo data" after the
-// user wiped the database. Demo employees are now permanently disabled — the
-// HR portal starts empty until real employees are added.
 const DEFAULT_EMPLOYEES: Employee[] = [];
 
 export default function App() {
@@ -403,38 +399,27 @@ export default function App() {
       setFirebaseStatus('linking');
       try {
         const cloudData = await getEntireStateFromFirestore();
-        // BUGFIX: previous check (`cloudData.pools.length > 0`) caused real
-        // data wipe — if the user had employees/plannedPools/projects but
-        // pools happened to be empty, the `else` branch ran and overwrote
-        // Firestore with DEFAULT demo data. Now we trust the firebaseService
-        // `isInitialized` flag (which inspects every collection) and we also
-        // double-check here against every collection so demo seeding only
-        // ever happens on a completely empty database.
-        const anyCloudData =
+
+        // Check if DB was ever initialized — use isInitialized flag OR any real data exists
+        const hasAnyData = (
+          (cloudData as any).isInitialized === true ||
           (cloudData.pools && cloudData.pools.length > 0) ||
           (cloudData.plannedPools && cloudData.plannedPools.length > 0) ||
-          (cloudData.projectsSummary && cloudData.projectsSummary.length > 0) ||
-          (cloudData.monthlyTargets && cloudData.monthlyTargets.length > 0) ||
           (cloudData.employees && cloudData.employees.length > 0) ||
-          (cloudData.teams && cloudData.teams.length > 0) ||
-          (cloudData.logs && cloudData.logs.length > 0) ||
-          ((cloudData as any).trolleys && (cloudData as any).trolleys.length > 0) ||
-          ((cloudData as any).employeePunches && (cloudData as any).employeePunches.length > 0) ||
-          ((cloudData as any).recycleBin && (cloudData as any).recycleBin.length > 0) ||
-          (cloudData.inspectors && cloudData.inspectors.length > 0) ||
-          (cloudData.engineers && cloudData.engineers.length > 0);
+          (cloudData.logs && cloudData.logs.length > 0)
+        );
 
-        if ((cloudData as any).isInitialized || anyCloudData) {
-          // Cloud has records. Load them!
-          setPools(cloudData.pools);
-          setTeams(cloudData.teams);
-          setLogs(cloudData.logs);
-          setInspectors(cloudData.inspectors);
-          setEngineers(cloudData.engineers);
-          setPlannedPools(cloudData.plannedPools);
-          setProjectsSummary(cloudData.projectsSummary);
-          setMonthlyTargets(cloudData.monthlyTargets);
-          setEmployees(cloudData.employees);
+        if (hasAnyData) {
+          // Cloud has real data — load it all, never overwrite with defaults
+          setPools(cloudData.pools || []);
+          setTeams(cloudData.teams && cloudData.teams.length > 0 ? cloudData.teams : generateDefaultTeams ? cloudData.teams : cloudData.teams || []);
+          setLogs(cloudData.logs || []);
+          setInspectors(cloudData.inspectors && cloudData.inspectors.length > 0 ? cloudData.inspectors : DEFAULT_INSPECTORS);
+          setEngineers(cloudData.engineers && cloudData.engineers.length > 0 ? cloudData.engineers : DEFAULT_ENGINEERS);
+          setPlannedPools(cloudData.plannedPools || []);
+          setProjectsSummary(cloudData.projectsSummary && cloudData.projectsSummary.length > 0 ? cloudData.projectsSummary : []);
+          setMonthlyTargets(cloudData.monthlyTargets && cloudData.monthlyTargets.length > 0 ? cloudData.monthlyTargets : []);
+          setEmployees(cloudData.employees || []);
           if ((cloudData as any).trolleys) {
             setTrolleys((cloudData as any).trolleys);
             localStorage.setItem('apex_trolleys', JSON.stringify((cloudData as any).trolleys));
@@ -448,48 +433,44 @@ export default function App() {
           }
 
           // Update local backup
-          localStorage.setItem('apex_pools', JSON.stringify(cloudData.pools));
-          localStorage.setItem('apex_teams', JSON.stringify(cloudData.teams));
-          localStorage.setItem('apex_logs', JSON.stringify(cloudData.logs));
-          localStorage.setItem('apex_inspectors', JSON.stringify(cloudData.inspectors));
-          localStorage.setItem('apex_engineers', JSON.stringify(cloudData.engineers));
-          localStorage.setItem('apex_planned_pools', JSON.stringify(cloudData.plannedPools));
-          localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary));
-          localStorage.setItem('apex_monthly_targets', JSON.stringify(cloudData.monthlyTargets));
-          localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees));
+          localStorage.setItem('apex_pools', JSON.stringify(cloudData.pools || []));
+          localStorage.setItem('apex_teams', JSON.stringify(cloudData.teams || []));
+          localStorage.setItem('apex_logs', JSON.stringify(cloudData.logs || []));
+          localStorage.setItem('apex_inspectors', JSON.stringify(cloudData.inspectors || []));
+          localStorage.setItem('apex_engineers', JSON.stringify(cloudData.engineers || []));
+          localStorage.setItem('apex_planned_pools', JSON.stringify(cloudData.plannedPools || []));
+          localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary || []));
+          localStorage.setItem('apex_monthly_targets', JSON.stringify(cloudData.monthlyTargets || []));
+          localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees || []));
           setFirebaseStatus('connected');
         } else {
-          // BUGFIX: truly empty database. We now seed ONLY the structural
-          // defaults (empty teams skeleton + inspectors/engineers lookup
-          // lists) and write the SENTINEL_DB_INITIALIZED marker so that
-          // future loads always know the DB is initialized — even when every
-          // user-data collection is empty. We DO NOT seed any demo pools,
-          // employees, projects, planned-pools or monthly-targets anymore.
-          const defaultData = getInitialData(); // returns empty pools/logs + teams skeleton
+          // Truly new database — seed with empty operational structure only
+          // NO demo data, NO fake employees, NO fake projects
+          const defaultData = getInitialData();
           await saveEntireStateToFirestore(
-            defaultData.pools,        // []
-            defaultData.teams,        // teams skeleton (structural, not demo)
-            defaultData.logs,         // []
+            [],          // empty pools
+            defaultData.teams,
+            [],          // empty logs
             DEFAULT_INSPECTORS,
             DEFAULT_ENGINEERS,
-            defaultData.plannedPools, // []
-            DEFAULT_PROJECTS_SUMMARY, // [] — sentinel auto-appended by service
-            DEFAULT_MONTHLY_TARGETS,  // []
-            DEFAULT_EMPLOYEES         // []
+            [],          // empty planned pools
+            [],          // empty projects summary
+            [],          // empty monthly targets
+            []           // empty employees
           );
-          setPools(defaultData.pools);
+          setPools([]);
           setTeams(defaultData.teams);
-          setLogs(defaultData.logs);
+          setLogs([]);
           setInspectors(DEFAULT_INSPECTORS);
           setEngineers(DEFAULT_ENGINEERS);
-          setPlannedPools(defaultData.plannedPools);
-          setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
-          setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
-          setEmployees(DEFAULT_EMPLOYEES);
-          localStorage.setItem('apex_planned_pools', JSON.stringify(defaultData.plannedPools));
-          localStorage.setItem('apex_projects_summary', JSON.stringify(DEFAULT_PROJECTS_SUMMARY));
-          localStorage.setItem('apex_monthly_targets', JSON.stringify(DEFAULT_MONTHLY_TARGETS));
-          localStorage.setItem('apex_employees', JSON.stringify(DEFAULT_EMPLOYEES));
+          setPlannedPools([]);
+          setProjectsSummary([]);
+          setMonthlyTargets([]);
+          setEmployees([]);
+          localStorage.setItem('apex_planned_pools', JSON.stringify([]));
+          localStorage.setItem('apex_projects_summary', JSON.stringify([]));
+          localStorage.setItem('apex_monthly_targets', JSON.stringify([]));
+          localStorage.setItem('apex_employees', JSON.stringify([]));
           setFirebaseStatus('connected');
         }
       } catch (err: any) {
@@ -644,12 +625,6 @@ export default function App() {
   };
 
   const loadDefaultMockData = () => {
-    // BUGFIX: this fallback used to call saveState(...) which writes to
-    // Firestore — meaning a transient network blip on first load could
-    // overwrite the real cloud DB with demo defaults. We now only populate
-    // local React state so the UI stays functional. No demo data is ever
-    // written to the cloud here. When the user comes back online with valid
-    // data, loadCloudData() will hydrate from Firestore on the next reload.
     const data = getInitialData();
     setPools(data.pools);
     setTeams(data.teams);
@@ -661,14 +636,23 @@ export default function App() {
     setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
     setTrolleys([]);
     localStorage.removeItem('apex_trolleys');
-
+    
     // Auto-select first team in fabrication stage
     const fabTeams = data.teams.filter(t => t.stageId === 'steel_fabrication');
     if (fabTeams.length > 0) {
       setWorkerTeamId(fabTeams[0].id);
     }
 
-    // NOTE: intentionally NOT calling saveState() here — see comment above.
+    saveState(
+      data.pools, 
+      data.teams, 
+      data.logs, 
+      DEFAULT_INSPECTORS, 
+      DEFAULT_ENGINEERS, 
+      data.plannedPools,
+      DEFAULT_PROJECTS_SUMMARY,
+      DEFAULT_MONTHLY_TARGETS
+    );
   };
 
   const saveState = (
