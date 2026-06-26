@@ -1,0 +1,758 @@
+diff --git a/package.json b/package.json
+index d45309a..7daa7cb 100644
+--- a/package.json
++++ b/package.json
+@@ -25,6 +25,7 @@
+     "pg": "^8.21.0",
+     "react": "^19.0.1",
+     "react-dom": "^19.0.1",
++    "react-is": "^19.2.7",
+     "recharts": "^3.8.1",
+     "vite": "^6.2.3",
+     "xlsx": "^0.18.5"
+diff --git a/src/App.tsx b/src/App.tsx
+index e97ec6f..a0c4929 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -40,19 +40,23 @@ import {
+   dbSaveEmployeesBulk,
+   dbClearAllEmployeePunches,
+   dbDeleteEmployeePunchesByDate,
+-  dbSyncBioCloudPunches
++  dbSyncBioCloudPunches,
++  dbSaveInspector,
++  dbSaveEngineer,
++  dbDeleteInspector,
++  dbDeleteEngineer,
++  dbSaveTeam,
++  dbSaveLog,
++  dbSavePool
+ } from './lib/firebaseService';
+ 
+-const DEFAULT_INSPECTORS = [
+-  { id: 'insp_1', name: 'Insp. Sarah Wells', title: 'Structural Quality Lead' },
+-  { id: 'insp_2', name: 'Insp. Mike Vance', title: 'Plumbing Specialist' },
+-  { id: 'insp_3', name: 'Insp. David Cole', title: 'Seals Quality Chief' },
+-];
+-
+-const DEFAULT_ENGINEERS = [
+-  { id: 'eng_1', name: 'Eng. Karim R.', title: 'Lead Production Engineer' },
+-  { id: 'eng_2', name: 'Eng. Fatima S.', title: 'Process Layout Specialist' },
+-];
++// BUGFIX (v3 — data loss): previous build seeded 3 demo inspectors and 2 demo
++// engineers on every fresh device. They kept reappearing as "ghost demo data".
++// User reported losing real data because of this. Demo inspectors/engineers
++// are now permanently disabled. Use the "Roles" tab in the Planning Portal
++// to add real inspectors and engineers.
++const DEFAULT_INSPECTORS: { id: string; name: string; title: string }[] = [];
++const DEFAULT_ENGINEERS: { id: string; name: string; title: string }[] = [];
+ 
+ const DEFAULT_PROJECTS_SUMMARY: ProjectSummary[] = [];
+ 
+@@ -692,27 +696,56 @@ export default function App() {
+     localStorage.setItem('apex_monthly_targets', JSON.stringify(updatedMonthlyTargets));
+     localStorage.setItem('apex_employees', JSON.stringify(updatedEmployees));
+ 
+-    // Async auto-save to Cloud SQL PostgreSQL database
+-    saveEntireStateToFirestore(
+-      updatedPools,
+-      updatedTeams,
+-      updatedLogs,
+-      updatedInspectors,
+-      updatedEngineers,
+-      updatedPlannedPools,
+-      updatedProjectsSummary,
+-      updatedMonthlyTargets,
+-      updatedEmployees
+-    )
+-      .then(() => {
+-        setFirebaseStatus('connected');
+-        setFirebaseError(null);
+-      })
+-      .catch((err: any) => {
+-        console.error('Cloud Firestore auto-save error:', err);
+-        setFirebaseStatus('error');
+-        setFirebaseError(err?.message || String(err));
++    // ─────────────────────────────────────────────────────────────────────────
++    // BUGFIX (v3 — data loss root cause): Previously this called
++    // saveEntireStateToFirestore(...) which OVERWRITES every collection with
++    // the local arrays. If the local React state was stale (another device
++    // had added/edited records since our last load) the cloud got wiped.
++    //
++    // New strategy: per-record upserts ONLY for items that actually changed
++    // vs the previous React state. Never delete on the cloud here —
++    // deletions are exclusively handled by the dbDelete*() callsites.
++    // ─────────────────────────────────────────────────────────────────────────
++    const upsertChanged = <T extends { id: string }>(
++      prevArr: T[],
++      nextArr: T[],
++      saver: (item: T) => Promise<any>
++    ) => {
++      const prevMap = new Map(prevArr.map(it => [it.id, JSON.stringify(it)]));
++      nextArr.forEach(item => {
++        const prevJson = prevMap.get(item.id);
++        const nextJson = JSON.stringify(item);
++        if (prevJson !== nextJson) {
++          saver(item).catch(err => console.error('Cloud upsert failed:', err));
++        }
+       });
++    };
++
++    try {
++      upsertChanged(pools as any, updatedPools as any, (p: any) => dbSavePool(p));
++      upsertChanged(teams as any, updatedTeams as any, (t: any) => dbSaveTeam(t));
++      upsertChanged(plannedPools as any, updatedPlannedPools as any, (p: any) => dbSavePlannedPool(p));
++      upsertChanged(projectsSummary as any, updatedProjectsSummary as any, (s: any) => dbSaveProjectSummary(s));
++      upsertChanged(monthlyTargets as any, updatedMonthlyTargets as any, (t: any) => dbSaveMonthlyTarget(t));
++      upsertChanged(employees as any, updatedEmployees as any, (e: any) => dbSaveEmployee(e));
++      upsertChanged(inspectors as any, updatedInspectors as any, (i: any) => dbSaveInspector(i));
++      upsertChanged(engineers as any, updatedEngineers as any, (e: any) => dbSaveEngineer(e));
++
++      // Logs are append-only — only save NEW log entries (by id)
++      const prevLogIds = new Set(logs.map(l => l.id));
++      updatedLogs.forEach(log => {
++        if (!prevLogIds.has(log.id)) {
++          dbSaveLog(log).catch(err => console.error('Log save failed:', err));
++        }
++      });
++
++      setFirebaseStatus('connected');
++      setFirebaseError(null);
++    } catch (err: any) {
++      console.error('Cloud per-record sync error:', err);
++      setFirebaseStatus('error');
++      setFirebaseError(err?.message || String(err));
++    }
+   };
+ 
+   const handleSaveEmployee = (employee: Employee) => {
+@@ -1318,6 +1351,67 @@ export default function App() {
+     dbSaveMonthlyTarget(target).catch(console.error);
+   };
+ 
++  const handleDeleteMonthlyTarget = async (id: string) => {
++    const target = monthlyTargets.find(t => t.id === id);
++    if (!target) return;
++    if (!window.confirm(`Delete monthly target "${target.monthName}" permanently?\n\nThis removes it from Firestore and all connected devices in real time.`)) {
++      return;
++    }
++    const updated = monthlyTargets.filter(t => t.id !== id);
++    setMonthlyTargets(updated);
++    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, updated);
++    await dbDeleteMonthlyTarget(id).catch(console.error);
++  };
++
++  // Inspectors & Engineers — manual management from Planning Portal
++  const handleSaveInspector = (insp: { id: string; name: string; title: string }) => {
++    const existingIndex = inspectors.findIndex(i => i.id === insp.id);
++    let updated;
++    if (existingIndex >= 0) {
++      updated = [...inspectors];
++      updated[existingIndex] = insp;
++    } else {
++      updated = [...inspectors, insp];
++    }
++    setInspectors(updated);
++    saveState(pools, teams, logs, updated, engineers, plannedPools, projectsSummary, monthlyTargets);
++    dbSaveInspector(insp).catch(console.error);
++  };
++
++  const handleDeleteInspector = async (id: string) => {
++    const insp = inspectors.find(i => i.id === id);
++    if (!insp) return;
++    if (!window.confirm(`Delete inspector "${insp.name}" permanently?`)) return;
++    const updated = inspectors.filter(i => i.id !== id);
++    setInspectors(updated);
++    saveState(pools, teams, logs, updated, engineers, plannedPools, projectsSummary, monthlyTargets);
++    await dbDeleteInspector(id).catch(console.error);
++  };
++
++  const handleSaveEngineer = (eng: { id: string; name: string; title: string }) => {
++    const existingIndex = engineers.findIndex(e => e.id === eng.id);
++    let updated;
++    if (existingIndex >= 0) {
++      updated = [...engineers];
++      updated[existingIndex] = eng;
++    } else {
++      updated = [...engineers, eng];
++    }
++    setEngineers(updated);
++    saveState(pools, teams, logs, inspectors, updated, plannedPools, projectsSummary, monthlyTargets);
++    dbSaveEngineer(eng).catch(console.error);
++  };
++
++  const handleDeleteEngineer = async (id: string) => {
++    const eng = engineers.find(e => e.id === id);
++    if (!eng) return;
++    if (!window.confirm(`Delete engineer "${eng.name}" permanently?`)) return;
++    const updated = engineers.filter(e => e.id !== id);
++    setEngineers(updated);
++    saveState(pools, teams, logs, inspectors, updated, plannedPools, projectsSummary, monthlyTargets);
++    await dbDeleteEngineer(id).catch(console.error);
++  };
++
+   const handleRestoreState = (recovered: {
+     pools: Pool[];
+     teams: Team[];
+@@ -1396,8 +1490,13 @@ export default function App() {
+ 
+   // Reset local state
+   const handleResetData = () => {
+-    if (window.confirm('Are you sure you want to reset all manufacturing logs, pools status records, and team assignments to original demonstration state?')) {
+-      loadDefaultMockData();
++    if (window.confirm('Reset local in-browser cache only?\n\nThis clears this device\'s local copy of pools / teams / logs and re-syncs from Firestore on next page load.\n\nNo demo data will be loaded. No cloud data will be deleted.')) {
++      // Clear local cache only — no cloud writes, no demo data injection.
++      localStorage.removeItem('apex_pools');
++      localStorage.removeItem('apex_teams');
++      localStorage.removeItem('apex_logs');
++      // Reload to pull a fresh copy from Firestore
++      window.location.reload();
+     }
+   };
+ 
+@@ -1545,7 +1644,7 @@ export default function App() {
+       projectName: newPool.projectName,
+       stageId: 'steel_fabrication',
+       type: 'CREATED',
+-      operatorName: spec.operatorName || 'Eng. Karim R.',
++      operatorName: spec.operatorName || 'Engineer',
+       notes: `Pool created & released. Specs: Orientation - ${spec.orientation}, Dims - ${spec.dimensions}, Shape - ${spec.shape}.`
+     };
+ 
+@@ -1599,7 +1698,7 @@ export default function App() {
+       projectName,
+       stageId: 'steel_fabrication',
+       type: 'CREATED',
+-      operatorName: 'Eng. Karim R.',
++      operatorName: operatorName || 'Engineer',
+       notes: `Batch spawner released ${count} serialized hulls [${prefix}${startRange} to ${prefix}${startRange + count - 1}] for Project "${projectName}" into fabrication queue.`
+     };
+ 
+@@ -2429,12 +2528,19 @@ export default function App() {
+             onUpdatePlannedPool={handleUpdatePlannedPool}
+             onReleasePlannedPool={handleReleasePlannedPool}
+             engineers={engineers}
++            inspectors={inspectors}
++            onSaveInspector={handleSaveInspector}
++            onDeleteInspector={handleDeleteInspector}
++            onSaveEngineer={handleSaveEngineer}
++            onDeleteEngineer={handleDeleteEngineer}
+             projectsSummary={projectsSummary}
+             onSaveProjectSummary={handleSaveProjectSummary}
+             onDeleteProjectSummary={handleDeleteProjectSummary}
+             monthlyTargets={monthlyTargets}
+             onSaveMonthlyTarget={handleSaveMonthlyTarget}
++            onDeleteMonthlyTarget={handleDeleteMonthlyTarget}
+             onDirectOverridePool={handleDirectOverridePool}
++            onDeletePool={handleDeletePool}
+             onAddPlannedPoolsList={handleImportPlannedPools}
+             onDirectOverridePoolsBatch={handleDirectOverridePoolsBatch}
+           />
+diff --git a/src/components/ManagementDashboard.tsx b/src/components/ManagementDashboard.tsx
+index ecf0969..8c71edf 100644
+--- a/src/components/ManagementDashboard.tsx
++++ b/src/components/ManagementDashboard.tsx
+@@ -4995,7 +4995,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
+                     <input
+                       type="text"
+                       required
+-                      placeholder="e.g. Eng. Fatima S."
++                      placeholder="e.g. Eng. Full Name"
+                       value={newEngineerName}
+                       onChange={(e) => setNewEngineerName(e.target.value)}
+                       className="w-full bg-white border border-slate-200 text-xs px-3 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500"
+diff --git a/src/components/PlanningDepartment.tsx b/src/components/PlanningDepartment.tsx
+index 9aa05a4..7422807 100644
+--- a/src/components/PlanningDepartment.tsx
++++ b/src/components/PlanningDepartment.tsx
+@@ -22,7 +22,11 @@ import {
+   Upload,
+   Download,
+   Check,
+-  AlertTriangle
++  AlertTriangle,
++  X,
++  UserPlus,
++  ShieldCheck,
++  Wrench
+ } from 'lucide-react';
+ 
+ interface PlanningDepartmentProps {
+@@ -60,6 +64,13 @@ interface PlanningDepartmentProps {
+   onDeleteProjectSummary?: (id: string) => void;
+   monthlyTargets?: MonthlyTarget[];
+   onSaveMonthlyTarget?: (target: MonthlyTarget) => void;
++  onDeleteMonthlyTarget?: (id: string) => void;
++  onDeletePool?: (poolId: string, operatorName: string) => void;
++  inspectors?: { id: string; name: string; title: string }[];
++  onSaveInspector?: (insp: { id: string; name: string; title: string }) => void;
++  onDeleteInspector?: (id: string) => void;
++  onSaveEngineer?: (eng: { id: string; name: string; title: string }) => void;
++  onDeleteEngineer?: (id: string) => void;
+   onDirectOverridePool?: (
+     spec: {
+       id?: string;
+@@ -116,12 +127,19 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
+   onDeleteProjectSummary,
+   monthlyTargets = [],
+   onSaveMonthlyTarget,
++  onDeleteMonthlyTarget,
++  onDeletePool,
++  inspectors = [],
++  onSaveInspector,
++  onDeleteInspector,
++  onSaveEngineer,
++  onDeleteEngineer,
+   onDirectOverridePool,
+   onAddPlannedPoolsList,
+   onDirectOverridePoolsBatch
+ }) => {
+   // Navigation tabs within Planning Portal
+-  const [activeTab, setActiveTab] = useState<'dashboard' | 'registry' | 'all_projects_portal' | 'monthly_targets' | 'quick_launch' | 'direct_stage_portal'>('dashboard');
++  const [activeTab, setActiveTab] = useState<'dashboard' | 'registry' | 'all_projects_portal' | 'monthly_targets' | 'quick_launch' | 'direct_stage_portal' | 'roles'>('dashboard');
+ 
+   // New Project Form State
+   const [newProjName, setNewProjName] = useState('');
+@@ -188,7 +206,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
+   const [bulkNotes, setBulkNotes] = useState('');
+ 
+   // Direct override / create portal state variables
+-  const [directProjectName, setDirectProjectName] = useState('Tiger');
++  const [directProjectName, setDirectProjectName] = useState('');
+   const [useCustomDirectProject, setUseCustomDirectProject] = useState(false);
+   const [customDirectProjectName, setCustomDirectProjectName] = useState('');
+   const [selectedPoolIdOrNew, setSelectedPoolIdOrNew] = useState('NEW_POOL');
+@@ -1297,6 +1315,17 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
+           >
+             🕹️ Direct Stage & Status Updater
+           </button>
++          <button
++            onClick={() => setActiveTab('roles')}
++            className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
++              activeTab === 'roles'
++                ? 'bg-indigo-600 text-white shadow-xs'
++                : 'text-slate-600 hover:text-slate-805 hover:bg-slate-200'
++            }`}
++            id="tab-roles"
++          >
++            👷 Roles ({inspectors.length + engineers.length})
++          </button>
+         </div>
+       </div>
+ 
+@@ -2816,6 +2845,19 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
+                               >
+                                 <Sliders className="h-3.5 w-3.5" />
+                               </button>
++                              {onDeleteProjectSummary && (
++                                <button
++                                  onClick={() => {
++                                    if (window.confirm(`Delete project record "${proj.projectName}" permanently?\n\nThis removes it from the cloud database. The record will go to Recycle Bin for 3 days.`)) {
++                                      onDeleteProjectSummary(proj.id);
++                                    }
++                                  }}
++                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
++                                  title="Delete this project record"
++                                >
++                                  <Trash2 className="h-3.5 w-3.5" />
++                                </button>
++                              )}
+                             </div>
+                           </td>
+                         </tr>
+@@ -3104,30 +3146,50 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
+               <div className="border border-slate-150 p-4 rounded-xl space-y-2">
+                 <span className="text-[10px] uppercase font-black text-slate-400 block tracking-widest">Logged Monthly Target Indexes ({monthlyTargets.length})</span>
+                 <div className="flex flex-wrap gap-2">
++                  {monthlyTargets.length === 0 && (
++                    <span className="text-[11px] text-slate-400 font-mono">No monthly targets yet. Fill out the form on the left and click "Broadcast Targets".</span>
++                  )}
+                   {monthlyTargets.map(t => (
+                     <span
+                       key={t.id}
+-                      onClick={() => {
+-                        setTargetMonthId(t.id);
+-                        setTargetMonthName(t.monthName);
+-                        setTargetMainPoolCount(t.mainTarget);
+-                        setTargetSteelFab(t.steelFabricationTarget || 0);
+-                        setTargetSteelPrimer(t.steelPrimerTarget || 0);
+-                        setTargetPlumbing(t.plumbingTarget || 0);
+-                        setTargetCladding(t.claddingTarget || 0);
+-                        setTargetSkimmerFitting(t.skimmerFittingTarget || t.claddingTarget || 0);
+-                        setTargetLamination(t.laminationTarget || 0);
+-                        setTargetMechFitting(t.mechanicalFittingTarget || 0);
+-                        setTargetMosaic(t.mosaicTarget || 0);
+-                        setTargetGrouting(t.groutingTarget || 0);
+-                        setTargetAcrylic(t.acrylicTarget || 0);
+-                        setTargetOee(t.targetOee || 80);
+-                        setTargetNotes(t.notes || '');
+-                      }}
+-                      className="px-3 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-705 text-xs font-semibold rounded-lg shrink-0 cursor-pointer flex items-center gap-1.5"
++                      className="group px-3 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-705 text-xs font-semibold rounded-lg shrink-0 flex items-center gap-1.5"
+                     >
+-                      <Calendar className="h-3.5 w-3.5 text-indigo-600" />
+-                      {t.monthName} (Target: {t.mainTarget})
++                      <span
++                        onClick={() => {
++                          setTargetMonthId(t.id);
++                          setTargetMonthName(t.monthName);
++                          setTargetMainPoolCount(t.mainTarget);
++                          setTargetSteelFab(t.steelFabricationTarget || 0);
++                          setTargetSteelPrimer(t.steelPrimerTarget || 0);
++                          setTargetPlumbing(t.plumbingTarget || 0);
++                          setTargetCladding(t.claddingTarget || 0);
++                          setTargetSkimmerFitting(t.skimmerFittingTarget || t.claddingTarget || 0);
++                          setTargetLamination(t.laminationTarget || 0);
++                          setTargetMechFitting(t.mechanicalFittingTarget || 0);
++                          setTargetMosaic(t.mosaicTarget || 0);
++                          setTargetGrouting(t.groutingTarget || 0);
++                          setTargetAcrylic(t.acrylicTarget || 0);
++                          setTargetOee(t.targetOee || 80);
++                          setTargetNotes(t.notes || '');
++                        }}
++                        className="cursor-pointer flex items-center gap-1.5"
++                      >
++                        <Calendar className="h-3.5 w-3.5 text-indigo-600" />
++                        {t.monthName} (Target: {t.mainTarget})
++                      </span>
++                      {onDeleteMonthlyTarget && (
++                        <button
++                          type="button"
++                          onClick={(e) => {
++                            e.stopPropagation();
++                            onDeleteMonthlyTarget(t.id);
++                          }}
++                          className="opacity-50 group-hover:opacity-100 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded p-0.5 transition-all cursor-pointer"
++                          title={`Delete ${t.monthName}`}
++                        >
++                          <X className="h-3 w-3" />
++                        </button>
++                      )}
+                     </span>
+                   ))}
+                 </div>
+@@ -3245,18 +3307,34 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
+               {/* Pool selection */}
+               <div className="space-y-1.5">
+                 <label className="text-xs font-bold text-slate-500 block">Select Target Pool to Edit / Override</label>
+-                <select
+-                  value={selectedPoolIdOrNew}
+-                  onChange={(e) => setSelectedPoolIdOrNew(e.target.value)}
+-                  className="w-full bg-indigo-50 border border-indigo-200 rounded-xl px-3.5 py-2 text-xs text-indigo-900 cursor-pointer font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+-                >
+-                  <option value="NEW_POOL">+ [CREATE NEW POOL DIRECTLY IN ACTIVE MANUFACTURING STATE]</option>
+-                  {projectSpecificPools.map(p => (
+-                    <option key={p.id} value={p.id}>
+-                      Pool {p.poolNo} ({p.isDelivered ? 'Delivered' : STAGES[p.currentStageIndex]?.name || 'Assembly Done'})
+-                    </option>
+-                  ))}
+-                </select>
++                <div className="flex items-center gap-2">
++                  <select
++                    value={selectedPoolIdOrNew}
++                    onChange={(e) => setSelectedPoolIdOrNew(e.target.value)}
++                    className="flex-1 bg-indigo-50 border border-indigo-200 rounded-xl px-3.5 py-2 text-xs text-indigo-900 cursor-pointer font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
++                  >
++                    <option value="NEW_POOL">+ [CREATE NEW POOL DIRECTLY IN ACTIVE MANUFACTURING STATE]</option>
++                    {projectSpecificPools.map(p => (
++                      <option key={p.id} value={p.id}>
++                        Pool {p.poolNo} ({p.isDelivered ? 'Delivered' : STAGES[p.currentStageIndex]?.name || 'Assembly Done'})
++                      </option>
++                    ))}
++                  </select>
++                  {selectedPoolIdOrNew !== 'NEW_POOL' && onDeletePool && (
++                    <button
++                      type="button"
++                      onClick={() => {
++                        onDeletePool(selectedPoolIdOrNew, overrideOperatorName.trim() || 'Planning Officer');
++                        setSelectedPoolIdOrNew('NEW_POOL');
++                      }}
++                      className="shrink-0 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl px-3 py-2 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
++                      title="Delete this pool (sends to Recycle Bin for 3 days)"
++                    >
++                      <Trash2 className="h-3.5 w-3.5" />
++                      Delete
++                    </button>
++                  )}
++                </div>
+               </div>
+ 
+               {/* Pool No Designation */}
+@@ -3857,6 +3935,202 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
+         </div>
+       )}
+ 
++      {/* ====== TAB 7: ROLES — MANAGE INSPECTORS & ENGINEERS ====== */}
++      {activeTab === 'roles' && (
++        <RolesTab
++          inspectors={inspectors}
++          engineers={engineers}
++          onSaveInspector={onSaveInspector}
++          onDeleteInspector={onDeleteInspector}
++          onSaveEngineer={onSaveEngineer}
++          onDeleteEngineer={onDeleteEngineer}
++        />
++      )}
++
++    </div>
++  );
++};
++
++// ─────────────────────────────────────────────────────────────────────────────
++// Roles Tab — Manage Inspectors & Engineers (replaces all hardcoded demo data)
++// ─────────────────────────────────────────────────────────────────────────────
++interface RolesTabProps {
++  inspectors: { id: string; name: string; title: string }[];
++  engineers: { id: string; name: string; title: string }[];
++  onSaveInspector?: (insp: { id: string; name: string; title: string }) => void;
++  onDeleteInspector?: (id: string) => void;
++  onSaveEngineer?: (eng: { id: string; name: string; title: string }) => void;
++  onDeleteEngineer?: (id: string) => void;
++}
++
++const RolesTab: React.FC<RolesTabProps> = ({
++  inspectors,
++  engineers,
++  onSaveInspector,
++  onDeleteInspector,
++  onSaveEngineer,
++  onDeleteEngineer,
++}) => {
++  const [newInspName, setNewInspName] = useState('');
++  const [newInspTitle, setNewInspTitle] = useState('');
++  const [newEngName, setNewEngName] = useState('');
++  const [newEngTitle, setNewEngTitle] = useState('');
++
++  return (
++    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
++      {/* Inspectors panel */}
++      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-5">
++        <div className="border-b border-slate-100 pb-3">
++          <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
++            <ShieldCheck className="h-5 w-5 text-emerald-600" />
++            Quality Inspectors ({inspectors.length})
++          </h3>
++          <p className="text-xs text-slate-400 mt-1">
++            Add real QA inspectors here. They will appear in the Quality Inspector dashboard's selector dropdown.
++          </p>
++        </div>
++
++        <div className="grid grid-cols-1 gap-3">
++          <input
++            type="text"
++            value={newInspName}
++            onChange={(e) => setNewInspName(e.target.value)}
++            placeholder="Full name (e.g. Ahmed Khan)"
++            className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
++          />
++          <input
++            type="text"
++            value={newInspTitle}
++            onChange={(e) => setNewInspTitle(e.target.value)}
++            placeholder="Title / specialty (e.g. Structural QA Lead)"
++            className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
++          />
++          <button
++            type="button"
++            onClick={() => {
++              if (!newInspName.trim()) { alert('Please enter inspector name.'); return; }
++              if (!onSaveInspector) return;
++              onSaveInspector({
++                id: 'insp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
++                name: newInspName.trim(),
++                title: newInspTitle.trim() || 'Quality Inspector',
++              });
++              setNewInspName('');
++              setNewInspTitle('');
++            }}
++            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all"
++          >
++            <UserPlus className="h-4 w-4" />
++            Add Inspector
++          </button>
++        </div>
++
++        <div className="border-t border-slate-100 pt-3">
++          {inspectors.length === 0 ? (
++            <div className="text-center text-xs text-slate-400 py-6 font-mono">
++              No inspectors registered yet.
++            </div>
++          ) : (
++            <ul className="space-y-2">
++              {inspectors.map((i) => (
++                <li key={i.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
++                  <div>
++                    <div className="text-xs font-extrabold text-slate-800">{i.name}</div>
++                    <div className="text-[10px] text-slate-500">{i.title}</div>
++                  </div>
++                  {onDeleteInspector && (
++                    <button
++                      type="button"
++                      onClick={() => onDeleteInspector(i.id)}
++                      className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-md transition-all cursor-pointer"
++                      title="Delete inspector"
++                    >
++                      <Trash2 className="h-3.5 w-3.5" />
++                    </button>
++                  )}
++                </li>
++              ))}
++            </ul>
++          )}
++        </div>
++      </div>
++
++      {/* Engineers panel */}
++      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-5">
++        <div className="border-b border-slate-100 pb-3">
++          <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
++            <Wrench className="h-5 w-5 text-indigo-600" />
++            Production Engineers ({engineers.length})
++          </h3>
++          <p className="text-xs text-slate-400 mt-1">
++            Add real production engineers here. They will appear in the Production Engineer dashboard's selector dropdown.
++          </p>
++        </div>
++
++        <div className="grid grid-cols-1 gap-3">
++          <input
++            type="text"
++            value={newEngName}
++            onChange={(e) => setNewEngName(e.target.value)}
++            placeholder="Full name (e.g. Umer ul Asad)"
++            className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
++          />
++          <input
++            type="text"
++            value={newEngTitle}
++            onChange={(e) => setNewEngTitle(e.target.value)}
++            placeholder="Title / specialty (e.g. Lead Production Engineer)"
++            className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
++          />
++          <button
++            type="button"
++            onClick={() => {
++              if (!newEngName.trim()) { alert('Please enter engineer name.'); return; }
++              if (!onSaveEngineer) return;
++              onSaveEngineer({
++                id: 'eng_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
++                name: newEngName.trim(),
++                title: newEngTitle.trim() || 'Production Engineer',
++              });
++              setNewEngName('');
++              setNewEngTitle('');
++            }}
++            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all"
++          >
++            <UserPlus className="h-4 w-4" />
++            Add Engineer
++          </button>
++        </div>
++
++        <div className="border-t border-slate-100 pt-3">
++          {engineers.length === 0 ? (
++            <div className="text-center text-xs text-slate-400 py-6 font-mono">
++              No engineers registered yet.
++            </div>
++          ) : (
++            <ul className="space-y-2">
++              {engineers.map((e) => (
++                <li key={e.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
++                  <div>
++                    <div className="text-xs font-extrabold text-slate-800">{e.name}</div>
++                    <div className="text-[10px] text-slate-500">{e.title}</div>
++                  </div>
++                  {onDeleteEngineer && (
++                    <button
++                      type="button"
++                      onClick={() => onDeleteEngineer(e.id)}
++                      className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-md transition-all cursor-pointer"
++                      title="Delete engineer"
++                    >
++                      <Trash2 className="h-3.5 w-3.5" />
++                    </button>
++                  )}
++                </li>
++              ))}
++            </ul>
++          )}
++        </div>
++      </div>
+     </div>
+   );
+ };
+diff --git a/src/components/ProductionEngineer.tsx b/src/components/ProductionEngineer.tsx
+index a538dbb..eb26074 100644
+--- a/src/components/ProductionEngineer.tsx
++++ b/src/components/ProductionEngineer.tsx
+@@ -55,7 +55,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
+   const [formMode, setFormMode] = useState<'single' | 'batch'>('single');
+ 
+   // Selected engineer who is publishing
+-  const [selectedEngineer, setSelectedEngineer] = useState(engineers[0]?.name || 'Eng. Karim R.');
++  const [selectedEngineer, setSelectedEngineer] = useState(engineers[0]?.name || '');
+ 
+   // Pre-planned import dropdown selection state
+   const [selectedPlanId, setSelectedPlanId] = useState('');
+@@ -301,7 +301,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
+                   </option>
+                 ))
+               ) : (
+-                <option value="Eng. Karim R.">Eng. Karim R. (Lead Production Engineer)</option>
++                <option value="" disabled>— No engineers registered yet (add via Planning ▸ Roles) —</option>
+               )}
+             </select>
+           </div>
+diff --git a/src/components/QualityInspector.tsx b/src/components/QualityInspector.tsx
+index 34dc48a..004f6a6 100644
+--- a/src/components/QualityInspector.tsx
++++ b/src/components/QualityInspector.tsx
+@@ -44,7 +44,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
+   onRefresh,
+   isSyncing,
+ }) => {
+-  const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || 'Insp. Sarah');
++  const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || '');
+   const [activePoolId, setActivePoolId] = useState<string | null>(null);
+   const [reviewerNotes, setReviewerNotes] = useState('');
+   const [uploadedPicture, setUploadedPicture] = useState<string | null>(null);
+@@ -206,11 +206,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
+                   </option>
+                 ))
+               ) : (
+-                <>
+-                  <option value="Insp. Sarah">Insp. Sarah Wells (Structural Lead)</option>
+-                  <option value="Insp. Mike">Insp. Mike Vance (Plumbing Specialist)</option>
+-                  <option value="Insp. David">Insp. David Cole (Seals Quality Chief)</option>
+-                </>
++                <option value="" disabled>— No inspectors registered yet (add via Planning ▸ Roles) —</option>
+               )}
+             </select>
+           </div>
+diff --git a/src/lib/firebaseService.ts b/src/lib/firebaseService.ts
+index 771d328..e85069b 100644
+--- a/src/lib/firebaseService.ts
++++ b/src/lib/firebaseService.ts
+@@ -634,6 +634,22 @@ export async function dbSaveEngineer(engineer: any) {
+   }
+ }
+ 
++export async function dbDeleteInspector(id: string) {
++  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
++  if (!base) {
++    await updateFirestoreDocArray('inspectors', (arr) => arr.filter(item => item.id !== id));
++    return { success: true };
++  }
++}
++
++export async function dbDeleteEngineer(id: string) {
++  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
++  if (!base) {
++    await updateFirestoreDocArray('engineers', (arr) => arr.filter(item => item.id !== id));
++    return { success: true };
++  }
++}
++
+ // 8. Fine-grained operations: Trolley Production
+ export async function dbSaveTrolley(trolley: TrolleyProduction) {
+   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
