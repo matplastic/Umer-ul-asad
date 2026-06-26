@@ -851,10 +851,11 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
     if (plannedPools) {
       plannedPools.forEach(p => { if (p.projectName) setOfProjects.add(p.projectName); });
     }
-    if (setOfProjects.size === 0) {
-      setOfProjects.add('Tiger');
-      setOfProjects.add('Panther Elite');
-    }
+    // BUGFIX: previously when the list was empty we injected two demo
+    // project names ("Tiger" and "Panther Elite") into the Planning
+    // dropdown — they kept showing up even after the user deleted all
+    // real projects. The list now stays genuinely empty until the user
+    // adds their own projects.
     return Array.from(setOfProjects);
   }, [projectsSummary, pools, plannedPools]);
 
