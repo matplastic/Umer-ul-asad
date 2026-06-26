@@ -13,7 +13,9 @@ import { SectionDashboardTV } from './components/SectionDashboardTV';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
 import { HRPortal } from './components/HRPortal';
-import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X } from 'lucide-react';
+import { ReportsAndAnalytics } from './components/ReportsAndAnalytics';
+import { QRScanner } from './components/QRCodeModule';
+import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
   getEntireStateFromFirestore, 
@@ -225,6 +227,10 @@ export default function App() {
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [unlockPinInput, setUnlockPinInput] = useState('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
+
+  // QR scanner overlay state (mobile shop-floor quick lookup)
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannedPoolId, setScannedPoolId] = useState<string | null>(null);
 
   // Role-Based Access Control State
   const [loggedInUser, setLoggedInUser] = useState<{ role: ViewRole; displayName: string } | null>(() => {
@@ -2688,6 +2694,18 @@ export default function App() {
           />
         )}
 
+        {currentRole === 'reports_analytics' && (
+          <ReportsAndAnalytics
+            pools={pools}
+            plannedPools={plannedPools}
+            projectsSummary={projectsSummary}
+            monthlyTargets={monthlyTargets}
+            employees={employees}
+            logs={logs}
+            teams={teams}
+          />
+        )}
+
       </main>
 
       {/* Simple Footer */}
@@ -2696,6 +2714,32 @@ export default function App() {
           <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Flow Scheduling Engine</p>
         </div>
       </footer>
+
+      {/* Floating QR Scanner trigger — handy for shop floor quick lookup */}
+      {loggedInUser && (
+        <button
+          onClick={() => setIsScannerOpen(true)}
+          data-testid="qr-scanner-fab"
+          className="fixed bottom-6 right-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-4 shadow-2xl shadow-indigo-900/30 transition-all hover:scale-110 cursor-pointer z-40"
+          title="Scan Pool QR Code"
+        >
+          <Camera className="h-5 w-5" />
+        </button>
+      )}
+
+      {/* QR Scanner overlay */}
+      {isScannerOpen && (
+        <QRScanner
+          pools={pools}
+          onPoolDetected={(pool) => {
+            setScannedPoolId(pool.id);
+            setIsScannerOpen(false);
+            // If user is QA or stage worker, switch to their view; otherwise show alert
+            alert(`Scanned: Pool ${pool.poolNo} (${pool.projectName})\nCurrent stage: ${STAGES[pool.currentStageIndex]?.name || 'Done'}`);
+          }}
+          onClose={() => setIsScannerOpen(false)}
+        />
+      )}
 
       {/* Dynamic Iframe-Safe Custom Unlock PIN Modal Overlay */}
       {isUnlockModalOpen && (
