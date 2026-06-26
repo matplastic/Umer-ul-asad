@@ -1788,7 +1788,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                               {!(plan as any).isVirtual && (
                               <button
                                 onClick={() => {
-                                  if (window.confirm(`Delete planned pool "${plan.poolNo}" (${plan.projectName}) permanently?\n\nThis removes it from Firestore and all connected PCs in real time.`)) {
+                                  if (window.confirm("Delete pool " + plan.poolNo + " (" + plan.projectName + ") permanently? This cannot be undone.")) {
                                     onDeletePlannedPool(plan.id);
                                   }
                                 }}
