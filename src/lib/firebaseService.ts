@@ -1,8 +1,48 @@
 import { auth, app } from './googleDrive.ts';
-import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from '../types';
 
 const clientDb = getFirestore(app);
+
+// ──────────────────────────────────────────────────────────────────────────────
+// REAL-TIME LIVE SYNC (Firestore onSnapshot)
+// Subscribes to all `system_state` documents. Any change on PC-A is pushed
+// instantly to PC-B / PC-C / TV dashboards — no refresh, no polling.
+// ──────────────────────────────────────────────────────────────────────────────
+export function subscribeToLiveState(
+  callback: (payload: { collection: string; data: any[] }) => void
+): Unsubscribe {
+  const collections = [
+    'pools',
+    'plannedPools',
+    'teams',
+    'logs',
+    'inspectors',
+    'engineers',
+    'projectsSummary',
+    'monthlyTargets',
+    'employees',
+    'trolleys',
+    'recycleBin',
+    'employeePunches',
+  ];
+  const unsubs: Unsubscribe[] = collections.map(name =>
+    onSnapshot(
+      doc(clientDb, 'system_state', name),
+      snap => {
+        if (snap.exists()) {
+          const raw = snap.data();
+          const data = Array.isArray(raw?.data) ? raw.data : [];
+          callback({ collection: name, data });
+        } else {
+          callback({ collection: name, data: [] });
+        }
+      },
+      err => console.warn(`[liveSync] ${name} subscription error:`, err)
+    )
+  );
+  return () => unsubs.forEach(u => { try { u(); } catch {} });
+}
 
 // Direct client firestore document read utilities
 async function getFirestoreDocArray(docName: string): Promise<any[]> {
