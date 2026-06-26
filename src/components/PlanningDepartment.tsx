@@ -1738,19 +1738,31 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 
                           {/* Actions */}
                           <td className="py-4.5 px-6 text-right">
-                            {plan.status === 'PLANNED' ? (
-                              <div className="flex items-center justify-end gap-2">
+                            <div className="flex items-center justify-end gap-2">
+                              {plan.status === 'PLANNED' && (
                                 <button
                                   onClick={() => handleOpenReleaseDialog(plan.id)}
-                                  className="bg-indigo-650 hover:bg-indigo-750 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded-xl text-[11px] inline-flex items-center gap-1 shadow-xs cursor-pointer"
+                                  data-testid={`dispatch-planned-${plan.id}`}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded-xl text-[11px] inline-flex items-center gap-1 shadow-xs cursor-pointer"
                                 >
                                   <Play className="h-3 w-3 shrink-0" />
                                   <span>Dispatch Floor</span>
                                 </button>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-[11px] italic">Released ledger locked</span>
-                            )}
+                              )}
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Delete planned pool "${plan.poolNo}" (${plan.projectName}) permanently?\n\nThis removes it from Firestore and all connected PCs in real time.`)) {
+                                    onDeletePlannedPool(plan.id);
+                                  }
+                                }}
+                                data-testid={`delete-planned-${plan.id}`}
+                                title="Delete this planned pool"
+                                className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-bold py-1.5 px-2.5 rounded-xl text-[11px] inline-flex items-center gap-1 border border-rose-200 cursor-pointer"
+                              >
+                                <Trash2 className="h-3 w-3 shrink-0" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
                           </td>
 
                         </tr>
