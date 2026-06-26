@@ -57,6 +57,18 @@ const dateMinusHours = (hours: number): string => {
 };
 
 export const getInitialData = () => {
+  // Demo data permanently disabled — return an empty operational dataset so
+  // first-time devices do NOT seed phantom pools/projects into Firestore.
+  return {
+    pools: [] as Pool[],
+    teams: generateDefaultTeams(),
+    logs: [] as ActivityLog[],
+    plannedPools: [] as PlannedPool[],
+  };
+};
+
+// Original mock data kept below for reference only (never executed).
+const _UNUSED_getInitialData_LEGACY = () => {
   const defaultTeams = generateDefaultTeams();
   
   // Set up mock pools with realistic state
