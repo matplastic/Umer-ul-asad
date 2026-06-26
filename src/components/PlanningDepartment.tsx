@@ -1,4 +1,3 @@
-// Build cache bust: 20260626_1134
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { PlannedPool, Pool, PoolOrientation, ViewRole, ProjectSummary, MonthlyTarget } from '../types';
@@ -1800,8 +1799,8 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                 <Trash2 className="h-3 w-3 shrink-0" />
                                 <span>Delete</span>
                               </button>
-                            </div>
                               )}
+                            </div>
                           </td>
 
                         </tr>
