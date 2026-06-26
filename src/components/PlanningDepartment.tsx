@@ -1185,13 +1185,48 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   }, [plannedPools, pools]);
 
   // Filter and search calculations
+  // IMPORTANT: Also include active floor pools that have NO plannedPool entry
+  // (pools added via Direct Stage Updater or ProductionEngineer directly)
+  const allPlanningItems = useMemo(() => {
+    // Start with all plannedPools
+    const items: any[] = [...plannedPools];
+
+    // Add floor pools that have no matching plannedPool entry
+    pools.forEach(pool => {
+      const hasPlannedEntry = plannedPools.some(pp =>
+        pp.poolNo === pool.poolNo || pp.releasedPoolId === pool.id
+      );
+      if (!hasPlannedEntry) {
+        // Create a virtual plannedPool entry for display
+        const isCompleted = pool.completedAt !== null || pool.currentStageIndex >= STAGES.length;
+        items.push({
+          id: `virtual_${pool.id}`,
+          poolNo: pool.poolNo,
+          projectName: pool.projectName,
+          orientation: pool.orientation,
+          dimensions: pool.dimensions,
+          shape: pool.shape,
+          poolType: pool.poolType || 'Type 1',
+          status: isCompleted ? 'COMPLETED' : 'RELEASED',
+          releasedPoolId: pool.id,
+          notes: pool.notes || '',
+          createdAt: pool.createdAt,
+          drawingUrl: pool.drawingUrl || '',
+          isVirtual: true, // flag — can't dispatch again
+        });
+      }
+    });
+
+    return items;
+  }, [plannedPools, pools]);
+
   const filteredPlannedPools = useMemo(() => {
-    return plannedPools.filter(p => {
+    return allPlanningItems.filter(p => {
       // 1. Search Query Match
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const numMatch = p.poolNo.toLowerCase().includes(q);
-        const shapeMatch = p.shape.toLowerCase().includes(q);
+        const shapeMatch = (p.shape || '').toLowerCase().includes(q);
         const prjMatch = p.projectName.toLowerCase().includes(q);
         if (!numMatch && !shapeMatch && !prjMatch) return false;
       }
@@ -1215,7 +1250,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 
       return true;
     });
-  }, [plannedPools, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
+  }, [allPlanningItems, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
 
   return (
     <div id="planning-department-section" className="space-y-6">
@@ -1750,6 +1785,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                   <span>Dispatch Floor</span>
                                 </button>
                               )}
+                              {!(plan as any).isVirtual && (
                               <button
                                 onClick={() => {
                                   if (window.confirm(`Delete planned pool "${plan.poolNo}" (${plan.projectName}) permanently?\n\nThis removes it from Firestore and all connected PCs in real time.`)) {
@@ -1764,6 +1800,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                 <span>Delete</span>
                               </button>
                             </div>
+                              )}
                           </td>
 
                         </tr>
