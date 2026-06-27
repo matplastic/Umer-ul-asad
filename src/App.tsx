@@ -584,7 +584,7 @@ export default function App() {
       // Inside the updater, `prev` is always the CURRENT live React state —
       // no stale closure, no missed updates, no accidental empty overwrites.
       // ─────────────────────────────────────────────────────────────────────
-      const safeUpdate = <T>(setter: React.Dispatch<React.SetStateAction<T[]>>, incoming: T[]) => {
+      const safeUpdate = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, incoming: T[]) => {
         setter(prev => {
           // Never replace real data with an empty array
           if (incoming.length === 0 && prev.length > 0) {
