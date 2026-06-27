@@ -565,16 +565,22 @@ export default function App() {
     // for ALL collections, regardless of which role the user is in.
     // ─────────────────────────────────────────────────────────────────────────
     const liveUnsub = subscribeToLiveState(({ collection, data }) => {
+      // SAFETY: never overwrite existing state with empty array from snapshot
+      // This can happen if a Firestore document is temporarily missing or
+      // if a write is in progress. Only update if data has content OR
+      // current state is also empty (genuine empty collection).
+      const shouldUpdate = (currentData: any[]) => data.length > 0 || currentData.length === 0;
+
       switch (collection) {
-        case 'pools':            setPools(data as Pool[]); break;
-        case 'plannedPools':     setPlannedPools(data as PlannedPool[]); break;
-        case 'teams':            setTeams(data as Team[]); break;
-        case 'logs':             setLogs(data as ActivityLog[]); break;
-        case 'inspectors':       setInspectors(data as any); break;
-        case 'engineers':        setEngineers(data as any); break;
-        case 'projectsSummary':  setProjectsSummary(data as ProjectSummary[]); break;
-        case 'monthlyTargets':   setMonthlyTargets(data as MonthlyTarget[]); break;
-        case 'employees':        setEmployees(data as Employee[]); break;
+        case 'pools':            if (shouldUpdate(pools)) setPools(data as Pool[]); break;
+        case 'plannedPools':     if (shouldUpdate(plannedPools)) setPlannedPools(data as PlannedPool[]); break;
+        case 'teams':            if (shouldUpdate(teams)) setTeams(data as Team[]); break;
+        case 'logs':             if (shouldUpdate(logs)) setLogs(data as ActivityLog[]); break;
+        case 'inspectors':       if (shouldUpdate(inspectors)) setInspectors(data as any); break;
+        case 'engineers':        if (shouldUpdate(engineers)) setEngineers(data as any); break;
+        case 'projectsSummary':  if (shouldUpdate(projectsSummary)) setProjectsSummary(data as ProjectSummary[]); break;
+        case 'monthlyTargets':   if (shouldUpdate(monthlyTargets)) setMonthlyTargets(data as MonthlyTarget[]); break;
+        case 'employees':        if (shouldUpdate(employees)) setEmployees(data as Employee[]); break;
         case 'trolleys':         setTrolleys(data as TrolleyProduction[]); break;
         case 'recycleBin':       setRecycleBin(data as RecycleBinItem[]); break;
         case 'employeePunches':  setEmployeePunches(data as EmployeePunch[]); break;
@@ -702,28 +708,33 @@ export default function App() {
     const safePlanned = updatedPlannedPools.length > 0 ? updatedPlannedPools : (plannedPools.length > 0 ? plannedPools : updatedPlannedPools);
     const safeEmployees = updatedEmployees.length > 0 ? updatedEmployees : (employees.length > 0 ? employees : updatedEmployees);
     const safeLogs = updatedLogs.length > 0 ? updatedLogs : (logs.length > 0 ? logs : updatedLogs);
+    const safeInspectors = updatedInspectors.length > 0 ? updatedInspectors : (inspectors.length > 0 ? inspectors : updatedInspectors);
+    const safeEngineers = updatedEngineers.length > 0 ? updatedEngineers : (engineers.length > 0 ? engineers : updatedEngineers);
+    const safeProjects = updatedProjectsSummary.length > 0 ? updatedProjectsSummary : (projectsSummary.length > 0 ? projectsSummary : updatedProjectsSummary);
+    const safeTargets = updatedMonthlyTargets.length > 0 ? updatedMonthlyTargets : (monthlyTargets.length > 0 ? monthlyTargets : updatedMonthlyTargets);
+    const safeTeams = updatedTeams.length > 0 ? updatedTeams : (teams.length > 0 ? teams : updatedTeams);
 
     localStorage.setItem('apex_pools', JSON.stringify(safePools));
-    localStorage.setItem('apex_teams', JSON.stringify(updatedTeams));
+    localStorage.setItem('apex_teams', JSON.stringify(safeTeams));
     localStorage.setItem('apex_logs', JSON.stringify(safeLogs));
-    localStorage.setItem('apex_inspectors', JSON.stringify(updatedInspectors));
-    localStorage.setItem('apex_engineers', JSON.stringify(updatedEngineers));
+    localStorage.setItem('apex_inspectors', JSON.stringify(safeInspectors));
+    localStorage.setItem('apex_engineers', JSON.stringify(safeEngineers));
     localStorage.setItem('apex_planned_pools', JSON.stringify(safePlanned));
-    localStorage.setItem('apex_projects_summary', JSON.stringify(updatedProjectsSummary));
-    localStorage.setItem('apex_monthly_targets', JSON.stringify(updatedMonthlyTargets));
+    localStorage.setItem('apex_projects_summary', JSON.stringify(safeProjects));
+    localStorage.setItem('apex_monthly_targets', JSON.stringify(safeTargets));
     localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
 
     // Write FULL arrays to Firestore — avoids race conditions from concurrent
     // read-modify-write cycles when saving 50+ items at once
     saveEntireStateToFirestore(
       safePools,
-      updatedTeams,
+      safeTeams,
       safeLogs,
-      updatedInspectors,
-      updatedEngineers,
+      safeInspectors,
+      safeEngineers,
       safePlanned,
-      updatedProjectsSummary,
-      updatedMonthlyTargets,
+      safeProjects,
+      safeTargets,
       safeEmployees
     )
       .then(() => {
