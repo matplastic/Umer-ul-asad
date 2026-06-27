@@ -50,6 +50,7 @@ import {
   dbSaveTeam,
   dbSaveLog,
   dbSavePool
+  subscribeToLiveState
 } from './lib/firebaseService';
 
 // BUGFIX (v3 — data loss): previous build seeded 3 demo inspectors and 2 demo
