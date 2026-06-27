@@ -595,17 +595,6 @@ export default function App() {
       }
     };
   }, []);
-
-    startPolling();
-
-    return () => {
-      if (typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
-      if (pollInterval) clearInterval(pollInterval);
-    };
-  }, []);
-
   const handleGoogleSignIn = async () => {
     try {
       setAuthNotification(null);
