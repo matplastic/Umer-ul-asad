@@ -49,7 +49,8 @@ import {
   dbDeleteEngineer,
   dbSaveTeam,
   dbSaveLog,
-  dbSavePool
+  dbSavePool,
+  subscribeToLiveState
 } from './lib/firebaseService';
 
 // BUGFIX (v3 — data loss): previous build seeded 3 demo inspectors and 2 demo
@@ -550,43 +551,48 @@ export default function App() {
 
     loadCloudData();
 
-    // ── Real-time polling for Stage, QA, and Planning portals ──────────────────
-    // Uses lightweight fetch (only pools + teams + logs = 3 reads per poll)
-    // instead of full fetch (12 reads). At 20s intervals with 5 devices:
-    // 5 × (8h × 3600 ÷ 20) × 3 = 21,600 reads/day — well within free tier.
-    const POLL_ROLES = ['stage_worker', 'quality_inspector', 'planning_department', 'section_dashboard', 'factory_entrance'];
-    let pollInterval: ReturnType<typeof setInterval> | null = null;
-
-    const startPolling = () => {
-      if (pollInterval) return;
-      pollInterval = setInterval(async () => {
-        try {
-          const stationRaw = localStorage.getItem('apex_station_lock');
-          const lock = stationRaw ? JSON.parse(stationRaw) : null;
-          const activeRole = lock?.role || '';
-
-          // Only poll if currently on a shop floor / QA role
-          if (!POLL_ROLES.includes(activeRole)) return;
-
-          const freshData = await getLiveStateFromFirestore();
-          if (freshData) {
-            if (freshData.pools) setPools(freshData.pools);
-            if (freshData.teams) setTeams(freshData.teams);
-            if (freshData.logs) setLogs(freshData.logs);
-          }
-        } catch {
-          // Silent fail — don't disrupt the UI on network errors
-        }
-      }, 180000); // 3 minutes = 3 reads per poll × safe for 10+ devices
-    };
-
-    startPolling();
+    // ─────────────────────────────────────────────────────────────────────────
+    // 🔴 LIVE SYNC — Firestore onSnapshot (BUGFIX v5)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Previously this used 3-minute setInterval polling that only updated
+    // pools / teams / logs, and ONLY for 5 specific roles. That meant data
+    // entered on PC-A would not appear on PC-B for up to 3 minutes, and would
+    // NEVER appear for plannedPools / projectsSummary / monthlyTargets /
+    // employees / inspectors / engineers / trolleys / recycleBin.
+    //
+    // Replaced with `subscribeToLiveState` which uses Firestore onSnapshot —
+    // changes on any device propagate to all other devices in < 1 second,
+    // for ALL collections, regardless of which role the user is in.
+    // ─────────────────────────────────────────────────────────────────────────
+    const liveUnsub = subscribeToLiveState(({ collection, data }) => {
+      switch (collection) {
+        case 'pools':            setPools(data as Pool[]); break;
+        case 'plannedPools':     setPlannedPools(data as PlannedPool[]); break;
+        case 'teams':            setTeams(data as Team[]); break;
+        case 'logs':             setLogs(data as ActivityLog[]); break;
+        case 'inspectors':       setInspectors(data as any); break;
+        case 'engineers':        setEngineers(data as any); break;
+        case 'projectsSummary':  setProjectsSummary(data as ProjectSummary[]); break;
+        case 'monthlyTargets':   setMonthlyTargets(data as MonthlyTarget[]); break;
+        case 'employees':        setEmployees(data as Employee[]); break;
+        case 'trolleys':         setTrolleys(data as TrolleyProduction[]); break;
+        case 'recycleBin':       setRecycleBin(data as RecycleBinItem[]); break;
+        case 'employeePunches':  setEmployeePunches(data as EmployeePunch[]); break;
+      }
+      // Keep localStorage hot-cache in sync so offline reload starts with fresh data
+      const lsKey = 'apex_' + collection.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
+      try { localStorage.setItem(lsKey, JSON.stringify(data)); } catch {}
+      setFirebaseStatus('connected');
+      setFirebaseError(null);
+    });
 
     return () => {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }
-      if (pollInterval) clearInterval(pollInterval);
+      if (typeof liveUnsub === 'function') {
+        liveUnsub();
+      }
     };
   }, []);
 
