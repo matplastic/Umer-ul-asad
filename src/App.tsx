@@ -1096,10 +1096,17 @@ export default function App() {
 
       if (spec.isPlanned) {
         // Move to or update in plannedPools
-        // Remove from pools if it exists there
-        updatedPools = updatedPools.filter(p => p.poolNo.toUpperCase() !== computedPoolNo);
+        // FIX: only remove the pool matching BOTH poolNo AND projectName — never touch same poolNo in a different project
+        updatedPools = updatedPools.filter(p => !(
+          p.poolNo.toUpperCase() === computedPoolNo &&
+          p.projectName.toLowerCase() === cleanProjName.toLowerCase()
+        ));
 
-        const planIdx = updatedPlannedPools.findIndex(p => p.poolNo.toUpperCase() === computedPoolNo);
+        // FIX: match by BOTH poolNo AND projectName
+        const planIdx = updatedPlannedPools.findIndex(p =>
+          p.poolNo.toUpperCase() === computedPoolNo &&
+          p.projectName.toLowerCase() === cleanProjName.toLowerCase()
+        );
         if (planIdx >= 0) {
           updatedPlannedPools[planIdx] = {
             ...updatedPlannedPools[planIdx],
@@ -1126,10 +1133,17 @@ export default function App() {
         }
       } else {
         // Move/Update in pools (floor)
-        // Remove from plannedPools if it exists there
-        updatedPlannedPools = updatedPlannedPools.filter(p => p.poolNo.toUpperCase() !== computedPoolNo);
+        // FIX: only remove from plannedPools if BOTH poolNo AND projectName match
+        updatedPlannedPools = updatedPlannedPools.filter(p => !(
+          p.poolNo.toUpperCase() === computedPoolNo &&
+          p.projectName.toLowerCase() === cleanProjName.toLowerCase()
+        ));
 
-        const existingPoolIndex = updatedPools.findIndex(p => p.poolNo.toUpperCase() === computedPoolNo);
+        // FIX: match by BOTH poolNo AND projectName — pool 222 in Tiger must never overwrite pool 222 in Skyros
+        const existingPoolIndex = updatedPools.findIndex(p =>
+          p.poolNo.toUpperCase() === computedPoolNo &&
+          p.projectName.toLowerCase() === cleanProjName.toLowerCase()
+        );
         let pool: Pool;
         let isNew = false;
 
