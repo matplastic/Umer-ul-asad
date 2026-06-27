@@ -1075,7 +1075,8 @@ export default function App() {
       engineers,
       plannedPools,
       updatedProjects,
-      monthlyTargets
+      monthlyTargets,
+      employees
     );
   };
 
@@ -1305,7 +1306,8 @@ export default function App() {
       engineers,
       updatedPlannedPools,
       updatedProjects,
-      monthlyTargets
+      monthlyTargets,
+      employees
     );
 
     return true;
@@ -1903,10 +1905,19 @@ export default function App() {
     const updatedLogs = [importLog, ...logs];
     setLogs(updatedLogs);
 
-    // Use targeted saves — avoids stale-closure overwrite of other collections
-    localStorage.setItem('apex_planned_pools', JSON.stringify(updated));
-    localStorage.setItem('apex_logs', JSON.stringify(updatedLogs));
-    newPlans.forEach(plan => dbSavePlannedPool(plan).catch(console.error));
+    // Save full state to Firestore — this triggers snapshot on all devices
+    saveState(
+      pools,
+      teams,
+      updatedLogs,
+      inspectors,
+      engineers,
+      updated,
+      projectsSummary,
+      monthlyTargets,
+      employees
+    );
+
     alert(`Success! Imported ${newPlans.length} pools from Excel successfully.${dupsCount > 0 ? ` Filtered out ${dupsCount} duplicate codes.` : ''}`);
     return true;
   };
