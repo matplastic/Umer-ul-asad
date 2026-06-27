@@ -22,7 +22,11 @@ import {
   Upload,
   Download,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  X,
+  UserPlus,
+  ShieldCheck,
+  Wrench
 } from 'lucide-react';
 
 interface PlanningDepartmentProps {
@@ -60,6 +64,13 @@ interface PlanningDepartmentProps {
   onDeleteProjectSummary?: (id: string) => void;
   monthlyTargets?: MonthlyTarget[];
   onSaveMonthlyTarget?: (target: MonthlyTarget) => void;
+  onDeleteMonthlyTarget?: (id: string) => void;
+  onDeletePool?: (poolId: string, operatorName: string) => void;
+  inspectors?: { id: string; name: string; title: string }[];
+  onSaveInspector?: (insp: { id: string; name: string; title: string }) => void;
+  onDeleteInspector?: (id: string) => void;
+  onSaveEngineer?: (eng: { id: string; name: string; title: string }) => void;
+  onDeleteEngineer?: (id: string) => void;
   onDirectOverridePool?: (
     spec: {
       id?: string;
@@ -116,12 +127,19 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   onDeleteProjectSummary,
   monthlyTargets = [],
   onSaveMonthlyTarget,
+  onDeleteMonthlyTarget,
+  onDeletePool,
+  inspectors = [],
+  onSaveInspector,
+  onDeleteInspector,
+  onSaveEngineer,
+  onDeleteEngineer,
   onDirectOverridePool,
   onAddPlannedPoolsList,
   onDirectOverridePoolsBatch
 }) => {
   // Navigation tabs within Planning Portal
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'registry' | 'all_projects_portal' | 'monthly_targets' | 'quick_launch' | 'direct_stage_portal'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'registry' | 'all_projects_portal' | 'monthly_targets' | 'quick_launch' | 'direct_stage_portal' | 'roles'>('dashboard');
 
   // New Project Form State
   const [newProjName, setNewProjName] = useState('');
@@ -188,7 +206,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   const [bulkNotes, setBulkNotes] = useState('');
 
   // Direct override / create portal state variables
-  const [directProjectName, setDirectProjectName] = useState('Tiger');
+  const [directProjectName, setDirectProjectName] = useState('');
   const [useCustomDirectProject, setUseCustomDirectProject] = useState(false);
   const [customDirectProjectName, setCustomDirectProjectName] = useState('');
   const [selectedPoolIdOrNew, setSelectedPoolIdOrNew] = useState('NEW_POOL');
@@ -1185,48 +1203,13 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   }, [plannedPools, pools]);
 
   // Filter and search calculations
-  // IMPORTANT: Also include active floor pools that have NO plannedPool entry
-  // (pools added via Direct Stage Updater or ProductionEngineer directly)
-  const allPlanningItems = useMemo(() => {
-    // Start with all plannedPools
-    const items: any[] = [...plannedPools];
-
-    // Add floor pools that have no matching plannedPool entry
-    pools.forEach(pool => {
-      const hasPlannedEntry = plannedPools.some(pp =>
-        pp.poolNo === pool.poolNo || pp.releasedPoolId === pool.id
-      );
-      if (!hasPlannedEntry) {
-        // Create a virtual plannedPool entry for display
-        const isCompleted = pool.completedAt !== null || pool.currentStageIndex >= STAGES.length;
-        items.push({
-          id: `virtual_${pool.id}`,
-          poolNo: pool.poolNo,
-          projectName: pool.projectName,
-          orientation: pool.orientation,
-          dimensions: pool.dimensions,
-          shape: pool.shape,
-          poolType: pool.poolType || 'Type 1',
-          status: isCompleted ? 'COMPLETED' : 'RELEASED',
-          releasedPoolId: pool.id,
-          notes: pool.notes || '',
-          createdAt: pool.createdAt,
-          drawingUrl: pool.drawingUrl || '',
-          isVirtual: true, // flag — can't dispatch again
-        });
-      }
-    });
-
-    return items;
-  }, [plannedPools, pools]);
-
   const filteredPlannedPools = useMemo(() => {
-    return allPlanningItems.filter(p => {
+    return plannedPools.filter(p => {
       // 1. Search Query Match
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const numMatch = p.poolNo.toLowerCase().includes(q);
-        const shapeMatch = (p.shape || '').toLowerCase().includes(q);
+        const shapeMatch = p.shape.toLowerCase().includes(q);
         const prjMatch = p.projectName.toLowerCase().includes(q);
         if (!numMatch && !shapeMatch && !prjMatch) return false;
       }
@@ -1250,7 +1233,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 
       return true;
     });
-  }, [allPlanningItems, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
+  }, [plannedPools, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
 
   return (
     <div id="planning-department-section" className="space-y-6">
@@ -1331,6 +1314,17 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             id="tab-direct-stage-portal"
           >
             🕹️ Direct Stage & Status Updater
+          </button>
+          <button
+            onClick={() => setActiveTab('roles')}
+            className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'roles'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-805 hover:bg-slate-200'
+            }`}
+            id="tab-roles"
+          >
+            👷 Roles ({inspectors.length + engineers.length})
           </button>
         </div>
       </div>
@@ -1785,10 +1779,9 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                   <span>Dispatch Floor</span>
                                 </button>
                               )}
-                              {!(plan as any).isVirtual && (
                               <button
                                 onClick={() => {
-                                  if (window.confirm("Delete pool " + plan.poolNo + " (" + plan.projectName + ") permanently? This cannot be undone.")) {
+                                  if (window.confirm(`Delete planned pool "${plan.poolNo}" (${plan.projectName}) permanently?\n\nThis removes it from Firestore and all connected PCs in real time.`)) {
                                     onDeletePlannedPool(plan.id);
                                   }
                                 }}
@@ -1799,7 +1792,6 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                 <Trash2 className="h-3 w-3 shrink-0" />
                                 <span>Delete</span>
                               </button>
-                              )}
                             </div>
                           </td>
 
@@ -2853,6 +2845,19 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                               >
                                 <Sliders className="h-3.5 w-3.5" />
                               </button>
+                              {onDeleteProjectSummary && (
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Delete project record "${proj.projectName}" permanently?\n\nThis removes it from the cloud database. The record will go to Recycle Bin for 3 days.`)) {
+                                      onDeleteProjectSummary(proj.id);
+                                    }
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                  title="Delete this project record"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -3141,30 +3146,50 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
               <div className="border border-slate-150 p-4 rounded-xl space-y-2">
                 <span className="text-[10px] uppercase font-black text-slate-400 block tracking-widest">Logged Monthly Target Indexes ({monthlyTargets.length})</span>
                 <div className="flex flex-wrap gap-2">
+                  {monthlyTargets.length === 0 && (
+                    <span className="text-[11px] text-slate-400 font-mono">No monthly targets yet. Fill out the form on the left and click "Broadcast Targets".</span>
+                  )}
                   {monthlyTargets.map(t => (
                     <span
                       key={t.id}
-                      onClick={() => {
-                        setTargetMonthId(t.id);
-                        setTargetMonthName(t.monthName);
-                        setTargetMainPoolCount(t.mainTarget);
-                        setTargetSteelFab(t.steelFabricationTarget || 0);
-                        setTargetSteelPrimer(t.steelPrimerTarget || 0);
-                        setTargetPlumbing(t.plumbingTarget || 0);
-                        setTargetCladding(t.claddingTarget || 0);
-                        setTargetSkimmerFitting(t.skimmerFittingTarget || t.claddingTarget || 0);
-                        setTargetLamination(t.laminationTarget || 0);
-                        setTargetMechFitting(t.mechanicalFittingTarget || 0);
-                        setTargetMosaic(t.mosaicTarget || 0);
-                        setTargetGrouting(t.groutingTarget || 0);
-                        setTargetAcrylic(t.acrylicTarget || 0);
-                        setTargetOee(t.targetOee || 80);
-                        setTargetNotes(t.notes || '');
-                      }}
-                      className="px-3 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-705 text-xs font-semibold rounded-lg shrink-0 cursor-pointer flex items-center gap-1.5"
+                      className="group px-3 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-705 text-xs font-semibold rounded-lg shrink-0 flex items-center gap-1.5"
                     >
-                      <Calendar className="h-3.5 w-3.5 text-indigo-600" />
-                      {t.monthName} (Target: {t.mainTarget})
+                      <span
+                        onClick={() => {
+                          setTargetMonthId(t.id);
+                          setTargetMonthName(t.monthName);
+                          setTargetMainPoolCount(t.mainTarget);
+                          setTargetSteelFab(t.steelFabricationTarget || 0);
+                          setTargetSteelPrimer(t.steelPrimerTarget || 0);
+                          setTargetPlumbing(t.plumbingTarget || 0);
+                          setTargetCladding(t.claddingTarget || 0);
+                          setTargetSkimmerFitting(t.skimmerFittingTarget || t.claddingTarget || 0);
+                          setTargetLamination(t.laminationTarget || 0);
+                          setTargetMechFitting(t.mechanicalFittingTarget || 0);
+                          setTargetMosaic(t.mosaicTarget || 0);
+                          setTargetGrouting(t.groutingTarget || 0);
+                          setTargetAcrylic(t.acrylicTarget || 0);
+                          setTargetOee(t.targetOee || 80);
+                          setTargetNotes(t.notes || '');
+                        }}
+                        className="cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Calendar className="h-3.5 w-3.5 text-indigo-600" />
+                        {t.monthName} (Target: {t.mainTarget})
+                      </span>
+                      {onDeleteMonthlyTarget && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteMonthlyTarget(t.id);
+                          }}
+                          className="opacity-50 group-hover:opacity-100 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded p-0.5 transition-all cursor-pointer"
+                          title={`Delete ${t.monthName}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -3282,18 +3307,34 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
               {/* Pool selection */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-500 block">Select Target Pool to Edit / Override</label>
-                <select
-                  value={selectedPoolIdOrNew}
-                  onChange={(e) => setSelectedPoolIdOrNew(e.target.value)}
-                  className="w-full bg-indigo-50 border border-indigo-200 rounded-xl px-3.5 py-2 text-xs text-indigo-900 cursor-pointer font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="NEW_POOL">+ [CREATE NEW POOL DIRECTLY IN ACTIVE MANUFACTURING STATE]</option>
-                  {projectSpecificPools.map(p => (
-                    <option key={p.id} value={p.id}>
-                      Pool {p.poolNo} ({p.isDelivered ? 'Delivered' : STAGES[p.currentStageIndex]?.name || 'Assembly Done'})
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedPoolIdOrNew}
+                    onChange={(e) => setSelectedPoolIdOrNew(e.target.value)}
+                    className="flex-1 bg-indigo-50 border border-indigo-200 rounded-xl px-3.5 py-2 text-xs text-indigo-900 cursor-pointer font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="NEW_POOL">+ [CREATE NEW POOL DIRECTLY IN ACTIVE MANUFACTURING STATE]</option>
+                    {projectSpecificPools.map(p => (
+                      <option key={p.id} value={p.id}>
+                        Pool {p.poolNo} ({p.isDelivered ? 'Delivered' : STAGES[p.currentStageIndex]?.name || 'Assembly Done'})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedPoolIdOrNew !== 'NEW_POOL' && onDeletePool && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDeletePool(selectedPoolIdOrNew, overrideOperatorName.trim() || 'Planning Officer');
+                        setSelectedPoolIdOrNew('NEW_POOL');
+                      }}
+                      className="shrink-0 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl px-3 py-2 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
+                      title="Delete this pool (sends to Recycle Bin for 3 days)"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Pool No Designation */}
@@ -3894,6 +3935,202 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
         </div>
       )}
 
+      {/* ====== TAB 7: ROLES — MANAGE INSPECTORS & ENGINEERS ====== */}
+      {activeTab === 'roles' && (
+        <RolesTab
+          inspectors={inspectors}
+          engineers={engineers}
+          onSaveInspector={onSaveInspector}
+          onDeleteInspector={onDeleteInspector}
+          onSaveEngineer={onSaveEngineer}
+          onDeleteEngineer={onDeleteEngineer}
+        />
+      )}
+
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Roles Tab — Manage Inspectors & Engineers (replaces all hardcoded demo data)
+// ─────────────────────────────────────────────────────────────────────────────
+interface RolesTabProps {
+  inspectors: { id: string; name: string; title: string }[];
+  engineers: { id: string; name: string; title: string }[];
+  onSaveInspector?: (insp: { id: string; name: string; title: string }) => void;
+  onDeleteInspector?: (id: string) => void;
+  onSaveEngineer?: (eng: { id: string; name: string; title: string }) => void;
+  onDeleteEngineer?: (id: string) => void;
+}
+
+const RolesTab: React.FC<RolesTabProps> = ({
+  inspectors,
+  engineers,
+  onSaveInspector,
+  onDeleteInspector,
+  onSaveEngineer,
+  onDeleteEngineer,
+}) => {
+  const [newInspName, setNewInspName] = useState('');
+  const [newInspTitle, setNewInspTitle] = useState('');
+  const [newEngName, setNewEngName] = useState('');
+  const [newEngTitle, setNewEngTitle] = useState('');
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
+      {/* Inspectors panel */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-5">
+        <div className="border-b border-slate-100 pb-3">
+          <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-emerald-600" />
+            Quality Inspectors ({inspectors.length})
+          </h3>
+          <p className="text-xs text-slate-400 mt-1">
+            Add real QA inspectors here. They will appear in the Quality Inspector dashboard's selector dropdown.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3">
+          <input
+            type="text"
+            value={newInspName}
+            onChange={(e) => setNewInspName(e.target.value)}
+            placeholder="Full name (e.g. Ahmed Khan)"
+            className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+          <input
+            type="text"
+            value={newInspTitle}
+            onChange={(e) => setNewInspTitle(e.target.value)}
+            placeholder="Title / specialty (e.g. Structural QA Lead)"
+            className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (!newInspName.trim()) { alert('Please enter inspector name.'); return; }
+              if (!onSaveInspector) return;
+              onSaveInspector({
+                id: 'insp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+                name: newInspName.trim(),
+                title: newInspTitle.trim() || 'Quality Inspector',
+              });
+              setNewInspName('');
+              setNewInspTitle('');
+            }}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add Inspector
+          </button>
+        </div>
+
+        <div className="border-t border-slate-100 pt-3">
+          {inspectors.length === 0 ? (
+            <div className="text-center text-xs text-slate-400 py-6 font-mono">
+              No inspectors registered yet.
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {inspectors.map((i) => (
+                <li key={i.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-800">{i.name}</div>
+                    <div className="text-[10px] text-slate-500">{i.title}</div>
+                  </div>
+                  {onDeleteInspector && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteInspector(i.id)}
+                      className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-md transition-all cursor-pointer"
+                      title="Delete inspector"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* Engineers panel */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-5">
+        <div className="border-b border-slate-100 pb-3">
+          <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
+            <Wrench className="h-5 w-5 text-indigo-600" />
+            Production Engineers ({engineers.length})
+          </h3>
+          <p className="text-xs text-slate-400 mt-1">
+            Add real production engineers here. They will appear in the Production Engineer dashboard's selector dropdown.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3">
+          <input
+            type="text"
+            value={newEngName}
+            onChange={(e) => setNewEngName(e.target.value)}
+            placeholder="Full name (e.g. Umer ul Asad)"
+            className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <input
+            type="text"
+            value={newEngTitle}
+            onChange={(e) => setNewEngTitle(e.target.value)}
+            placeholder="Title / specialty (e.g. Lead Production Engineer)"
+            className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (!newEngName.trim()) { alert('Please enter engineer name.'); return; }
+              if (!onSaveEngineer) return;
+              onSaveEngineer({
+                id: 'eng_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+                name: newEngName.trim(),
+                title: newEngTitle.trim() || 'Production Engineer',
+              });
+              setNewEngName('');
+              setNewEngTitle('');
+            }}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add Engineer
+          </button>
+        </div>
+
+        <div className="border-t border-slate-100 pt-3">
+          {engineers.length === 0 ? (
+            <div className="text-center text-xs text-slate-400 py-6 font-mono">
+              No engineers registered yet.
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {engineers.map((e) => (
+                <li key={e.id} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-800">{e.name}</div>
+                    <div className="text-[10px] text-slate-500">{e.title}</div>
+                  </div>
+                  {onDeleteEngineer && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteEngineer(e.id)}
+                      className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-md transition-all cursor-pointer"
+                      title="Delete engineer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
