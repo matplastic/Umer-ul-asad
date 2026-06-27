@@ -1,5 +1,5 @@
 import { auth, app } from './googleDrive.ts';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from '../types';
 
 const clientDb = getFirestore(app);
@@ -77,8 +77,18 @@ function removeUndefined(value: any): any {
   return value;
 }
 
-async function setFirestoreDocArray(docName: string, data: any[]): Promise<void> {
+async function setFirestoreDocArray(docName: string, data: any[], allowEmpty: boolean = false): Promise<void> {
   try {
+    // SAFETY GUARD: never overwrite a collection with an empty array unless
+    // the caller explicitly passes allowEmpty=true (e.g. dbClearAllEmployeePunches)
+    if (!allowEmpty && data.length === 0) {
+      // Check if Firestore already has data — if yes, refuse to wipe it
+      const existing = await getFirestoreDocArray(docName);
+      if (existing.length > 0) {
+        console.warn(`[setFirestoreDocArray] Blocked empty-array write to '${docName}' — Firestore already has ${existing.length} records. Use allowEmpty=true to intentionally clear.`);
+        return;
+      }
+    }
     const docRef = doc(clientDb, 'system_state', docName);
     await setDoc(docRef, { data: removeUndefined(data) });
   } catch (err) {
@@ -87,11 +97,53 @@ async function setFirestoreDocArray(docName: string, data: any[]): Promise<void>
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CRITICAL FIX: updateFirestoreDocArray now uses Firestore Transactions.
+//
+// PREVIOUS BUG (data loss on simultaneous writes):
+//   PC-A: read [pool1,pool2] → add pool3 → write [pool1,pool2,pool3]
+//   PC-B: read [pool1,pool2] → add pool4 → write [pool1,pool2,pool4]  ← pool3 GONE
+//
+// WITH TRANSACTION (safe):
+//   PC-A: reads inside transaction → adds pool3 → writes atomically
+//   PC-B: tries to read → Firestore detects conflict → auto-retries → reads [pool1,pool2,pool3] → adds pool4 → writes [pool1,pool2,pool3,pool4]
+//
+// Firestore transactions auto-retry up to 5 times on conflict.
+// Zero data loss, zero manual merging needed.
+// ─────────────────────────────────────────────────────────────────────────────
 async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) => any[]): Promise<any[]> {
-  const current = await getFirestoreDocArray(docName);
-  const updated = updateFn(current);
-  await setFirestoreDocArray(docName, updated);
-  return updated;
+  const docRef = doc(clientDb, 'system_state', docName);
+  let updatedArr: any[] = [];
+
+  try {
+    await runTransaction(clientDb, async (transaction) => {
+      const snap = await transaction.get(docRef);
+      // Read current array inside the transaction (atomic read)
+      const current: any[] = snap.exists() && Array.isArray(snap.data()?.data)
+        ? snap.data()!.data
+        : [];
+
+      // Apply the caller's update function
+      updatedArr = updateFn([...current]);
+
+      // SAFETY: never write empty array if current has data
+      // This protects against accidental wipes
+      if (updatedArr.length === 0 && current.length > 0) {
+        console.warn(`[updateFirestoreDocArray] Refusing to write empty array to '${docName}' (current has ${current.length} items). Skipping write.`);
+        updatedArr = current; // keep existing data
+        return;
+      }
+
+      // Write back atomically — if another device wrote between our read and
+      // this write, Firestore will abort and retry the whole transaction
+      transaction.set(docRef, { data: removeUndefined(updatedArr) });
+    });
+  } catch (err) {
+    console.error(`[updateFirestoreDocArray] Transaction failed for '${docName}':`, err);
+    throw err;
+  }
+
+  return updatedArr;
 }
 
 export function getApiUrl(path: string): string {
@@ -267,6 +319,7 @@ export async function saveEntireStateToFirestore(
     console.log('Saving entire state directly to Firestore... (Server-less mode)');
     // NOTE: trolleys, recycleBin, employeePunches are managed by their own fine-grained
     // db functions and must NOT be overwritten here — only update what was explicitly passed
+    // Use allowEmpty=false (default) on all collections — never accidentally wipe real data
     await Promise.all([
       setFirestoreDocArray('pools', poolsList),
       setFirestoreDocArray('plannedPools', plannedPoolsList),
@@ -906,7 +959,8 @@ export async function dbSaveEmployeesBulk(newEmployees: Employee[]) {
 export async function dbClearAllEmployeePunches() {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await setFirestoreDocArray('employeePunches', []);
+    // allowEmpty=true because this function intentionally clears all punches
+    await setFirestoreDocArray('employeePunches', [], true);
     return { success: true };
   }
 
