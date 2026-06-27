@@ -4995,7 +4995,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Eng. Fatima S."
+                      placeholder="e.g. Eng. Full Name"
                       value={newEngineerName}
                       onChange={(e) => setNewEngineerName(e.target.value)}
                       className="w-full bg-white border border-slate-200 text-xs px-3 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500"
