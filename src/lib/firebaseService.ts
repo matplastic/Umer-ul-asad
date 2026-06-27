@@ -33,14 +33,15 @@ export function subscribeToLiveState(
         if (snap.exists()) {
           const raw = snap.data();
           const data = Array.isArray(raw?.data) ? raw.data : [];
-          // SAFETY: never fire callback with empty array unless doc explicitly has empty data field
-          // This prevents wiping real state when Firestore temporarily returns empty
-          if (data.length > 0 || raw?.data !== undefined) {
-            callback({ collection: name, data });
-          }
+          callback({ collection: name, data });
         }
-        // If doc doesn't exist — do NOT callback with [] — this was wiping real data!
-        // Just leave state as-is until doc appears
+        // BUGFIX: when the Firestore document does NOT exist (collection not yet
+        // created on this device), do NOT fire callback with data:[]. Firing an
+        // empty array would overwrite real local state with nothing, causing
+        // visible "data loss" right after login on a fresh device or when a
+        // single collection happens to be missing in Firestore. Stay silent
+        // instead — the next write will create the doc and trigger a real
+        // snapshot.
       },
       err => console.warn(`[liveSync] ${name} subscription error:`, err)
     )
@@ -155,8 +156,28 @@ export async function getEntireStateFromFirestore() {
       const isInitializedInCloud = projectsSummary.some(p => p.id === 'SENTINEL_DB_INITIALIZED');
       const filteredProjects = projectsSummary.filter(p => p.id !== 'SENTINEL_DB_INITIALIZED');
 
+      // BUGFIX: previous check only looked at pools + employees. If the user
+      // had ONLY planned-pools, projects-summary, monthly-targets, trolleys or
+      // teams data (and no pools/employees yet), `isInitialized` came back
+      // false → App.tsx then re-seeded DEFAULT demo data and overwrote their
+      // real records. Treat ANY non-empty collection as proof the DB is
+      // initialized.
+      const anyDataExists =
+        pools.length > 0 ||
+        plannedPools.length > 0 ||
+        filteredProjects.length > 0 ||
+        monthlyTargets.length > 0 ||
+        employees.length > 0 ||
+        trolleys.length > 0 ||
+        teams.length > 0 ||
+        logs.length > 0 ||
+        inspectors.length > 0 ||
+        engineers.length > 0 ||
+        recycleBin.length > 0 ||
+        employeePunches.length > 0;
+
       return {
-        isInitialized: isInitializedInCloud || pools.length > 0 || employees.length > 0,
+        isInitialized: isInitializedInCloud || anyDataExists,
         pools,
         plannedPools,
         teams,
@@ -610,6 +631,22 @@ export async function dbSaveEngineer(engineer: any) {
       return arr;
     });
     return { success: true, engineer };
+  }
+}
+
+export async function dbDeleteInspector(id: string) {
+  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  if (!base) {
+    await updateFirestoreDocArray('inspectors', (arr) => arr.filter(item => item.id !== id));
+    return { success: true };
+  }
+}
+
+export async function dbDeleteEngineer(id: string) {
+  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  if (!base) {
+    await updateFirestoreDocArray('engineers', (arr) => arr.filter(item => item.id !== id));
+    return { success: true };
   }
 }
 
