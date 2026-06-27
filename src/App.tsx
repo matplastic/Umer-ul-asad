@@ -49,7 +49,7 @@ import {
   dbDeleteEngineer,
   dbSaveTeam,
   dbSaveLog,
-  dbSavePool
+  dbSavePool,
   subscribeToLiveState
 } from './lib/firebaseService';
 
