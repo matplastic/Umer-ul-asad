@@ -697,66 +697,44 @@ export default function App() {
     updatedMonthlyTargets = monthlyTargets,
     updatedEmployees = employees
   ) => {
-    localStorage.setItem('apex_pools', JSON.stringify(updatedPools));
+    // Safety: never wipe existing data with empty arrays from stale closures
+    const safePools = updatedPools.length > 0 ? updatedPools : (pools.length > 0 ? pools : updatedPools);
+    const safePlanned = updatedPlannedPools.length > 0 ? updatedPlannedPools : (plannedPools.length > 0 ? plannedPools : updatedPlannedPools);
+    const safeEmployees = updatedEmployees.length > 0 ? updatedEmployees : (employees.length > 0 ? employees : updatedEmployees);
+    const safeLogs = updatedLogs.length > 0 ? updatedLogs : (logs.length > 0 ? logs : updatedLogs);
+
+    localStorage.setItem('apex_pools', JSON.stringify(safePools));
     localStorage.setItem('apex_teams', JSON.stringify(updatedTeams));
-    localStorage.setItem('apex_logs', JSON.stringify(updatedLogs));
+    localStorage.setItem('apex_logs', JSON.stringify(safeLogs));
     localStorage.setItem('apex_inspectors', JSON.stringify(updatedInspectors));
     localStorage.setItem('apex_engineers', JSON.stringify(updatedEngineers));
-    localStorage.setItem('apex_planned_pools', JSON.stringify(updatedPlannedPools));
+    localStorage.setItem('apex_planned_pools', JSON.stringify(safePlanned));
     localStorage.setItem('apex_projects_summary', JSON.stringify(updatedProjectsSummary));
     localStorage.setItem('apex_monthly_targets', JSON.stringify(updatedMonthlyTargets));
-    localStorage.setItem('apex_employees', JSON.stringify(updatedEmployees));
+    localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // BUGFIX (v3 — data loss root cause): Previously this called
-    // saveEntireStateToFirestore(...) which OVERWRITES every collection with
-    // the local arrays. If the local React state was stale (another device
-    // had added/edited records since our last load) the cloud got wiped.
-    //
-    // New strategy: per-record upserts ONLY for items that actually changed
-    // vs the previous React state. Never delete on the cloud here —
-    // deletions are exclusively handled by the dbDelete*() callsites.
-    // ─────────────────────────────────────────────────────────────────────────
-    const upsertChanged = <T extends { id: string }>(
-      prevArr: T[],
-      nextArr: T[],
-      saver: (item: T) => Promise<any>
-    ) => {
-      const prevMap = new Map(prevArr.map(it => [it.id, JSON.stringify(it)]));
-      nextArr.forEach(item => {
-        const prevJson = prevMap.get(item.id);
-        const nextJson = JSON.stringify(item);
-        if (prevJson !== nextJson) {
-          saver(item).catch(err => console.error('Cloud upsert failed:', err));
-        }
+    // Write FULL arrays to Firestore — avoids race conditions from concurrent
+    // read-modify-write cycles when saving 50+ items at once
+    saveEntireStateToFirestore(
+      safePools,
+      updatedTeams,
+      safeLogs,
+      updatedInspectors,
+      updatedEngineers,
+      safePlanned,
+      updatedProjectsSummary,
+      updatedMonthlyTargets,
+      safeEmployees
+    )
+      .then(() => {
+        setFirebaseStatus('connected');
+        setFirebaseError(null);
+      })
+      .catch((err: any) => {
+        console.error('Cloud save error:', err);
+        setFirebaseStatus('error');
+        setFirebaseError(err?.message || String(err));
       });
-    };
-
-    try {
-      upsertChanged(pools as any, updatedPools as any, (p: any) => dbSavePool(p));
-      upsertChanged(teams as any, updatedTeams as any, (t: any) => dbSaveTeam(t));
-      upsertChanged(plannedPools as any, updatedPlannedPools as any, (p: any) => dbSavePlannedPool(p));
-      upsertChanged(projectsSummary as any, updatedProjectsSummary as any, (s: any) => dbSaveProjectSummary(s));
-      upsertChanged(monthlyTargets as any, updatedMonthlyTargets as any, (t: any) => dbSaveMonthlyTarget(t));
-      upsertChanged(employees as any, updatedEmployees as any, (e: any) => dbSaveEmployee(e));
-      upsertChanged(inspectors as any, updatedInspectors as any, (i: any) => dbSaveInspector(i));
-      upsertChanged(engineers as any, updatedEngineers as any, (e: any) => dbSaveEngineer(e));
-
-      // Logs are append-only — only save NEW log entries (by id)
-      const prevLogIds = new Set(logs.map(l => l.id));
-      updatedLogs.forEach(log => {
-        if (!prevLogIds.has(log.id)) {
-          dbSaveLog(log).catch(err => console.error('Log save failed:', err));
-        }
-      });
-
-      setFirebaseStatus('connected');
-      setFirebaseError(null);
-    } catch (err: any) {
-      console.error('Cloud per-record sync error:', err);
-      setFirebaseStatus('error');
-      setFirebaseError(err?.message || String(err));
-    }
   };
 
   const handleSaveEmployee = (employee: Employee) => {
