@@ -544,7 +544,15 @@ export default function App() {
             loadDefaultMockData();
           }
         } else {
-          loadDefaultMockData();
+          // FIX: no localStorage means fresh install — init empty state, never seed demo data
+          setPools([]);
+          setTeams(getInitialData().teams);
+          setLogs([]);
+          setInspectors(DEFAULT_INSPECTORS);
+          setEngineers(DEFAULT_ENGINEERS);
+          setPlannedPools([]);
+          setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
+          setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
         }
       }
     };
@@ -565,25 +573,41 @@ export default function App() {
     // for ALL collections, regardless of which role the user is in.
     // ─────────────────────────────────────────────────────────────────────────
     const liveUnsub = subscribeToLiveState(({ collection, data }) => {
-      // SAFETY: never overwrite existing state with empty array from snapshot
-      // This can happen if a Firestore document is temporarily missing or
-      // if a write is in progress. Only update if data has content OR
-      // current state is also empty (genuine empty collection).
-      const shouldUpdate = (currentData: any[]) => data.length > 0 || currentData.length === 0;
+      // ─────────────────────────────────────────────────────────────────────
+      // STALE CLOSURE FIX:
+      // The old code used `shouldUpdate(pools)` etc. but `pools` here is
+      // captured from the moment this useEffect ran — it never updates as the
+      // user adds data. This meant the guard was comparing against a stale
+      // snapshot and could skip valid updates OR allow empty overwrites.
+      //
+      // FIX: use the functional setState form `setPools(prev => ...)`.
+      // Inside the updater, `prev` is always the CURRENT live React state —
+      // no stale closure, no missed updates, no accidental empty overwrites.
+      // ─────────────────────────────────────────────────────────────────────
+      const safeUpdate = <T>(setter: React.Dispatch<React.SetStateAction<T[]>>, incoming: T[]) => {
+        setter(prev => {
+          // Never replace real data with an empty array
+          if (incoming.length === 0 && prev.length > 0) {
+            console.warn(`[liveSync] Blocked empty snapshot for '${collection}' — keeping ${prev.length} existing records.`);
+            return prev;
+          }
+          return incoming;
+        });
+      };
 
       switch (collection) {
-        case 'pools':            if (shouldUpdate(pools)) setPools(data as Pool[]); break;
-        case 'plannedPools':     if (shouldUpdate(plannedPools)) setPlannedPools(data as PlannedPool[]); break;
-        case 'teams':            if (shouldUpdate(teams)) setTeams(data as Team[]); break;
-        case 'logs':             if (shouldUpdate(logs)) setLogs(data as ActivityLog[]); break;
-        case 'inspectors':       if (shouldUpdate(inspectors)) setInspectors(data as any); break;
-        case 'engineers':        if (shouldUpdate(engineers)) setEngineers(data as any); break;
-        case 'projectsSummary':  if (shouldUpdate(projectsSummary)) setProjectsSummary(data as ProjectSummary[]); break;
-        case 'monthlyTargets':   if (shouldUpdate(monthlyTargets)) setMonthlyTargets(data as MonthlyTarget[]); break;
-        case 'employees':        if (shouldUpdate(employees)) setEmployees(data as Employee[]); break;
-        case 'trolleys':         setTrolleys(data as TrolleyProduction[]); break;
-        case 'recycleBin':       setRecycleBin(data as RecycleBinItem[]); break;
-        case 'employeePunches':  setEmployeePunches(data as EmployeePunch[]); break;
+        case 'pools':            safeUpdate(setPools, data as Pool[]); break;
+        case 'plannedPools':     safeUpdate(setPlannedPools, data as PlannedPool[]); break;
+        case 'teams':            safeUpdate(setTeams, data as Team[]); break;
+        case 'logs':             safeUpdate(setLogs, data as ActivityLog[]); break;
+        case 'inspectors':       safeUpdate(setInspectors, data); break;
+        case 'engineers':        safeUpdate(setEngineers, data); break;
+        case 'projectsSummary':  safeUpdate(setProjectsSummary, data as ProjectSummary[]); break;
+        case 'monthlyTargets':   safeUpdate(setMonthlyTargets, data as MonthlyTarget[]); break;
+        case 'employees':        safeUpdate(setEmployees, data as Employee[]); break;
+        case 'trolleys':         safeUpdate(setTrolleys, data as TrolleyProduction[]); break;
+        case 'recycleBin':       safeUpdate(setRecycleBin, data as RecycleBinItem[]); break;
+        case 'employeePunches':  safeUpdate(setEmployeePunches, data as EmployeePunch[]); break;
       }
       // Keep localStorage hot-cache in sync so offline reload starts with fresh data
       const lsKey = 'apex_' + collection.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
@@ -1740,13 +1764,13 @@ export default function App() {
     notes?: string;
     createdAt?: string;
   }) => {
-    // Check if unique poolNo exists across both live & planned to prevent double entry
-    if (plannedPools.some(p => p.poolNo.trim().toUpperCase() === plannedSpec.poolNo.trim().toUpperCase())) {
-      alert(`Pool code "${plannedSpec.poolNo}" is already pre-planned in this workstation.`);
+    // FIX: duplicate check uses BOTH poolNo AND projectName — same number in different project is allowed
+    if (plannedPools.some(p => p.poolNo.trim().toUpperCase() === plannedSpec.poolNo.trim().toUpperCase() && p.projectName.toLowerCase() === plannedSpec.projectName.toLowerCase())) {
+      alert(`Pool code "${plannedSpec.poolNo}" already exists in project "${plannedSpec.projectName}" (planned queue).`);
       return false;
     }
-    if (pools.some(p => p.poolNo.trim().toUpperCase() === plannedSpec.poolNo.trim().toUpperCase())) {
-      alert(`Pool code "${plannedSpec.poolNo}" is already in active production on the floor.`);
+    if (pools.some(p => p.poolNo.trim().toUpperCase() === plannedSpec.poolNo.trim().toUpperCase() && p.projectName.toLowerCase() === plannedSpec.projectName.toLowerCase())) {
+      alert(`Pool code "${plannedSpec.poolNo}" already exists in project "${plannedSpec.projectName}" (active production).`);
       return false;
     }
 
@@ -1791,9 +1815,9 @@ export default function App() {
       const numVal = batchSpec.startRange + i;
       const computedPoolNo = `${batchSpec.prefix}${numVal}`.toUpperCase();
 
-      // Check duplicate
-      const isDupPlanned = plannedPools.some(p => p.poolNo === computedPoolNo) || newPlans.some(p => p.poolNo === computedPoolNo);
-      const isDupLive = pools.some(p => p.poolNo === computedPoolNo);
+      // FIX: duplicate check uses BOTH poolNo AND projectName
+      const isDupPlanned = plannedPools.some(p => p.poolNo === computedPoolNo && p.projectName.toLowerCase() === batchSpec.projectName.toLowerCase()) || newPlans.some(p => p.poolNo === computedPoolNo);
+      const isDupLive = pools.some(p => p.poolNo === computedPoolNo && p.projectName.toLowerCase() === batchSpec.projectName.toLowerCase());
 
       if (isDupPlanned || isDupLive) {
         duplicatesCount++;
@@ -1862,8 +1886,9 @@ export default function App() {
 
     importedList.forEach((item, index) => {
       const computedPoolNo = item.poolNo.trim().toUpperCase();
-      const isDupPlanned = plannedPools.some(p => p.poolNo === computedPoolNo) || newPlans.some(p => p.poolNo === computedPoolNo);
-      const isDupLive = pools.some(p => p.poolNo === computedPoolNo);
+      // FIX: duplicate check uses BOTH poolNo AND projectName
+      const isDupPlanned = plannedPools.some(p => p.poolNo === computedPoolNo && p.projectName.toLowerCase() === item.projectName.toLowerCase()) || newPlans.some(p => p.poolNo === computedPoolNo);
+      const isDupLive = pools.some(p => p.poolNo === computedPoolNo && p.projectName.toLowerCase() === item.projectName.toLowerCase());
 
       if (isDupPlanned || isDupLive) {
         dupsCount++;
