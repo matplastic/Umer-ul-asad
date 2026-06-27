@@ -55,7 +55,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
   const [formMode, setFormMode] = useState<'single' | 'batch'>('single');
 
   // Selected engineer who is publishing
-  const [selectedEngineer, setSelectedEngineer] = useState(engineers[0]?.name || 'Eng. Karim R.');
+  const [selectedEngineer, setSelectedEngineer] = useState(engineers[0]?.name || '');
 
   // Pre-planned import dropdown selection state
   const [selectedPlanId, setSelectedPlanId] = useState('');
@@ -301,7 +301,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                   </option>
                 ))
               ) : (
-                <option value="Eng. Karim R.">Eng. Karim R. (Lead Production Engineer)</option>
+                <option value="" disabled>— No engineers registered yet (add via Planning ▸ Roles) —</option>
               )}
             </select>
           </div>
