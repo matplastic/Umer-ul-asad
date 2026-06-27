@@ -13,7 +13,9 @@ import { SectionDashboardTV } from './components/SectionDashboardTV';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
 import { HRPortal } from './components/HRPortal';
-import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X } from 'lucide-react';
+import { ReportsAndAnalytics } from './components/ReportsAndAnalytics';
+import { QRScanner } from './components/QRCodeModule';
+import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
   getEntireStateFromFirestore, 
@@ -40,24 +42,32 @@ import {
   dbSaveEmployeesBulk,
   dbClearAllEmployeePunches,
   dbDeleteEmployeePunchesByDate,
-  dbSyncBioCloudPunches
+  dbSyncBioCloudPunches,
+  dbSaveInspector,
+  dbSaveEngineer,
+  dbDeleteInspector,
+  dbDeleteEngineer,
+  dbSaveTeam,
+  dbSaveLog,
+  dbSavePool
 } from './lib/firebaseService';
 
-const DEFAULT_INSPECTORS = [
-  { id: 'insp_1', name: 'Insp. Sarah Wells', title: 'Structural Quality Lead' },
-  { id: 'insp_2', name: 'Insp. Mike Vance', title: 'Plumbing Specialist' },
-  { id: 'insp_3', name: 'Insp. David Cole', title: 'Seals Quality Chief' },
-];
-
-const DEFAULT_ENGINEERS = [
-  { id: 'eng_1', name: 'Eng. Karim R.', title: 'Lead Production Engineer' },
-  { id: 'eng_2', name: 'Eng. Fatima S.', title: 'Process Layout Specialist' },
-];
+// BUGFIX (v3 — data loss): previous build seeded 3 demo inspectors and 2 demo
+// engineers on every fresh device. They kept reappearing as "ghost demo data".
+// User reported losing real data because of this. Demo inspectors/engineers
+// are now permanently disabled. Use the "Roles" tab in the Planning Portal
+// to add real inspectors and engineers.
+const DEFAULT_INSPECTORS: { id: string; name: string; title: string }[] = [];
+const DEFAULT_ENGINEERS: { id: string; name: string; title: string }[] = [];
 
 const DEFAULT_PROJECTS_SUMMARY: ProjectSummary[] = [];
 
 const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [];
 
+// BUGFIX: previously this list contained demo employees (John Doe, Alba Vance,
+// Marcus Chen, Sarah Jenkins) that kept reappearing as "demo data" after the
+// user wiped the database. Demo employees are now permanently disabled — the
+// HR portal starts empty until real employees are added.
 const DEFAULT_EMPLOYEES: Employee[] = [];
 
 export default function App() {
@@ -217,6 +227,10 @@ export default function App() {
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [unlockPinInput, setUnlockPinInput] = useState('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
+
+  // QR scanner overlay state (mobile shop-floor quick lookup)
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannedPoolId, setScannedPoolId] = useState<string | null>(null);
 
   // Role-Based Access Control State
   const [loggedInUser, setLoggedInUser] = useState<{ role: ViewRole; displayName: string } | null>(() => {
@@ -399,27 +413,38 @@ export default function App() {
       setFirebaseStatus('linking');
       try {
         const cloudData = await getEntireStateFromFirestore();
-
-        // Check if DB was ever initialized — use isInitialized flag OR any real data exists
-        const hasAnyData = (
-          (cloudData as any).isInitialized === true ||
+        // BUGFIX: previous check (`cloudData.pools.length > 0`) caused real
+        // data wipe — if the user had employees/plannedPools/projects but
+        // pools happened to be empty, the `else` branch ran and overwrote
+        // Firestore with DEFAULT demo data. Now we trust the firebaseService
+        // `isInitialized` flag (which inspects every collection) and we also
+        // double-check here against every collection so demo seeding only
+        // ever happens on a completely empty database.
+        const anyCloudData =
           (cloudData.pools && cloudData.pools.length > 0) ||
           (cloudData.plannedPools && cloudData.plannedPools.length > 0) ||
+          (cloudData.projectsSummary && cloudData.projectsSummary.length > 0) ||
+          (cloudData.monthlyTargets && cloudData.monthlyTargets.length > 0) ||
           (cloudData.employees && cloudData.employees.length > 0) ||
-          (cloudData.logs && cloudData.logs.length > 0)
-        );
+          (cloudData.teams && cloudData.teams.length > 0) ||
+          (cloudData.logs && cloudData.logs.length > 0) ||
+          ((cloudData as any).trolleys && (cloudData as any).trolleys.length > 0) ||
+          ((cloudData as any).employeePunches && (cloudData as any).employeePunches.length > 0) ||
+          ((cloudData as any).recycleBin && (cloudData as any).recycleBin.length > 0) ||
+          (cloudData.inspectors && cloudData.inspectors.length > 0) ||
+          (cloudData.engineers && cloudData.engineers.length > 0);
 
-        if (hasAnyData) {
-          // Cloud has real data — load it all, never overwrite with defaults
-          setPools(cloudData.pools || []);
-          setTeams(cloudData.teams && cloudData.teams.length > 0 ? cloudData.teams : generateDefaultTeams ? cloudData.teams : cloudData.teams || []);
-          setLogs(cloudData.logs || []);
-          setInspectors(cloudData.inspectors && cloudData.inspectors.length > 0 ? cloudData.inspectors : DEFAULT_INSPECTORS);
-          setEngineers(cloudData.engineers && cloudData.engineers.length > 0 ? cloudData.engineers : DEFAULT_ENGINEERS);
-          setPlannedPools(cloudData.plannedPools || []);
-          setProjectsSummary(cloudData.projectsSummary && cloudData.projectsSummary.length > 0 ? cloudData.projectsSummary : []);
-          setMonthlyTargets(cloudData.monthlyTargets && cloudData.monthlyTargets.length > 0 ? cloudData.monthlyTargets : []);
-          setEmployees(cloudData.employees || []);
+        if ((cloudData as any).isInitialized || anyCloudData) {
+          // Cloud has records. Load them!
+          setPools(cloudData.pools);
+          setTeams(cloudData.teams);
+          setLogs(cloudData.logs);
+          setInspectors(cloudData.inspectors);
+          setEngineers(cloudData.engineers);
+          setPlannedPools(cloudData.plannedPools);
+          setProjectsSummary(cloudData.projectsSummary);
+          setMonthlyTargets(cloudData.monthlyTargets);
+          setEmployees(cloudData.employees);
           if ((cloudData as any).trolleys) {
             setTrolleys((cloudData as any).trolleys);
             localStorage.setItem('apex_trolleys', JSON.stringify((cloudData as any).trolleys));
@@ -433,44 +458,48 @@ export default function App() {
           }
 
           // Update local backup
-          localStorage.setItem('apex_pools', JSON.stringify(cloudData.pools || []));
-          localStorage.setItem('apex_teams', JSON.stringify(cloudData.teams || []));
-          localStorage.setItem('apex_logs', JSON.stringify(cloudData.logs || []));
-          localStorage.setItem('apex_inspectors', JSON.stringify(cloudData.inspectors || []));
-          localStorage.setItem('apex_engineers', JSON.stringify(cloudData.engineers || []));
-          localStorage.setItem('apex_planned_pools', JSON.stringify(cloudData.plannedPools || []));
-          localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary || []));
-          localStorage.setItem('apex_monthly_targets', JSON.stringify(cloudData.monthlyTargets || []));
-          localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees || []));
+          localStorage.setItem('apex_pools', JSON.stringify(cloudData.pools));
+          localStorage.setItem('apex_teams', JSON.stringify(cloudData.teams));
+          localStorage.setItem('apex_logs', JSON.stringify(cloudData.logs));
+          localStorage.setItem('apex_inspectors', JSON.stringify(cloudData.inspectors));
+          localStorage.setItem('apex_engineers', JSON.stringify(cloudData.engineers));
+          localStorage.setItem('apex_planned_pools', JSON.stringify(cloudData.plannedPools));
+          localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary));
+          localStorage.setItem('apex_monthly_targets', JSON.stringify(cloudData.monthlyTargets));
+          localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees));
           setFirebaseStatus('connected');
         } else {
-          // Truly new database — seed with empty operational structure only
-          // NO demo data, NO fake employees, NO fake projects
-          const defaultData = getInitialData();
+          // BUGFIX: truly empty database. We now seed ONLY the structural
+          // defaults (empty teams skeleton + inspectors/engineers lookup
+          // lists) and write the SENTINEL_DB_INITIALIZED marker so that
+          // future loads always know the DB is initialized — even when every
+          // user-data collection is empty. We DO NOT seed any demo pools,
+          // employees, projects, planned-pools or monthly-targets anymore.
+          const defaultData = getInitialData(); // returns empty pools/logs + teams skeleton
           await saveEntireStateToFirestore(
-            [],          // empty pools
-            defaultData.teams,
-            [],          // empty logs
+            defaultData.pools,        // []
+            defaultData.teams,        // teams skeleton (structural, not demo)
+            defaultData.logs,         // []
             DEFAULT_INSPECTORS,
             DEFAULT_ENGINEERS,
-            [],          // empty planned pools
-            [],          // empty projects summary
-            [],          // empty monthly targets
-            []           // empty employees
+            defaultData.plannedPools, // []
+            DEFAULT_PROJECTS_SUMMARY, // [] — sentinel auto-appended by service
+            DEFAULT_MONTHLY_TARGETS,  // []
+            DEFAULT_EMPLOYEES         // []
           );
-          setPools([]);
+          setPools(defaultData.pools);
           setTeams(defaultData.teams);
-          setLogs([]);
+          setLogs(defaultData.logs);
           setInspectors(DEFAULT_INSPECTORS);
           setEngineers(DEFAULT_ENGINEERS);
-          setPlannedPools([]);
-          setProjectsSummary([]);
-          setMonthlyTargets([]);
-          setEmployees([]);
-          localStorage.setItem('apex_planned_pools', JSON.stringify([]));
-          localStorage.setItem('apex_projects_summary', JSON.stringify([]));
-          localStorage.setItem('apex_monthly_targets', JSON.stringify([]));
-          localStorage.setItem('apex_employees', JSON.stringify([]));
+          setPlannedPools(defaultData.plannedPools);
+          setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
+          setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
+          setEmployees(DEFAULT_EMPLOYEES);
+          localStorage.setItem('apex_planned_pools', JSON.stringify(defaultData.plannedPools));
+          localStorage.setItem('apex_projects_summary', JSON.stringify(DEFAULT_PROJECTS_SUMMARY));
+          localStorage.setItem('apex_monthly_targets', JSON.stringify(DEFAULT_MONTHLY_TARGETS));
+          localStorage.setItem('apex_employees', JSON.stringify(DEFAULT_EMPLOYEES));
           setFirebaseStatus('connected');
         }
       } catch (err: any) {
@@ -625,6 +654,12 @@ export default function App() {
   };
 
   const loadDefaultMockData = () => {
+    // BUGFIX: this fallback used to call saveState(...) which writes to
+    // Firestore — meaning a transient network blip on first load could
+    // overwrite the real cloud DB with demo defaults. We now only populate
+    // local React state so the UI stays functional. No demo data is ever
+    // written to the cloud here. When the user comes back online with valid
+    // data, loadCloudData() will hydrate from Firestore on the next reload.
     const data = getInitialData();
     setPools(data.pools);
     setTeams(data.teams);
@@ -636,23 +671,14 @@ export default function App() {
     setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
     setTrolleys([]);
     localStorage.removeItem('apex_trolleys');
-    
+
     // Auto-select first team in fabrication stage
     const fabTeams = data.teams.filter(t => t.stageId === 'steel_fabrication');
     if (fabTeams.length > 0) {
       setWorkerTeamId(fabTeams[0].id);
     }
 
-    saveState(
-      data.pools, 
-      data.teams, 
-      data.logs, 
-      DEFAULT_INSPECTORS, 
-      DEFAULT_ENGINEERS, 
-      data.plannedPools,
-      DEFAULT_PROJECTS_SUMMARY,
-      DEFAULT_MONTHLY_TARGETS
-    );
+    // NOTE: intentionally NOT calling saveState() here — see comment above.
   };
 
   const saveState = (
@@ -666,44 +692,66 @@ export default function App() {
     updatedMonthlyTargets = monthlyTargets,
     updatedEmployees = employees
   ) => {
-    // Safety check — never save empty arrays if current state has data
-    // This prevents stale closures from wiping real data
-    const safePools = updatedPools.length > 0 ? updatedPools : (pools.length > 0 ? pools : updatedPools);
-    const safePlanned = updatedPlannedPools.length > 0 ? updatedPlannedPools : (plannedPools.length > 0 ? plannedPools : updatedPlannedPools);
-    const safeEmployees = updatedEmployees.length > 0 ? updatedEmployees : (employees.length > 0 ? employees : updatedEmployees);
-    const safeLogs = updatedLogs.length > 0 ? updatedLogs : (logs.length > 0 ? logs : updatedLogs);
-
-    localStorage.setItem('apex_pools', JSON.stringify(safePools));
+    localStorage.setItem('apex_pools', JSON.stringify(updatedPools));
     localStorage.setItem('apex_teams', JSON.stringify(updatedTeams));
-    localStorage.setItem('apex_logs', JSON.stringify(safeLogs));
+    localStorage.setItem('apex_logs', JSON.stringify(updatedLogs));
     localStorage.setItem('apex_inspectors', JSON.stringify(updatedInspectors));
     localStorage.setItem('apex_engineers', JSON.stringify(updatedEngineers));
-    localStorage.setItem('apex_planned_pools', JSON.stringify(safePlanned));
+    localStorage.setItem('apex_planned_pools', JSON.stringify(updatedPlannedPools));
     localStorage.setItem('apex_projects_summary', JSON.stringify(updatedProjectsSummary));
     localStorage.setItem('apex_monthly_targets', JSON.stringify(updatedMonthlyTargets));
-    localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
+    localStorage.setItem('apex_employees', JSON.stringify(updatedEmployees));
 
-    // Async auto-save to Cloud SQL PostgreSQL database
-    saveEntireStateToFirestore(
-      safePools,
-      updatedTeams,
-      safeLogs,
-      updatedInspectors,
-      updatedEngineers,
-      safePlanned,
-      updatedProjectsSummary,
-      updatedMonthlyTargets,
-      safeEmployees
-    )
-      .then(() => {
-        setFirebaseStatus('connected');
-        setFirebaseError(null);
-      })
-      .catch((err: any) => {
-        console.error('Cloud Firestore auto-save error:', err);
-        setFirebaseStatus('error');
-        setFirebaseError(err?.message || String(err));
+    // ─────────────────────────────────────────────────────────────────────────
+    // BUGFIX (v3 — data loss root cause): Previously this called
+    // saveEntireStateToFirestore(...) which OVERWRITES every collection with
+    // the local arrays. If the local React state was stale (another device
+    // had added/edited records since our last load) the cloud got wiped.
+    //
+    // New strategy: per-record upserts ONLY for items that actually changed
+    // vs the previous React state. Never delete on the cloud here —
+    // deletions are exclusively handled by the dbDelete*() callsites.
+    // ─────────────────────────────────────────────────────────────────────────
+    const upsertChanged = <T extends { id: string }>(
+      prevArr: T[],
+      nextArr: T[],
+      saver: (item: T) => Promise<any>
+    ) => {
+      const prevMap = new Map(prevArr.map(it => [it.id, JSON.stringify(it)]));
+      nextArr.forEach(item => {
+        const prevJson = prevMap.get(item.id);
+        const nextJson = JSON.stringify(item);
+        if (prevJson !== nextJson) {
+          saver(item).catch(err => console.error('Cloud upsert failed:', err));
+        }
       });
+    };
+
+    try {
+      upsertChanged(pools as any, updatedPools as any, (p: any) => dbSavePool(p));
+      upsertChanged(teams as any, updatedTeams as any, (t: any) => dbSaveTeam(t));
+      upsertChanged(plannedPools as any, updatedPlannedPools as any, (p: any) => dbSavePlannedPool(p));
+      upsertChanged(projectsSummary as any, updatedProjectsSummary as any, (s: any) => dbSaveProjectSummary(s));
+      upsertChanged(monthlyTargets as any, updatedMonthlyTargets as any, (t: any) => dbSaveMonthlyTarget(t));
+      upsertChanged(employees as any, updatedEmployees as any, (e: any) => dbSaveEmployee(e));
+      upsertChanged(inspectors as any, updatedInspectors as any, (i: any) => dbSaveInspector(i));
+      upsertChanged(engineers as any, updatedEngineers as any, (e: any) => dbSaveEngineer(e));
+
+      // Logs are append-only — only save NEW log entries (by id)
+      const prevLogIds = new Set(logs.map(l => l.id));
+      updatedLogs.forEach(log => {
+        if (!prevLogIds.has(log.id)) {
+          dbSaveLog(log).catch(err => console.error('Log save failed:', err));
+        }
+      });
+
+      setFirebaseStatus('connected');
+      setFirebaseError(null);
+    } catch (err: any) {
+      console.error('Cloud per-record sync error:', err);
+      setFirebaseStatus('error');
+      setFirebaseError(err?.message || String(err));
+    }
   };
 
   const handleSaveEmployee = (employee: Employee) => {
@@ -1309,6 +1357,67 @@ export default function App() {
     dbSaveMonthlyTarget(target).catch(console.error);
   };
 
+  const handleDeleteMonthlyTarget = async (id: string) => {
+    const target = monthlyTargets.find(t => t.id === id);
+    if (!target) return;
+    if (!window.confirm(`Delete monthly target "${target.monthName}" permanently?\n\nThis removes it from Firestore and all connected devices in real time.`)) {
+      return;
+    }
+    const updated = monthlyTargets.filter(t => t.id !== id);
+    setMonthlyTargets(updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, updated);
+    await dbDeleteMonthlyTarget(id).catch(console.error);
+  };
+
+  // Inspectors & Engineers — manual management from Planning Portal
+  const handleSaveInspector = (insp: { id: string; name: string; title: string }) => {
+    const existingIndex = inspectors.findIndex(i => i.id === insp.id);
+    let updated;
+    if (existingIndex >= 0) {
+      updated = [...inspectors];
+      updated[existingIndex] = insp;
+    } else {
+      updated = [...inspectors, insp];
+    }
+    setInspectors(updated);
+    saveState(pools, teams, logs, updated, engineers, plannedPools, projectsSummary, monthlyTargets);
+    dbSaveInspector(insp).catch(console.error);
+  };
+
+  const handleDeleteInspector = async (id: string) => {
+    const insp = inspectors.find(i => i.id === id);
+    if (!insp) return;
+    if (!window.confirm(`Delete inspector "${insp.name}" permanently?`)) return;
+    const updated = inspectors.filter(i => i.id !== id);
+    setInspectors(updated);
+    saveState(pools, teams, logs, updated, engineers, plannedPools, projectsSummary, monthlyTargets);
+    await dbDeleteInspector(id).catch(console.error);
+  };
+
+  const handleSaveEngineer = (eng: { id: string; name: string; title: string }) => {
+    const existingIndex = engineers.findIndex(e => e.id === eng.id);
+    let updated;
+    if (existingIndex >= 0) {
+      updated = [...engineers];
+      updated[existingIndex] = eng;
+    } else {
+      updated = [...engineers, eng];
+    }
+    setEngineers(updated);
+    saveState(pools, teams, logs, inspectors, updated, plannedPools, projectsSummary, monthlyTargets);
+    dbSaveEngineer(eng).catch(console.error);
+  };
+
+  const handleDeleteEngineer = async (id: string) => {
+    const eng = engineers.find(e => e.id === id);
+    if (!eng) return;
+    if (!window.confirm(`Delete engineer "${eng.name}" permanently?`)) return;
+    const updated = engineers.filter(e => e.id !== id);
+    setEngineers(updated);
+    saveState(pools, teams, logs, inspectors, updated, plannedPools, projectsSummary, monthlyTargets);
+    await dbDeleteEngineer(id).catch(console.error);
+  };
+
   const handleRestoreState = (recovered: {
     pools: Pool[];
     teams: Team[];
@@ -1387,8 +1496,13 @@ export default function App() {
 
   // Reset local state
   const handleResetData = () => {
-    if (window.confirm('Are you sure you want to reset all manufacturing logs, pools status records, and team assignments to original demonstration state?')) {
-      loadDefaultMockData();
+    if (window.confirm('Reset local in-browser cache only?\n\nThis clears this device\'s local copy of pools / teams / logs and re-syncs from Firestore on next page load.\n\nNo demo data will be loaded. No cloud data will be deleted.')) {
+      // Clear local cache only — no cloud writes, no demo data injection.
+      localStorage.removeItem('apex_pools');
+      localStorage.removeItem('apex_teams');
+      localStorage.removeItem('apex_logs');
+      // Reload to pull a fresh copy from Firestore
+      window.location.reload();
     }
   };
 
@@ -1536,7 +1650,7 @@ export default function App() {
       projectName: newPool.projectName,
       stageId: 'steel_fabrication',
       type: 'CREATED',
-      operatorName: spec.operatorName || 'Eng. Karim R.',
+      operatorName: spec.operatorName || 'Engineer',
       notes: `Pool created & released. Specs: Orientation - ${spec.orientation}, Dims - ${spec.dimensions}, Shape - ${spec.shape}.`
     };
 
@@ -1590,7 +1704,7 @@ export default function App() {
       projectName,
       stageId: 'steel_fabrication',
       type: 'CREATED',
-      operatorName: 'Eng. Karim R.',
+      operatorName: operatorName || 'Engineer',
       notes: `Batch spawner released ${count} serialized hulls [${prefix}${startRange} to ${prefix}${startRange + count - 1}] for Project "${projectName}" into fabrication queue.`
     };
 
@@ -2420,12 +2534,19 @@ export default function App() {
             onUpdatePlannedPool={handleUpdatePlannedPool}
             onReleasePlannedPool={handleReleasePlannedPool}
             engineers={engineers}
+            inspectors={inspectors}
+            onSaveInspector={handleSaveInspector}
+            onDeleteInspector={handleDeleteInspector}
+            onSaveEngineer={handleSaveEngineer}
+            onDeleteEngineer={handleDeleteEngineer}
             projectsSummary={projectsSummary}
             onSaveProjectSummary={handleSaveProjectSummary}
             onDeleteProjectSummary={handleDeleteProjectSummary}
             monthlyTargets={monthlyTargets}
             onSaveMonthlyTarget={handleSaveMonthlyTarget}
+            onDeleteMonthlyTarget={handleDeleteMonthlyTarget}
             onDirectOverridePool={handleDirectOverridePool}
+            onDeletePool={handleDeletePool}
             onAddPlannedPoolsList={handleImportPlannedPools}
             onDirectOverridePoolsBatch={handleDirectOverridePoolsBatch}
           />
@@ -2573,6 +2694,18 @@ export default function App() {
           />
         )}
 
+        {currentRole === 'reports_analytics' && (
+          <ReportsAndAnalytics
+            pools={pools}
+            plannedPools={plannedPools}
+            projectsSummary={projectsSummary}
+            monthlyTargets={monthlyTargets}
+            employees={employees}
+            logs={logs}
+            teams={teams}
+          />
+        )}
+
       </main>
 
       {/* Simple Footer */}
@@ -2581,6 +2714,32 @@ export default function App() {
           <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Flow Scheduling Engine</p>
         </div>
       </footer>
+
+      {/* Floating QR Scanner trigger — handy for shop floor quick lookup */}
+      {loggedInUser && (
+        <button
+          onClick={() => setIsScannerOpen(true)}
+          data-testid="qr-scanner-fab"
+          className="fixed bottom-6 right-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-4 shadow-2xl shadow-indigo-900/30 transition-all hover:scale-110 cursor-pointer z-40"
+          title="Scan Pool QR Code"
+        >
+          <Camera className="h-5 w-5" />
+        </button>
+      )}
+
+      {/* QR Scanner overlay */}
+      {isScannerOpen && (
+        <QRScanner
+          pools={pools}
+          onPoolDetected={(pool) => {
+            setScannedPoolId(pool.id);
+            setIsScannerOpen(false);
+            // If user is QA or stage worker, switch to their view; otherwise show alert
+            alert(`Scanned: Pool ${pool.poolNo} (${pool.projectName})\nCurrent stage: ${STAGES[pool.currentStageIndex]?.name || 'Done'}`);
+          }}
+          onClose={() => setIsScannerOpen(false)}
+        />
+      )}
 
       {/* Dynamic Iframe-Safe Custom Unlock PIN Modal Overlay */}
       {isUnlockModalOpen && (
