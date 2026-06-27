@@ -58,7 +58,7 @@ interface PlanningDepartmentProps {
   onDeletePlannedPool: (planId: string) => void;
   onUpdatePlannedPool?: (planId: string, updatedFields: { projectName?: string }) => void;
   onReleasePlannedPool: (planId: string, operatorName: string) => string | null;
-  engineers: { id: string; name: string }[];
+  engineers: { id: string; name: string; title?: string }[];
   projectsSummary?: ProjectSummary[];
   onSaveProjectSummary?: (summary: ProjectSummary) => void;
   onDeleteProjectSummary?: (id: string) => void;
@@ -584,7 +584,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       }
     }
 
-    // If we have found a matched stage:
+    // If we have found a matched stage — return IMMEDIATELY, never fall through to generic blocks
     if (matchedStageIndex !== null) {
       const hasCompletionWord = s.includes('done') || s.includes('complete') || s.includes('finish') || s.includes('passed') || s.includes('approve') || s.includes('ok') || s.includes('success');
       
@@ -600,13 +600,15 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       }
     }
 
-    // Generic defaults if no specific stage name matches
+    // Generic defaults — only reached if NO specific stage matched above
     if (s.includes('complete') || s.includes('produce') || s.includes('finish') || s.includes('passed') || s.includes('done') || s.includes('stock') || s === String(STAGES.length) || s.includes('assembly done') || s.includes('produced')) {
       return { isPlanned: false, currentStageIndex: STAGES.length, isDelivered: false, resolvedName: '🏁 Assembly Done / In Stock' };
     }
-    
+
+    // BUG FIX: unrecognized non-empty status previously silently became Stage 1.
+    // Now it correctly stays as Planned so the user sees it as unresolved in the preview.
     if (s) {
-      return { isPlanned: false, currentStageIndex: 0, isDelivered: false, resolvedName: `Stage 1: ${STAGES[0].name} (Unrecognized/Fuzzy)` };
+      return { isPlanned: true, currentStageIndex: 0, isDelivered: false, resolvedName: `⚠️ Unrecognized Status — kept as Planned: "${s}"` };
     }
 
     return { isPlanned: true, currentStageIndex: 0, isDelivered: false, resolvedName: 'Planned (Default)' };
@@ -625,7 +627,8 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       const rawStatus = directExcelMapping.status ? row[directExcelMapping.status] : '';
       const rawNotes = directExcelMapping.notes ? row[directExcelMapping.notes] : '';
 
-      const projectName = String(rawProj || '').trim() || 'Excel Direct Override';
+      // BUG FIX: use empty string fallback (not a fake project name) so isInvalid correctly catches missing project
+      const projectName = String(rawProj || '').trim();
       const poolNo = String(rawNo || '').trim().toUpperCase();
       
       let orientation: PoolOrientation = 'Normal';
@@ -645,7 +648,8 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       const notes = String(rawNotes || '').trim();
 
       const { isPlanned, currentStageIndex, isDelivered, resolvedName } = resolveStatus(rawStatus);
-      const isInvalid = !poolNo;
+      // BUG FIX: flag rows missing poolNo or projectName as invalid so they never silently slip through
+      const isInvalid = !poolNo || !projectName;
 
       return {
         projectName,
@@ -678,8 +682,10 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
     if (onDirectOverridePoolsBatch) {
       const success = onDirectOverridePoolsBatch(
         validItems.map(p => ({
-          projectName: p.projectName,
-          poolNo: p.poolNo,
+          projectName: p.projectName.trim(),
+          // BUG FIX: always send poolNo as trimmed uppercase so App-level
+          // map lookup (which stores poolNo in uppercase) never misses a match
+          poolNo: p.poolNo.trim().toUpperCase(),
           orientation: p.orientation,
           dimensions: p.dimensions,
           shape: p.shape,
@@ -3245,8 +3251,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 poolType: directPoolType,
                 notes: directNotes,
                 isDelivered: isDeliv,
-                currentStageIndex: parseStageNum,
-                createdAt: directEntryDate ? new Date(directEntryDate + 'T08:00:00').toISOString() : undefined
+                currentStageIndex: parseStageNum
               }, overrideOperatorName.trim() || 'Planning Admin');
 
               setDirectSuccessMessage(`Pool "${directPoolNo.trim()}" in project "${finalPrj}" successfully updated to: ${isDeliv ? 'Delivered' : STAGES[parseStageNum]?.name || 'Completed'}!`);
@@ -3753,7 +3758,9 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                             }
                           >
                             <td className="py-2 px-3 font-mono text-[9px] text-slate-400">#{idx + 1}</td>
-                            <td className="py-2 px-3 font-bold truncate max-w-[120px]" title={p.projectName}>{p.projectName}</td>
+                            <td className="py-2 px-3 font-bold truncate max-w-[120px]" title={p.projectName}>
+                              {p.projectName || <span className="text-rose-400 italic font-normal">(No Project)</span>}
+                            </td>
                             <td className="py-2 px-3 font-mono font-black tracking-wide text-indigo-950">{p.poolNo || '(Empty Code)'}</td>
                             <td className="py-2 px-2 text-[10px] text-slate-500">
                               {p.dimensions} | {p.shape} | {p.orientation} ({p.poolType})
@@ -3774,7 +3781,8 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                             <td className="py-2 px-3 text-right">
                               {p.isInvalid ? (
                                 <span className="inline-flex items-center gap-0.5 text-rose-600 font-extrabold text-[9px] bg-rose-50 py-0.5 px-1.5 rounded uppercase">
-                                  <AlertTriangle className="h-2.5 w-2.5" /> Missing Code
+                                  <AlertTriangle className="h-2.5 w-2.5" />
+                                  {!p.poolNo ? 'Missing Pool Code' : !p.projectName ? 'Missing Project' : 'Invalid Row'}
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-0.5 text-indigo-700 font-black text-[9px] bg-indigo-50 px-1.5 py-0.5 rounded uppercase">
