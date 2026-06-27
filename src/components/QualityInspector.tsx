@@ -44,7 +44,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   onRefresh,
   isSyncing,
 }) => {
-  const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || 'Insp. Sarah');
+  const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || '');
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
   const [uploadedPicture, setUploadedPicture] = useState<string | null>(null);
@@ -206,11 +206,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                   </option>
                 ))
               ) : (
-                <>
-                  <option value="Insp. Sarah">Insp. Sarah Wells (Structural Lead)</option>
-                  <option value="Insp. Mike">Insp. Mike Vance (Plumbing Specialist)</option>
-                  <option value="Insp. David">Insp. David Cole (Seals Quality Chief)</option>
-                </>
+                <option value="" disabled>— No inspectors registered yet (add via Planning ▸ Roles) —</option>
               )}
             </select>
           </div>
