@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Pool, StageId } from '../types';
 import { STAGES } from '../data/mockData';
 import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
 
 interface UndoClaimRequest {
   id: string;
@@ -28,6 +29,10 @@ interface QualityInspectorProps {
   onRejectUndo?: (requestId: string) => void;
   onRefresh?: () => void;
   isSyncing?: boolean;
+  // QC Defect props
+  qcDefects?: QCDefect[];
+  onLogDefect?: (defect: QCDefect) => void;
+  onUpdateDefectStatus?: (defectId: string, newStatus: QCDefect['status'], operatorName: string) => void;
 }
 
 export const QualityInspector: React.FC<QualityInspectorProps> = ({
@@ -43,6 +48,9 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   onRejectUndo,
   onRefresh,
   isSyncing,
+  qcDefects = [],
+  onLogDefect,
+  onUpdateDefectStatus,
 }) => {
   const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || '');
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
@@ -53,7 +61,6 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [reviewStageId, setReviewStageId] = useState<StageId | null>(null);
 
-  // Sync selectedInspector if list changes on the fly
   React.useEffect(() => {
     if (inspectors.length > 0 && !inspectors.some(i => i.name === selectedInspector)) {
       setSelectedInspector(inspectors[0].name);
@@ -64,7 +71,6 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     setReviewStageId(null);
   }, [activePoolId]);
 
-  // Find all pools that have at least one stage waiting for QA check
   const pendingPools = pools.filter((p) => {
     if (p.currentStageIndex >= STAGES.length) return false;
     const currentStageId = STAGES[p.currentStageIndex].id;
@@ -88,7 +94,6 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const isPendingInspection = activeReviewPool && activeReviewStage &&
     activeReviewPool.stageHistory[activeReviewStage.id]?.status === 'PENDING_INSPECTION';
 
-  // Fallback selector
   React.useEffect(() => {
     if (displayedPools.length > 0 && (!activePoolId || !pools.some(p => p.id === activePoolId))) {
       setActivePoolId(displayedPools[0].id);
@@ -148,27 +153,19 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                     <span className="text-slate-600 text-xs">{req.projectName}</span>
                     <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{req.stageName}</span>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    <span className="font-semibold text-slate-700">Team:</span> {req.teamName}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    <span className="font-semibold text-slate-700">Reason:</span> {req.reason}
-                  </p>
+                  <p className="text-xs text-slate-500"><span className="font-semibold text-slate-700">Team:</span> {req.teamName}</p>
+                  <p className="text-xs text-slate-500"><span className="font-semibold text-slate-700">Reason:</span> {req.reason}</p>
                   <p className="text-[10px] text-slate-400">
                     Requested: {new Date(req.requestedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => onApproveUndo && onApproveUndo(req.id, req.poolId, req.stageId as StageId, selectedInspector)}
-                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition-colors"
-                  >
+                  <button onClick={() => onApproveUndo && onApproveUndo(req.id, req.poolId, req.stageId as StageId, selectedInspector)}
+                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition-colors">
                     <CheckCircle2 className="h-3.5 w-3.5" /> Approve Undo
                   </button>
-                  <button
-                    onClick={() => onRejectUndo && onRejectUndo(req.id)}
-                    className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-3 py-2 rounded-lg transition-colors"
-                  >
+                  <button onClick={() => onRejectUndo && onRejectUndo(req.id)}
+                    className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-3 py-2 rounded-lg transition-colors">
                     <XCircle className="h-3.5 w-3.5" /> Reject
                   </button>
                 </div>
@@ -181,7 +178,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       {/* Title Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border border-slate-100 shadow-sm gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-805 text-slate-800 tracking-tight flex items-center gap-2">
+          <h2 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
             <ShieldCheck className="h-6 w-6 text-emerald-500" />
             Quality Control Inspection Gates
           </h2>
@@ -190,7 +187,6 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
           </p>
         </div>
 
-        {/* Credentials switcher + Sync */}
         <div className="flex items-center gap-2.5 flex-wrap">
           <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspector ID:</label>
@@ -227,32 +223,20 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
 
         {/* Pending Items queue */}
         <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col h-[650px]">
-          
-          {/* Dual Toggle Selection Tabs */}
           <div className="grid grid-cols-2 gap-2 mb-4 border-b border-slate-100 pb-3">
             <button
-              onClick={() => {
-                setFilterMode('pending');
-                setSearchQuery('');
-              }}
+              onClick={() => { setFilterMode('pending'); setSearchQuery(''); }}
               className={`py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
-                filterMode === 'pending'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
+                filterMode === 'pending' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
               }`}
             >
               <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
               Awaiting Review ({pendingPools.length})
             </button>
             <button
-              onClick={() => {
-                setFilterMode('all');
-                setSearchQuery('');
-              }}
+              onClick={() => { setFilterMode('all'); setSearchQuery(''); }}
               className={`py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
-                filterMode === 'all'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
+                filterMode === 'all' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
               }`}
             >
               <Filter className="h-3.5 w-3.5 text-indigo-400" />
@@ -285,14 +269,15 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                 const activeHist = activeStage ? pool.stageHistory[activeStage.id] : null;
                 const team = activeHist ? allTeams.find(t => t.id === activeHist.teamId) : null;
                 const isUrgent = activeHist?.status === 'PENDING_INSPECTION';
+                // Defect badge data
+                const poolActiveDefects = qcDefects.filter(d =>
+                  d.poolId === pool.id && (d.status === 'open' || d.status === 'on_hold')
+                );
 
                 return (
                   <button
                     key={pool.id}
-                    onClick={() => {
-                      setActivePoolId(pool.id);
-                      setErrorMsg('');
-                    }}
+                    onClick={() => { setActivePoolId(pool.id); setErrorMsg(''); }}
                     className={`w-full p-4 text-left rounded-xl border transition-all cursor-pointer block ${
                       isSelected
                         ? 'border-emerald-500 bg-emerald-50/20 shadow-sm ring-1 ring-emerald-500'
@@ -304,26 +289,25 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                         {pool.poolNo}
                       </span>
                       {activeStage ? (
-                        <span 
-                          className="text-[10px] font-black px-2 py-0.5 rounded text-white" 
-                          style={{ backgroundColor: activeStage.color }}
-                        >
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded text-white" style={{ backgroundColor: activeStage.color }}>
                           {activeStage.name} {isUrgent ? '• PENDING' : ''}
                         </span>
                       ) : (
-                        <span className="text-[10px] font-black px-2 py-0.5 rounded text-white bg-emerald-600 font-sans uppercase">
-                          COMPLETED
-                        </span>
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded text-white bg-emerald-600 font-sans uppercase">COMPLETED</span>
                       )}
                     </div>
 
                     <h4 className="text-sm font-bold text-slate-800 line-clamp-1">{pool.projectName}</h4>
                     <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 font-mono">
                       <span>Orient: <strong>{pool.orientation}</strong></span>
-                      <span>
-                        {team ? `Team: ${team.name}` : (activeStage ? 'Unassigned' : 'Completed')}
-                      </span>
+                      <span>{team ? `Team: ${team.name}` : (activeStage ? 'Unassigned' : 'Completed')}</span>
                     </div>
+                    {/* Defect badge on list item */}
+                    {poolActiveDefects.length > 0 && (
+                      <div className="mt-2">
+                        <QCDefectBadge defects={poolActiveDefects} />
+                      </div>
+                    )}
                   </button>
                 );
               })}
@@ -331,12 +315,11 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
           )}
         </div>
 
-        {/* active item review form */}
+        {/* Active item review form */}
         <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col min-h-[650px] justify-between">
           
           {activeReviewPool ? (
             <div className="space-y-5 flex-1 flex flex-col justify-between">
-              
               <div className="space-y-4">
                 {/* Header Info */}
                 <div className="border-b border-slate-100 pb-4">
@@ -345,7 +328,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                       <span className="font-mono text-xs font-bold text-slate-400 block tracking-wider uppercase">Quality Inspection File</span>
                       <h3 className="text-base font-black text-slate-800 tracking-tight mt-0.5">
                         {activeReviewPool.projectName} &nbsp;
-                        <span className="font-mono text-sm font-extrabold text-blue-650 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded text-indigo-600">
+                        <span className="font-mono text-sm font-extrabold text-indigo-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">
                           {activeReviewPool.poolNo}
                         </span>
                       </h3>
@@ -364,31 +347,30 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                     </div>
                   </div>
 
-                  {/* Pool Metadata summary */}
                   <div className="grid grid-cols-3 gap-4 mt-4 bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-xs font-sans">
                     <div>
-                      <span className="text-slate-405 block font-medium">Orientation</span>
+                      <span className="text-slate-400 block font-medium">Orientation</span>
                       <strong className="text-slate-800 flex items-center gap-1 mt-0.5 font-bold">
                         <Compass className="h-3.5 w-3.5 text-indigo-500" />
                         {activeReviewPool.orientation}
                       </strong>
                     </div>
                     <div>
-                      <span className="text-slate-405 block font-medium">Shell Dimension</span>
+                      <span className="text-slate-400 block font-medium">Shell Dimension</span>
                       <strong className="text-slate-800 flex items-center gap-1 mt-0.5 font-bold">
                         <Ruler className="h-3.5 w-3.5 text-emerald-500" />
                         {activeReviewPool.dimensions}
                       </strong>
                     </div>
                     <div>
-                      <span className="text-slate-405 block font-medium">Active Team</span>
+                      <span className="text-slate-400 block font-medium">Active Team</span>
                       <strong className="text-slate-800 mt-0.5 block truncate font-bold">
                         {activeReviewTeam ? activeReviewTeam.name : 'No Assigned Team'}
                       </strong>
                     </div>
                   </div>
 
-                  {/* Visual Stage Selector / Pipeline Tracker for Inspector */}
+                  {/* Stage pipeline selector */}
                   <div className="mt-4 pt-3 border-t border-slate-100 text-left">
                     <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block mb-2 font-mono">
                       Workstation Stage Routing (Click to Inspect / Sign-Off)
@@ -398,28 +380,19 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                         const histVal = activeReviewPool.stageHistory[s.id];
                         const sStatus = histVal ? histVal.status : 'NOT_STARTED';
                         const isSelected = reviewStageId === s.id;
+                        const stageDefects = qcDefects.filter(d => d.poolId === activeReviewPool.id && d.stageId === s.id && (d.status === 'open' || d.status === 'on_hold'));
                         
                         let badgeBg = 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100';
                         if (sStatus === 'APPROVED') {
-                          badgeBg = isSelected 
-                            ? 'bg-emerald-600 border-emerald-600 text-white font-bold' 
-                            : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100';
+                          badgeBg = isSelected ? 'bg-emerald-600 border-emerald-600 text-white font-bold' : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100';
                         } else if (sStatus === 'PENDING_INSPECTION') {
-                          badgeBg = isSelected 
-                            ? 'bg-amber-500 border-amber-500 text-white font-bold animate-pulse' 
-                            : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 font-bold';
+                          badgeBg = isSelected ? 'bg-amber-500 border-amber-500 text-white font-bold animate-pulse' : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 font-bold';
                         } else if (sStatus === 'SKIPPED') {
-                          badgeBg = isSelected 
-                            ? 'bg-red-500 border-red-500 text-white font-bold' 
-                            : 'bg-red-55 border-red-200 text-red-700 hover:bg-red-100 font-bold';
+                          badgeBg = isSelected ? 'bg-red-500 border-red-500 text-white font-bold' : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100 font-bold';
                         } else if (sStatus === 'CARRIED_ON_SITE') {
-                          badgeBg = isSelected 
-                            ? 'bg-indigo-600 border-indigo-650 text-white font-bold' 
-                            : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100';
+                          badgeBg = isSelected ? 'bg-indigo-600 border-indigo-600 text-white font-bold' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100';
                         } else if (sStatus === 'IN_PROGRESS') {
-                          badgeBg = isSelected 
-                            ? 'bg-blue-600 border-blue-650 text-white font-bold' 
-                            : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100';
+                          badgeBg = isSelected ? 'bg-blue-600 border-blue-600 text-white font-bold' : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100';
                         } else if (isSelected) {
                           badgeBg = 'bg-slate-800 border-slate-800 text-white font-bold';
                         }
@@ -436,6 +409,11 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                             {sStatus === 'APPROVED' && <span className="text-[9px]">✓</span>}
                             {sStatus === 'PENDING_INSPECTION' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />}
                             {sStatus === 'SKIPPED' && <span className="text-[9px] font-black">⚠</span>}
+                            {stageDefects.length > 0 && (
+                              <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[8px] font-black flex items-center justify-center leading-none">
+                                {stageDefects.length}
+                              </span>
+                            )}
                           </button>
                         );
                       })}
@@ -443,7 +421,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                   </div>
 
                   {activeReviewStage && onSkipOrCarryOnSite && (
-                    <div className="mt-4 p-4 bg-indigo-50/70 border border-indigo-150 rounded-xl space-y-2 text-slate-800 font-sans text-left">
+                    <div className="mt-4 p-4 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-2 text-slate-800 font-sans text-left">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-black uppercase tracking-wider text-indigo-800">Off-Sequence Delivery Alternatives</span>
                         <span className="text-[9px] font-bold text-indigo-500 bg-white border border-indigo-100 px-1.5 py-0.5 rounded">Actionable Zone</span>
@@ -454,20 +432,14 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                       <div className="grid grid-cols-2 gap-3 pt-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            onSkipOrCarryOnSite(activeReviewPool.id, activeReviewStage.id, 'SKIPPED', selectedInspector);
-                            setActivePoolId(null);
-                          }}
+                          onClick={() => { onSkipOrCarryOnSite(activeReviewPool.id, activeReviewStage.id, 'SKIPPED', selectedInspector); setActivePoolId(null); }}
                           className="py-2 bg-white hover:bg-slate-50 text-slate-700 font-black text-xs rounded-lg border border-slate-200 text-center cursor-pointer transition-colors shadow-xs"
                         >
                           Skip For Now
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            onSkipOrCarryOnSite(activeReviewPool.id, activeReviewStage.id, 'CARRIED_ON_SITE', selectedInspector);
-                            setActivePoolId(null);
-                          }}
+                          onClick={() => { onSkipOrCarryOnSite(activeReviewPool.id, activeReviewStage.id, 'CARRIED_ON_SITE', selectedInspector); setActivePoolId(null); }}
                           className="py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-lg text-center cursor-pointer transition-colors shadow-sm"
                         >
                           Will Carry on Site
@@ -477,12 +449,27 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                   )}
                 </div>
 
+                {/* ── QC DEFECT PANEL ───────────────────────────────────────────── */}
+                {activeReviewStage && onLogDefect && onUpdateDefectStatus && (
+                  <QCDefectPanel
+                    poolId={activeReviewPool.id}
+                    poolNo={activeReviewPool.poolNo}
+                    projectName={activeReviewPool.projectName}
+                    stageId={activeReviewStage.id}
+                    stageName={activeReviewStage.name}
+                    inspectorName={selectedInspector}
+                    existingDefects={qcDefects}
+                    onLogDefect={onLogDefect}
+                    onUpdateDefectStatus={onUpdateDefectStatus}
+                  />
+                )}
+
                 {isPendingInspection ? (
                   <>
                     {/* QA Review Checklist */}
                     <div className="space-y-2.5 font-sans">
                       <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
-                        <ClipboardList className="h-4 w-4 text-emerald-550 text-indigo-500" />
+                        <ClipboardList className="h-4 w-4 text-indigo-500" />
                         Quality Certification Checklist
                       </h4>
                       <div className="text-xs text-slate-600 bg-slate-50/55 p-3 rounded-xl border border-slate-100 space-y-2.5">
@@ -501,7 +488,6 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                       </div>
                     </div>
 
-                    {/* Review Input */}
                     <div className="space-y-2.5 pt-2">
                       <label className="block text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1">
                         <FileText className="h-4 w-4 text-indigo-500" />
@@ -515,29 +501,25 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                       />
                     </div>
 
-                    {/* Picture Upload Zone */}
                     <div className="space-y-2.5 pt-1">
                       <label className="block text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1">
                         <Camera className="h-4 w-4 text-indigo-500" />
                         Quality Inspection Evidence Photo (Optional)
                       </label>
-                      
                       {!uploadedPicture ? (
                         <div className="border border-dashed border-slate-200 hover:border-indigo-400 bg-slate-50/50 rounded-xl p-3.5 transition-all text-center relative hover:bg-slate-50">
-                          <input 
-                            type="file" 
-                            accept="image/*" 
+                          <input
+                            type="file"
+                            accept="image/*"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (file) {
                                 const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  setUploadedPicture(reader.result as string);
-                                };
+                                reader.onloadend = () => setUploadedPicture(reader.result as string);
                                 reader.readAsDataURL(file);
                               }
                             }}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                           />
                           <div className="flex flex-col items-center justify-center space-y-1.5">
                             <UploadCloud className="h-6 w-6 text-slate-400" />
@@ -547,17 +529,9 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                         </div>
                       ) : (
                         <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center p-2 max-h-[180px]">
-                          <img 
-                            src={uploadedPicture} 
-                            alt="Quality Evidence Preview" 
-                            className="max-h-[160px] object-contain rounded-lg shadow-md"
-                            referrerPolicy="no-referrer"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setUploadedPicture(null)}
-                            className="absolute top-2 right-2 bg-slate-950/80 hover:bg-rose-600 text-white rounded-full p-1 border border-white/20 hover:scale-105 transition-all cursor-pointer"
-                          >
+                          <img src={uploadedPicture} alt="Quality Evidence Preview" className="max-h-[160px] object-contain rounded-lg shadow-md" referrerPolicy="no-referrer" />
+                          <button type="button" onClick={() => setUploadedPicture(null)}
+                            className="absolute top-2 right-2 bg-slate-950/80 hover:bg-rose-600 text-white rounded-full p-1 border border-white/20 hover:scale-105 transition-all cursor-pointer">
                             <XCircle className="h-3.5 w-3.5" />
                           </button>
                         </div>
@@ -571,21 +545,17 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                       </div>
                     )}
 
-                    {/* Action buttons footer for approval / rejection */}
                     <div className="grid grid-cols-2 gap-4 pt-1 font-sans">
                       <button
                         onClick={handleReject}
                         className="py-2.5 px-4 bg-slate-50 hover:bg-rose-50 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition-all flex items-center justify-center gap-1.5 uppercase tracking-wider"
-                        title="Flag rejection & send back to team to fix"
                       >
                         <XCircle className="h-4 w-4" />
                         <span>Reject & Rework</span>
                       </button>
-
                       <button
                         onClick={handleApprove}
                         className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm cursor-pointer transition-all flex items-center justify-center gap-1.5 uppercase tracking-wider"
-                        title="Certify step completion and unlock net step"
                       >
                         <CheckCircle2 className="h-4 w-4" />
                         <span>Certify & Approve</span>
@@ -593,7 +563,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                     </div>
                   </>
                 ) : (
-                  <div className="bg-slate-50 border border-slate-150 p-5 rounded-xl text-center space-y-2 mt-4 font-sans">
+                  <div className="bg-slate-50 border border-slate-100 p-5 rounded-xl text-center space-y-2 mt-4 font-sans">
                     <AlertCircle className="h-7 w-7 text-indigo-400 mx-auto" />
                     <h4 className="text-xs font-bold text-slate-700 uppercase tracking-widest">Active Monitoring Mode</h4>
                     <p className="text-xs text-slate-500 max-w-sm mx-auto">
@@ -606,7 +576,6 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                 )}
               </div>
 
-              {/* Secured Management Deletion Notice */}
               <div className="border-t border-slate-100 bg-slate-50 p-4 rounded-xl mt-6 font-sans">
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
                   <div className="text-left flex-1">
@@ -623,20 +592,16 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                   </span>
                 </div>
               </div>
-
             </div>
           ) : (
             <div className="my-auto text-center py-20 flex flex-col items-center justify-center space-y-3 font-sans">
               <ShieldCheck className="h-16 w-16 text-slate-200" />
               <h4 className="text-base font-bold text-slate-500">No active review selection</h4>
-              <p className="text-xs text-slate-405 max-w-sm text-slate-400">Select an item awaiting approval or toggle to "All Pools" in the list on the left to verify its build tolerances or delete faulty pool records.</p>
+              <p className="text-xs text-slate-400 max-w-sm">Select an item awaiting approval or toggle to "All Pools" in the list on the left to verify its build tolerances.</p>
             </div>
           )}
-
         </div>
-
       </div>
-
     </div>
   );
 };
