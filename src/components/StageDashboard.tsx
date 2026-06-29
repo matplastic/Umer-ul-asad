@@ -3,6 +3,7 @@ import { Pool, StageId, Team, StageDefinition } from '../types';
 import { STAGES } from '../data/mockData';
 import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
+import { QCDefectBadge, QCDefect } from './QCDefectPanel';
 
 interface StageDashboardProps {
   stage: StageDefinition;
@@ -18,6 +19,7 @@ interface StageDashboardProps {
   onRequestUndoClaim?: (poolId: string, stageId: StageId, teamName: string, reason: string) => void;
   onRefresh?: () => void;
   isSyncing?: boolean;
+  qcDefects?: QCDefect[];
 }
 
 export const StageDashboard: React.FC<StageDashboardProps> = ({
@@ -34,6 +36,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   onRequestUndoClaim,
   onRefresh,
   isSyncing,
+  qcDefects = [],
 }) => {
   const [printPool, setPrintPool] = useState<Pool | null>(null);
   const [viewingDrawingPool, setViewingDrawingPool] = useState<Pool | null>(null);
@@ -479,6 +482,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </div>
 
                         <h4 className="text-sm font-bold text-slate-900 mt-2">{pool.projectName}</h4>
+                        {/* QC defect badge — visible to floor workers so they know hold status */}
+                        {(() => {
+                          const poolDefects = qcDefects.filter(d => d.poolId === pool.id && d.stageId === stage.id);
+                          return poolDefects.length > 0 ? <div className="mt-1"><QCDefectBadge defects={poolDefects} /></div> : null;
+                        })()}
 
                         {/* Specs list */}
                         <div className="mt-2.5 space-y-1.5">
@@ -548,6 +556,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             </span>
                           )}
                           <strong className="text-slate-800 text-[13px]">{pool.projectName}</strong>
+                          {/* QC hold badge for in-progress pools */}
+                          {(() => {
+                            const d = qcDefects.filter(def => def.poolId === pool.id && def.stageId === stage.id);
+                            return d.length > 0 ? <QCDefectBadge defects={d} /> : null;
+                          })()}
                         </div>
                         <div className="text-slate-500">
                           Assigned: <strong className="text-slate-700">{claimingTeam ? claimingTeam.name : 'Unknown Team'}</strong>
