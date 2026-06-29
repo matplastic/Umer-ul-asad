@@ -15,6 +15,7 @@ import { TrolleyProductionTracker } from './components/TrolleyProductionTracker'
 import { HRPortal } from './components/HRPortal';
 import { ReportsAndAnalytics } from './components/ReportsAndAnalytics';
 import { QRScanner } from './components/QRCodeModule';
+import { QCDefect } from './components/QCDefectPanel';
 import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
@@ -125,6 +126,11 @@ export default function App() {
   });
 
   const [recycleBin, setRecycleBin] = useState<RecycleBinItem[]>([]);
+
+  // ── QC Defects — logged per stage per pool by Quality Inspectors ──────────
+  const [qcDefects, setQcDefects] = useState<QCDefect[]>(() => {
+    try { return JSON.parse(localStorage.getItem('apex_qc_defects') || '[]'); } catch { return []; }
+  });
 
   // Undo claim requests from shop floor workers
   const [pendingUndoRequests, setPendingUndoRequests] = useState<{
@@ -608,6 +614,7 @@ export default function App() {
         case 'trolleys':         safeUpdate(setTrolleys, data as TrolleyProduction[]); break;
         case 'recycleBin':       safeUpdate(setRecycleBin, data as RecycleBinItem[]); break;
         case 'employeePunches':  safeUpdate(setEmployeePunches, data as EmployeePunch[]); break;
+        case 'qcDefects':        safeUpdate(setQcDefects, data as QCDefect[]); break;
       }
       // Keep localStorage hot-cache in sync so offline reload starts with fresh data
       const lsKey = 'apex_' + collection.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
@@ -884,6 +891,47 @@ export default function App() {
 
 
   // State update dispatchers for dynamically changing names
+  // ── QC Defect handlers ────────────────────────────────────────────────────
+  const handleLogDefect = (defect: QCDefect) => {
+    const updated = [defect, ...qcDefects];
+    setQcDefects(updated);
+    localStorage.setItem('apex_qc_defects', JSON.stringify(updated));
+    // Write to Firestore so all portals get it in real-time via subscribeToLiveState
+    try {
+      const { doc, setDoc, collection } = require('firebase/firestore');
+      const { db } = require('./lib/firebase');
+      setDoc(doc(collection(db, 'qcDefects'), defect.id), defect).catch(console.error);
+    } catch (e) {
+      console.warn('[QCDefect] Firestore write skipped — module unavailable:', e);
+    }
+  };
+
+  const handleUpdateDefectStatus = (defectId: string, newStatus: QCDefect['status'], operatorName: string) => {
+    setQcDefects(prev => {
+      const updated = prev.map(d => {
+        if (d.id !== defectId) return d;
+        return {
+          ...d,
+          status: newStatus,
+          ...(newStatus === 'released' ? { releasedBy: operatorName, releasedAt: new Date().toISOString() } : {}),
+        };
+      });
+      localStorage.setItem('apex_qc_defects', JSON.stringify(updated));
+      // Persist update to Firestore
+      const updatedDefect = updated.find(d => d.id === defectId);
+      if (updatedDefect) {
+        try {
+          const { doc, setDoc, collection } = require('firebase/firestore');
+          const { db } = require('./lib/firebase');
+          setDoc(doc(collection(db, 'qcDefects'), defectId), updatedDefect).catch(console.error);
+        } catch (e) {
+          console.warn('[QCDefect] Firestore update skipped:', e);
+        }
+      }
+      return updated;
+    });
+  };
+
   const handleUpdateTeams = (updatedTeams: Team[]) => {
     setTeams(updatedTeams);
     saveState(pools, updatedTeams, logs, inspectors, engineers);
@@ -2622,6 +2670,7 @@ export default function App() {
             onRequestUndoClaim={handleRequestUndoClaim}
             onRefresh={refreshFromCloud}
             isSyncing={isSyncing}
+            qcDefects={qcDefects}
           />
         )}
 
@@ -2639,6 +2688,9 @@ export default function App() {
             onRejectUndo={handleRejectUndo}
             onRefresh={refreshFromCloud}
             isSyncing={isSyncing}
+            qcDefects={qcDefects}
+            onLogDefect={handleLogDefect}
+            onUpdateDefectStatus={handleUpdateDefectStatus}
           />
         )}
 
