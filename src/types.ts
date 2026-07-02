@@ -108,7 +108,8 @@ export type ViewRole =
   | 'management'
   | 'section_dashboard'
   | 'trolley_prod'
-  | 'hr_portal';
+  | 'hr_portal'
+  | 'store';
 
 export interface ProjectSummary {
   id: string;
@@ -178,6 +179,59 @@ export interface RecycleBinItem {
   dataType: string; // 'all_pools_data' | 'trolley' | 'pool' | 'planned_pool' | 'project_summary'
   deletedAt: string; // ISO string of when it was deleted
   payload: any;
+}
+
+// ----------------------------------------------------
+// STORE / BOM MODULE
+// ----------------------------------------------------
+
+export interface Material {
+  id: string;
+  name: string;
+  category?: string | null; // 'Resin' | 'Fiberglass' | 'Gelcoat' | 'Hardener' | ...
+  unit: string; // 'kg' | 'ltr' | 'pcs' | 'roll' | ...
+  currentStock: number;
+  reorderLevel?: number | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+// One line of the Bill of Materials for a Project + Pool Type combination
+export interface BOMItem {
+  id: string;
+  projectName: string;
+  poolType: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qtyPerPool: number;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export type MaterialRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'PRINTED';
+
+export interface MaterialRequest {
+  id: string;
+  projectName: string;
+  poolType: string;
+  poolId?: string | null;
+  poolNo?: string | null;
+  stageId?: StageId | null;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qtyRequested: number;
+  reason?: string | null;
+  requestedByName: string;
+  requestedByRole: string;
+  status: MaterialRequestStatus;
+  approvalToken: string;
+  decidedByName?: string | null;
+  decisionNotes?: string | null;
+  decidedAt?: string | null;
+  printedAt?: string | null;
+  createdAt: string;
 }
 
 
