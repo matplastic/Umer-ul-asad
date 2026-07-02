@@ -1,6 +1,6 @@
 import { auth, app } from './googleDrive.ts';
 import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest } from '../types';
 
 const clientDb = getFirestore(app);
 
@@ -858,6 +858,198 @@ export async function dbPurgePoolRelatedData(backupId: string) {
 }
 
 // 2.7 Fine-grained operations: Employee Punches
+// ----------------------------------------------------
+// STORE / BOM MODULE
+// Same dual-mode pattern as the rest of this file: writes directly to
+// Firestore from the browser when there's no live Express server configured
+// (e.g. a static Netlify deploy), or goes through the SQL-backed API when
+// VITE_API_URL is set (self-hosted deployments).
+// ----------------------------------------------------
+
+function apiBase(): string {
+  return ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+}
+
+function newId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function newToken(): string {
+  try {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return (crypto as any).randomUUID().replace(/-/g, '');
+  } catch {}
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+}
+
+// Fire-and-forget call to the Netlify Function that emails the manager.
+// Safe to call even when email isn't configured yet — it just no-ops server-side.
+async function notifyManagerOfMaterialRequest(item: MaterialRequest) {
+  try {
+    await fetch('/.netlify/functions/send-material-request-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item),
+    });
+  } catch (err) {
+    console.warn('[notifyManagerOfMaterialRequest] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
+  }
+  try {
+    await fetch('/.netlify/functions/send-material-request-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item),
+    });
+  } catch (err) {
+    console.warn('[notifyManagerOfMaterialRequest] Could not reach the WhatsApp function (this is fine in local dev without `netlify dev`):', err);
+  }
+}
+
+// --- Materials ---
+export async function dbFetchMaterials(): Promise<Material[]> {
+  if (!apiBase()) return getFirestoreDocArray('materials');
+  const res = await fetch(getApiUrl('/api/materials'));
+  return res.ok ? res.json() : [];
+}
+
+export async function dbSaveMaterial(material: Material) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('materials', (arr) => {
+      const idx = arr.findIndex((m) => m.id === material.id);
+      if (idx !== -1) arr[idx] = material; else arr.push(material);
+      return arr;
+    });
+    return { success: true, material };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/materials'), { method: 'POST', headers, body: JSON.stringify(material) });
+  return res.json();
+}
+
+export async function dbDeleteMaterial(id: string) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('materials', (arr) => arr.filter((m) => m.id !== id));
+    return { success: true };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/materials/${id}`), { method: 'DELETE', headers });
+  return res.json();
+}
+
+export async function dbAdjustMaterialStock(id: string, delta: number) {
+  if (!apiBase()) {
+    const updated = await updateFirestoreDocArray('materials', (arr) =>
+      arr.map((m) => (m.id === id ? { ...m, currentStock: (m.currentStock || 0) + delta } : m))
+    );
+    return { success: true, materials: updated };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/materials/${id}/adjust-stock`), { method: 'POST', headers, body: JSON.stringify({ delta }) });
+  return res.json();
+}
+
+// --- Bill of Materials ---
+export async function dbFetchBomItems(): Promise<BOMItem[]> {
+  if (!apiBase()) return getFirestoreDocArray('bomItems');
+  const res = await fetch(getApiUrl('/api/bom'));
+  return res.ok ? res.json() : [];
+}
+
+export async function dbSaveBomItem(item: Omit<BOMItem, 'id' | 'createdAt'> & { id?: string; createdAt?: string }) {
+  const full: BOMItem = { ...item, id: item.id || newId('bom'), createdAt: item.createdAt || new Date().toISOString() } as BOMItem;
+  if (!apiBase()) {
+    await updateFirestoreDocArray('bomItems', (arr) => {
+      const idx = arr.findIndex((b) => b.id === full.id);
+      if (idx !== -1) arr[idx] = full; else arr.push(full);
+      return arr;
+    });
+    return { success: true, item: full };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/bom'), { method: 'POST', headers, body: JSON.stringify(full) });
+  return res.json();
+}
+
+export async function dbDeleteBomItem(id: string) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('bomItems', (arr) => arr.filter((b) => b.id !== id));
+    return { success: true };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/bom/${id}`), { method: 'DELETE', headers });
+  return res.json();
+}
+
+// --- Material Requests ---
+export async function dbFetchMaterialRequests(): Promise<MaterialRequest[]> {
+  if (!apiBase()) return getFirestoreDocArray('materialRequests');
+  const res = await fetch(getApiUrl('/api/material-requests'));
+  return res.ok ? res.json() : [];
+}
+
+// Section Supervisor submits a request. Saves it, then fires the manager email
+// (via a Netlify Function when static-hosted, or the Express route otherwise).
+export async function dbSubmitMaterialRequest(payload: Omit<MaterialRequest, 'id' | 'status' | 'approvalToken' | 'createdAt'>) {
+  const item: MaterialRequest = {
+    ...payload,
+    id: newId('mr'),
+    status: 'PENDING',
+    approvalToken: newToken(),
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!apiBase()) {
+    await updateFirestoreDocArray('materialRequests', (arr) => [...arr, item]);
+    await notifyManagerOfMaterialRequest(item);
+    return { success: true, item };
+  }
+
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/material-requests'), { method: 'POST', headers, body: JSON.stringify(item) });
+  return res.json();
+}
+
+// In-app approve/reject (the manager's email link hits a separate serverless
+// function directly, not this one — this is for deciding from inside the app).
+export async function dbDecideMaterialRequest(id: string, action: 'approve' | 'reject', decidedByName: string, decisionNotes?: string) {
+  if (!apiBase()) {
+    let decided: MaterialRequest | undefined;
+    await updateFirestoreDocArray('materialRequests', (arr) =>
+      arr.map((r) => {
+        if (r.id !== id) return r;
+        decided = { ...r, status: action === 'approve' ? 'APPROVED' : 'REJECTED', decidedByName, decisionNotes: decisionNotes || null, decidedAt: new Date().toISOString() };
+        return decided;
+      })
+    );
+    if (action === 'approve' && decided) {
+      const qty = Number(decided.qtyRequested);
+      await updateFirestoreDocArray('materials', (arr) =>
+        arr.map((m) => (m.id === decided!.materialId ? { ...m, currentStock: (m.currentStock || 0) - qty } : m))
+      );
+    }
+    return { success: true, item: decided };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/material-requests/${id}/decide`), { method: 'POST', headers, body: JSON.stringify({ action, decidedByName, decisionNotes }) });
+  return res.json();
+}
+
+export async function dbMarkMaterialRequestPrinted(id: string) {
+  if (!apiBase()) {
+    let updated: MaterialRequest | undefined;
+    await updateFirestoreDocArray('materialRequests', (arr) =>
+      arr.map((r) => {
+        if (r.id !== id) return r;
+        updated = { ...r, status: 'PRINTED', printedAt: new Date().toISOString() };
+        return updated;
+      })
+    );
+    return { success: true, item: updated };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/material-requests/${id}/mark-printed`), { method: 'POST', headers });
+  return res.json();
+}
+
 export async function dbSaveEmployeePunch(punch: EmployeePunch) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
