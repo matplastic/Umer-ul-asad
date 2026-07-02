@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { PackagePlus, Send, CheckCircle2, XCircle, Clock, X } from 'lucide-react';
-import { getApiUrl } from '../lib/firebaseService';
+import { dbFetchBomItems, dbFetchMaterialRequests, dbSubmitMaterialRequest } from '../lib/firebaseService';
 import { BOMItem, MaterialRequest } from '../types';
 
 interface MaterialRequestPanelProps {
@@ -32,8 +32,8 @@ export const MaterialRequestPanel: React.FC<MaterialRequestPanelProps> = ({
   const load = async () => {
     try {
       const [bomAll, reqAll] = await Promise.all([
-        fetch(getApiUrl('/api/bom')).then(r => r.json()),
-        fetch(getApiUrl('/api/material-requests')).then(r => r.json()),
+        dbFetchBomItems(),
+        dbFetchMaterialRequests(),
       ]);
       setBomLines((Array.isArray(bomAll) ? bomAll : []).filter((b: BOMItem) => b.projectName === projectName && b.poolType === poolType));
       setMyRequests(
@@ -60,19 +60,15 @@ export const MaterialRequestPanel: React.FC<MaterialRequestPanelProps> = ({
     if (!selectedLine || !qty) return;
     setSubmitting(true);
     try {
-      await fetch(getApiUrl('/api/material-requests'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectName, poolType, poolId: poolId || null, poolNo: poolNo || null, stageId: stageId || null,
-          materialId: selectedLine.materialId,
-          materialName: selectedLine.materialName,
-          unit: selectedLine.unit,
-          qtyRequested: qty,
-          reason: reason || null,
-          requestedByName,
-          requestedByRole,
-        }),
+      await dbSubmitMaterialRequest({
+        projectName, poolType, poolId: poolId || null, poolNo: poolNo || null, stageId: (stageId as any) || null,
+        materialId: selectedLine.materialId,
+        materialName: selectedLine.materialName,
+        unit: selectedLine.unit,
+        qtyRequested: Number(qty),
+        reason: reason || null,
+        requestedByName,
+        requestedByRole,
       });
       setSubmitted(true);
       setMaterialId(''); setQty(''); setReason('');
