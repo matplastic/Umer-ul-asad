@@ -7,8 +7,10 @@ import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 import { db } from './src/db/index.ts';
-import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches } from './src/db/schema.ts';
+import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches, materials, bomItems, materialRequests } from './src/db/schema.ts';
 import { eq } from 'drizzle-orm';
+import crypto from 'crypto';
+import { sendMaterialRequestApprovalEmail, sendMaterialRequestDecisionEmail } from './src/lib/emailService.ts';
 
 // Initialize Firebase Admin with correct projectId
 if (!getAdminApps().length) {
@@ -299,7 +301,7 @@ async function backupToFirestore() {
     const firestoreDb = getFirestoreDb();
     const systemStateCol = firestoreDb.collection('system_state');
 
-    const [poolsData, plannedData, teamsData, logsData, inspectorsData, engineersData, projectsSummaryData, monthlyTargetsData, employeesData, trolleysData, recycleBinData, punchesData] = await Promise.all([
+    const [poolsData, plannedData, teamsData, logsData, inspectorsData, engineersData, projectsSummaryData, monthlyTargetsData, employeesData, trolleysData, recycleBinData, punchesData, materialsData, bomItemsData, materialRequestsData] = await Promise.all([
       db.select().from(pools),
       db.select().from(plannedPools),
       db.select().from(teams),
@@ -312,6 +314,9 @@ async function backupToFirestore() {
       db.select().from(trolleyProduction),
       db.select().from(recycleBin),
       db.select().from(employeePunches),
+      db.select().from(materials),
+      db.select().from(bomItems),
+      db.select().from(materialRequests),
     ]);
 
     await Promise.all([
@@ -327,6 +332,9 @@ async function backupToFirestore() {
       systemStateCol.doc('trolleys').set({ data: trolleysData }),
       systemStateCol.doc('recycleBin').set({ data: recycleBinData }),
       systemStateCol.doc('employeePunches').set({ data: punchesData }),
+      systemStateCol.doc('materials').set({ data: materialsData }),
+      systemStateCol.doc('bomItems').set({ data: bomItemsData }),
+      systemStateCol.doc('materialRequests').set({ data: materialRequestsData }),
     ]);
 
     console.log('Successfully backed up entire active state to permanent Firestore storage.');
@@ -340,7 +348,7 @@ async function restoreFromFirestore() {
     const firestoreDb = getFirestoreDb();
     const systemStateCol = firestoreDb.collection('system_state');
 
-    const [poolsDoc, plannedDoc, teamsDoc, logsDoc, inspectorsDoc, engineersDoc, projectsSummaryDoc, monthlyTargetsDoc, employeesDoc, trolleysDoc, recycleBinDoc, punchesDoc] = await Promise.all([
+    const [poolsDoc, plannedDoc, teamsDoc, logsDoc, inspectorsDoc, engineersDoc, projectsSummaryDoc, monthlyTargetsDoc, employeesDoc, trolleysDoc, recycleBinDoc, punchesDoc, materialsDoc, bomItemsDoc, materialRequestsDoc] = await Promise.all([
       systemStateCol.doc('pools').get(),
       systemStateCol.doc('plannedPools').get(),
       systemStateCol.doc('teams').get(),
@@ -353,6 +361,9 @@ async function restoreFromFirestore() {
       systemStateCol.doc('trolleys').get(),
       systemStateCol.doc('recycleBin').get(),
       systemStateCol.doc('employeePunches').get(),
+      systemStateCol.doc('materials').get(),
+      systemStateCol.doc('bomItems').get(),
+      systemStateCol.doc('materialRequests').get(),
     ]);
 
     if (!poolsDoc.exists && !projectsSummaryDoc.exists) {
@@ -373,6 +384,9 @@ async function restoreFromFirestore() {
     await db.delete(trolleyProduction);
     await db.delete(recycleBin);
     await db.delete(employeePunches);
+    await db.delete(materials);
+    await db.delete(bomItems);
+    await db.delete(materialRequests);
 
     // Insert back restored arrays
     const poolsData = poolsDoc.exists ? (poolsDoc.data()?.data || []) : [];
@@ -415,6 +429,15 @@ async function restoreFromFirestore() {
 
     const punchesData = punchesDoc.exists ? (punchesDoc.data()?.data || []) : [];
     if (punchesData.length > 0) await db.insert(employeePunches).values(punchesData);
+
+    const materialsData = materialsDoc.exists ? (materialsDoc.data()?.data || []) : [];
+    if (materialsData.length > 0) await db.insert(materials).values(materialsData);
+
+    const bomItemsData = bomItemsDoc.exists ? (bomItemsDoc.data()?.data || []) : [];
+    if (bomItemsData.length > 0) await db.insert(bomItems).values(bomItemsData);
+
+    const materialRequestsData = materialRequestsDoc.exists ? (materialRequestsDoc.data()?.data || []) : [];
+    if (materialRequestsData.length > 0) await db.insert(materialRequests).values(materialRequestsData);
 
     console.log('Successfully restored entire active state from permanent Firestore storage.');
     return true;
@@ -565,7 +588,7 @@ app.post('/api/firebase-config/restore', async (req, res) => {
 app.get('/api/state', async (req, res) => {
   try {
     await restoreDbIfEmpty();
-    const [poolsData, plannedData, teamsData, logsData, inspectorsData, engineersData, projectsSummaryData, monthlyTargetsData, employeesData, trolleysData, recycleBinData, punchesData] = await Promise.all([
+    const [poolsData, plannedData, teamsData, logsData, inspectorsData, engineersData, projectsSummaryData, monthlyTargetsData, employeesData, trolleysData, recycleBinData, punchesData, materialsData, bomItemsData, materialRequestsData] = await Promise.all([
       db.select().from(pools),
       db.select().from(plannedPools),
       db.select().from(teams),
@@ -578,6 +601,9 @@ app.get('/api/state', async (req, res) => {
       db.select().from(trolleyProduction),
       db.select().from(recycleBin),
       db.select().from(employeePunches),
+      db.select().from(materials),
+      db.select().from(bomItems),
+      db.select().from(materialRequests),
     ]);
 
     res.json({
@@ -593,6 +619,9 @@ app.get('/api/state', async (req, res) => {
       trolleys: trolleysData,
       recycleBin: recycleBinData,
       employeePunches: punchesData,
+      materials: materialsData,
+      bomItems: bomItemsData,
+      materialRequests: materialRequestsData,
     });
   } catch (error: any) {
     console.error('Failed to load SQL state:', error);
@@ -1206,6 +1235,255 @@ app.post('/api/employees/bulk', async (req, res) => {
 });
 
 
+
+// ----------------------------------------------------
+// STORE / BOM / MATERIAL REQUEST MODULE
+// ----------------------------------------------------
+
+// --- Materials master (raw material catalog + live stock) ---
+app.get('/api/materials', async (req, res) => {
+  try {
+    const data = await db.select().from(materials);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to load materials: ' + error.message });
+  }
+});
+
+app.post('/api/materials', async (req, res) => {
+  try {
+    const item = req.body;
+    await db.insert(materials).values(item).onConflictDoUpdate({ target: materials.id, set: item });
+    await backupToFirestore();
+    res.json({ status: 'ok', item });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to save material: ' + error.message });
+  }
+});
+
+app.delete('/api/materials/:id', async (req, res) => {
+  try {
+    await db.delete(materials).where(eq(materials.id, req.params.id));
+    await backupToFirestore();
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete material: ' + error.message });
+  }
+});
+
+// Manual stock adjustment (e.g. new delivery arrives at the store)
+app.post('/api/materials/:id/adjust-stock', async (req, res) => {
+  try {
+    const { delta, note } = req.body; // delta can be positive (stock in) or negative (manual correction)
+    const [item] = await db.select().from(materials).where(eq(materials.id, req.params.id));
+    if (!item) return res.status(404).json({ error: 'Material not found' });
+    const updated = { ...item, currentStock: (item.currentStock || 0) + Number(delta || 0) };
+    await db.insert(materials).values(updated).onConflictDoUpdate({ target: materials.id, set: updated });
+    await backupToFirestore();
+    res.json({ status: 'ok', item: updated });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to adjust stock: ' + error.message });
+  }
+});
+
+// --- Bill of Materials (per Project + Pool Type) ---
+app.get('/api/bom', async (req, res) => {
+  try {
+    const data = await db.select().from(bomItems);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to load BOM: ' + error.message });
+  }
+});
+
+app.post('/api/bom', async (req, res) => {
+  try {
+    const item = req.body;
+    await db.insert(bomItems).values(item).onConflictDoUpdate({ target: bomItems.id, set: item });
+    await backupToFirestore();
+    res.json({ status: 'ok', item });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to save BOM item: ' + error.message });
+  }
+});
+
+app.delete('/api/bom/:id', async (req, res) => {
+  try {
+    await db.delete(bomItems).where(eq(bomItems.id, req.params.id));
+    await backupToFirestore();
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete BOM item: ' + error.message });
+  }
+});
+
+// --- Material Requests (Supervisor -> Manager email approval -> Store print slip) ---
+app.get('/api/material-requests', async (req, res) => {
+  try {
+    const data = await db.select().from(materialRequests);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to load material requests: ' + error.message });
+  }
+});
+
+// Section Supervisor (or Store role) submits a request. Fires the manager approval email.
+app.post('/api/material-requests', async (req, res) => {
+  try {
+    const body = req.body;
+    const id = body.id || `mr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const approvalToken = crypto.randomBytes(24).toString('hex');
+    const item = {
+      ...body,
+      id,
+      status: 'PENDING',
+      approvalToken,
+      createdAt: body.createdAt || new Date().toISOString(),
+    };
+    await db.insert(materialRequests).values(item);
+    await backupToFirestore();
+
+    const baseUrl = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
+    try {
+      await sendMaterialRequestApprovalEmail({
+        requestId: id,
+        projectName: item.projectName,
+        poolType: item.poolType,
+        poolNo: item.poolNo,
+        materialName: item.materialName,
+        unit: item.unit,
+        qtyRequested: Number(item.qtyRequested),
+        reason: item.reason,
+        requestedByName: item.requestedByName,
+        requestedByRole: item.requestedByRole,
+        approveUrl: `${baseUrl}/api/material-requests/decide?id=${id}&token=${approvalToken}&action=approve`,
+        rejectUrl: `${baseUrl}/api/material-requests/decide?id=${id}&token=${approvalToken}&action=reject`,
+      });
+    } catch (emailErr) {
+      console.error('Failed to send manager approval email (request was still saved):', emailErr);
+    }
+
+    res.json({ status: 'ok', item });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to submit material request: ' + error.message });
+  }
+});
+
+// One-click decision link opened from the manager's email — no login required,
+// protected by the per-request random token. Renders a small HTML confirmation page.
+app.get('/api/material-requests/decide', async (req, res) => {
+  const { id, token, action } = req.query as { id?: string; token?: string; action?: string };
+  const renderPage = (title: string, message: string, ok: boolean) => `
+    <html><head><title>${title}</title></head>
+    <body style="font-family:Arial,sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; background:#0f172a;">
+      <div style="background:#fff; padding:40px; border-radius:12px; max-width:420px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+        <h2 style="color:${ok ? '#16a34a' : '#dc2626'}; margin-top:0;">${title}</h2>
+        <p style="color:#475569;">${message}</p>
+      </div>
+    </body></html>`;
+
+  try {
+    if (!id || !token || !action) return res.status(400).send(renderPage('Invalid Link', 'Missing request details.', false));
+
+    const [item] = await db.select().from(materialRequests).where(eq(materialRequests.id, id));
+    if (!item) return res.status(404).send(renderPage('Not Found', 'This material request no longer exists.', false));
+    if (item.approvalToken !== token) return res.status(403).send(renderPage('Invalid Link', 'This approval link is not valid.', false));
+    if (item.status !== 'PENDING') return res.send(renderPage('Already Decided', `This request was already marked as ${item.status}.`, item.status === 'APPROVED'));
+
+    const approve = action === 'approve';
+    const updated = {
+      ...item,
+      status: approve ? 'APPROVED' : 'REJECTED',
+      decidedByName: (req.query.by as string) || 'Manager (email)',
+      decidedAt: new Date().toISOString(),
+    };
+    await db.insert(materialRequests).values(updated).onConflictDoUpdate({ target: materialRequests.id, set: updated });
+
+    // On approval, deduct from live stock immediately so the store's inventory stays accurate.
+    if (approve) {
+      const [mat] = await db.select().from(materials).where(eq(materials.id, item.materialId));
+      if (mat) {
+        const newStock = (mat.currentStock || 0) - Number(item.qtyRequested);
+        await db.insert(materials).values({ ...mat, currentStock: newStock }).onConflictDoUpdate({
+          target: materials.id,
+          set: { ...mat, currentStock: newStock },
+        });
+      }
+    }
+
+    await backupToFirestore();
+    res.send(renderPage(
+      approve ? 'Request Approved ✓' : 'Request Rejected',
+      approve
+        ? 'The store has been notified and will print an issue slip.'
+        : 'The section supervisor will be notified.',
+      approve
+    ));
+  } catch (error: any) {
+    console.error('Failed to process material request decision:', error);
+    res.status(500).send(renderPage('Error', 'Something went wrong processing this decision.', false));
+  }
+});
+
+// In-app approve/reject (used by the Management/Store dashboard as an alternative to the email link)
+app.post('/api/material-requests/:id/decide', async (req, res) => {
+  try {
+    const { action, decidedByName, decisionNotes } = req.body as { action: 'approve' | 'reject'; decidedByName: string; decisionNotes?: string };
+    const [item] = await db.select().from(materialRequests).where(eq(materialRequests.id, req.params.id));
+    if (!item) return res.status(404).json({ error: 'Request not found' });
+    if (item.status !== 'PENDING') return res.status(409).json({ error: `Already ${item.status}` });
+
+    const approve = action === 'approve';
+    const updated = {
+      ...item,
+      status: approve ? 'APPROVED' : 'REJECTED',
+      decidedByName,
+      decisionNotes: decisionNotes || null,
+      decidedAt: new Date().toISOString(),
+    };
+    await db.insert(materialRequests).values(updated).onConflictDoUpdate({ target: materialRequests.id, set: updated });
+
+    if (approve) {
+      const [mat] = await db.select().from(materials).where(eq(materials.id, item.materialId));
+      if (mat) {
+        const newStock = (mat.currentStock || 0) - Number(item.qtyRequested);
+        await db.insert(materials).values({ ...mat, currentStock: newStock }).onConflictDoUpdate({
+          target: materials.id,
+          set: { ...mat, currentStock: newStock },
+        });
+      }
+    }
+
+    await backupToFirestore();
+    res.json({ status: 'ok', item: updated });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to decide material request: ' + error.message });
+  }
+});
+
+// Store clerk marks a slip as physically printed (moves it out of the "pending print" queue)
+app.post('/api/material-requests/:id/mark-printed', async (req, res) => {
+  try {
+    const [item] = await db.select().from(materialRequests).where(eq(materialRequests.id, req.params.id));
+    if (!item) return res.status(404).json({ error: 'Request not found' });
+    const updated = { ...item, status: 'PRINTED', printedAt: new Date().toISOString() };
+    await db.insert(materialRequests).values(updated).onConflictDoUpdate({ target: materialRequests.id, set: updated });
+    await backupToFirestore();
+    res.json({ status: 'ok', item: updated });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to mark slip as printed: ' + error.message });
+  }
+});
+
+app.delete('/api/material-requests/:id', async (req, res) => {
+  try {
+    await db.delete(materialRequests).where(eq(materialRequests.id, req.params.id));
+    await backupToFirestore();
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete material request: ' + error.message });
+  }
+});
 
 // Mount Vite middleware for development vs serve built files in production
 async function setupViteOrStatic() {
