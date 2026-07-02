@@ -145,4 +145,59 @@ export const employeePunches = pgTable('employee_punches', {
   date: text('date').notNull(),
 });
 
+// ----------------------------------------------------
+// STORE / BOM MODULE
+// ----------------------------------------------------
+
+// Define 'materials' table (raw material master + live stock balance)
+export const materials = pgTable('materials', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  category: text('category'), // e.g. 'Resin', 'Fiberglass', 'Gelcoat', 'Hardener'
+  unit: text('unit').notNull(), // e.g. 'kg', 'ltr', 'pcs', 'roll'
+  currentStock: integer('current_stock').notNull().default(0),
+  reorderLevel: integer('reorder_level').default(0),
+  notes: text('notes'),
+  createdAt: text('created_at').notNull(),
+});
+
+// Define 'bom_items' table (Bill of Materials: qty of a material required per single
+// pool of a given Project + Pool Type combination)
+export const bomItems = pgTable('bom_items', {
+  id: text('id').primaryKey(),
+  projectName: text('project_name').notNull(),
+  poolType: text('pool_type').notNull(),
+  materialId: text('material_id').notNull(),
+  materialName: text('material_name').notNull(),
+  unit: text('unit').notNull(),
+  qtyPerPool: text('qty_per_pool').notNull(), // text to safely carry decimals across drivers
+  notes: text('notes'),
+  createdAt: text('created_at').notNull(),
+});
+
+// Define 'material_requests' table (Section Supervisor requests -> Manager approval ->
+// store issue slip). One row per material line requested for a given project/type/pool/batch.
+export const materialRequests = pgTable('material_requests', {
+  id: text('id').primaryKey(),
+  projectName: text('project_name').notNull(),
+  poolType: text('pool_type').notNull(),
+  poolId: text('pool_id'),
+  poolNo: text('pool_no'),
+  stageId: text('stage_id'),
+  materialId: text('material_id').notNull(),
+  materialName: text('material_name').notNull(),
+  unit: text('unit').notNull(),
+  qtyRequested: text('qty_requested').notNull(),
+  reason: text('reason'),
+  requestedByName: text('requested_by_name').notNull(),
+  requestedByRole: text('requested_by_role').notNull(),
+  status: text('status').notNull().default('PENDING'), // PENDING | APPROVED | REJECTED | PRINTED
+  approvalToken: text('approval_token').notNull(),
+  decidedByName: text('decided_by_name'),
+  decisionNotes: text('decision_notes'),
+  decidedAt: text('decided_at'),
+  printedAt: text('printed_at'),
+  createdAt: text('created_at').notNull(),
+});
+
 
