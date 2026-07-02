@@ -3,7 +3,11 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks,
 } from 'lucide-react';
-import { getApiUrl } from '../lib/firebaseService';
+import {
+  dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
+  dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
+  dbFetchMaterialRequests, dbDecideMaterialRequest, dbMarkMaterialRequestPrinted,
+} from '../lib/firebaseService';
 import { Material, BOMItem, MaterialRequest } from '../types';
 
 type Tab = 'requests' | 'bom' | 'inventory';
@@ -35,9 +39,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     if (!silent) setLoading(true);
     try {
       const [m, b, r] = await Promise.all([
-        fetch(getApiUrl('/api/materials')).then(r => r.json()),
-        fetch(getApiUrl('/api/bom')).then(r => r.json()),
-        fetch(getApiUrl('/api/material-requests')).then(r => r.json()),
+        dbFetchMaterials(),
+        dbFetchBomItems(),
+        dbFetchMaterialRequests(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
       setBom(Array.isArray(b) ? b : []);
@@ -66,23 +70,21 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const saveMaterial = async () => {
     if (!newMaterial.name || !newMaterial.unit) return;
     const item = { ...newMaterial, id: `mat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, createdAt: new Date().toISOString() };
-    await fetch(getApiUrl('/api/materials'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) });
+    await dbSaveMaterial(item);
     setNewMaterial(emptyMaterial);
     loadAll(true);
   };
 
   const deleteMaterial = async (id: string) => {
     if (!confirm('Delete this material? This cannot be undone.')) return;
-    await fetch(getApiUrl(`/api/materials/${id}`), { method: 'DELETE' });
+    await dbDeleteMaterial(id);
     loadAll(true);
   };
 
   const adjustStock = async (id: string) => {
     const delta = prompt('Enter quantity to add to stock (use a negative number to correct downward):');
     if (delta === null || delta === '') return;
-    await fetch(getApiUrl(`/api/materials/${id}/adjust-stock`), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ delta: Number(delta) }),
-    });
+    await dbAdjustMaterialStock(id, Number(delta));
     loadAll(true);
   };
 
@@ -90,38 +92,31 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const saveBomItem = async () => {
     const mat = materials.find(m => m.id === newBom.materialId);
     if (!newBom.projectName || !newBom.poolType || !mat || !newBom.qtyPerPool) return;
-    const item = {
-      id: `bom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    await dbSaveBomItem({
       projectName: newBom.projectName,
       poolType: newBom.poolType,
       materialId: mat.id,
       materialName: mat.name,
       unit: mat.unit,
       qtyPerPool: String(newBom.qtyPerPool),
-      createdAt: new Date().toISOString(),
-    };
-    await fetch(getApiUrl('/api/bom'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) });
+    } as any);
     setNewBom(emptyBom);
     loadAll(true);
   };
 
   const deleteBomItem = async (id: string) => {
-    await fetch(getApiUrl(`/api/bom/${id}`), { method: 'DELETE' });
+    await dbDeleteBomItem(id);
     loadAll(true);
   };
 
   // --- Requests ---
   const decide = async (id: string, action: 'approve' | 'reject') => {
-    await fetch(getApiUrl(`/api/material-requests/${id}/decide`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, decidedByName: currentUserName, decisionNotes: decisionNotes[id] || null }),
-    });
+    await dbDecideMaterialRequest(id, action, currentUserName, decisionNotes[id] || undefined);
     loadAll(true);
   };
 
   const markPrinted = async (id: string) => {
-    await fetch(getApiUrl(`/api/material-requests/${id}/mark-printed`), { method: 'POST' });
+    await dbMarkMaterialRequestPrinted(id);
     setPrintRequest(null);
     loadAll(true);
   };
