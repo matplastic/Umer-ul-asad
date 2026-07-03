@@ -867,13 +867,19 @@ export async function dbPurgePoolRelatedData(backupId: string) {
 // ----------------------------------------------------
 
 function apiBase(): string {
-  // Always use REST API when running in a proper server environment.
-  // Return a sentinel truthy string (empty base means "relative /api/..." URL).
-  const explicit = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
-  if (explicit) return explicit;
-  // In-browser: relative /api works via ingress → Node API
-  if (typeof window !== 'undefined') return ' ';
-  return '';
+  // BUGFIX: this used to return a truthy sentinel (' ') for any browser
+  // context, which forced dbFetchMaterials/dbBulkImportMaterials/etc. to
+  // always call relative /api/... routes — even when no backend exists at
+  // those routes (this project has no Express server deployed on Netlify).
+  // Netlify's SPA catch-all redirect then served index.html for those calls,
+  // which callers tried to parse as JSON and failed. That was the real cause
+  // of "No materials found" and the Excel import "Failed to parse" error.
+  //
+  // Now: only use the REST API path when VITE_API_URL is explicitly set
+  // (i.e. you really do have a separate backend deployed and configured).
+  // Otherwise, every Store function below falls back to direct Firestore,
+  // exactly like dbSavePool/dbSaveEmployee/etc. already do.
+  return ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
 }
 
 function newId(prefix: string): string {
@@ -1276,6 +1282,45 @@ export async function dbUpdatePin(role: string, pin: string) {
 import type { IncomingMaterial, ConsumptionLog, ProductionLog } from '../types';
 
 export async function dbBulkImportMaterials(items: any[], mode: 'add' | 'update' | 'both' = 'both') {
+  if (!apiBase()) {
+    let added = 0, updated = 0, skipped = 0;
+    await updateFirestoreDocArray('materials', (arr) => {
+      for (const row of items) {
+        const name = String(row.name || '').trim();
+        if (!name) { skipped++; continue; }
+        const idx = arr.findIndex((m) => String(m.name).trim().toLowerCase() === name.toLowerCase());
+        if (idx !== -1) {
+          if (mode === 'add') { skipped++; continue; }
+          arr[idx] = {
+            ...arr[idx],
+            category: row.category ?? arr[idx].category ?? null,
+            section: row.section ?? arr[idx].section ?? null,
+            unit: row.unit || arr[idx].unit,
+            currentStock: row.currentStock !== undefined && row.currentStock !== '' ? Number(row.currentStock) : arr[idx].currentStock,
+            reorderLevel: row.reorderLevel !== undefined && row.reorderLevel !== '' ? Number(row.reorderLevel) : arr[idx].reorderLevel ?? null,
+            notes: row.notes ?? arr[idx].notes ?? null,
+          };
+          updated++;
+        } else {
+          if (mode === 'update') { skipped++; continue; }
+          arr.push({
+            id: newId('mat'),
+            name,
+            category: row.category || null,
+            section: row.section || null,
+            unit: row.unit || 'kg',
+            currentStock: row.currentStock !== undefined && row.currentStock !== '' ? Number(row.currentStock) : 0,
+            reorderLevel: row.reorderLevel !== undefined && row.reorderLevel !== '' ? Number(row.reorderLevel) : null,
+            notes: row.notes || null,
+            createdAt: new Date().toISOString(),
+          });
+          added++;
+        }
+      }
+      return arr;
+    });
+    return { success: true, added, updated, skipped };
+  }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl('/api/materials/bulk'), {
     method: 'POST',
@@ -1286,11 +1331,25 @@ export async function dbBulkImportMaterials(items: any[], mode: 'add' | 'update'
 }
 
 export async function dbFetchIncomingMaterials(): Promise<IncomingMaterial[]> {
+  if (!apiBase()) return getFirestoreDocArray('incomingMaterials');
   const res = await fetch(getApiUrl('/api/incoming-materials'));
   return res.ok ? res.json() : [];
 }
 
 export async function dbCreateIncomingMaterial(payload: Omit<IncomingMaterial, 'id' | 'createdAt'>) {
+  const full: IncomingMaterial = { ...payload, id: newId('inc'), createdAt: new Date().toISOString() } as IncomingMaterial;
+  if (!apiBase()) {
+    const mat = (await getFirestoreDocArray('materials')).find((m) => m.id === payload.materialId);
+    full.materialName = mat?.name || payload.materialName || '';
+    full.unit = mat?.unit || payload.unit || '';
+    await updateFirestoreDocArray('incomingMaterials', (arr) => { arr.push(full); return arr; });
+    if (mat) {
+      await updateFirestoreDocArray('materials', (arr) =>
+        arr.map((m) => (m.id === payload.materialId ? { ...m, currentStock: (m.currentStock || 0) + Number(payload.qty || 0) } : m))
+      );
+    }
+    return { success: true, item: full };
+  }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl('/api/incoming-materials'), {
     method: 'POST',
@@ -1301,17 +1360,30 @@ export async function dbCreateIncomingMaterial(payload: Omit<IncomingMaterial, '
 }
 
 export async function dbDeleteIncomingMaterial(id: string) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('incomingMaterials', (arr) => arr.filter((i) => i.id !== id));
+    return { success: true };
+  }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/incoming-materials/${id}`), { method: 'DELETE', headers });
   return res.json();
 }
 
 export async function dbFetchConsumptionLogs(): Promise<ConsumptionLog[]> {
+  if (!apiBase()) return getFirestoreDocArray('consumptionLogs');
   const res = await fetch(getApiUrl('/api/consumption-logs'));
   return res.ok ? res.json() : [];
 }
 
 export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' | 'createdAt'>) {
+  const full: ConsumptionLog = { ...payload, id: newId('cons'), createdAt: new Date().toISOString() } as ConsumptionLog;
+  if (!apiBase()) {
+    await updateFirestoreDocArray('consumptionLogs', (arr) => { arr.push(full); return arr; });
+    await updateFirestoreDocArray('materials', (arr) =>
+      arr.map((m) => (m.id === payload.materialId ? { ...m, currentStock: (m.currentStock || 0) - Number(payload.qty || 0) } : m))
+    );
+    return { success: true, item: full };
+  }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl('/api/consumption-logs'), {
     method: 'POST',
@@ -1322,17 +1394,27 @@ export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' 
 }
 
 export async function dbDeleteConsumptionLog(id: string) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('consumptionLogs', (arr) => arr.filter((c) => c.id !== id));
+    return { success: true };
+  }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/consumption-logs/${id}`), { method: 'DELETE', headers });
   return res.json();
 }
 
 export async function dbFetchProductionLogs(): Promise<ProductionLog[]> {
+  if (!apiBase()) return getFirestoreDocArray('productionLogs');
   const res = await fetch(getApiUrl('/api/production-logs'));
   return res.ok ? res.json() : [];
 }
 
 export async function dbCreateProductionLog(payload: Omit<ProductionLog, 'id' | 'createdAt'>) {
+  const full: ProductionLog = { ...payload, id: newId('prod'), createdAt: new Date().toISOString() } as ProductionLog;
+  if (!apiBase()) {
+    await updateFirestoreDocArray('productionLogs', (arr) => { arr.push(full); return arr; });
+    return { success: true, item: full };
+  }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl('/api/production-logs'), {
     method: 'POST',
@@ -1343,12 +1425,55 @@ export async function dbCreateProductionLog(payload: Omit<ProductionLog, 'id' | 
 }
 
 export async function dbDeleteProductionLog(id: string) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('productionLogs', (arr) => arr.filter((p) => p.id !== id));
+    return { success: true };
+  }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/production-logs/${id}`), { method: 'DELETE', headers });
   return res.json();
 }
 
 export async function dbFetchConsumptionAnalytics(): Promise<any> {
+  if (!apiBase()) {
+    const [materials, incoming, consumption] = await Promise.all([
+      getFirestoreDocArray('materials'),
+      getFirestoreDocArray('incomingMaterials'),
+      getFirestoreDocArray('consumptionLogs'),
+    ]);
+    const sum = (list: any[], key: string, matchId: string) =>
+      list.filter((x) => x.materialId === matchId).reduce((s, x) => s + Number(x.qty || 0), 0);
+    const inventoryReport = materials.map((m) => ({
+      materialId: m.id,
+      materialName: m.name,
+      unit: m.unit,
+      currentStock: m.currentStock || 0,
+      totalIncoming: sum(incoming, 'qty', m.id),
+      totalConsumed: sum(consumption, 'qty', m.id),
+    }));
+    const byMaterial = (list: any[]) => {
+      const map: Record<string, { materialId: string; materialName: string; unit: string; qty: number }> = {};
+      for (const row of list) {
+        if (!map[row.materialId]) map[row.materialId] = { materialId: row.materialId, materialName: row.materialName, unit: row.unit, qty: 0 };
+        map[row.materialId].qty += Number(row.qty || 0);
+      }
+      return Object.values(map);
+    };
+    const dailyBySection: Record<string, number> = {};
+    for (const row of consumption) {
+      const key = row.sectionId || 'unknown';
+      dailyBySection[key] = (dailyBySection[key] || 0) + Number(row.qty || 0);
+    }
+    return {
+      inventoryReport,
+      consumptionByMaterial: byMaterial(consumption),
+      incomingByMaterial: byMaterial(incoming),
+      dailyBySection,
+      plannedBySection: {},
+      perProject: {},
+      perPoolType: [],
+    };
+  }
   const res = await fetch(getApiUrl('/api/consumption/analytics'));
   return res.ok ? res.json() : { inventoryReport: [], consumptionByMaterial: [], incomingByMaterial: [], dailyBySection: {}, plannedBySection: {}, perProject: {}, perPoolType: [] };
 }
