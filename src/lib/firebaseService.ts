@@ -1284,7 +1284,7 @@ import type { IncomingMaterial, ConsumptionLog, ProductionLog } from '../types';
 // Accepts common header variations (e.g. "Material Name", "Stock", "UOM",
 // "Reorder Point") so the Excel import isn't fragile about exact column
 // names — only the downloaded template used the exact keys before.
-function normalizeImportRow(row: any): { name: string; category: string | null; section: string | null; unit: string; currentStock: number | ''; reorderLevel: number | null; notes: string | null } {
+function normalizeImportRow(row: any): { name: string; category: string | null; section: string | null; unit: string; currentStock: number | ''; reorderLevel: number | null; notes: string | null; erpCode: string | null; supplierName: string | null; brand: string | null; location: string | null; hsCode: string | null } {
   const get = (...keys: string[]) => {
     for (const k of Object.keys(row)) {
       const norm = k.trim().toLowerCase().replace(/[\s_.\-]+/g, '');
@@ -1300,12 +1300,17 @@ function normalizeImportRow(row: any): { name: string; category: string | null; 
   const reorderRaw = get('reorderlevel', 'reorderpoint', 'reorder', 'minstock', 'minimumstock', 'minqty');
   return {
     name,
-    category: (get('category', 'type', 'brand') ?? null) as string | null,
+    category: (get('category', 'type') ?? null) as string | null,
     section: (get('section', 'stage', 'department') ?? null) as string | null,
     unit,
     currentStock: stockRaw !== undefined && stockRaw !== '' ? Number(stockRaw) : '',
     reorderLevel: reorderRaw !== undefined && reorderRaw !== '' ? Number(reorderRaw) : null,
-    notes: (get('notes', 'remarks', 'comment', 'comments', 'erpcodes', 'erpcode') ?? null) as string | null,
+    notes: (get('notes', 'remarks', 'comment', 'comments') ?? null) as string | null,
+    erpCode: (get('erpcode', 'erpcodes', 'code', 'itemcode', 'sku', 'materialcode') ?? null) as string | null,
+    supplierName: (get('suppliername', 'supplier', 'vendor', 'vendorname') ?? null) as string | null,
+    brand: (get('brand', 'make') ?? null) as string | null,
+    location: (get('location', 'bin', 'rack', 'storagelocation', 'warehouselocation') ?? null) as string | null,
+    hsCode: (get('hscode', 'hscodes', 'customscode', 'tariffcode') ?? null) as string | null,
   };
 }
 
@@ -1328,6 +1333,11 @@ export async function dbBulkImportMaterials(items: any[], mode: 'add' | 'update'
             currentStock: row.currentStock !== '' ? Number(row.currentStock) : arr[idx].currentStock,
             reorderLevel: row.reorderLevel !== null ? row.reorderLevel : arr[idx].reorderLevel ?? null,
             notes: row.notes ?? arr[idx].notes ?? null,
+            erpCode: row.erpCode ?? arr[idx].erpCode ?? null,
+            supplierName: row.supplierName ?? arr[idx].supplierName ?? null,
+            brand: row.brand ?? arr[idx].brand ?? null,
+            location: row.location ?? arr[idx].location ?? null,
+            hsCode: row.hsCode ?? arr[idx].hsCode ?? null,
           };
           updated++;
         } else {
@@ -1341,6 +1351,11 @@ export async function dbBulkImportMaterials(items: any[], mode: 'add' | 'update'
             currentStock: row.currentStock !== '' ? Number(row.currentStock) : 0,
             reorderLevel: row.reorderLevel,
             notes: row.notes || null,
+            erpCode: row.erpCode || null,
+            supplierName: row.supplierName || null,
+            brand: row.brand || null,
+            location: row.location || null,
+            hsCode: row.hsCode || null,
             createdAt: new Date().toISOString(),
           });
           added++;
