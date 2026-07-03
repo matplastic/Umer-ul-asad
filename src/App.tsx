@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from './types';
 import StoreModule from './components/StoreModule';
+import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector } from './components/RoleSelector';
 import { LoginScreen } from './components/LoginScreen';
@@ -2794,6 +2795,19 @@ export default function App() {
         {currentRole === 'store' && (
           <StoreModule
             currentUserName={loggedInUser?.displayName || 'Manager'}
+            projectNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
+            poolTypesByProject={[...pools, ...plannedPools].reduce((acc: Record<string, string[]>, p) => {
+              if (!p.projectName || !p.poolType) return acc;
+              if (!acc[p.projectName]) acc[p.projectName] = [];
+              if (!acc[p.projectName].includes(p.poolType)) acc[p.projectName].push(p.poolType);
+              return acc;
+            }, {})}
+          />
+        )}
+
+        {currentRole === 'section_supervisor' && (
+          <SupervisorPortal
+            currentUserName={loggedInUser?.displayName || 'Supervisor'}
             projectNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
             poolTypesByProject={[...pools, ...plannedPools].reduce((acc: Record<string, string[]>, p) => {
               if (!p.projectName || !p.poolType) return acc;
