@@ -8,19 +8,14 @@ import {
   onAuthStateChanged, 
   User 
 } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
-
-const getFirebaseConfig = () => {
-  const config = { ...firebaseConfig };
-  // Dynamically load the apiKey from VITE_FIREBASE_API_KEY environment variable if present.
-  // This allows keeping the repo clean of hardcoded Google keys (which standard checkers flag on Netlify).
-  const envKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY || (typeof process !== 'undefined' ? process.env?.VITE_FIREBASE_API_KEY : '');
-  if (envKey) {
-    config.apiKey = envKey;
-  }
-  return config;
-};
-
+const getFirebaseConfig = () => ({
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+});
 // Initialize Firebase App
 export const app = initializeApp(getFirebaseConfig());
 export const auth = getAuth(app);
