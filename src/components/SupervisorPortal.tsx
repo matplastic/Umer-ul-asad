@@ -10,7 +10,6 @@ import {
 } from '../lib/firebaseService';
 import {
   Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog,
-  SECTION_DEFINITIONS,
 } from '../types';
 
 interface SupervisorPortalProps {
@@ -21,10 +20,19 @@ interface SupervisorPortalProps {
 
 type Tab = 'consumption' | 'production' | 'request' | 'history';
 
+// Supervisor Portal shows only these 2 broad working sections (per request).
+// This is intentionally local to this file only — it does not affect the
+// production-stage pipeline (Stage Shop Floor, Quality Inspector, targets,
+// etc.), which still uses the full SECTION_DEFINITIONS/StageId list from types.ts.
+const SUPERVISOR_SECTIONS: { id: string; name: string }[] = [
+  { id: 'mep_material', name: 'MEP Material' },
+  { id: 'civil_material', name: 'Civil Material' },
+];
+
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserName, projectNames, poolTypesByProject }) => {
-  const [section, setSection] = useState<string>(SECTION_DEFINITIONS[0].id as string);
+  const [section, setSection] = useState<string>(SUPERVISOR_SECTIONS[0].id);
   const [tab, setTab] = useState<Tab>('consumption');
   const [materials, setMaterials] = useState<Material[]>([]);
   const [bom, setBom] = useState<BOMItem[]>([]);
@@ -80,7 +88,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
   useEffect(() => { loadAll(); const t = setInterval(() => loadAll(true), 20000); return () => clearInterval(t); }, [loadAll]);
 
-  const sectionName = SECTION_DEFINITIONS.find(s => s.id === section)?.name || section;
+  const sectionName = SUPERVISOR_SECTIONS.find(s => s.id === section)?.name || section;
   // Materials for this section (both explicit `section` match and unassigned show up)
   const sectionMaterials = useMemo(() => {
     const list = materials.filter(m => !m.section || m.section === section);
@@ -252,7 +260,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           <Filter className="h-3.5 w-3.5" /> Working Section
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {SECTION_DEFINITIONS.map(sec => (
+          {SUPERVISOR_SECTIONS.map(sec => (
             <button
               key={sec.id as string}
               onClick={() => setSection(sec.id as string)}
