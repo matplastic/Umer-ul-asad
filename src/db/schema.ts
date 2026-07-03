@@ -154,6 +154,7 @@ export const materials = pgTable('materials', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   category: text('category'), // e.g. 'Resin', 'Fiberglass', 'Gelcoat', 'Hardener'
+  section: text('section'), // section/stage the material belongs to: steel_fabrication, lamination, etc.
   unit: text('unit').notNull(), // e.g. 'kg', 'ltr', 'pcs', 'roll'
   currentStock: integer('current_stock').notNull().default(0),
   reorderLevel: integer('reorder_level').default(0),
@@ -197,6 +198,52 @@ export const materialRequests = pgTable('material_requests', {
   decisionNotes: text('decision_notes'),
   decidedAt: text('decided_at'),
   printedAt: text('printed_at'),
+  createdAt: text('created_at').notNull(),
+});
+
+// Define 'incoming_materials' table (Goods Received Note - incoming supply of raw materials)
+export const incomingMaterials = pgTable('incoming_materials', {
+  id: text('id').primaryKey(),
+  materialId: text('material_id').notNull(),
+  materialName: text('material_name').notNull(),
+  unit: text('unit').notNull(),
+  qty: text('qty').notNull(), // text to preserve decimals
+  supplier: text('supplier'),
+  invoiceNo: text('invoice_no'),
+  notes: text('notes'),
+  receivedByName: text('received_by_name').notNull(),
+  receivedAt: text('received_at').notNull(), // date/time of receipt
+  createdAt: text('created_at').notNull(),
+});
+
+// Define 'consumption_logs' table (Supervisor logs actual material consumed per day per section)
+export const consumptionLogs = pgTable('consumption_logs', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(), // YYYY-MM-DD
+  sectionId: text('section_id').notNull(), // stage id
+  sectionName: text('section_name').notNull(),
+  materialId: text('material_id').notNull(),
+  materialName: text('material_name').notNull(),
+  unit: text('unit').notNull(),
+  qty: text('qty').notNull(), // actual quantity consumed
+  notes: text('notes'),
+  loggedByName: text('logged_by_name').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
+// Define 'production_logs' table (Supervisor logs pools produced by his section per day)
+export const productionLogs = pgTable('production_logs', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(), // YYYY-MM-DD
+  sectionId: text('section_id').notNull(),
+  sectionName: text('section_name').notNull(),
+  projectName: text('project_name').notNull(),
+  poolType: text('pool_type').notNull(),
+  poolId: text('pool_id'),
+  poolNo: text('pool_no'),
+  quantity: integer('quantity').notNull().default(1),
+  notes: text('notes'),
+  loggedByName: text('logged_by_name').notNull(),
   createdAt: text('created_at').notNull(),
 });
 

@@ -147,8 +147,8 @@ async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) =
 }
 
 export function getApiUrl(path: string): string {
-  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
-  return `${base}${path}`;
+  const explicit = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  return `${explicit}${path}`;
 }
 
 // Helper to construct request headers with the Firebase Auth ID Token (required for security)
@@ -867,7 +867,13 @@ export async function dbPurgePoolRelatedData(backupId: string) {
 // ----------------------------------------------------
 
 function apiBase(): string {
-  return ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  // Always use REST API when running in a proper server environment.
+  // Return a sentinel truthy string (empty base means "relative /api/..." URL).
+  const explicit = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  if (explicit) return explicit;
+  // In-browser: relative /api works via ingress → Node API
+  if (typeof window !== 'undefined') return ' ';
+  return '';
 }
 
 function newId(prefix: string): string {
@@ -1261,4 +1267,88 @@ export async function dbUpdatePin(role: string, pin: string) {
     console.error('Direct client-side PIN write failed:', e);
     throw e;
   }
+}
+
+// ==========================================================
+// NEW STORE FEATURES: Excel Bulk, Incoming, Consumption, Production, Analytics
+// ==========================================================
+
+import type { IncomingMaterial, ConsumptionLog, ProductionLog } from '../types';
+
+export async function dbBulkImportMaterials(items: any[], mode: 'add' | 'update' | 'both' = 'both') {
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/materials/bulk'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ items, mode }),
+  });
+  return res.json();
+}
+
+export async function dbFetchIncomingMaterials(): Promise<IncomingMaterial[]> {
+  const res = await fetch(getApiUrl('/api/incoming-materials'));
+  return res.ok ? res.json() : [];
+}
+
+export async function dbCreateIncomingMaterial(payload: Omit<IncomingMaterial, 'id' | 'createdAt'>) {
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/incoming-materials'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function dbDeleteIncomingMaterial(id: string) {
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/incoming-materials/${id}`), { method: 'DELETE', headers });
+  return res.json();
+}
+
+export async function dbFetchConsumptionLogs(): Promise<ConsumptionLog[]> {
+  const res = await fetch(getApiUrl('/api/consumption-logs'));
+  return res.ok ? res.json() : [];
+}
+
+export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' | 'createdAt'>) {
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/consumption-logs'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function dbDeleteConsumptionLog(id: string) {
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/consumption-logs/${id}`), { method: 'DELETE', headers });
+  return res.json();
+}
+
+export async function dbFetchProductionLogs(): Promise<ProductionLog[]> {
+  const res = await fetch(getApiUrl('/api/production-logs'));
+  return res.ok ? res.json() : [];
+}
+
+export async function dbCreateProductionLog(payload: Omit<ProductionLog, 'id' | 'createdAt'>) {
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/production-logs'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function dbDeleteProductionLog(id: string) {
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/production-logs/${id}`), { method: 'DELETE', headers });
+  return res.json();
+}
+
+export async function dbFetchConsumptionAnalytics(): Promise<any> {
+  const res = await fetch(getApiUrl('/api/consumption/analytics'));
+  return res.ok ? res.json() : { inventoryReport: [], consumptionByMaterial: [], incomingByMaterial: [], dailyBySection: {}, plannedBySection: {}, perProject: {}, perPoolType: [] };
 }

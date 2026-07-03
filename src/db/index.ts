@@ -32,26 +32,56 @@ class InMemoryDb {
     employees: [],
     trolley_production: [],
     recycle_bin: [],
-    employee_punches: []
+    employee_punches: [],
+    materials: [],
+    bom_items: [],
+    material_requests: [],
+    incoming_materials: [],
+    consumption_logs: [],
+    production_logs: []
   };
 
   private getTableName(tableObj: any): string {
     if (!tableObj) return '';
-    const rawName = tableObj._?.name || tableObj.name || String(tableObj);
-    if (!rawName) return '';
-    // Map CamelCase or different plural/singular forms safely
-    if (rawName.includes('pools') || rawName === 'pools') return 'pools';
-    if (rawName.includes('planned') || rawName === 'planned_pools') return 'planned_pools';
-    if (rawName.includes('teams') || rawName === 'teams') return 'teams';
-    if (rawName.includes('logs') || rawName === 'logs') return 'logs';
-    if (rawName.includes('inspectors') || rawName === 'inspectors') return 'inspectors';
-    if (rawName.includes('engineers') || rawName === 'engineers') return 'engineers';
-    if (rawName.includes('projects') || rawName === 'projects_summary') return 'projects_summary';
-    if (rawName.includes('targets') || rawName === 'monthly_targets') return 'monthly_targets';
-    if (rawName.includes('employees') || rawName === 'employees') return 'employees';
-    if (rawName.includes('trolley') || rawName === 'trolley_production') return 'trolley_production';
-    if (rawName.includes('recycle') || rawName === 'recycle_bin') return 'recycle_bin';
-    if (rawName.includes('punches') || rawName === 'employee_punches') return 'employee_punches';
+    // Extract Drizzle table name via Symbol
+    let rawName: any = tableObj._?.name || (tableObj as any).name;
+    if (typeof rawName !== 'string' || !rawName) {
+      try {
+        const symbols = Object.getOwnPropertySymbols(tableObj);
+        for (const sym of symbols) {
+          if (sym.description === 'drizzle:Name' || sym.description === 'drizzle:OriginalName' || sym.description === 'drizzle:BaseName') {
+            rawName = tableObj[sym];
+            if (typeof rawName === 'string' && rawName) break;
+          }
+        }
+      } catch {}
+    }
+    if (typeof rawName !== 'string' || !rawName) return '';
+    // Exact-match first
+    const exact = ['pools', 'planned_pools', 'teams', 'logs', 'inspectors', 'engineers',
+      'projects_summary', 'monthly_targets', 'employees', 'trolley_production', 'recycle_bin',
+      'employee_punches', 'materials', 'bom_items', 'material_requests', 'incoming_materials',
+      'consumption_logs', 'production_logs'];
+    if (exact.includes(rawName)) return rawName;
+    // Fuzzy fallbacks (camelCase)
+    if (rawName.includes('planned')) return 'planned_pools';
+    if (rawName.includes('projectsSummary') || rawName.includes('projects')) return 'projects_summary';
+    if (rawName.includes('monthlyTargets') || rawName.includes('targets')) return 'monthly_targets';
+    if (rawName.includes('trolley')) return 'trolley_production';
+    if (rawName.includes('recycle')) return 'recycle_bin';
+    if (rawName.includes('employeePunches') || rawName.includes('punches')) return 'employee_punches';
+    if (rawName.includes('bom')) return 'bom_items';
+    if (rawName.includes('materialRequests') || rawName.includes('material_request')) return 'material_requests';
+    if (rawName.includes('incoming')) return 'incoming_materials';
+    if (rawName.includes('consumptionLogs') || rawName.includes('consumption')) return 'consumption_logs';
+    if (rawName.includes('productionLogs') || rawName.includes('production_log')) return 'production_logs';
+    if (rawName.includes('materials')) return 'materials';
+    if (rawName.includes('employees')) return 'employees';
+    if (rawName.includes('inspectors')) return 'inspectors';
+    if (rawName.includes('engineers')) return 'engineers';
+    if (rawName.includes('teams')) return 'teams';
+    if (rawName.includes('pools')) return 'pools';
+    if (rawName === 'logs' || rawName.endsWith('logs')) return 'logs';
     return rawName;
   }
 

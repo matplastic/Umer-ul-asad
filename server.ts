@@ -7,7 +7,7 @@ import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 import { db } from './src/db/index.ts';
-import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches, materials, bomItems, materialRequests } from './src/db/schema.ts';
+import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches, materials, bomItems, materialRequests, incomingMaterials, consumptionLogs, productionLogs } from './src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
 import { sendMaterialRequestApprovalEmail, sendMaterialRequestDecisionEmail } from './src/lib/emailService.ts';
@@ -297,6 +297,7 @@ function getFirestoreDb() {
 }
 
 async function backupToFirestore() {
+  if (process.env.DISABLE_FIRESTORE_BACKUP === 'true') return;
   try {
     const firestoreDb = getFirestoreDb();
     const systemStateCol = firestoreDb.collection('system_state');
@@ -448,11 +449,15 @@ async function restoreFromFirestore() {
 }
 
 async function restoreDbIfEmpty() {
+  if (process.env.DISABLE_FIRESTORE_RESTORE === 'true') return;
   try {
     const items = await db.select().from(projectsSummary).limit(1);
     if (items.length === 0) {
       console.log('PostgreSQL database is in clean/empty state (possibly container restarted). Checking Firestore permanent backup...');
-      const success = await restoreFromFirestore();
+      const success = await Promise.race([
+        restoreFromFirestore(),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+      ]);
       if (!success) {
         console.log('No Firestore permanent store detected or failed to restore. Running default initialization fallback.');
       }
@@ -467,20 +472,28 @@ async function restoreDbIfEmpty() {
 // ----------------------------------------------------
 
 app.get('/api/pins', async (req, res) => {
+  const defaultPins = {
+    management: '1234',
+    planning_department: '1111',
+    production_engineer: '2222',
+    quality_inspector: '3333',
+    stage_worker: '4444',
+    trolley_prod: '5555',
+    factory_entrance: '6666',
+    section_dashboard: '7777',
+    hr_portal: '8888',
+    store: '9999',
+    section_supervisor: '0000',
+  };
+  if (process.env.DISABLE_FIRESTORE_RESTORE === 'true') {
+    return res.json(defaultPins);
+  }
   try {
     const firestoreDb = getFirestoreDb();
-    const pinsDoc = await firestoreDb.collection('portal_security').doc('pins').get();
-    
-    const defaultPins = {
-      management: '1234',
-      planning_department: '1111',
-      production_engineer: '2222',
-      quality_inspector: '3333',
-      stage_worker: '4444',
-      trolley_prod: '5555',
-      factory_entrance: '6666',
-      section_dashboard: '7777',
-    };
+    const pinsDoc = await Promise.race([
+      firestoreDb.collection('portal_security').doc('pins').get(),
+      new Promise<any>((resolve) => setTimeout(() => resolve({ exists: false, data: () => ({}) }), 3000)),
+    ]);
 
     if (pinsDoc.exists) {
       const pinsData = pinsDoc.data();
@@ -490,16 +503,7 @@ app.get('/api/pins', async (req, res) => {
     }
   } catch (error: any) {
     console.error('Failed to retrieve security pins from Firestore:', error);
-    res.json({
-      management: '1234',
-      planning_department: '1111',
-      production_engineer: '2222',
-      quality_inspector: '3333',
-      stage_worker: '4444',
-      trolley_prod: '5555',
-      factory_entrance: '6666',
-      section_dashboard: '7777',
-    });
+    res.json(defaultPins);
   }
 });
 
@@ -588,7 +592,7 @@ app.post('/api/firebase-config/restore', async (req, res) => {
 app.get('/api/state', async (req, res) => {
   try {
     await restoreDbIfEmpty();
-    const [poolsData, plannedData, teamsData, logsData, inspectorsData, engineersData, projectsSummaryData, monthlyTargetsData, employeesData, trolleysData, recycleBinData, punchesData, materialsData, bomItemsData, materialRequestsData] = await Promise.all([
+    const [poolsData, plannedData, teamsData, logsData, inspectorsData, engineersData, projectsSummaryData, monthlyTargetsData, employeesData, trolleysData, recycleBinData, punchesData, materialsData, bomItemsData, materialRequestsData, incomingData, consumptionData, productionData] = await Promise.all([
       db.select().from(pools),
       db.select().from(plannedPools),
       db.select().from(teams),
@@ -604,6 +608,9 @@ app.get('/api/state', async (req, res) => {
       db.select().from(materials),
       db.select().from(bomItems),
       db.select().from(materialRequests),
+      db.select().from(incomingMaterials),
+      db.select().from(consumptionLogs),
+      db.select().from(productionLogs),
     ]);
 
     res.json({
@@ -622,6 +629,9 @@ app.get('/api/state', async (req, res) => {
       materials: materialsData,
       bomItems: bomItemsData,
       materialRequests: materialRequestsData,
+      incomingMaterials: incomingData,
+      consumptionLogs: consumptionData,
+      productionLogs: productionData,
     });
   } catch (error: any) {
     console.error('Failed to load SQL state:', error);
@@ -1484,6 +1494,378 @@ app.delete('/api/material-requests/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete material request: ' + error.message });
   }
 });
+
+// ==========================================================
+// NEW STORE FEATURE ENDPOINTS: Excel Import, Incoming, Consumption, Production
+// ==========================================================
+
+// ---- Materials bulk (Excel) upload ----
+// Body: { items: [{ name, category?, section?, unit, currentStock, reorderLevel?, notes? }, ...], mode: 'add' | 'update' | 'both' }
+app.post('/api/materials/bulk', async (req, res) => {
+  try {
+    const { items = [], mode = 'both' } = req.body || {};
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'No rows to import.' });
+    }
+    const existing: any[] = await db.select().from(materials);
+    const existingByName: Record<string, any> = {};
+    for (const m of existing) if (m?.name) existingByName[m.name.toLowerCase().trim()] = m;
+    const toWrite: any[] = [];
+    let added = 0, updated = 0, skipped = 0;
+    for (const raw of items) {
+      const name = (raw.name || '').toString().trim();
+      if (!name) { skipped++; continue; }
+      const existingMat = existingByName[name.toLowerCase()];
+      if (existingMat) {
+        if (mode === 'add') { skipped++; continue; }
+        const updatedMat = {
+          ...existingMat,
+          category: raw.category ?? existingMat.category,
+          section: raw.section ?? existingMat.section,
+          unit: (raw.unit || existingMat.unit || 'kg').toString(),
+          currentStock: Number(raw.currentStock ?? existingMat.currentStock ?? 0),
+          reorderLevel: Number(raw.reorderLevel ?? existingMat.reorderLevel ?? 0),
+          notes: raw.notes ?? existingMat.notes,
+        };
+        toWrite.push(updatedMat);
+        updated++;
+      } else {
+        if (mode === 'update') { skipped++; continue; }
+        const newMat = {
+          id: `mat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          name,
+          category: raw.category ? String(raw.category) : null,
+          section: raw.section ? String(raw.section) : null,
+          unit: (raw.unit || 'kg').toString(),
+          currentStock: Number(raw.currentStock || 0),
+          reorderLevel: Number(raw.reorderLevel || 0),
+          notes: raw.notes ? String(raw.notes) : null,
+          createdAt: new Date().toISOString(),
+        };
+        toWrite.push(newMat);
+        added++;
+      }
+    }
+    for (const m of toWrite) {
+      await db.insert(materials).values(m).onConflictDoUpdate({ target: materials.id, set: m });
+    }
+    res.json({ status: 'ok', added, updated, skipped, total: items.length });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Bulk import failed: ' + error.message });
+  }
+});
+
+// ---- Incoming Materials (GRN) ----
+app.get('/api/incoming-materials', async (req, res) => {
+  try {
+    const data = await db.select().from(incomingMaterials);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to load incoming materials: ' + error.message });
+  }
+});
+
+app.post('/api/incoming-materials', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const qty = Number(body.qty || 0);
+    if (!body.materialId || !qty) return res.status(400).json({ error: 'materialId and qty required.' });
+    const [mat] = await db.select().from(materials).where(eq(materials.id, body.materialId));
+    if (!mat) return res.status(404).json({ error: 'Material not found.' });
+    const item = {
+      id: body.id || `inc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      materialId: mat.id,
+      materialName: mat.name,
+      unit: mat.unit,
+      qty: String(qty),
+      supplier: body.supplier || null,
+      invoiceNo: body.invoiceNo || null,
+      notes: body.notes || null,
+      receivedByName: body.receivedByName || 'Store',
+      receivedAt: body.receivedAt || new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    await db.insert(incomingMaterials).values(item).onConflictDoUpdate({ target: incomingMaterials.id, set: item });
+    // Bump stock
+    const newStock = Number(mat.currentStock || 0) + qty;
+    const updated = { ...mat, currentStock: newStock };
+    await db.insert(materials).values(updated).onConflictDoUpdate({ target: materials.id, set: updated });
+    res.json({ status: 'ok', item, newStock });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to create incoming material: ' + error.message });
+  }
+});
+
+app.delete('/api/incoming-materials/:id', async (req, res) => {
+  try {
+    const [item] = await db.select().from(incomingMaterials).where(eq(incomingMaterials.id, req.params.id));
+    if (item) {
+      const [mat] = await db.select().from(materials).where(eq(materials.id, item.materialId));
+      if (mat) {
+        const newStock = Number(mat.currentStock || 0) - Number(item.qty || 0);
+        const updated = { ...mat, currentStock: newStock };
+        await db.insert(materials).values(updated).onConflictDoUpdate({ target: materials.id, set: updated });
+      }
+    }
+    await db.delete(incomingMaterials).where(eq(incomingMaterials.id, req.params.id));
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete incoming: ' + error.message });
+  }
+});
+
+// ---- Consumption Logs (supervisor logs actual material consumed daily per section) ----
+app.get('/api/consumption-logs', async (req, res) => {
+  try {
+    const data = await db.select().from(consumptionLogs);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to load consumption logs: ' + error.message });
+  }
+});
+
+app.post('/api/consumption-logs', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const qty = Number(body.qty || 0);
+    if (!body.materialId || !body.sectionId || !qty) {
+      return res.status(400).json({ error: 'materialId, sectionId and qty required.' });
+    }
+    const [mat] = await db.select().from(materials).where(eq(materials.id, body.materialId));
+    if (!mat) return res.status(404).json({ error: 'Material not found.' });
+    const item = {
+      id: body.id || `cl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      date: body.date || new Date().toISOString().slice(0, 10),
+      sectionId: String(body.sectionId),
+      sectionName: body.sectionName || body.sectionId,
+      materialId: mat.id,
+      materialName: mat.name,
+      unit: mat.unit,
+      qty: String(qty),
+      notes: body.notes || null,
+      loggedByName: body.loggedByName || 'Supervisor',
+      createdAt: new Date().toISOString(),
+    };
+    await db.insert(consumptionLogs).values(item).onConflictDoUpdate({ target: consumptionLogs.id, set: item });
+    const newStock = Number(mat.currentStock || 0) - qty;
+    const updated = { ...mat, currentStock: newStock };
+    await db.insert(materials).values(updated).onConflictDoUpdate({ target: materials.id, set: updated });
+    res.json({ status: 'ok', item, newStock });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to create consumption log: ' + error.message });
+  }
+});
+
+app.delete('/api/consumption-logs/:id', async (req, res) => {
+  try {
+    const [item] = await db.select().from(consumptionLogs).where(eq(consumptionLogs.id, req.params.id));
+    if (item) {
+      const [mat] = await db.select().from(materials).where(eq(materials.id, item.materialId));
+      if (mat) {
+        const newStock = Number(mat.currentStock || 0) + Number(item.qty || 0);
+        const updated = { ...mat, currentStock: newStock };
+        await db.insert(materials).values(updated).onConflictDoUpdate({ target: materials.id, set: updated });
+      }
+    }
+    await db.delete(consumptionLogs).where(eq(consumptionLogs.id, req.params.id));
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete consumption log: ' + error.message });
+  }
+});
+
+// ---- Production Logs (supervisor logs pools produced daily) ----
+app.get('/api/production-logs', async (req, res) => {
+  try {
+    const data = await db.select().from(productionLogs);
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to load production logs: ' + error.message });
+  }
+});
+
+app.post('/api/production-logs', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.sectionId || !body.projectName || !body.poolType) {
+      return res.status(400).json({ error: 'sectionId, projectName, poolType required.' });
+    }
+    const item = {
+      id: body.id || `pl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      date: body.date || new Date().toISOString().slice(0, 10),
+      sectionId: String(body.sectionId),
+      sectionName: body.sectionName || body.sectionId,
+      projectName: String(body.projectName),
+      poolType: String(body.poolType),
+      poolId: body.poolId || null,
+      poolNo: body.poolNo || null,
+      quantity: Number(body.quantity || 1),
+      notes: body.notes || null,
+      loggedByName: body.loggedByName || 'Supervisor',
+      createdAt: new Date().toISOString(),
+    };
+    await db.insert(productionLogs).values(item).onConflictDoUpdate({ target: productionLogs.id, set: item });
+    res.json({ status: 'ok', item });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to create production log: ' + error.message });
+  }
+});
+
+app.delete('/api/production-logs/:id', async (req, res) => {
+  try {
+    await db.delete(productionLogs).where(eq(productionLogs.id, req.params.id));
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to delete production log: ' + error.message });
+  }
+});
+
+// ---- Consumption Analytics ----
+app.get('/api/consumption/analytics', async (req, res) => {
+  try {
+    const [consLogs, prodLogs, bomAll, matsAll, incomingAll] = await Promise.all([
+      db.select().from(consumptionLogs),
+      db.select().from(productionLogs),
+      db.select().from(bomItems),
+      db.select().from(materials),
+      db.select().from(incomingMaterials),
+    ]);
+
+    const consumptionByMaterial: Record<string, { materialId: string; materialName: string; unit: string; qty: number }> = {};
+    for (const c of consLogs) {
+      const k = c.materialId;
+      if (!consumptionByMaterial[k]) consumptionByMaterial[k] = { materialId: c.materialId, materialName: c.materialName, unit: c.unit, qty: 0 };
+      consumptionByMaterial[k].qty += Number(c.qty || 0);
+    }
+
+    const dailyBySection: Record<string, Record<string, Record<string, { qty: number; unit: string; materialName: string }>>> = {};
+    for (const c of consLogs) {
+      dailyBySection[c.date] = dailyBySection[c.date] || {};
+      dailyBySection[c.date][c.sectionId] = dailyBySection[c.date][c.sectionId] || {};
+      const cell = dailyBySection[c.date][c.sectionId][c.materialId] || { qty: 0, unit: c.unit, materialName: c.materialName };
+      cell.qty += Number(c.qty || 0);
+      dailyBySection[c.date][c.sectionId][c.materialId] = cell;
+    }
+
+    const plannedBySection: Record<string, Record<string, Record<string, { qty: number; unit: string; materialName: string }>>> = {};
+    for (const p of prodLogs) {
+      const relevantBom = bomAll.filter((b: any) => b.projectName === p.projectName && b.poolType === p.poolType);
+      for (const b of relevantBom) {
+        plannedBySection[p.date] = plannedBySection[p.date] || {};
+        plannedBySection[p.date][p.sectionId] = plannedBySection[p.date][p.sectionId] || {};
+        const cell = plannedBySection[p.date][p.sectionId][b.materialId] || { qty: 0, unit: b.unit, materialName: b.materialName };
+        cell.qty += Number(b.qtyPerPool || 0) * Number(p.quantity || 1);
+        plannedBySection[p.date][p.sectionId][b.materialId] = cell;
+      }
+    }
+
+    const perProject: Record<string, Record<string, { qty: number; unit: string; materialName: string; poolsProduced: number }>> = {};
+    for (const dateKey of Object.keys(dailyBySection)) {
+      for (const sectionKey of Object.keys(dailyBySection[dateKey] || {})) {
+        const prods = prodLogs.filter((p: any) => p.date === dateKey && p.sectionId === sectionKey);
+        const totalPools = prods.reduce((s: number, p: any) => s + Number(p.quantity || 1), 0);
+        if (totalPools === 0) continue;
+        const consumedForCell = dailyBySection[dateKey][sectionKey];
+        for (const matId of Object.keys(consumedForCell)) {
+          const consumedQty = consumedForCell[matId].qty;
+          const unit = consumedForCell[matId].unit;
+          const matName = consumedForCell[matId].materialName;
+          const byProject: Record<string, number> = {};
+          for (const p of prods) {
+            byProject[p.projectName] = (byProject[p.projectName] || 0) + Number(p.quantity || 1);
+          }
+          for (const proj of Object.keys(byProject)) {
+            const share = byProject[proj] / totalPools;
+            const alloc = consumedQty * share;
+            perProject[proj] = perProject[proj] || {};
+            const cell = perProject[proj][matId] || { qty: 0, unit, materialName: matName, poolsProduced: 0 };
+            cell.qty += alloc;
+            cell.poolsProduced += byProject[proj];
+            perProject[proj][matId] = cell;
+          }
+        }
+      }
+    }
+
+    const poolTypeAgg: Record<string, any> = {};
+    for (const p of prodLogs) {
+      const key = `${p.projectName}||${p.poolType}`;
+      if (!poolTypeAgg[key]) {
+        poolTypeAgg[key] = { poolTypeKey: key, projectName: p.projectName, poolType: p.poolType, poolsProduced: 0, plannedByMaterial: {}, actualByMaterial: {} };
+      }
+      poolTypeAgg[key].poolsProduced += Number(p.quantity || 1);
+      const relevantBom = bomAll.filter((b: any) => b.projectName === p.projectName && b.poolType === p.poolType);
+      for (const b of relevantBom) {
+        const cell = poolTypeAgg[key].plannedByMaterial[b.materialId] || { qty: 0, unit: b.unit, materialName: b.materialName };
+        cell.qty += Number(b.qtyPerPool || 0) * Number(p.quantity || 1);
+        poolTypeAgg[key].plannedByMaterial[b.materialId] = cell;
+      }
+    }
+    for (const dateKey of Object.keys(dailyBySection)) {
+      for (const sectionKey of Object.keys(dailyBySection[dateKey] || {})) {
+        const prods = prodLogs.filter((p: any) => p.date === dateKey && p.sectionId === sectionKey);
+        const totalPools = prods.reduce((s: number, p: any) => s + Number(p.quantity || 1), 0);
+        if (totalPools === 0) continue;
+        const consumedForCell = dailyBySection[dateKey][sectionKey];
+        const byKey: Record<string, number> = {};
+        for (const p of prods) {
+          const k = `${p.projectName}||${p.poolType}`;
+          byKey[k] = (byKey[k] || 0) + Number(p.quantity || 1);
+        }
+        for (const matId of Object.keys(consumedForCell)) {
+          const consumedQty = consumedForCell[matId].qty;
+          const unit = consumedForCell[matId].unit;
+          const matName = consumedForCell[matId].materialName;
+          for (const k of Object.keys(byKey)) {
+            const share = byKey[k] / totalPools;
+            const alloc = consumedQty * share;
+            if (!poolTypeAgg[k]) {
+              const [projName, ptype] = k.split('||');
+              poolTypeAgg[k] = { poolTypeKey: k, projectName: projName, poolType: ptype, poolsProduced: 0, plannedByMaterial: {}, actualByMaterial: {} };
+            }
+            const cell = poolTypeAgg[k].actualByMaterial[matId] || { qty: 0, unit, materialName: matName };
+            cell.qty += alloc;
+            poolTypeAgg[k].actualByMaterial[matId] = cell;
+          }
+        }
+      }
+    }
+
+    const incomingByMaterial: Record<string, { materialId: string; materialName: string; unit: string; qty: number }> = {};
+    for (const inc of incomingAll) {
+      const k = inc.materialId;
+      if (!incomingByMaterial[k]) incomingByMaterial[k] = { materialId: inc.materialId, materialName: inc.materialName, unit: inc.unit, qty: 0 };
+      incomingByMaterial[k].qty += Number(inc.qty || 0);
+    }
+
+    const inventoryReport = matsAll.map((m: any) => ({
+      materialId: m.id,
+      materialName: m.name,
+      unit: m.unit,
+      category: m.category || null,
+      section: m.section || null,
+      currentStock: Number(m.currentStock || 0),
+      reorderLevel: Number(m.reorderLevel || 0),
+      totalIncoming: incomingByMaterial[m.id]?.qty || 0,
+      totalConsumed: consumptionByMaterial[m.id]?.qty || 0,
+    }));
+
+    res.json({
+      inventoryReport,
+      consumptionByMaterial: Object.values(consumptionByMaterial),
+      incomingByMaterial: Object.values(incomingByMaterial),
+      dailyBySection,
+      plannedBySection,
+      perProject,
+      perPoolType: Object.values(poolTypeAgg),
+    });
+  } catch (error: any) {
+    console.error('Analytics error:', error);
+    res.status(500).json({ error: 'Failed to compute analytics: ' + error.message });
+  }
+});
+
+
 
 // Mount Vite middleware for development vs serve built files in production
 async function setupViteOrStatic() {

@@ -109,7 +109,9 @@ export type ViewRole =
   | 'section_dashboard'
   | 'trolley_prod'
   | 'hr_portal'
-  | 'store';
+  | 'store'
+  | 'section_supervisor'
+  | 'reports_analytics';
 
 export interface ProjectSummary {
   id: string;
@@ -189,6 +191,7 @@ export interface Material {
   id: string;
   name: string;
   category?: string | null; // 'Resin' | 'Fiberglass' | 'Gelcoat' | 'Hardener' | ...
+  section?: string | null; // section/stage id: 'steel_fabrication', 'lamination', etc.
   unit: string; // 'kg' | 'ltr' | 'pcs' | 'roll' | ...
   currentStock: number;
   reorderLevel?: number | null;
@@ -233,5 +236,68 @@ export interface MaterialRequest {
   printedAt?: string | null;
   createdAt: string;
 }
+
+export interface IncomingMaterial {
+  id: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qty: number;
+  supplier?: string | null;
+  invoiceNo?: string | null;
+  notes?: string | null;
+  receivedByName: string;
+  receivedAt: string;
+  createdAt: string;
+}
+
+export interface ConsumptionLog {
+  id: string;
+  date: string; // YYYY-MM-DD
+  sectionId: string;
+  sectionName: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qty: number;
+  notes?: string | null;
+  loggedByName: string;
+  createdAt: string;
+}
+
+export interface ProductionLog {
+  id: string;
+  date: string;
+  sectionId: string;
+  sectionName: string;
+  projectName: string;
+  poolType: string;
+  poolId?: string | null;
+  poolNo?: string | null;
+  quantity: number;
+  notes?: string | null;
+  loggedByName: string;
+  createdAt: string;
+}
+
+export interface SectionDefinition {
+  id: StageId | string;
+  name: string;
+}
+
+export const SECTION_DEFINITIONS: SectionDefinition[] = [
+  { id: 'steel_fabrication', name: 'Steel Fabrication' },
+  { id: 'steel_primer', name: 'Steel Primer' },
+  { id: 'plumbing', name: 'Plumbing' },
+  { id: 'cladding', name: 'Cladding' },
+  { id: 'skimmer_fitting', name: 'Skimmer Fitting' },
+  { id: 'lamination', name: 'Lamination' },
+  { id: 'mechanical_fitting', name: 'Mechanical Fitting' },
+  { id: 'skimmer_test', name: 'Skimmer Test' },
+  { id: 'door_cutting', name: 'Door Cutting' },
+  { id: 'mosaic', name: 'Mosaic' },
+  { id: 'grouting', name: 'Grouting' },
+  { id: 'acrylic', name: 'Acrylic' },
+];
 
 

@@ -4,7 +4,6 @@ import { STAGES } from '../data/mockData';
 import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 import { QCDefectBadge, QCDefect } from './QCDefectPanel';
-import { MaterialRequestPanel } from './MaterialRequestPanel';
 
 interface StageDashboardProps {
   stage: StageDefinition;
@@ -291,18 +290,6 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       <Printer className="h-3.5 w-3.5" />
                       <span>Print Shop Traveler Slip</span>
                     </button>
-
-                    {myClaimedPool.poolType && (
-                      <MaterialRequestPanel
-                        projectName={myClaimedPool.projectName}
-                        poolType={myClaimedPool.poolType}
-                        poolId={myClaimedPool.id}
-                        poolNo={myClaimedPool.poolNo}
-                        stageId={stage.id}
-                        requestedByName={activeTeam.name}
-                        requestedByRole={`Section Supervisor - ${stage.name}`}
-                      />
-                    )}
 
                     {myClaimedPoolHist.status === 'REJECTED' && (
                       <div className="p-2.5 bg-rose-50 border border-rose-100 text-rose-800 text-xs rounded-lg space-y-1 font-sans">
