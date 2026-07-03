@@ -5,17 +5,36 @@ import { createServer as createViteServer } from 'vite';
 import { initializeApp as initializeAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
-import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 import { db } from './src/db/index.ts';
 import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches, materials, bomItems, materialRequests, incomingMaterials, consumptionLogs, productionLogs } from './src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
 import { sendMaterialRequestApprovalEmail, sendMaterialRequestDecisionEmail } from './src/lib/emailService.ts';
 
+// ----------------------------------------------------
+// FIREBASE CONFIG — now sourced entirely from environment variables.
+// The old firebase-applet-config.json file has been removed from the repo
+// because it hardcoded a live API key that was committed to git history.
+// Set these six vars wherever this server actually runs (Railway, Render,
+// Fly.io, a VPS, etc. — wherever `npm run build && node server` executes,
+// NOT Netlify, which only hosts the static frontend build).
+// ----------------------------------------------------
+function getEnvFirebaseConfig() {
+  return {
+    apiKey: process.env.VITE_FIREBASE_API_KEY || '',
+    projectId: process.env.VITE_FIREBASE_PROJECT_ID || '',
+    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: process.env.VITE_FIREBASE_APP_ID || '',
+    firestoreDatabaseId: process.env.FIRESTORE_DATABASE_ID || '(default)',
+  };
+}
+
 // Initialize Firebase Admin with correct projectId
 if (!getAdminApps().length) {
   initializeAdminApp({
-    projectId: firebaseConfig.projectId,
+    projectId: getEnvFirebaseConfig().projectId,
   });
 }
 const adminAuth = getAdminAuth();
@@ -267,15 +286,7 @@ let cachedUnifiedClient: UnifiedFirestoreClient | null = null;
 let cachedConfigKey = '';
 
 function getFirestoreDb() {
-  let activeConfig = firebaseConfig;
-  try {
-    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-    if (fs.existsSync(configPath)) {
-      activeConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    }
-  } catch (err) {
-    console.error('Error reading dynamic firebase configurations:', err);
-  }
+  const activeConfig = getEnvFirebaseConfig();
 
   // Ensure Admin App is initialized (with the dynamic credentials config)
   const apps = getAdminApps();
@@ -518,7 +529,7 @@ app.post('/api/pins', async (req, res) => {
     } else {
       await docRef.set(pinsData, { merge: true });
     }
-    
+
     res.json({ status: 'ok', msg: 'Security access PINS updated successfully in permanent cloud storage.' });
   } catch (error: any) {
     console.error('Failed to update security pins in Firestore:', error);
@@ -526,41 +537,11 @@ app.post('/api/pins', async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// FIREBASE ENVIRONMENT CREDENTIALS CONFIGURATION SERVICE
-// ----------------------------------------------------
-
-app.get('/api/firebase-config', (req, res) => {
-  try {
-    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-    if (fs.existsSync(configPath)) {
-      const data = fs.readFileSync(configPath, 'utf8');
-      res.json(JSON.parse(data));
-    } else {
-      res.status(404).json({ error: 'Config file not found' });
-    }
-  } catch (err: any) {
-    console.error('Error reading firebase-applet-config.json:', err);
-    res.status(500).json({ error: 'Failed to read configuration' });
-  }
-});
-
-app.post('/api/firebase-config', (req, res) => {
-  try {
-    const newConfig = req.body;
-    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-    
-    if (!newConfig || typeof newConfig !== 'object') {
-      return res.status(400).json({ error: 'Invalid configuration payload' });
-    }
-    
-    fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf8');
-    res.json({ status: 'ok', msg: 'Firebase credentials written successfully to permanent runtime config.' });
-  } catch (err: any) {
-    console.error('Error writing firebase-applet-config.json:', err);
-    res.status(500).json({ error: 'Failed to save configuration' });
-  }
-});
+// NOTE: The old /api/firebase-config GET and POST endpoints have been removed.
+// They read/wrote firebase-applet-config.json directly to disk with ZERO
+// authentication — meaning anyone on the internet could have overwritten the
+// server's Firebase project configuration with a POST request. Config now
+// comes exclusively from environment variables (see getEnvFirebaseConfig above).
 
 app.post('/api/firebase-config/backup', async (req, res) => {
   try {
@@ -1076,18 +1057,18 @@ app.post('/api/biocloud/sync', async (req, res) => {
     if (!url || url.includes('simulate') || url.trim() === '') {
       logLines.push(`[${new Date().toLocaleTimeString()}] No official external Bio Cloud server configured. Running internal sandbox sync simulation wrapper...`);
       logLines.push(`[${new Date().toLocaleTimeString()}] Fetching Bio Cloud Terminal device ID "Device_2"...`);
-      
+
       // We will pull active employee list from db to make the demonstration feel 100% genuine and seamless
       const activeEmployees = await db.select().from(employees);
       logLines.push(`[${new Date().toLocaleTimeString()}] Found ${activeEmployees.length} registered workstations on network.`);
-      
+
       // Create some realistic punches for them on this date
       activeEmployees.slice(0, 5).forEach((emp, i) => {
         // IN punch
         const checkInHour = 6 + Math.floor(Math.random() * 2);
         const checkInMin = Math.floor(Math.random() * 60).toString().padStart(2, '0');
         const inStr = `${checkInHour.toString().padStart(2, '0')}:${checkInMin}`;
-        
+
         let dIn = new Date(date);
         dIn.setHours(checkInHour, parseInt(checkInMin), 0, 0);
 
@@ -1105,7 +1086,7 @@ app.post('/api/biocloud/sync', async (req, res) => {
         const checkOutHour = 15 + Math.floor(Math.random() * 3);
         const checkOutMin = Math.floor(Math.random() * 60).toString().padStart(2, '0');
         const outStr = `${checkOutHour.toString().padStart(2, '0')}:${checkOutMin}`;
-        
+
         let dOut = new Date(date);
         dOut.setHours(checkOutHour, parseInt(checkOutMin), 0, 0);
 
@@ -1118,7 +1099,7 @@ app.post('/api/biocloud/sync', async (req, res) => {
           machineId: 'Device_2_Cloud',
           date: date
         });
-        
+
         logLines.push(`[${new Date().toLocaleTimeString()}] Received check-in record for worker ${emp.name} (ID: ${emp.id}): IN @ ${inStr}, OUT @ ${outStr}`);
       });
     } else {
@@ -1248,8 +1229,6 @@ app.post('/api/employees/bulk', async (req, res) => {
     res.status(500).json({ error: 'Database failed to bulk save employees: ' + error.message });
   }
 });
-
-
 
 // ----------------------------------------------------
 // STORE / BOM / MATERIAL REQUEST MODULE
@@ -1869,8 +1848,6 @@ app.get('/api/consumption/analytics', async (req, res) => {
     res.status(500).json({ error: 'Failed to compute analytics: ' + error.message });
   }
 });
-
-
 
 // Mount Vite middleware for development vs serve built files in production
 async function setupViteOrStatic() {
