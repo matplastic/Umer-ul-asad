@@ -1281,12 +1281,41 @@ export async function dbUpdatePin(role: string, pin: string) {
 
 import type { IncomingMaterial, ConsumptionLog, ProductionLog } from '../types';
 
+// Accepts common header variations (e.g. "Material Name", "Stock", "UOM",
+// "Reorder Point") so the Excel import isn't fragile about exact column
+// names — only the downloaded template used the exact keys before.
+function normalizeImportRow(row: any): { name: string; category: string | null; section: string | null; unit: string; currentStock: number | ''; reorderLevel: number | null; notes: string | null } {
+  const get = (...keys: string[]) => {
+    for (const k of Object.keys(row)) {
+      const norm = k.trim().toLowerCase().replace(/[\s_.\-]+/g, '');
+      for (const target of keys) {
+        if (norm === target) return row[k];
+      }
+    }
+    return undefined;
+  };
+  const name = String(get('name', 'materialname', 'material', 'item', 'itemname', 'description', 'seconddef', 'seconddefinition', 'itemdescription', 'desc') ?? '').trim();
+  const unit = String(get('unit', 'uom', 'units') ?? 'kg').trim() || 'kg';
+  const stockRaw = get('currentstock', 'stock', 'qty', 'quantity', 'openingstock', 'currentqty', 'onhand', 'balance');
+  const reorderRaw = get('reorderlevel', 'reorderpoint', 'reorder', 'minstock', 'minimumstock', 'minqty');
+  return {
+    name,
+    category: (get('category', 'type', 'brand') ?? null) as string | null,
+    section: (get('section', 'stage', 'department') ?? null) as string | null,
+    unit,
+    currentStock: stockRaw !== undefined && stockRaw !== '' ? Number(stockRaw) : '',
+    reorderLevel: reorderRaw !== undefined && reorderRaw !== '' ? Number(reorderRaw) : null,
+    notes: (get('notes', 'remarks', 'comment', 'comments', 'erpcodes', 'erpcode') ?? null) as string | null,
+  };
+}
+
 export async function dbBulkImportMaterials(items: any[], mode: 'add' | 'update' | 'both' = 'both') {
   if (!apiBase()) {
     let added = 0, updated = 0, skipped = 0;
     await updateFirestoreDocArray('materials', (arr) => {
-      for (const row of items) {
-        const name = String(row.name || '').trim();
+      for (const raw of items) {
+        const row = normalizeImportRow(raw);
+        const name = row.name;
         if (!name) { skipped++; continue; }
         const idx = arr.findIndex((m) => String(m.name).trim().toLowerCase() === name.toLowerCase());
         if (idx !== -1) {
@@ -1296,8 +1325,8 @@ export async function dbBulkImportMaterials(items: any[], mode: 'add' | 'update'
             category: row.category ?? arr[idx].category ?? null,
             section: row.section ?? arr[idx].section ?? null,
             unit: row.unit || arr[idx].unit,
-            currentStock: row.currentStock !== undefined && row.currentStock !== '' ? Number(row.currentStock) : arr[idx].currentStock,
-            reorderLevel: row.reorderLevel !== undefined && row.reorderLevel !== '' ? Number(row.reorderLevel) : arr[idx].reorderLevel ?? null,
+            currentStock: row.currentStock !== '' ? Number(row.currentStock) : arr[idx].currentStock,
+            reorderLevel: row.reorderLevel !== null ? row.reorderLevel : arr[idx].reorderLevel ?? null,
             notes: row.notes ?? arr[idx].notes ?? null,
           };
           updated++;
@@ -1309,8 +1338,8 @@ export async function dbBulkImportMaterials(items: any[], mode: 'add' | 'update'
             category: row.category || null,
             section: row.section || null,
             unit: row.unit || 'kg',
-            currentStock: row.currentStock !== undefined && row.currentStock !== '' ? Number(row.currentStock) : 0,
-            reorderLevel: row.reorderLevel !== undefined && row.reorderLevel !== '' ? Number(row.reorderLevel) : null,
+            currentStock: row.currentStock !== '' ? Number(row.currentStock) : 0,
+            reorderLevel: row.reorderLevel,
             notes: row.notes || null,
             createdAt: new Date().toISOString(),
           });
