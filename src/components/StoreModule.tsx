@@ -10,9 +10,9 @@ import {
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
   dbFetchMaterialRequests, dbDecideMaterialRequest, dbMarkMaterialRequestPrinted,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
-  dbFetchConsumptionAnalytics,
+  dbFetchConsumptionAnalytics, dbFetchConsumptionLogs,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, SECTION_DEFINITIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, SECTION_DEFINITIONS } from '../types';
 
 type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'reports';
 
@@ -32,11 +32,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [bom, setBom] = useState<BOMItem[]>([]);
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [incoming, setIncoming] = useState<IncomingMaterial[]>([]);
+  const [consumptionLogs, setConsumptionLogs] = useState<ConsumptionLog[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [printRequest, setPrintRequest] = useState<MaterialRequest | null>(null);
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
 
   const [newMaterial, setNewMaterial] = useState<any>(emptyMaterial);
   const [newBom, setNewBom] = useState<any>(emptyBom);
@@ -49,17 +52,19 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, inc, an] = await Promise.all([
+      const [m, b, r, inc, an, cons] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
         dbFetchIncomingMaterials(),
         dbFetchConsumptionAnalytics(),
+        dbFetchConsumptionLogs(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
       setBom(Array.isArray(b) ? b : []);
       setRequests(Array.isArray(r) ? r.map((x: any) => ({ ...x, qtyRequested: Number(x.qtyRequested) })) : []);
       setIncoming(Array.isArray(inc) ? inc.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
+      setConsumptionLogs(Array.isArray(cons) ? cons.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setAnalytics(an);
       setError(null);
     } catch (e: any) {
@@ -82,6 +87,65 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     if (!sectionFilter) return materials;
     return materials.filter(m => (m.section || '') === sectionFilter);
   }, [materials, sectionFilter]);
+
+  // Date-range helper: dates on records are 'YYYY-MM-DD' or ISO strings — a
+  // plain string comparison works fine for both since they're lexicographic.
+  const inDateRange = useCallback((dateStr: string | undefined | null) => {
+    if (!dateStr) return true;
+    const d = dateStr.slice(0, 10);
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  }, [fromDate, toDate]);
+
+  const filteredIncoming = useMemo(() => {
+    if (!fromDate && !toDate) return incoming;
+    return incoming.filter(i => inDateRange(i.receivedAt));
+  }, [incoming, fromDate, toDate, inDateRange]);
+
+  const filteredConsumptionLogs = useMemo(() => {
+    if (!fromDate && !toDate) return consumptionLogs;
+    return consumptionLogs.filter(c => inDateRange(c.date));
+  }, [consumptionLogs, fromDate, toDate, inDateRange]);
+
+  // Recompute the same shape as dbFetchConsumptionAnalytics(), but scoped to
+  // the selected date range, using the raw incoming/consumption logs already
+  // loaded. When no date filter is set, use the server-computed all-time
+  // analytics as-is (cheaper, and includes currentStock which logs don't).
+  const displayedAnalytics = useMemo(() => {
+    if (!fromDate && !toDate) return analytics;
+    const byMaterial = (list: any[]) => {
+      const map: Record<string, { materialId: string; materialName: string; unit: string; qty: number }> = {};
+      for (const row of list) {
+        if (!map[row.materialId]) map[row.materialId] = { materialId: row.materialId, materialName: row.materialName, unit: row.unit, qty: 0 };
+        map[row.materialId].qty += Number(row.qty || 0);
+      }
+      return Object.values(map);
+    };
+    const sum = (list: any[], matchId: string) => list.filter(x => x.materialId === matchId).reduce((s, x) => s + Number(x.qty || 0), 0);
+    const inventoryReport = materials.map(m => ({
+      materialId: m.id,
+      materialName: m.name,
+      unit: m.unit,
+      currentStock: m.currentStock || 0,
+      totalIncoming: sum(filteredIncoming, m.id),
+      totalConsumed: sum(filteredConsumptionLogs, m.id),
+    }));
+    const dailyBySection: Record<string, number> = {};
+    for (const row of filteredConsumptionLogs) {
+      const key = row.sectionId || 'unknown';
+      dailyBySection[key] = (dailyBySection[key] || 0) + Number(row.qty || 0);
+    }
+    return {
+      inventoryReport,
+      consumptionByMaterial: byMaterial(filteredConsumptionLogs),
+      incomingByMaterial: byMaterial(filteredIncoming),
+      dailyBySection,
+      plannedBySection: {},
+      perProject: analytics?.perProject || {},
+      perPoolType: analytics?.perPoolType || [],
+    };
+  }, [analytics, materials, filteredIncoming, filteredConsumptionLogs, fromDate, toDate]);
 
   // --- Materials ---
   const saveMaterial = async () => {
@@ -245,6 +309,19 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
+      {(tab === 'incoming' || tab === 'reports') && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl p-3">
+          <Clock className="h-3.5 w-3.5 text-slate-500" />
+          <span className="text-xs font-bold uppercase text-slate-400">Date range:</span>
+          <input type="date" data-testid="date-filter-from" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white" />
+          <span className="text-slate-500 text-xs">to</span>
+          <input type="date" data-testid="date-filter-to" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white" />
+          {(fromDate || toDate) && (
+            <button onClick={() => { setFromDate(''); setToDate(''); }} className="text-xs text-orange-400 hover:text-orange-300 cursor-pointer font-semibold">Clear</button>
+          )}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex flex-wrap gap-2 mb-6">
         <button onClick={() => setTab('inventory')} data-testid="tab-inventory" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'inventory' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
@@ -394,7 +471,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 </tr>
               </thead>
               <tbody>
-                {incoming.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(inc => (
+                {filteredIncoming.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(inc => (
                   <tr key={inc.id} className="border-t border-slate-800">
                     <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
                     <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
@@ -525,8 +602,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       )}
 
       {/* ---------- REPORTS TAB ---------- */}
-      {tab === 'reports' && analytics && (
-        <ConsumptionReports analytics={analytics} />
+      {tab === 'reports' && displayedAnalytics && (
+        <ConsumptionReports analytics={displayedAnalytics} />
       )}
 
       {/* ---------- PRINT SLIP MODAL ---------- */}
