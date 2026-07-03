@@ -1503,25 +1503,57 @@ export default function App() {
   };
 
   const handleRestoreState = (recovered: {
-    pools: Pool[];
-    teams: Team[];
-    logs: ActivityLog[];
+    pools?: Pool[];
+    teams?: Team[];
+    logs?: ActivityLog[];
     inspectors?: { id: string; name: string; title: string }[];
     engineers?: { id: string; name: string; title: string }[];
+    employees?: Employee[];
+    plannedPools?: PlannedPool[];
+    projectsSummary?: ProjectSummary[];
+    monthlyTargets?: MonthlyTarget[];
   }) => {
+    // SAFETY: a backup file that doesn't mention a collection at all must NEVER
+    // be treated as "this collection is now empty". Only overwrite a collection
+    // when the key is explicitly present in the uploaded file — otherwise keep
+    // whatever's currently loaded, untouched. This is what previously let an
+    // older/partial backup silently wipe employees (and would have done the same
+    // to plannedPools/projectsSummary/monthlyTargets).
+    const missing: string[] = [];
+    const has = (key: string) => Object.prototype.hasOwnProperty.call(recovered, key);
+    if (!has('employees')) missing.push('employees');
+    if (!has('plannedPools')) missing.push('plannedPools');
+    if (!has('projectsSummary')) missing.push('projectsSummary');
+    if (!has('monthlyTargets')) missing.push('monthlyTargets');
+    if (missing.length > 0) {
+      console.warn(`[handleRestoreState] Backup file did not include: ${missing.join(', ')}. Keeping current data for these — nothing was wiped.`);
+    }
+
     if (recovered.pools) setPools(recovered.pools);
     if (recovered.teams) setTeams(recovered.teams);
     if (recovered.logs) setLogs(recovered.logs);
     if (recovered.inspectors) setInspectors(recovered.inspectors);
     if (recovered.engineers) setEngineers(recovered.engineers);
-    
+    if (recovered.employees) setEmployees(recovered.employees);
+    if (recovered.plannedPools) setPlannedPools(recovered.plannedPools);
+    if (recovered.projectsSummary) setProjectsSummary(recovered.projectsSummary);
+    if (recovered.monthlyTargets) setMonthlyTargets(recovered.monthlyTargets);
+
     saveState(
       recovered.pools || pools,
       recovered.teams || teams,
       recovered.logs || logs,
       recovered.inspectors || inspectors,
-      recovered.engineers || engineers
+      recovered.engineers || engineers,
+      recovered.plannedPools || plannedPools,
+      recovered.projectsSummary || projectsSummary,
+      recovered.monthlyTargets || monthlyTargets,
+      recovered.employees || employees
     );
+
+    if (missing.length > 0) {
+      alert(`Restore complete. Note: this backup file didn't include ${missing.join(', ')}, so your current data for those was kept unchanged (not overwritten).`);
+    }
   };
 
   const handleDeletePool = async (poolId: string, operatorName: string) => {
@@ -2729,6 +2761,7 @@ export default function App() {
             projectsSummary={projectsSummary}
             monthlyTargets={monthlyTargets}
             employees={employees}
+            plannedPools={plannedPools}
             trolleys={trolleys}
             onSaveEmployee={handleSaveEmployee}
             onDeleteEmployee={handleDeleteEmployee}
