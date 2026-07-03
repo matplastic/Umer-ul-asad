@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyADtkZJvDdrtbebPJw7nZYERHy39irZj_c",
+  apiKey: "AIzaSyB1kWJGR4VoxWem5PapGFgu3ldRGiqqscc",
   authDomain: "materp-fad7f.firebaseapp.com",
   projectId: "materp-fad7f",
   storageBucket: "materp-fad7f.firebasestorage.app",
