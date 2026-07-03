@@ -237,6 +237,19 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                   </button>
 
                   <button
+                    onClick={() => onChangeRole('section_supervisor')}
+                    data-testid="role-section-supervisor"
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
+                      currentRole === 'section_supervisor'
+                        ? 'bg-amber-600 text-white shadow-md shadow-amber-900/50 scale-105'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <HardHat className="h-4 w-4" />
+                    <span>Section Supervisor</span>
+                  </button>
+
+                  <button
                     onClick={() => onChangeRole('reports_analytics')}
                     data-testid="role-reports-analytics"
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
