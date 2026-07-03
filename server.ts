@@ -642,63 +642,68 @@ app.get('/api/state', async (req, res) => {
 // 2. Full deep reset/seeding of database
 app.post('/api/state/reset', async (req, res) => {
   try {
-    const { 
-      pools: newPools, 
-      plannedPools: newPlanners, 
-      teams: newTeams, 
-      logs: newLogs, 
-      inspectors: newInspectors, 
+    const body = req.body || {};
+    const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
+    const {
+      pools: newPools,
+      plannedPools: newPlanners,
+      teams: newTeams,
+      logs: newLogs,
+      inspectors: newInspectors,
       engineers: newEngineers,
       projectsSummary: newProjectsSummary,
       monthlyTargets: newMonthlyTargets,
       employees: newEmployees
-    } = req.body;
+    } = body;
 
-    // We execute inside try block to handle clean cascading structure
-    await db.delete(pools);
-    await db.delete(plannedPools);
-    await db.delete(teams);
-    await db.delete(logs);
-    await db.delete(inspectors);
-    await db.delete(engineers);
-    await db.delete(projectsSummary);
-    await db.delete(monthlyTargets);
-    await db.delete(employees);
-
-    if (newPools && newPools.length > 0) {
-      await db.insert(pools).values(newPools);
+    // SAFETY: only touch a table if its key was explicitly present in the request
+    // body. A backup file that simply doesn't mention "employees" (or any other
+    // collection) must never be treated as "delete all employees" — that was the
+    // exact bug that wiped real data. Absent key = leave that table alone entirely.
+    if (has('pools')) {
+      await db.delete(pools);
+      if (newPools && newPools.length > 0) await db.insert(pools).values(newPools);
     }
-    if (newPlanners && newPlanners.length > 0) {
-      await db.insert(plannedPools).values(newPlanners);
+    if (has('plannedPools')) {
+      await db.delete(plannedPools);
+      if (newPlanners && newPlanners.length > 0) await db.insert(plannedPools).values(newPlanners);
     }
-    if (newTeams && newTeams.length > 0) {
-      await db.insert(teams).values(newTeams);
+    if (has('teams')) {
+      await db.delete(teams);
+      if (newTeams && newTeams.length > 0) await db.insert(teams).values(newTeams);
     }
-    if (newLogs && newLogs.length > 0) {
-      // Postgres limit of parameters. Chunk logs if too long.
-      const chunkedLogs = [];
-      const chunkSize = 100;
-      for (let i = 0; i < newLogs.length; i += chunkSize) {
-        chunkedLogs.push(newLogs.slice(i, i + chunkSize));
-      }
-      for (const chunk of chunkedLogs) {
-        await db.insert(logs).values(chunk);
+    if (has('logs')) {
+      await db.delete(logs);
+      if (newLogs && newLogs.length > 0) {
+        const chunkedLogs = [];
+        const chunkSize = 100;
+        for (let i = 0; i < newLogs.length; i += chunkSize) {
+          chunkedLogs.push(newLogs.slice(i, i + chunkSize));
+        }
+        for (const chunk of chunkedLogs) {
+          await db.insert(logs).values(chunk);
+        }
       }
     }
-    if (newInspectors && newInspectors.length > 0) {
-      await db.insert(inspectors).values(newInspectors);
+    if (has('inspectors')) {
+      await db.delete(inspectors);
+      if (newInspectors && newInspectors.length > 0) await db.insert(inspectors).values(newInspectors);
     }
-    if (newEngineers && newEngineers.length > 0) {
-      await db.insert(engineers).values(newEngineers);
+    if (has('engineers')) {
+      await db.delete(engineers);
+      if (newEngineers && newEngineers.length > 0) await db.insert(engineers).values(newEngineers);
     }
-    if (newProjectsSummary && newProjectsSummary.length > 0) {
-      await db.insert(projectsSummary).values(newProjectsSummary);
+    if (has('projectsSummary')) {
+      await db.delete(projectsSummary);
+      if (newProjectsSummary && newProjectsSummary.length > 0) await db.insert(projectsSummary).values(newProjectsSummary);
     }
-    if (newMonthlyTargets && newMonthlyTargets.length > 0) {
-      await db.insert(monthlyTargets).values(newMonthlyTargets);
+    if (has('monthlyTargets')) {
+      await db.delete(monthlyTargets);
+      if (newMonthlyTargets && newMonthlyTargets.length > 0) await db.insert(monthlyTargets).values(newMonthlyTargets);
     }
-    if (newEmployees && newEmployees.length > 0) {
-      await db.insert(employees).values(newEmployees);
+    if (has('employees')) {
+      await db.delete(employees);
+      if (newEmployees && newEmployees.length > 0) await db.insert(employees).values(newEmployees);
     }
 
     await backupToFirestore();
