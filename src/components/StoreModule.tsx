@@ -22,7 +22,7 @@ interface StoreModuleProps {
   poolTypesByProject: Record<string, string[]>;
 }
 
-const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '' };
+const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '' };
 const emptyBom = { projectName: '', poolType: '', materialId: '', qtyPerPool: '' };
 const emptyIncoming = { materialId: '', qty: '', supplier: '', invoiceNo: '', notes: '' };
 
@@ -122,9 +122,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const downloadTemplate = () => {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet([
-      { name: 'Resin (example)', category: 'Resin', section: 'lamination', unit: 'kg', currentStock: 500, reorderLevel: 50, notes: '' },
-      { name: 'Fiber Mat (example)', category: 'Fiberglass', section: 'lamination', unit: 'kg', currentStock: 300, reorderLevel: 30, notes: '' },
-      { name: 'Primer Paint (example)', category: 'Paint', section: 'steel_primer', unit: 'ltr', currentStock: 200, reorderLevel: 20, notes: '' },
+      { name: 'Resin (example)', erpCode: 'MZ.SRF.RES.001', category: 'Resin', section: 'lamination', unit: 'kg', currentStock: 500, reorderLevel: 50, supplierName: 'ABC Chemicals', brand: 'Reichhold', location: 'Rack A-1', hsCode: '3907.30', notes: '' },
+      { name: 'Fiber Mat (example)', erpCode: 'MZ.SRF.FIB.002', category: 'Fiberglass', section: 'lamination', unit: 'kg', currentStock: 300, reorderLevel: 30, supplierName: 'Global Fiber Co', brand: 'Owens Corning', location: 'Rack A-2', hsCode: '7019.31', notes: '' },
+      { name: 'Primer Paint (example)', erpCode: 'MZ.SRF.PRM.003', category: 'Paint', section: 'steel_primer', unit: 'ltr', currentStock: 200, reorderLevel: 20, supplierName: 'Jotun', brand: 'Jotun', location: 'Rack B-1', hsCode: '3208.90', notes: '' },
     ]);
     XLSX.utils.book_append_sheet(wb, ws, 'Materials');
     XLSX.writeFile(wb, 'materials_import_template.xlsx');
@@ -305,6 +305,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input placeholder="Unit (kg/ltr/pcs)" data-testid="new-mat-unit" value={newMaterial.unit} onChange={e => setNewMaterial((p: any) => ({ ...p, unit: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input type="number" placeholder="Opening stock" data-testid="new-mat-stock" value={newMaterial.currentStock} onChange={e => setNewMaterial((p: any) => ({ ...p, currentStock: Number(e.target.value) }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={saveMaterial} data-testid="new-mat-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Material</button>
+            <input placeholder="ERP Code" data-testid="new-mat-erpcode" value={newMaterial.erpCode} onChange={e => setNewMaterial((p: any) => ({ ...p, erpCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input placeholder="Supplier name" data-testid="new-mat-supplier" value={newMaterial.supplierName} onChange={e => setNewMaterial((p: any) => ({ ...p, supplierName: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
+            <input placeholder="Brand" data-testid="new-mat-brand" value={newMaterial.brand} onChange={e => setNewMaterial((p: any) => ({ ...p, brand: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input placeholder="Location (Rack/Bin)" data-testid="new-mat-location" value={newMaterial.location} onChange={e => setNewMaterial((p: any) => ({ ...p, location: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
           </div>
 
           {/* Inventory table with incoming + consumed columns */}
@@ -313,8 +318,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <thead>
                 <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Material</th>
+                  <th className="text-left px-4 py-2">ERP Code</th>
                   <th className="text-left px-4 py-2">Section</th>
                   <th className="text-left px-4 py-2">Category</th>
+                  <th className="text-left px-4 py-2">Brand</th>
+                  <th className="text-left px-4 py-2">Supplier</th>
+                  <th className="text-left px-4 py-2">Location</th>
                   <th className="text-right px-4 py-2">Incoming</th>
                   <th className="text-right px-4 py-2">Consumed</th>
                   <th className="text-right px-4 py-2">Current Stock</th>
@@ -330,8 +339,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     return (
                       <tr key={m.id} className="border-t border-slate-800">
                         <td className="px-4 py-2 text-slate-200 font-semibold">{m.name}</td>
+                        <td className="px-4 py-2 text-slate-400 font-mono">{(m as any).erpCode || '—'}</td>
                         <td className="px-4 py-2 text-slate-400"><button onClick={() => editSection(m)} className="hover:text-orange-400 cursor-pointer">{sectionLabel(m.section)}</button></td>
                         <td className="px-4 py-2 text-slate-400">{m.category || '—'}</td>
+                        <td className="px-4 py-2 text-slate-400">{(m as any).brand || '—'}</td>
+                        <td className="px-4 py-2 text-slate-400">{(m as any).supplierName || '—'}</td>
+                        <td className="px-4 py-2 text-slate-400">{(m as any).location || '—'}</td>
                         <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
                         <td className="px-4 py-2 text-right text-rose-400 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
                         <td className={`px-4 py-2 text-right font-mono ${(m.reorderLevel || 0) > 0 && m.currentStock <= (m.reorderLevel || 0) ? 'text-rose-400 font-bold' : 'text-slate-200'}`}>
