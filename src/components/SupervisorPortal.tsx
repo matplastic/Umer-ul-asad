@@ -10,6 +10,7 @@ import {
 } from '../lib/firebaseService';
 import {
   Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog,
+  SECTION_DEFINITIONS,
 } from '../types';
 
 interface SupervisorPortalProps {
@@ -51,6 +52,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
   // Production form
   const [pDate, setPDate] = useState(todayStr());
+  const [pStage, setPStage] = useState<string>(SECTION_DEFINITIONS[0].id as string);
   const [pProject, setPProject] = useState('');
   const [pPoolType, setPPoolType] = useState('');
   const [pPoolNo, setPPoolNo] = useState('');
@@ -106,9 +108,9 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     [consumption, section]);
 
   const myProduction = useMemo(() => production
-    .filter(p => p.sectionId === section)
+    .filter(p => p.sectionId === pStage)
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    [production, section]);
+    [production, pStage]);
 
   const myRequests = useMemo(() => requests
     .filter(r => (r.stageId || '') === section)
@@ -169,10 +171,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
   const submitProduction = async () => {
     if (!pProject || !pPoolType || !pQty) { setFlash('Fill project, pool type and quantity'); return; }
+    const stageName = SECTION_DEFINITIONS.find(s => s.id === pStage)?.name || pStage;
     await dbCreateProductionLog({
       date: pDate,
-      sectionId: section,
-      sectionName,
+      sectionId: pStage,
+      sectionName: stageName,
       projectName: pProject,
       poolType: pPoolType,
       poolNo: pPoolNo || null,
@@ -351,8 +354,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* PRODUCTION TAB */}
       {tab === 'production' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
             <input type="date" data-testid="prod-date" value={pDate} onChange={e => setPDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <select value={pStage} onChange={e => setPStage(e.target.value)} data-testid="prod-stage" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+              {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
+            </select>
             <select value={pProject} onChange={e => { setPProject(e.target.value); setPPoolType(''); }} data-testid="prod-project" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
               <option value="">Project…</option>
               {projectNames.map(p => <option key={p} value={p}>{p}</option>)}
@@ -370,7 +376,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
-              My recent production ({sectionName})
+              My recent production ({SECTION_DEFINITIONS.find(s => s.id === pStage)?.name || pStage})
             </div>
             <table className="w-full text-xs">
               <thead>
