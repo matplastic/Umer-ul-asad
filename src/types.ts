@@ -196,6 +196,11 @@ export interface Material {
   currentStock: number;
   reorderLevel?: number | null;
   notes?: string | null;
+  erpCode?: string | null;
+  supplierName?: string | null;
+  brand?: string | null;
+  location?: string | null; // storage bin/rack, e.g. "Rack A-3"
+  hsCode?: string | null; // customs HS code
   createdAt: string;
 }
 
