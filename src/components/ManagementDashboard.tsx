@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction } from '../types';
+import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool } from '../types';
 import { STAGES } from '../data/mockData';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
@@ -33,11 +33,15 @@ interface ManagementDashboardProps {
   onGoogleSignIn?: () => void;
   onGoogleSignOut?: () => void;
   onRestoreState?: (recovered: {
-    pools: Pool[];
-    teams: Team[];
-    logs: ActivityLog[];
+    pools?: Pool[];
+    teams?: Team[];
+    logs?: ActivityLog[];
     inspectors?: { id: string; name: string; title: string }[];
     engineers?: { id: string; name: string; title: string }[];
+    employees?: Employee[];
+    plannedPools?: PlannedPool[];
+    projectsSummary?: ProjectSummary[];
+    monthlyTargets?: MonthlyTarget[];
   }) => void;
   stationLock?: {
     isLocked: boolean;
@@ -58,6 +62,7 @@ interface ManagementDashboardProps {
   projectsSummary?: ProjectSummary[];
   monthlyTargets?: MonthlyTarget[];
   employees?: Employee[];
+  plannedPools?: PlannedPool[];
   trolleys?: TrolleyProduction[];
   onSaveEmployee?: (employee: Employee) => void;
   onDeleteEmployee?: (id: string) => void;
@@ -104,6 +109,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   projectsSummary = [],
   monthlyTargets = [],
   employees = [],
+  plannedPools = [],
   trolleys = [],
   onSaveEmployee,
   onDeleteEmployee,
@@ -1085,7 +1091,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         logs,
         inspectors,
         engineers,
-        backupTime: new Date().toISOString()
+        employees,
+        plannedPools,
+        projectsSummary,
+        monthlyTargets,
+        backupTime: new Date().toISOString(),
+        version: '2.0'
       };
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '_');
       const filename = `MAT_ERP_Backup_${timestamp}.json`;
@@ -1101,9 +1112,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   };
 
   const handleRestoreBackup = async (fileId: string) => {
-    if (!window.confirm("WARNING: Restoring database state will replace all current in-memory pools, logs, and team configurations. Do you want to continue?")) {
-      return;
-    }
     setRestoreStatus('restoring');
     setRestoreMessage('');
     try {
@@ -1112,6 +1120,39 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       if (!parsed.pools || !parsed.teams || !parsed.logs) {
         throw new Error("Invalid backup file schema: Missing critical collections.");
       }
+
+      // Build a clear summary of what this file actually contains before touching anything.
+      // Collections NOT present in the file are never wiped — they're left exactly as-is.
+      const counts: string[] = [
+        `Pools: ${parsed.pools?.length ?? 0}`,
+        `Teams: ${parsed.teams?.length ?? 0}`,
+        `Logs: ${parsed.logs?.length ?? 0}`,
+      ];
+      const missing: string[] = [];
+      const noteCount = (label: string, key: string) => {
+        if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+          counts.push(`${label}: ${parsed[key]?.length ?? 0}`);
+        } else {
+          missing.push(label);
+        }
+      };
+      noteCount('Employees', 'employees');
+      noteCount('Planned Pools', 'plannedPools');
+      noteCount('Project Summaries', 'projectsSummary');
+      noteCount('Monthly Targets', 'monthlyTargets');
+
+      const warningLine = missing.length > 0
+        ? `\n\nThis file does NOT include: ${missing.join(', ')}.\nYour current data for those will be KEPT UNCHANGED (not deleted).`
+        : '\n\nThis file includes all collections.';
+
+      const confirmed = window.confirm(
+        `Restore this backup?\n\n${counts.join('\n')}${warningLine}\n\nThis will replace the collections listed above with the file's contents. Continue?`
+      );
+      if (!confirmed) {
+        setRestoreStatus('idle');
+        return;
+      }
+
       if (onRestoreState) {
         onRestoreState(parsed);
       }
@@ -1147,8 +1188,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       logs,
       inspectors,
       engineers,
+      employees,
+      plannedPools,
+      projectsSummary,
+      monthlyTargets,
       exportedAt: new Date().toISOString(),
-      version: "1.0"
+      version: "2.0"
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1173,6 +1218,36 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           alert("Invalid backup file: missing required fields");
           return;
         }
+
+        // Same safety summary as the Google Drive restore path: show exactly what's
+        // in the file, and make clear that anything not present stays untouched.
+        const counts: string[] = [
+          `Pools: ${data.pools?.length ?? 0}`,
+          `Teams: ${data.teams?.length ?? 0}`,
+          `Logs: ${data.logs?.length ?? 0}`,
+        ];
+        const missing: string[] = [];
+        const noteCount = (label: string, key: string) => {
+          if (Object.prototype.hasOwnProperty.call(data, key)) {
+            counts.push(`${label}: ${data[key]?.length ?? 0}`);
+          } else {
+            missing.push(label);
+          }
+        };
+        noteCount('Employees', 'employees');
+        noteCount('Planned Pools', 'plannedPools');
+        noteCount('Project Summaries', 'projectsSummary');
+        noteCount('Monthly Targets', 'monthlyTargets');
+
+        const warningLine = missing.length > 0
+          ? `\n\nThis file does NOT include: ${missing.join(', ')}.\nYour current data for those will be KEPT UNCHANGED (not deleted).`
+          : '\n\nThis file includes all collections.';
+
+        const confirmed = window.confirm(
+          `Restore this backup?\n\n${counts.join('\n')}${warningLine}\n\nThis will replace the collections listed above with the file's contents. Continue?`
+        );
+        if (!confirmed) return;
+
         if (onRestoreState) {
           onRestoreState(data);
           alert("State successfully restored from local backup!");
