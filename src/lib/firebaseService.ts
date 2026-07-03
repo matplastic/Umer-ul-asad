@@ -111,7 +111,7 @@ async function setFirestoreDocArray(docName: string, data: any[], allowEmpty: bo
 // Firestore transactions auto-retry up to 5 times on conflict.
 // Zero data loss, zero manual merging needed.
 // ─────────────────────────────────────────────────────────────────────────────
-async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) => any[]): Promise<any[]> {
+async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) => any[], allowEmpty: boolean = false): Promise<any[]> {
   const docRef = doc(clientDb, 'system_state', docName);
   let updatedArr: any[] = [];
 
@@ -126,9 +126,13 @@ async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) =
       // Apply the caller's update function
       updatedArr = updateFn([...current]);
 
-      // SAFETY: never write empty array if current has data
-      // This protects against accidental wipes
-      if (updatedArr.length === 0 && current.length > 0) {
+      // SAFETY: refuse to write an empty array if current had data, UNLESS
+      // the caller explicitly says this is an intentional last-item delete
+      // (allowEmpty=true). Without allowEmpty, a bug that accidentally
+      // produces [] (e.g. a bad fetch) can't silently wipe a collection —
+      // but a genuine "delete the only remaining item" now actually works,
+      // instead of silently failing while the UI reports success.
+      if (!allowEmpty && updatedArr.length === 0 && current.length > 0) {
         console.warn(`[updateFirestoreDocArray] Refusing to write empty array to '${docName}' (current has ${current.length} items). Skipping write.`);
         updatedArr = current; // keep existing data
         return;
@@ -392,7 +396,7 @@ export async function dbSaveEmployee(employee: Employee) {
 export async function dbDeleteEmployee(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('employees', (arr) => arr.filter(item => item.id !== id));
+    await updateFirestoreDocArray('employees', (arr) => arr.filter(item => item.id !== id), true);
     return { success: true };
   }
 
@@ -441,7 +445,7 @@ export async function dbSavePool(pool: Pool) {
 export async function dbDeletePool(poolId: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('pools', (arr) => arr.filter(item => item.id !== poolId));
+    await updateFirestoreDocArray('pools', (arr) => arr.filter(item => item.id !== poolId), true);
     return { success: true };
   }
 
@@ -490,7 +494,7 @@ export async function dbSavePlannedPool(planned: PlannedPool) {
 export async function dbDeletePlannedPool(plannedId: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('plannedPools', (arr) => arr.filter(item => item.id !== plannedId));
+    await updateFirestoreDocArray('plannedPools', (arr) => arr.filter(item => item.id !== plannedId), true);
     return { success: true };
   }
 
@@ -539,7 +543,7 @@ export async function dbSaveProjectSummary(summary: ProjectSummary) {
 export async function dbDeleteProjectSummary(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('projectsSummary', (arr) => arr.filter(item => item.id !== id));
+    await updateFirestoreDocArray('projectsSummary', (arr) => arr.filter(item => item.id !== id), true);
     return { success: true };
   }
 
@@ -588,7 +592,7 @@ export async function dbSaveMonthlyTarget(target: MonthlyTarget) {
 export async function dbDeleteMonthlyTarget(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('monthlyTargets', (arr) => arr.filter(item => item.id !== id));
+    await updateFirestoreDocArray('monthlyTargets', (arr) => arr.filter(item => item.id !== id), true);
     return { success: true };
   }
 
@@ -690,7 +694,7 @@ export async function dbSaveEngineer(engineer: any) {
 export async function dbDeleteInspector(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('inspectors', (arr) => arr.filter(item => item.id !== id));
+    await updateFirestoreDocArray('inspectors', (arr) => arr.filter(item => item.id !== id), true);
     return { success: true };
   }
 }
@@ -698,7 +702,7 @@ export async function dbDeleteInspector(id: string) {
 export async function dbDeleteEngineer(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('engineers', (arr) => arr.filter(item => item.id !== id));
+    await updateFirestoreDocArray('engineers', (arr) => arr.filter(item => item.id !== id), true);
     return { success: true };
   }
 }
@@ -734,7 +738,7 @@ export async function dbSaveTrolley(trolley: TrolleyProduction) {
 export async function dbDeleteTrolley(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('trolleys', (arr) => arr.filter(item => item.id !== id));
+    await updateFirestoreDocArray('trolleys', (arr) => arr.filter(item => item.id !== id), true);
     return { success: true };
   }
 
@@ -781,7 +785,7 @@ export async function dbAddRecycleBin(item: RecycleBinItem) {
 export async function dbDeleteRecycleBin(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('recycleBin', (arr) => arr.filter(item => item.id !== id));
+    await updateFirestoreDocArray('recycleBin', (arr) => arr.filter(item => item.id !== id), true);
     return { success: true };
   }
 
@@ -836,8 +840,8 @@ export async function dbPurgePoolRelatedData(backupId: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
     await Promise.all([
-      updateFirestoreDocArray('pools', (arr) => arr.filter(p => p.projectId !== backupId)),
-      updateFirestoreDocArray('plannedPools', (arr) => arr.filter(p => p.id !== backupId))
+      updateFirestoreDocArray('pools', (arr) => arr.filter(p => p.projectId !== backupId), true),
+      updateFirestoreDocArray('plannedPools', (arr) => arr.filter(p => p.id !== backupId), true)
     ]);
     return { success: true };
   }
@@ -939,7 +943,7 @@ export async function dbSaveMaterial(material: Material) {
 
 export async function dbDeleteMaterial(id: string) {
   if (!apiBase()) {
-    await updateFirestoreDocArray('materials', (arr) => arr.filter((m) => m.id !== id));
+    await updateFirestoreDocArray('materials', (arr) => arr.filter((m) => m.id !== id), true);
     return { success: true };
   }
   const headers = await getHeaders();
@@ -983,7 +987,7 @@ export async function dbSaveBomItem(item: Omit<BOMItem, 'id' | 'createdAt'> & { 
 
 export async function dbDeleteBomItem(id: string) {
   if (!apiBase()) {
-    await updateFirestoreDocArray('bomItems', (arr) => arr.filter((b) => b.id !== id));
+    await updateFirestoreDocArray('bomItems', (arr) => arr.filter((b) => b.id !== id), true);
     return { success: true };
   }
   const headers = await getHeaders();
@@ -1092,7 +1096,7 @@ export async function dbSaveEmployeePunch(punch: EmployeePunch) {
 export async function dbDeleteEmployeePunch(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('employeePunches', (arr) => arr.filter(item => item.id !== id));
+    await updateFirestoreDocArray('employeePunches', (arr) => arr.filter(item => item.id !== id), true);
     return { success: true };
   }
 
@@ -1185,7 +1189,7 @@ export async function dbClearAllEmployeePunches() {
 export async function dbDeleteEmployeePunchesByDate(date: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('employeePunches', (arr) => arr.filter(p => !p.punchTime?.startsWith(date)));
+    await updateFirestoreDocArray('employeePunches', (arr) => arr.filter(p => !p.punchTime?.startsWith(date)), true);
     return { success: true };
   }
 
@@ -1405,7 +1409,7 @@ export async function dbCreateIncomingMaterial(payload: Omit<IncomingMaterial, '
 
 export async function dbDeleteIncomingMaterial(id: string) {
   if (!apiBase()) {
-    await updateFirestoreDocArray('incomingMaterials', (arr) => arr.filter((i) => i.id !== id));
+    await updateFirestoreDocArray('incomingMaterials', (arr) => arr.filter((i) => i.id !== id), true);
     return { success: true };
   }
   const headers = await getHeaders();
@@ -1439,7 +1443,7 @@ export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' 
 
 export async function dbDeleteConsumptionLog(id: string) {
   if (!apiBase()) {
-    await updateFirestoreDocArray('consumptionLogs', (arr) => arr.filter((c) => c.id !== id));
+    await updateFirestoreDocArray('consumptionLogs', (arr) => arr.filter((c) => c.id !== id), true);
     return { success: true };
   }
   const headers = await getHeaders();
@@ -1470,7 +1474,7 @@ export async function dbCreateProductionLog(payload: Omit<ProductionLog, 'id' | 
 
 export async function dbDeleteProductionLog(id: string) {
   if (!apiBase()) {
-    await updateFirestoreDocArray('productionLogs', (arr) => arr.filter((p) => p.id !== id));
+    await updateFirestoreDocArray('productionLogs', (arr) => arr.filter((p) => p.id !== id), true);
     return { success: true };
   }
   const headers = await getHeaders();
