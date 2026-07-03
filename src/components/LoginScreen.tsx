@@ -98,6 +98,24 @@ const USER_PROFILES: UserProfile[] = [
     description:
       'Manage employee directory, attendance records, monthly payroll, leave requests, disciplinary warnings, and HR reports.',
   },
+  {
+    role: 'store',
+    title: 'Store & Inventory',
+    subtitle: 'Materials, Incoming, BOM & Consumption',
+    colorClass: 'from-orange-600 to-amber-600 shadow-orange-500/10',
+    bgIconClass: 'bg-orange-50 text-orange-600',
+    description:
+      'Manage raw materials, upload inventory via Excel, log incoming stock, define BOM, and view consumption reports.',
+  },
+  {
+    role: 'section_supervisor',
+    title: 'Section Supervisor',
+    subtitle: 'Daily Consumption, Production & Requests',
+    colorClass: 'from-amber-600 to-yellow-600 shadow-amber-500/10',
+    bgIconClass: 'bg-amber-50 text-amber-600',
+    description:
+      'Choose your section (Steel, Primer, Lamination, etc.) — log the material you consumed today, the pools you produced, and raise material requests.',
+  },
 ];
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
@@ -115,6 +133,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     factory_entrance: '',
     section_dashboard: '',
     hr_portal: '',
+    store: '',
+    section_supervisor: '',
   });
 
   React.useEffect(() => {
