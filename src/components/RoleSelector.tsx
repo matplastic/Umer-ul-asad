@@ -71,23 +71,21 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
     <div className="w-64 shrink-0 h-screen sticky top-0 bg-slate-900 text-slate-100 border-r border-slate-800 flex flex-col overflow-y-auto">
 
       {/* Brand / Logo */}
-      <div className="flex flex-col items-center text-center gap-3 px-5 pt-8 pb-6 border-b border-slate-800">
-        <div className="h-20 w-20 rounded-2xl bg-white shadow-lg shadow-black/20 ring-1 ring-white/10 flex items-center justify-center p-3">
+      <div className="flex items-center gap-3.5 px-5 pt-7 pb-6 border-b border-slate-800/80">
+        <div className="h-14 w-14 shrink-0 rounded-xl bg-white shadow-[0_8px_20px_rgba(0,0,0,0.35)] ring-1 ring-amber-500/25 flex items-center justify-center p-2">
           <img
             src="/logo.png"
             alt="MAT Plastic Industries LLC"
             className="h-full w-full object-contain"
           />
         </div>
-        <div>
-          <h1 className="text-[15px] font-bold tracking-tight text-white leading-snug">
-            MAT Plastic Industries LLC
+        <div className="min-w-0">
+          <h1 className="text-[12.5px] font-semibold tracking-[0.14em] uppercase text-white leading-[1.35]">
+            MAT Plastic<br />Industries
           </h1>
-          <span className="inline-block mt-1.5 text-cyan-400 font-mono text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-full">
+          <div className="mt-2 h-px w-7 bg-amber-500/70" />
+          <p className="mt-2 text-[9.5px] font-medium tracking-[0.12em] uppercase text-slate-400">
             Manufacturing ERP
-          </span>
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
-            Flow-Based Shop Floor Scheduling &amp; Quality Control
           </p>
         </div>
       </div>
@@ -195,6 +193,24 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           <LogOut className="h-3.5 w-3.5 shrink-0" />
           <span>Exit Portal</span>
         </button>
+      </div>
+
+      {/* Bottom brand signature */}
+      <div className="flex items-center gap-2.5 px-5 py-4 border-t border-slate-800/80">
+        <div className="h-8 w-8 shrink-0 rounded-lg bg-white shadow-[0_4px_10px_rgba(0,0,0,0.3)] ring-1 ring-amber-500/25 flex items-center justify-center p-1">
+          <img
+            src="/logo.png"
+            alt=""
+            aria-hidden="true"
+            className="h-full w-full object-contain"
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[9.5px] font-semibold tracking-[0.1em] uppercase text-slate-300 truncate">
+            MAT Plastic Industries
+          </p>
+          <p className="text-[9px] text-slate-500">© 2026 · All rights reserved</p>
+        </div>
       </div>
     </div>
   );
