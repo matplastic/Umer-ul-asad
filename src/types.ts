@@ -176,6 +176,80 @@ export interface EmployeePunch {
   date: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STORE & INVENTORY MODULE TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface Material {
+  id: string; // e.g., 'mat_resin_poly_001'
+  name: string; // e.g., 'Polyester Resin'
+  category: string; // e.g., 'Resins', 'Fiberglass', 'Gelcoat', 'Hardware'
+  unit: 'kg' | 'm' | 'sqm' | 'pcs' | 'ltr'; // Unit of measurement
+  stock: number; // Current quantity in stock
+  minStock: number; // Minimum stock level to trigger reorder
+  supplier?: string;
+  notes?: string;
+}
+
+export interface BOMItem {
+  materialId: string;
+  quantity: number;
+}
+
+export interface BillOfMaterials {
+  id: string; // e.g., 'bom_type3_normal'
+  projectName: string;
+  poolType: string; // e.g., 'Type 3'
+  items: BOMItem[];
+}
+
+export interface MaterialRequest {
+  id: string;
+  section: string; // e.g., 'Lamination Area'
+  requestedBy: string;
+  requestedAt: string;
+  items: {
+    materialId: string;
+    quantity: number;
+  }[];
+  status: 'pending' | 'approved' | 'rejected' | 'fulfilled';
+  notes?: string;
+}
+
+export interface IncomingMaterial {
+  id: string;
+  materialId: string;
+  quantity: number;
+  supplier: string;
+  receivedAt: string;
+  receivedBy: string;
+  invoice?: string;
+}
+
+export interface ConsumptionLog {
+  id: string;
+  materialId: string;
+  quantity: number;
+  consumedBy: string; // Section or Project ID
+  consumedAt: string;
+  notes?: string;
+}
+
+export interface SectionDefinition {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export const SECTION_DEFINITIONS: SectionDefinition[] = [
+  { id: 'steel_workshop', name: 'Steel Workshop', description: 'Primary steel frame and shell fabrication.' },
+  { id: 'cladding_dept', name: 'Cladding Department', description: 'Application of chemical cladding and protective coats.' },
+  { id: 'lamination_area', name: 'Lamination Area', description: 'Fiberglass and resin structural lamination.' },
+  { id: 'assembly_floor', name: 'Assembly Floor', description: 'Mechanical and plumbing fitting assembly.' },
+  { id: 'finishing_bay', name: 'Finishing Bay', description: 'Mosaic, grouting, and final cosmetic touches.' },
+  { id: 'warehouse', name: 'Main Warehouse', description: 'General storage and material dispatch.' },
+];
+
 export interface RecycleBinItem {
   id: string;
   dataType: string; // 'all_pools_data' | 'trolley' | 'pool' | 'planned_pool' | 'project_summary'
