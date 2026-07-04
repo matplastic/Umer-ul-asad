@@ -394,23 +394,45 @@ async function backupToFirestore() {
       db.select().from(materialRequests),
     ]);
 
-    await Promise.all([
-      systemStateCol.doc('pools').set({ data: poolsData }),
-      systemStateCol.doc('plannedPools').set({ data: plannedData }),
-      systemStateCol.doc('teams').set({ data: teamsData }),
-      systemStateCol.doc('logs').set({ data: logsData }),
-      systemStateCol.doc('inspectors').set({ data: inspectorsData }),
-      systemStateCol.doc('engineers').set({ data: engineersData }),
-      systemStateCol.doc('projectsSummary').set({ data: projectsSummaryData }),
-      systemStateCol.doc('monthlyTargets').set({ data: monthlyTargetsData }),
-      systemStateCol.doc('employees').set({ data: employeesData }),
-      systemStateCol.doc('trolleys').set({ data: trolleysData }),
-      systemStateCol.doc('recycleBin').set({ data: recycleBinData }),
-      systemStateCol.doc('employeePunches').set({ data: punchesData }),
-      systemStateCol.doc('materials').set({ data: materialsData }),
-      systemStateCol.doc('bomItems').set({ data: bomItemsData }),
-      systemStateCol.doc('materialRequests').set({ data: materialRequestsData }),
-    ]);
+    // SAFETY GUARD: never let a still-empty (or not-yet-migrated) Postgres
+    // table stomp a Firestore collection that already has real data. This is
+    // the exact bug that previously wiped out `employees` and `logs`: a fresh
+    // Postgres schema had 0 rows in those two tables while Firestore held
+    // 182 employees / 200 logs, and this backup happily overwrote both with
+    // empty arrays. Mirrors the guard already used by setFirestoreDocArray
+    // on the frontend.
+    const candidates: Record<string, any[]> = {
+      pools: poolsData,
+      plannedPools: plannedData,
+      teams: teamsData,
+      logs: logsData,
+      inspectors: inspectorsData,
+      engineers: engineersData,
+      projectsSummary: projectsSummaryData,
+      monthlyTargets: monthlyTargetsData,
+      employees: employeesData,
+      trolleys: trolleysData,
+      recycleBin: recycleBinData,
+      employeePunches: punchesData,
+      materials: materialsData,
+      bomItems: bomItemsData,
+      materialRequests: materialRequestsData,
+    };
+
+    const writes = await Promise.all(
+      Object.entries(candidates).map(async ([docName, rows]) => {
+        if (Array.isArray(rows) && rows.length === 0) {
+          const existingSnap = await systemStateCol.doc(docName).get();
+          const existingData = existingSnap.exists ? existingSnap.data()?.data : undefined;
+          if (Array.isArray(existingData) && existingData.length > 0) {
+            console.warn(`[backupToFirestore] Skipped '${docName}' — Postgres returned 0 rows but Firestore already has ${existingData.length}. Refusing to overwrite; check whether this table was actually migrated.`);
+            return null;
+          }
+        }
+        return systemStateCol.doc(docName).set({ data: rows });
+      })
+    );
+    void writes;
 
     console.log('Successfully backed up entire active state to permanent Firestore storage.');
   } catch (err) {
