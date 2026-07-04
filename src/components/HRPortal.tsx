@@ -1,10 +1,15 @@
-import React, { useState, useMemo } from 'react';
-import { Employee, EmployeePunch } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Employee, EmployeePunch, ViewRole } from '../types';
 import {
   Users, Clock, DollarSign, CalendarOff, AlertTriangle, BarChart2,
   Plus, Search, Trash2, Edit2, CheckCircle, XCircle,
-  Filter, X, Save, FileText, ShieldAlert, Stethoscope
+  Filter, X, Save, FileText, ShieldAlert, Stethoscope,
+  KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye
 } from 'lucide-react';
+import {
+  listUserAccounts, createUserAccount, updateUserAccount,
+  resetUserPassword, deactivateUserAccount, type AuthUser
+} from '../lib/authClient';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +78,7 @@ interface HRPortalProps {
   employeePunches: EmployeePunch[];
   onSaveEmployee: (emp: Employee) => void;
   onDeleteEmployee: (id: string) => void;
+  currentUserName?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -113,8 +119,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   employeePunches,
   onSaveEmployee,
   onDeleteEmployee,
+  currentUserName,
 }) => {
-  const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'reports'>('directory');
+  const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'reports' | 'accounts'>('directory');
 
   // ── Leave state (localStorage-backed) ──
   const [leaves, setLeaves] = useState<LeaveRequest[]>(() => {
@@ -1297,6 +1304,362 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // ACCOUNTS TAB — create & manage every person's login (username + password)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const ROLE_OPTIONS: { value: ViewRole; label: string }[] = [
+    { value: 'management', label: 'Executive Management' },
+    { value: 'planning_department', label: 'Planning Department' },
+    { value: 'production_engineer', label: 'Production Engineering' },
+    { value: 'quality_inspector', label: 'Quality Assurance' },
+    { value: 'stage_worker', label: 'Stage Shop Floor' },
+    { value: 'trolley_prod', label: 'Trolley Production Supervisor' },
+    { value: 'factory_entrance', label: 'Factory Entrance TV Monitor' },
+    { value: 'section_dashboard', label: 'Section TV Dashboard' },
+    { value: 'hr_portal', label: 'HR Management Portal' },
+    { value: 'store', label: 'Store & Inventory' },
+    { value: 'section_supervisor', label: 'Section Supervisor' },
+    { value: 'reports_analytics', label: 'Reports & Analytics' },
+  ];
+
+  const AccountsTab = () => {
+    const [accounts, setAccounts] = useState<AuthUser[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [showForm, setShowForm] = useState(false);
+    const [search, setSearch] = useState('');
+
+    // New-account form
+    const [newUsername, setNewUsername] = useState('');
+    const [newDisplayName, setNewDisplayName] = useState('');
+    const [newRole, setNewRole] = useState<ViewRole>('section_supervisor');
+    const [newEmployeeId, setNewEmployeeId] = useState<string>('');
+    const [formError, setFormError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
+
+    // One-time reveal of a freshly issued temp password
+    const [revealedPassword, setRevealedPassword] = useState<{ username: string; password: string } | null>(null);
+    const [showRevealed, setShowRevealed] = useState(true);
+    const [copiedFlag, setCopiedFlag] = useState(false);
+
+    const loadAccounts = () => {
+      setLoading(true);
+      setLoadError(null);
+      listUserAccounts()
+        .then(setAccounts)
+        .catch((err) => setLoadError(err?.message || 'Failed to load accounts. Are you signed in as HR or Management?'))
+        .finally(() => setLoading(false));
+    };
+
+    useEffect(() => { loadAccounts(); }, []);
+
+    const filtered = useMemo(() => accounts.filter(a =>
+      a.username.toLowerCase().includes(search.toLowerCase()) ||
+      a.displayName.toLowerCase().includes(search.toLowerCase())
+    ), [accounts, search]);
+
+    const resetForm = () => {
+      setNewUsername('');
+      setNewDisplayName('');
+      setNewRole('section_supervisor');
+      setNewEmployeeId('');
+      setFormError(null);
+    };
+
+    const handleCreate = async () => {
+      if (!newUsername.trim() || !newDisplayName.trim()) {
+        setFormError('Username and full name are required.');
+        return;
+      }
+      setSaving(true);
+      setFormError(null);
+      try {
+        const { user, tempPassword } = await createUserAccount({
+          username: newUsername.trim(),
+          displayName: newDisplayName.trim(),
+          role: newRole,
+          employeeId: newEmployeeId || null,
+        });
+        setAccounts(prev => [...prev, user]);
+        setRevealedPassword({ username: user.username, password: tempPassword });
+        setShowRevealed(true);
+        setShowForm(false);
+        resetForm();
+      } catch (err: any) {
+        setFormError(err?.message || 'Failed to create account.');
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const handleToggleActive = async (acc: AuthUser) => {
+      try {
+        if (acc.active) {
+          await deactivateUserAccount(acc.id);
+          setAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, active: 0 } : a));
+        } else {
+          const updated = await updateUserAccount(acc.id, { active: 1 as any });
+          setAccounts(prev => prev.map(a => a.id === acc.id ? updated : a));
+        }
+      } catch (err: any) {
+        alert(err?.message || 'Failed to update account status.');
+      }
+    };
+
+    const handleRoleChange = async (acc: AuthUser, role: ViewRole) => {
+      try {
+        const updated = await updateUserAccount(acc.id, { role });
+        setAccounts(prev => prev.map(a => a.id === acc.id ? updated : a));
+      } catch (err: any) {
+        alert(err?.message || 'Failed to update role.');
+      }
+    };
+
+    const handleResetPassword = async (acc: AuthUser) => {
+      if (!confirm(`Reset the password for ${acc.displayName} (${acc.username})? Their old password will stop working immediately.`)) return;
+      try {
+        const { tempPassword } = await resetUserPassword(acc.id);
+        setRevealedPassword({ username: acc.username, password: tempPassword });
+        setShowRevealed(true);
+      } catch (err: any) {
+        alert(err?.message || 'Failed to reset password.');
+      }
+    };
+
+    const copyRevealed = () => {
+      if (!revealedPassword) return;
+      const text = `Username: ${revealedPassword.username}\nPassword: ${revealedPassword.password}`;
+      navigator.clipboard?.writeText(text).then(() => {
+        setCopiedFlag(true);
+        setTimeout(() => setCopiedFlag(false), 2000);
+      });
+    };
+
+    return (
+      <div className="space-y-5">
+        {/* Freshly-issued credential banner */}
+        {revealedPassword && (
+          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-5 flex items-start gap-4">
+            <div className="p-2.5 bg-emerald-100 rounded-xl shrink-0">
+              <KeyRound className="h-5 w-5 text-emerald-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-sm font-black text-emerald-900">Credentials ready — share these once, they won't be shown again</h4>
+              <p className="text-xs text-emerald-800 mt-1">
+                Give these to <span className="font-bold">{revealedPassword.username}</span> directly. They'll be asked to set their own password on first login.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3 bg-white border border-emerald-200 rounded-xl px-4 py-3">
+                <div className="text-xs">
+                  <span className="text-slate-400">Username: </span>
+                  <span className="font-mono font-bold text-slate-800">{revealedPassword.username}</span>
+                </div>
+                <div className="text-xs">
+                  <span className="text-slate-400">Password: </span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {showRevealed ? revealedPassword.password : '••••••••••'}
+                  </span>
+                </div>
+                <button onClick={() => setShowRevealed(v => !v)} className="text-slate-400 hover:text-slate-600">
+                  {showRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={copyRevealed}
+                  className="ml-auto flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-900"
+                >
+                  <Copy className="h-3.5 w-3.5" /> {copiedFlag ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+            <button onClick={() => setRevealedPassword(null)} className="text-emerald-400 hover:text-emerald-700 shrink-0">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Header row */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[220px] max-w-sm">
+            <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or username…"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadAccounts}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:bg-slate-50"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            </button>
+            <button
+              onClick={() => { setShowForm(true); setFormError(null); }}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700"
+            >
+              <Plus className="h-3.5 w-3.5" /> Create Account
+            </button>
+          </div>
+        </div>
+
+        {/* Create account panel */}
+        {showForm && (
+          <div className="bg-white border border-violet-200 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                <UserCog className="h-4 w-4 text-violet-600" /> New Login Account
+              </h4>
+              <button onClick={() => { setShowForm(false); resetForm(); }} className="text-slate-400 hover:text-slate-600">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[11px] font-bold uppercase text-slate-500">Full Name</label>
+                <input
+                  value={newDisplayName}
+                  onChange={(e) => setNewDisplayName(e.target.value)}
+                  placeholder="e.g. Ahmed Khan"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold uppercase text-slate-500">Username</label>
+                <input
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="e.g. a.khan"
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold uppercase text-slate-500">Portal / Role</label>
+                <select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value as ViewRole)}
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+                >
+                  {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold uppercase text-slate-500">Link to Employee (optional)</label>
+                <select
+                  value={newEmployeeId}
+                  onChange={(e) => setNewEmployeeId(e.target.value)}
+                  className="w-full mt-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+                >
+                  <option value="">— None —</option>
+                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} · {emp.department}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-400">
+              A temporary password will be generated automatically and shown once after you create the account.
+            </p>
+
+            {formError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">{formError}</div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setShowForm(false); resetForm(); }}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-60"
+              >
+                <Save className="h-3.5 w-3.5" /> {saving ? 'Creating…' : 'Create Account'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Accounts table */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {loading ? (
+            <p className="p-6 text-sm text-slate-400">Loading accounts…</p>
+          ) : loadError ? (
+            <p className="p-6 text-sm text-red-600">{loadError}</p>
+          ) : filtered.length === 0 ? (
+            <p className="p-6 text-sm text-slate-400">No accounts yet. Click "Create Account" to add the first one.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-[11px] uppercase text-slate-500 font-bold">
+                  <tr>
+                    <td className="px-4 py-3">Name</td>
+                    <td className="px-4 py-3">Username</td>
+                    <td className="px-4 py-3">Role / Portal</td>
+                    <td className="px-4 py-3">Status</td>
+                    <td className="px-4 py-3">Last Login</td>
+                    <td className="px-4 py-3 text-right">Actions</td>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filtered.map(acc => (
+                    <tr key={acc.id} className={!acc.active ? 'opacity-50' : ''}>
+                      <td className="px-4 py-3 font-bold text-slate-800">{acc.displayName}</td>
+                      <td className="px-4 py-3 font-mono text-slate-500">{acc.username}</td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={acc.role}
+                          onChange={(e) => handleRoleChange(acc, e.target.value as ViewRole)}
+                          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-200"
+                        >
+                          {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        {acc.active ? (
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">Active</span>
+                        ) : (
+                          <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full">Disabled</span>
+                        )}
+                        {!!acc.mustChangePassword && acc.active && (
+                          <span className="ml-1.5 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded-full">Temp password</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 text-xs">
+                        {acc.lastLoginAt ? fmtDate(acc.lastLoginAt) : 'Never'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => handleResetPassword(acc)}
+                            title="Reset password"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-violet-700 hover:bg-violet-50"
+                          >
+                            <KeyRound className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleToggleActive(acc)}
+                            title={acc.active ? 'Disable account' : 'Re-enable account'}
+                            className={`p-1.5 rounded-lg hover:bg-slate-50 ${acc.active ? 'text-slate-400 hover:text-red-600' : 'text-slate-400 hover:text-emerald-600'}`}
+                          >
+                            {acc.active ? <XCircle className="h-3.5 w-3.5" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // TABS CONFIG
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1309,6 +1672,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'accidents', label: 'Accidents', icon: <ShieldAlert className="h-4 w-4" /> },
     { id: 'medical', label: 'Medical', icon: <Stethoscope className="h-4 w-4" /> },
     { id: 'reports', label: 'Reports', icon: <BarChart2 className="h-4 w-4" /> },
+    { id: 'accounts', label: 'Accounts', icon: <KeyRound className="h-4 w-4" /> },
   ] as const;
 
   const pendingLeaveCount = leaves.filter(l => l.status === 'Pending').length;
@@ -1368,6 +1732,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       {activeTab === 'accidents' && <AccidentsTab />}
       {activeTab === 'medical' && <MedicalTab />}
       {activeTab === 'reports' && <ReportsTab />}
+      {activeTab === 'accounts' && <AccountsTab />}
     </div>
   );
 };
