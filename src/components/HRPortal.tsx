@@ -1353,8 +1353,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     useEffect(() => { loadAccounts(); }, []);
 
     const filtered = useMemo(() => accounts.filter(a =>
-      a.username.toLowerCase().includes(search.toLowerCase()) ||
-      a.displayName.toLowerCase().includes(search.toLowerCase())
+      (a.username || '').toLowerCase().includes(search.toLowerCase()) ||
+      (a.displayName || '').toLowerCase().includes(search.toLowerCase())
     ), [accounts, search]);
 
     const resetForm = () => {
@@ -1606,8 +1606,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filtered.map(acc => (
                     <tr key={acc.id} className={!acc.active ? 'opacity-50' : ''}>
-                      <td className="px-4 py-3 font-bold text-slate-800">{acc.displayName}</td>
-                      <td className="px-4 py-3 font-mono text-slate-500">{acc.username}</td>
+                      <td className="px-4 py-3 font-bold text-slate-800">{acc.displayName || '—'}</td>
+                      <td className="px-4 py-3 font-mono text-slate-500">{acc.username || '—'}</td>
                       <td className="px-4 py-3">
                         <select
                           value={acc.role}
