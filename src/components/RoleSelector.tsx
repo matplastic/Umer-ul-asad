@@ -43,24 +43,36 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
 }) => {
   const activeStageTeams = allTeams.filter(t => t.stageId === selectedStageId);
 
+  const tabClass = (active: boolean) =>
+    `flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+      active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+    }`;
+
   return (
     <div className="bg-slate-900 text-slate-100 border-b border-slate-800 shadow-xl sticky top-0 z-50 transition-all">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between py-4 gap-4">
-          
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between py-3 gap-3">
+
           {/* Brand/Identity & Google Drive Connectivity Status */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full lg:w-auto">
-           <div className="flex items-center gap-3">
-  <img
-    src="/logo.png"
-    alt="MAT Plastic Industries LLC"
-    className="h-12 w-auto object-contain"
-  />
-  <div>
-                <h1 className="text-xl font-bold tracking-tight text-white font-sans flex items-center gap-1.5 flex-wrap">
-                  MAT PLASTIC INDUSTRIES LLC <span className="text-cyan-400 font-mono text-xs uppercase px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-full">Manufacturing ERP</span>
-                </h1>
-                <p className="text-xs text-slate-400">Flow-Based Shop Floor Scheduling & Quality Control</p>
+          <div className="flex items-center justify-between gap-4 w-full lg:w-auto">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-10 w-10 shrink-0 rounded-lg bg-white/95 ring-1 ring-white/10 flex items-center justify-center overflow-hidden">
+                <img
+                  src="/logo.png"
+                  alt="MAT Plastic Industries LLC"
+                  className="h-8 w-8 object-contain"
+                />
+              </div>
+              <div className="min-w-0 leading-tight">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-sm font-bold tracking-tight text-white font-sans truncate">
+                    MAT Plastic Industries LLC
+                  </h1>
+                  <span className="text-cyan-400 font-mono text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded shrink-0">
+                    Manufacturing ERP
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 truncate">Flow-Based Shop Floor Scheduling &amp; Quality Control</p>
               </div>
             </div>
 
@@ -111,158 +123,70 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
 
           {/* Mode Selector */}
           {!stationLock?.isLocked ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 w-full lg:w-auto min-w-0">
               {loggedInUser?.role === 'management' ? (
                 <>
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-2 hidden xl:inline">Role View:</span>
-                  
-                  <button
-                    onClick={() => onChangeRole('management')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'management'
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <BarChart3 className="h-4 w-4" />
-                    <span>Management Portal</span>
-                  </button>
+                  <div className="flex items-center gap-0.5 bg-slate-800/60 border border-slate-800 rounded-lg p-1 overflow-x-auto max-w-full [scrollbar-width:thin]">
+                    <button onClick={() => onChangeRole('management')} className={tabClass(currentRole === 'management')}>
+                      <BarChart3 className="h-3.5 w-3.5" />
+                      <span>Management</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('factory_entrance')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'factory_entrance'
-                        ? 'bg-cyan-600 text-white shadow-md shadow-cyan-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <Monitor className="h-4 w-4" />
-                    <span>Factory Entrance TV</span>
-                  </button>
+                    <button onClick={() => onChangeRole('factory_entrance')} className={tabClass(currentRole === 'factory_entrance')}>
+                      <Monitor className="h-3.5 w-3.5" />
+                      <span>Entrance TV</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('planning_department')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
-                      currentRole === 'planning_department'
-                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <ClipboardList className="h-4 w-4 text-indigo-400" />
-                    <span>Planning Dept.</span>
-                  </button>
+                    <button onClick={() => onChangeRole('planning_department')} className={tabClass(currentRole === 'planning_department')}>
+                      <ClipboardList className="h-3.5 w-3.5" />
+                      <span>Planning</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('production_engineer')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'production_engineer'
-                        ? 'bg-amber-600 text-white shadow-md shadow-amber-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <Wrench className="h-4 w-4" />
-                    <span>Production Eng.</span>
-                  </button>
+                    <button onClick={() => onChangeRole('production_engineer')} className={tabClass(currentRole === 'production_engineer')}>
+                      <Wrench className="h-3.5 w-3.5" />
+                      <span>Production Eng.</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('quality_inspector')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'quality_inspector'
-                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <Shield className="h-4 w-4" />
-                    <span>Quality Assurance</span>
-                  </button>
+                    <button onClick={() => onChangeRole('quality_inspector')} className={tabClass(currentRole === 'quality_inspector')}>
+                      <Shield className="h-3.5 w-3.5" />
+                      <span>Quality</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('stage_worker')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'stage_worker'
-                        ? 'bg-purple-600 text-white shadow-md shadow-purple-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <HardHat className="h-4 w-4" />
-                    <span>Stage Shop Floor</span>
-                  </button>
+                    <button onClick={() => onChangeRole('stage_worker')} className={tabClass(currentRole === 'stage_worker')}>
+                      <HardHat className="h-3.5 w-3.5" />
+                      <span>Shop Floor</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('section_dashboard')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'section_dashboard'
-                        ? 'bg-cyan-600 text-white shadow-md shadow-cyan-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <Tv className="h-4 w-4" />
-                    <span>Section TVs</span>
-                  </button>
+                    <button onClick={() => onChangeRole('section_dashboard')} className={tabClass(currentRole === 'section_dashboard')}>
+                      <Tv className="h-3.5 w-3.5" />
+                      <span>Section TVs</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('trolley_prod')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
-                      currentRole === 'trolley_prod'
-                        ? 'bg-rose-600 text-white shadow-md shadow-rose-900/50 scale-105 animate-pulse'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <Boxes className="h-4 w-4 text-rose-450" />
-                    <span>Trolley Prod</span>
-                  </button>
-                  <button
-                    onClick={() => onChangeRole('hr_portal')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'hr_portal'
-                        ? 'bg-violet-600 text-white shadow-md shadow-violet-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <UserCog className="h-4 w-4" />
-                    <span>HR Portal</span>
-                  </button>
+                    <button onClick={() => onChangeRole('trolley_prod')} className={tabClass(currentRole === 'trolley_prod')}>
+                      <Boxes className="h-3.5 w-3.5" />
+                      <span>Trolley</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('store')}
-                    data-testid="role-store"
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'store'
-                        ? 'bg-orange-600 text-white shadow-md shadow-orange-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <Warehouse className="h-4 w-4" />
-                    <span>Store Portal</span>
-                  </button>
+                    <button onClick={() => onChangeRole('hr_portal')} className={tabClass(currentRole === 'hr_portal')}>
+                      <UserCog className="h-3.5 w-3.5" />
+                      <span>HR</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('section_supervisor')}
-                    data-testid="role-section-supervisor"
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'section_supervisor'
-                        ? 'bg-amber-600 text-white shadow-md shadow-amber-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <HardHat className="h-4 w-4" />
-                    <span>Section Supervisor</span>
-                  </button>
+                    <button onClick={() => onChangeRole('store')} data-testid="role-store" className={tabClass(currentRole === 'store')}>
+                      <Warehouse className="h-3.5 w-3.5" />
+                      <span>Store</span>
+                    </button>
 
-                  <button
-                    onClick={() => onChangeRole('reports_analytics')}
-                    data-testid="role-reports-analytics"
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      currentRole === 'reports_analytics'
-                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/50 scale-105'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <FileBarChart className="h-4 w-4" />
-                    <span>Reports &amp; Analytics</span>
-                  </button>
+                    <button onClick={() => onChangeRole('section_supervisor')} data-testid="role-section-supervisor" className={tabClass(currentRole === 'section_supervisor')}>
+                      <HardHat className="h-3.5 w-3.5" />
+                      <span>Supervisor</span>
+                    </button>
 
-                  <div className="h-6 w-px bg-slate-700 mx-1 hidden sm:block" />
+                    <button onClick={() => onChangeRole('reports_analytics')} data-testid="role-reports-analytics" className={tabClass(currentRole === 'reports_analytics')}>
+                      <FileBarChart className="h-3.5 w-3.5" />
+                      <span>Reports</span>
+                    </button>
+                  </div>
                 </>
               ) : (
                 <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/50 text-xs text-slate-200">
@@ -274,11 +198,11 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
               {/* Central logout control */}
               <button
                 onClick={onLogout}
-                className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-slate-800/20 hover:border-slate-700/40 transition-colors shadow-xs cursor-pointer ml-auto"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-semibold bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-900/40 transition-colors cursor-pointer shrink-0 ml-auto lg:ml-2"
                 title="Sign Out to Security Gate"
               >
                 <LogOut className="h-3.5 w-3.5 shrink-0" />
-                <span>Exit Portal</span>
+                <span className="hidden sm:inline">Exit Portal</span>
               </button>
             </div>
           ) : stationLock?.allowedRoles && stationLock.allowedRoles.length > 1 ? (
