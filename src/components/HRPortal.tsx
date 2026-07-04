@@ -2,10 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Employee, EmployeePunch } from '../types';
 import {
   Users, Clock, DollarSign, CalendarOff, AlertTriangle, BarChart2,
-  Plus, Search, Trash2, Edit2, CheckCircle, XCircle, KeyRound,
+  Plus, Search, Trash2, Edit2, CheckCircle, XCircle,
   Filter, X, Save, FileText, ShieldAlert, Stethoscope
 } from 'lucide-react';
-import { ViewRole } from '../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -156,22 +155,17 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [editEmp, setEditEmp] = useState<Partial<Employee> | null>(null);
     const [showForm, setShowForm] = useState(false);
 
-    const departments = useMemo(() => ['All', ...Array.from(new Set(employees.map(e => e.department)))], [employees]);
+    const departments = useMemo(() => ['All', ...Array.from(new Set(employees.map(e => e.department)))], []);
 
     const filtered = useMemo(() => employees.filter(e => {
       const matchSearch = e.name.toLowerCase().includes(search.toLowerCase()) ||
         (e.role || '').toLowerCase().includes(search.toLowerCase());
       const matchDept = deptFilter === 'All' || e.department === deptFilter;
       return matchSearch && matchDept;
-    }), [employees, search, deptFilter]);
+    }), [search, deptFilter]);
 
     const handleSave = () => {
       if (!editEmp?.name || !editEmp?.department) return;
-      if (!editEmp.pin || !/^\d{4}$/.test(editEmp.pin)) {
-        alert('Please enter a 4-digit numeric PIN for the employee.');
-        return;
-      }
-
       onSaveEmployee({
         id: editEmp.id || uid(),
         name: editEmp.name,
@@ -181,8 +175,6 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         phone: editEmp.phone || null,
         notes: editEmp.notes || null,
         createdAt: editEmp.createdAt || new Date().toISOString(),
-        viewRole: editEmp.viewRole || 'stage_worker',
-        pin: editEmp.pin,
       });
       setShowForm(false);
       setEditEmp(null);
@@ -211,7 +203,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             </select>
           </div>
           <button
-            onClick={() => { setEditEmp({ viewRole: 'stage_worker', pin: '' }); setShowForm(true); }}
+            onClick={() => { setEditEmp({}); setShowForm(true); }}
             className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors"
           >
             <Plus className="h-4 w-4" /> Add Employee
@@ -246,40 +238,6 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     />
                   </div>
                 ))}
-                <div className="col-span-2 grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 block mb-1">Portal Access Role *</label>
-                    <select
-                      value={editEmp?.viewRole || 'stage_worker'}
-                      onChange={e => setEditEmp(prev => ({ ...prev, viewRole: e.target.value as ViewRole }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
-                    >
-                      <option value="stage_worker">Stage Worker</option>
-                      <option value="quality_inspector">Quality Inspector</option>
-                      <option value="production_engineer">Production Engineer</option>
-                      <option value="planning_department">Planning Department</option>
-                      <option value="hr_portal">HR Portal</option>
-                      <option value="trolley_prod">Trolley Production</option>
-                      <option value="store">Store & Inventory</option>
-                      <option value="management">Management</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 block mb-1">4-Digit PIN *</label>
-                    <div className="relative">
-                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <input
-                        type="text"
-                        required
-                        value={editEmp?.pin || ''}
-                        onChange={e => setEditEmp(prev => ({ ...prev, pin: e.target.value.replace(/\D/g, '') }))}
-                        placeholder="e.g., 1234"
-                        maxLength={4}
-                        className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
                 <div className="col-span-2">
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Notes</label>
                   <textarea
