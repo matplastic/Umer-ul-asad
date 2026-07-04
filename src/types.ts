@@ -109,7 +109,9 @@ export type ViewRole =
   | 'section_dashboard'
   | 'trolley_prod'
   | 'hr_portal'
-  | 'store';
+  | 'store'
+  | 'section_supervisor'
+  | 'reports_analytics';
 
 export interface ProjectSummary {
   id: string;
@@ -162,8 +164,6 @@ export interface Employee {
   phone?: string | null;
   notes?: string | null;
   createdAt: string;
-  viewRole: ViewRole;
-  pin: string;
 }
 
 export interface EmployeePunch {
@@ -176,83 +176,133 @@ export interface EmployeePunch {
   date: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STORE & INVENTORY MODULE TYPES
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface Material {
-  id: string; // e.g., 'mat_resin_poly_001'
-  name: string; // e.g., 'Polyester Resin'
-  category: string; // e.g., 'Resins', 'Fiberglass', 'Gelcoat', 'Hardware'
-  unit: 'kg' | 'm' | 'sqm' | 'pcs' | 'ltr'; // Unit of measurement
-  stock: number; // Current quantity in stock
-  minStock: number; // Minimum stock level to trigger reorder
-  supplier?: string;
-  notes?: string;
-}
-
-export interface BOMItem {
-  materialId: string;
-  quantity: number;
-}
-
-export interface BillOfMaterials {
-  id: string; // e.g., 'bom_type3_normal'
-  projectName: string;
-  poolType: string; // e.g., 'Type 3'
-  items: BOMItem[];
-}
-
-export interface MaterialRequest {
-  id: string;
-  section: string; // e.g., 'Lamination Area'
-  requestedBy: string;
-  requestedAt: string;
-  items: {
-    materialId: string;
-    quantity: number;
-  }[];
-  status: 'pending' | 'approved' | 'rejected' | 'fulfilled';
-  notes?: string;
-}
-
-export interface IncomingMaterial {
-  id: string;
-  materialId: string;
-  quantity: number;
-  supplier: string;
-  receivedAt: string;
-  receivedBy: string;
-  invoice?: string;
-}
-
-export interface ConsumptionLog {
-  id: string;
-  materialId: string;
-  quantity: number;
-  consumedBy: string; // Section or Project ID
-  consumedAt: string;
-  notes?: string;
-}
-
-export interface SectionDefinition {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-export const SECTION_DEFINITIONS: SectionDefinition[] = [
-  { id: 'steel_workshop', name: 'Steel Workshop', description: 'Primary steel frame and shell fabrication.' },
-  { id: 'cladding_dept', name: 'Cladding Department', description: 'Application of chemical cladding and protective coats.' },
-  { id: 'lamination_area', name: 'Lamination Area', description: 'Fiberglass and resin structural lamination.' },
-  { id: 'assembly_floor', name: 'Assembly Floor', description: 'Mechanical and plumbing fitting assembly.' },
-  { id: 'finishing_bay', name: 'Finishing Bay', description: 'Mosaic, grouting, and final cosmetic touches.' },
-  { id: 'warehouse', name: 'Main Warehouse', description: 'General storage and material dispatch.' },
-];
-
 export interface RecycleBinItem {
   id: string;
   dataType: string; // 'all_pools_data' | 'trolley' | 'pool' | 'planned_pool' | 'project_summary'
   deletedAt: string; // ISO string of when it was deleted
   payload: any;
 }
+
+// ----------------------------------------------------
+// STORE / BOM MODULE
+// ----------------------------------------------------
+
+export interface Material {
+  id: string;
+  name: string;
+  category?: string | null; // 'Resin' | 'Fiberglass' | 'Gelcoat' | 'Hardener' | ...
+  section?: string | null; // section/stage id: 'steel_fabrication', 'lamination', etc.
+  unit: string; // 'kg' | 'ltr' | 'pcs' | 'roll' | ...
+  currentStock: number;
+  reorderLevel?: number | null;
+  notes?: string | null;
+  erpCode?: string | null;
+  supplierName?: string | null;
+  brand?: string | null;
+  location?: string | null; // storage bin/rack, e.g. "Rack A-3"
+  hsCode?: string | null; // customs HS code
+  createdAt: string;
+}
+
+// One line of the Bill of Materials for a Project + Pool Type combination
+export interface BOMItem {
+  id: string;
+  projectName: string;
+  poolType: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qtyPerPool: number;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export type MaterialRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'PRINTED';
+
+export interface MaterialRequest {
+  id: string;
+  projectName: string;
+  poolType: string;
+  poolId?: string | null;
+  poolNo?: string | null;
+  stageId?: StageId | null;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qtyRequested: number;
+  reason?: string | null;
+  requestedByName: string;
+  requestedByRole: string;
+  status: MaterialRequestStatus;
+  approvalToken: string;
+  decidedByName?: string | null;
+  decisionNotes?: string | null;
+  decidedAt?: string | null;
+  printedAt?: string | null;
+  createdAt: string;
+}
+
+export interface IncomingMaterial {
+  id: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qty: number;
+  supplier?: string | null;
+  invoiceNo?: string | null;
+  notes?: string | null;
+  receivedByName: string;
+  receivedAt: string;
+  createdAt: string;
+}
+
+export interface ConsumptionLog {
+  id: string;
+  date: string; // YYYY-MM-DD
+  sectionId: string;
+  sectionName: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qty: number;
+  notes?: string | null;
+  loggedByName: string;
+  createdAt: string;
+}
+
+export interface ProductionLog {
+  id: string;
+  date: string;
+  sectionId: string;
+  sectionName: string;
+  projectName: string;
+  poolType: string;
+  poolId?: string | null;
+  poolNo?: string | null;
+  quantity: number;
+  notes?: string | null;
+  loggedByName: string;
+  createdAt: string;
+}
+
+export interface SectionDefinition {
+  id: StageId | string;
+  name: string;
+}
+
+export const SECTION_DEFINITIONS: SectionDefinition[] = [
+  { id: 'steel_fabrication', name: 'Steel Fabrication' },
+  { id: 'steel_primer', name: 'Steel Primer' },
+  { id: 'plumbing', name: 'Plumbing' },
+  { id: 'cladding', name: 'Cladding' },
+  { id: 'skimmer_fitting', name: 'Skimmer Fitting' },
+  { id: 'lamination', name: 'Lamination' },
+  { id: 'mechanical_fitting', name: 'Mechanical Fitting' },
+  { id: 'skimmer_test', name: 'Skimmer Test' },
+  { id: 'door_cutting', name: 'Door Cutting' },
+  { id: 'mosaic', name: 'Mosaic' },
+  { id: 'grouting', name: 'Grouting' },
+  { id: 'acrylic', name: 'Acrylic' },
+];
+
+
