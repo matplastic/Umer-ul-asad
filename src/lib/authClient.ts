@@ -1,4 +1,4 @@
-import { signOut as firebaseSignOut } from 'firebase/auth';
+import { signOut as firebaseSignOut, signInAnonymously } from 'firebase/auth';
 import { auth, app } from './googleDrive';
 import { getFirestore, doc, getDoc, runTransaction } from 'firebase/firestore';
 import { getApiUrl } from './firebaseService';
@@ -80,9 +80,41 @@ function normalizeUsernameBrowser(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, '.');
 }
 
+/** Mirrors authUtils.validatePasswordStrength for the browser-side flows. */
+export function validatePasswordStrength(password: string): string | null {
+  if (!password || password.length < 8) {
+    return 'Password must be at least 8 characters long.';
+  }
+  return null;
+}
+
 // ─── Firestore-direct account store ──────────────────────────────────────────
 
 const clientDb = getFirestore(app);
+
+// Many Firestore security-rule setups require `request.auth != null` for any
+// read/write, including on the account list itself. This username/password
+// system is intentionally separate from Firebase Auth, so without this there
+// would be no `request.auth` at all and every call below would silently fail
+// with a permission-denied error the first time someone tries to log in or
+// an admin tries to manage accounts. Anonymous auth gives every visitor a
+// `request.auth.uid`, which satisfies that kind of rule, while still keeping
+// the actual username/password check fully separate and in our own control.
+let anonSessionPromise: Promise<void> | null = null;
+async function ensureFirebaseSession(): Promise<void> {
+  if (auth.currentUser) return;
+  if (!anonSessionPromise) {
+    anonSessionPromise = signInAnonymously(auth)
+      .then(() => undefined)
+      .catch((err) => {
+        console.warn('[authClient] Anonymous Firebase sign-in failed (Firestore calls may be rejected by security rules if they require auth):', err);
+      })
+      .finally(() => {
+        anonSessionPromise = null;
+      });
+  }
+  await anonSessionPromise;
+}
 
 function stripSecret(u: StoredAuthUser): AuthUser {
   const { passwordHash, passwordSalt, ...rest } = u;
@@ -90,6 +122,7 @@ function stripSecret(u: StoredAuthUser): AuthUser {
 }
 
 async function readAllAccounts(): Promise<StoredAuthUser[]> {
+  await ensureFirebaseSession();
   const snap = await getDoc(doc(clientDb, 'system_state', AUTH_DOC));
   const data = snap.exists() ? snap.data()?.data : [];
   return Array.isArray(data) ? data : [];
@@ -99,6 +132,7 @@ async function readAllAccounts(): Promise<StoredAuthUser[]> {
  *  everywhere else in this app: never let an updater accidentally collapse
  *  a non-empty account list down to nothing. */
 async function updateAccounts(updater: (current: StoredAuthUser[]) => StoredAuthUser[]): Promise<StoredAuthUser[]> {
+  await ensureFirebaseSession();
   const docRef = doc(clientDb, 'system_state', AUTH_DOC);
   let result: StoredAuthUser[] = [];
   await runTransaction(clientDb, async (tx) => {
@@ -166,7 +200,16 @@ export async function loginWithPassword(username: string, password: string): Pro
   }
 
   const normalized = normalizeUsernameBrowser(username);
-  const accounts = await readAllAccounts();
+  let accounts: StoredAuthUser[];
+  try {
+    accounts = await readAllAccounts();
+  } catch (err: any) {
+    console.error('[authClient] Failed to read accounts from Firestore during login:', err);
+    if (err?.code === 'permission-denied') {
+      throw new Error('Sign-in is blocked by Firestore security rules (permission-denied). Ask an admin to check the rules for the "system_state/authUsers" document.');
+    }
+    throw new Error('Could not reach the account database. Check your connection and try again.');
+  }
   const match = accounts.find(a => a.username === normalized);
   if (!match) throw new Error('Invalid username or password.');
   if (!match.active) throw new Error('This account has been disabled. Contact HR or Management.');
@@ -175,7 +218,12 @@ export async function loginWithPassword(username: string, password: string): Pro
   if (!ok) throw new Error('Invalid username or password.');
 
   const publicUser = stripSecret({ ...match, lastLoginAt: new Date().toISOString() });
-  await updateAccounts(current => current.map(a => a.id === match.id ? { ...a, lastLoginAt: publicUser.lastLoginAt } : a));
+  try {
+    await updateAccounts(current => current.map(a => a.id === match.id ? { ...a, lastLoginAt: publicUser.lastLoginAt } : a));
+  } catch (err) {
+    // Don't block sign-in just because the "last login" timestamp couldn't be saved.
+    console.warn('[authClient] Failed to record lastLoginAt (non-fatal):', err);
+  }
 
   localStorage.setItem(SESSION_KEY, JSON.stringify(publicUser));
   return publicUser;
@@ -239,18 +287,29 @@ export async function createUserAccount(input: {
   displayName: string;
   role: ViewRole;
   employeeId?: string | null;
-}): Promise<{ user: AuthUser; tempPassword: string }> {
-  const backendResult = await tryBackend<{ user: AuthUser; tempPassword: string }>('/api/users', {
+  /** If provided, this exact password is set on the account instead of an
+   *  auto-generated one. The admin is asserting the person already knows it,
+   *  so we don't force a change on first login. */
+  password?: string | null;
+}): Promise<{ user: AuthUser; tempPassword: string; isCustomPassword: boolean }> {
+  const backendResult = await tryBackend<{ user: AuthUser; tempPassword: string; isCustomPassword?: boolean }>('/api/users', {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  if (backendResult) return backendResult;
+  if (backendResult) return { ...backendResult, isCustomPassword: !!backendResult.isCustomPassword };
 
   const normalized = normalizeUsernameBrowser(input.username);
   if (!normalized) throw new Error('Username is required.');
 
-  const tempPassword = generateTempPasswordBrowser();
-  const { hash, salt } = await hashPasswordBrowser(tempPassword);
+  const customPassword = (input.password || '').trim();
+  const isCustomPassword = customPassword.length > 0;
+  if (isCustomPassword) {
+    const strengthError = validatePasswordStrength(customPassword);
+    if (strengthError) throw new Error(strengthError);
+  }
+
+  const finalPassword = isCustomPassword ? customPassword : generateTempPasswordBrowser();
+  const { hash, salt } = await hashPasswordBrowser(finalPassword);
   const now = new Date().toISOString();
   const newUser: StoredAuthUser = {
     id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -259,7 +318,9 @@ export async function createUserAccount(input: {
     role: input.role,
     employeeId: input.employeeId || null,
     active: 1,
-    mustChangePassword: 1,
+    // Only force a change on next login for auto-generated passwords —
+    // if the admin set a specific password on purpose, respect it as-is.
+    mustChangePassword: isCustomPassword ? 0 : 1,
     createdByName: getStoredUser()?.displayName || null,
     createdAt: now,
     updatedAt: null,
@@ -275,7 +336,7 @@ export async function createUserAccount(input: {
     return [...current, newUser];
   });
 
-  return { user: stripSecret(newUser), tempPassword };
+  return { user: stripSecret(newUser), tempPassword: finalPassword, isCustomPassword };
 }
 
 export async function updateUserAccount(
@@ -299,22 +360,32 @@ export async function updateUserAccount(
   return stripSecret(updated);
 }
 
-export async function resetUserPassword(id: string): Promise<{ tempPassword: string }> {
-  const backendResult = await tryBackend<{ tempPassword: string }>(`/api/users/${id}/reset-password`, { method: 'POST' });
-  if (backendResult) return backendResult;
+export async function resetUserPassword(id: string, password?: string | null): Promise<{ tempPassword: string; isCustomPassword: boolean }> {
+  const backendResult = await tryBackend<{ tempPassword: string; isCustomPassword?: boolean }>(`/api/users/${id}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ password: password || undefined }),
+  });
+  if (backendResult) return { ...backendResult, isCustomPassword: !!backendResult.isCustomPassword };
 
-  const tempPassword = generateTempPasswordBrowser();
-  const { hash, salt } = await hashPasswordBrowser(tempPassword);
+  const customPassword = (password || '').trim();
+  const isCustomPassword = customPassword.length > 0;
+  if (isCustomPassword) {
+    const strengthError = validatePasswordStrength(customPassword);
+    if (strengthError) throw new Error(strengthError);
+  }
+
+  const finalPassword = isCustomPassword ? customPassword : generateTempPasswordBrowser();
+  const { hash, salt } = await hashPasswordBrowser(finalPassword);
 
   let found = false;
   await updateAccounts(current => current.map(a => {
     if (a.id !== id) return a;
     found = true;
-    return { ...a, passwordHash: hash, passwordSalt: salt, mustChangePassword: 1, updatedAt: new Date().toISOString() };
+    return { ...a, passwordHash: hash, passwordSalt: salt, mustChangePassword: isCustomPassword ? 0 : 1, updatedAt: new Date().toISOString() };
   }));
 
   if (!found) throw new Error('Account not found.');
-  return { tempPassword };
+  return { tempPassword: finalPassword, isCustomPassword };
 }
 
 export async function deactivateUserAccount(id: string): Promise<void> {
