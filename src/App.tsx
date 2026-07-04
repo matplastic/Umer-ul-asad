@@ -5,6 +5,7 @@ import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector, RoleContextPanel } from './components/RoleSelector';
 import { LoginScreen } from './components/LoginScreen';
+import { getStoredUser, logout as logoutUser, type AuthUser } from './lib/authClient';
 import { ProductionEngineer } from './components/ProductionEngineer';
 import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
@@ -241,20 +242,12 @@ export default function App() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedPoolId, setScannedPoolId] = useState<string | null>(null);
 
-  // Role-Based Access Control State
-  const [loggedInUser, setLoggedInUser] = useState<{ role: ViewRole; displayName: string } | null>(() => {
-    const raw = localStorage.getItem('apex_logged_in_user');
-    if (raw) {
-      try {
-        return JSON.parse(raw);
-      } catch (e) {}
-    }
-    return null;
-  });
+  // Role-Based Access Control State — backed by a real username/password
+  // account (see src/lib/authClient.ts), not a shared department PIN.
+  const [loggedInUser, setLoggedInUser] = useState<AuthUser | null>(() => getStoredUser());
 
-  const handleLoginSuccess = (user: { role: ViewRole; displayName: string }) => {
+  const handleLoginSuccess = (user: AuthUser) => {
     setLoggedInUser(user);
-    localStorage.setItem('apex_logged_in_user', JSON.stringify(user));
     setCurrentRole(user.role);
     if (user.role === 'stage_worker') {
       setSelectedStageId('steel_fabrication');
@@ -263,7 +256,7 @@ export default function App() {
 
   const handleLogout = () => {
     setLoggedInUser(null);
-    localStorage.removeItem('apex_logged_in_user');
+    logoutUser();
   };
 
   // ── Manual cloud refresh (used by Stage Floor & QA portals) ─────────────────
@@ -2833,6 +2826,7 @@ export default function App() {
             employeePunches={employeePunches}
             onSaveEmployee={handleSaveEmployee}
             onDeleteEmployee={handleDeleteEmployee}
+            currentUserName={loggedInUser?.displayName}
           />
         )}
 
