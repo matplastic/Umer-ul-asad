@@ -38,7 +38,8 @@ class InMemoryDb {
     material_requests: [],
     incoming_materials: [],
     consumption_logs: [],
-    production_logs: []
+    production_logs: [],
+    users: []
   };
 
   private getTableName(tableObj: any): string {
@@ -61,7 +62,7 @@ class InMemoryDb {
     const exact = ['pools', 'planned_pools', 'teams', 'logs', 'inspectors', 'engineers',
       'projects_summary', 'monthly_targets', 'employees', 'trolley_production', 'recycle_bin',
       'employee_punches', 'materials', 'bom_items', 'material_requests', 'incoming_materials',
-      'consumption_logs', 'production_logs'];
+      'consumption_logs', 'production_logs', 'users'];
     if (exact.includes(rawName)) return rawName;
     // Fuzzy fallbacks (camelCase)
     if (rawName.includes('planned')) return 'planned_pools';
@@ -82,6 +83,7 @@ class InMemoryDb {
     if (rawName.includes('teams')) return 'teams';
     if (rawName.includes('pools')) return 'pools';
     if (rawName === 'logs' || rawName.endsWith('logs')) return 'logs';
+    if (rawName.includes('users')) return 'users';
     return rawName;
   }
 
@@ -95,9 +97,16 @@ class InMemoryDb {
           where: (whereClause: any) => {
             const values = extractPrimitives(whereClause);
             const filtered = list.filter((item: any) => {
+              // Match on id/date first (existing behavior), then fall back to
+              // checking every scalar field on the row — needed for lookups
+              // like eq(users.username, ...) that aren't keyed by id or date.
               if (item.id && values.includes(item.id)) return true;
               if (item.date && values.includes(item.date)) return true;
-              return false;
+              return Object.keys(item).some((key) => {
+                const v = item[key];
+                if (v === null || v === undefined || typeof v === 'object') return false;
+                return values.includes(v);
+              });
             });
             return {
               limit: (num: number) => Promise.resolve(filtered.slice(0, num)),
@@ -149,6 +158,35 @@ class InMemoryDb {
     };
   }
 
+  update(tableObj: any) {
+    const tableName = this.getTableName(tableObj);
+    if (!this.data[tableName]) {
+      this.data[tableName] = [];
+    }
+    const list = this.data[tableName];
+
+    return {
+      set: (patch: any) => {
+        return {
+          where: (whereClause: any) => {
+            const values = extractPrimitives(whereClause);
+            for (const item of list) {
+              if ((item.id && values.includes(item.id)) || (item.date && values.includes(item.date))) {
+                Object.assign(item, patch);
+              }
+            }
+            return Promise.resolve();
+          },
+          // Allow `.update(t).set(patch)` with no `.where(...)` to mean "update all rows"
+          then: (onfulfilled: any) => {
+            for (const item of list) Object.assign(item, patch);
+            return Promise.resolve().then(onfulfilled);
+          }
+        };
+      }
+    };
+  }
+
   delete(tableObj: any) {
     const tableName = this.getTableName(tableObj);
     const list = this.data[tableName] || [];
@@ -159,7 +197,12 @@ class InMemoryDb {
         this.data[tableName] = list.filter((item: any) => {
           if (item.id && values.includes(item.id)) return false;
           if (item.date && values.includes(item.date)) return false;
-          return true;
+          const matchesOtherField = Object.keys(item).some((key) => {
+            const v = item[key];
+            if (v === null || v === undefined || typeof v === 'object') return false;
+            return values.includes(v);
+          });
+          return !matchesOtherField;
         });
         return Promise.resolve();
       },
@@ -278,6 +321,58 @@ export const db: any = {
     } catch (err) {
       useInMemory = true;
       return inMemoryInstance.insert(tableObj);
+    }
+  },
+
+  update: (tableObj: any) => {
+    if (useInMemory) {
+      return inMemoryInstance.update(tableObj);
+    }
+    try {
+      const resultObj = realDb.update(tableObj);
+      const originalSet = resultObj.set;
+      resultObj.set = (patch: any) => {
+        try {
+          const setChain = originalSet.call(resultObj, patch);
+          const originalWhere = setChain.where;
+
+          const wrapThen = (chain: any) => {
+            const origThen = chain.then;
+            chain.then = async (onfulfilled: any, onrejected: any) => {
+              try {
+                return await origThen.call(chain, onfulfilled, onrejected);
+              } catch (err) {
+                console.warn('Drizzle update failed. Falling back to in-memory storage:', err);
+                useInMemory = true;
+                return Promise.resolve().then(onfulfilled);
+              }
+            };
+            return chain;
+          };
+
+          if (originalWhere) {
+            setChain.where = (whereClause: any) => {
+              try {
+                // Replicate in-memory so both stay in sync
+                inMemoryInstance.update(tableObj).set(patch).where(whereClause);
+                const whereChain = originalWhere.call(setChain, whereClause);
+                return wrapThen(whereChain);
+              } catch (err) {
+                useInMemory = true;
+                return inMemoryInstance.update(tableObj).set(patch).where(whereClause);
+              }
+            };
+          }
+          return wrapThen(setChain);
+        } catch (err) {
+          useInMemory = true;
+          return inMemoryInstance.update(tableObj).set(patch);
+        }
+      };
+      return resultObj;
+    } catch (err) {
+      useInMemory = true;
+      return inMemoryInstance.update(tableObj);
     }
   },
 
