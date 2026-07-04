@@ -109,9 +109,7 @@ export type ViewRole =
   | 'section_dashboard'
   | 'trolley_prod'
   | 'hr_portal'
-  | 'store'
-  | 'section_supervisor'
-  | 'reports_analytics';
+  | 'store';
 
 export interface ProjectSummary {
   id: string;
@@ -164,6 +162,8 @@ export interface Employee {
   phone?: string | null;
   notes?: string | null;
   createdAt: string;
+  viewRole: ViewRole;
+  pin: string;
 }
 
 export interface EmployeePunch {
@@ -182,127 +182,3 @@ export interface RecycleBinItem {
   deletedAt: string; // ISO string of when it was deleted
   payload: any;
 }
-
-// ----------------------------------------------------
-// STORE / BOM MODULE
-// ----------------------------------------------------
-
-export interface Material {
-  id: string;
-  name: string;
-  category?: string | null; // 'Resin' | 'Fiberglass' | 'Gelcoat' | 'Hardener' | ...
-  section?: string | null; // section/stage id: 'steel_fabrication', 'lamination', etc.
-  unit: string; // 'kg' | 'ltr' | 'pcs' | 'roll' | ...
-  currentStock: number;
-  reorderLevel?: number | null;
-  notes?: string | null;
-  erpCode?: string | null;
-  supplierName?: string | null;
-  brand?: string | null;
-  location?: string | null; // storage bin/rack, e.g. "Rack A-3"
-  hsCode?: string | null; // customs HS code
-  createdAt: string;
-}
-
-// One line of the Bill of Materials for a Project + Pool Type combination
-export interface BOMItem {
-  id: string;
-  projectName: string;
-  poolType: string;
-  materialId: string;
-  materialName: string;
-  unit: string;
-  qtyPerPool: number;
-  notes?: string | null;
-  createdAt: string;
-}
-
-export type MaterialRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'PRINTED';
-
-export interface MaterialRequest {
-  id: string;
-  projectName: string;
-  poolType: string;
-  poolId?: string | null;
-  poolNo?: string | null;
-  stageId?: StageId | null;
-  materialId: string;
-  materialName: string;
-  unit: string;
-  qtyRequested: number;
-  reason?: string | null;
-  requestedByName: string;
-  requestedByRole: string;
-  status: MaterialRequestStatus;
-  approvalToken: string;
-  decidedByName?: string | null;
-  decisionNotes?: string | null;
-  decidedAt?: string | null;
-  printedAt?: string | null;
-  createdAt: string;
-}
-
-export interface IncomingMaterial {
-  id: string;
-  materialId: string;
-  materialName: string;
-  unit: string;
-  qty: number;
-  supplier?: string | null;
-  invoiceNo?: string | null;
-  notes?: string | null;
-  receivedByName: string;
-  receivedAt: string;
-  createdAt: string;
-}
-
-export interface ConsumptionLog {
-  id: string;
-  date: string; // YYYY-MM-DD
-  sectionId: string;
-  sectionName: string;
-  materialId: string;
-  materialName: string;
-  unit: string;
-  qty: number;
-  notes?: string | null;
-  loggedByName: string;
-  createdAt: string;
-}
-
-export interface ProductionLog {
-  id: string;
-  date: string;
-  sectionId: string;
-  sectionName: string;
-  projectName: string;
-  poolType: string;
-  poolId?: string | null;
-  poolNo?: string | null;
-  quantity: number;
-  notes?: string | null;
-  loggedByName: string;
-  createdAt: string;
-}
-
-export interface SectionDefinition {
-  id: StageId | string;
-  name: string;
-}
-
-export const SECTION_DEFINITIONS: SectionDefinition[] = [
-  { id: 'steel_fabrication', name: 'Steel Fabrication' },
-  { id: 'steel_primer', name: 'Steel Primer' },
-  { id: 'plumbing', name: 'Plumbing' },
-  { id: 'cladding', name: 'Cladding' },
-  { id: 'skimmer_fitting', name: 'Skimmer Fitting' },
-  { id: 'lamination', name: 'Lamination' },
-  { id: 'mechanical_fitting', name: 'Mechanical Fitting' },
-  { id: 'skimmer_test', name: 'Skimmer Test' },
-  { id: 'door_cutting', name: 'Door Cutting' },
-  { id: 'mosaic', name: 'Mosaic' },
-  { id: 'grouting', name: 'Grouting' },
-  { id: 'acrylic', name: 'Acrylic' },
-];
-
-
