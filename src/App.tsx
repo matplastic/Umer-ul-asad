@@ -3,7 +3,7 @@ import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPoo
 import StoreModule from './components/StoreModule';
 import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, getInitialData, createEmptyHistory } from './data/mockData';
-import { RoleSelector } from './components/RoleSelector';
+import { RoleSelector, RoleContextPanel } from './components/RoleSelector';
 import { LoginScreen } from './components/LoginScreen';
 import { ProductionEngineer } from './components/ProductionEngineer';
 import { StageDashboard } from './components/StageDashboard';
@@ -2537,8 +2537,27 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-between font-sans selection:bg-blue-250 antialiased">
-      
+    <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-blue-250 antialiased">
+
+      {/* Primary navigation sidebar */}
+      <RoleSelector
+        currentRole={currentRole}
+        selectedStageId={selectedStageId}
+        onChangeRole={setCurrentRole}
+        onChangeStage={handleStageChange}
+        workerTeamId={workerTeamId}
+        onChangeWorkerTeam={setWorkerTeamId}
+        allTeams={teams}
+        googleUser={googleUser}
+        onGoogleSignIn={handleGoogleSignIn}
+        onGoogleSignOut={handleGoogleSignOut}
+        stationLock={stationLock}
+        loggedInUser={loggedInUser}
+        onLogout={handleLogout}
+      />
+
+      <div className="flex-1 min-w-0 flex flex-col justify-between">
+
       {/* Station Lock Overlay Banner */}
       {stationLock.isLocked && (
         <div className="bg-amber-500 border-b border-amber-600/30 text-slate-950 px-4 py-2 text-xs font-black flex items-center justify-between shadow-md">
@@ -2631,25 +2650,17 @@ export default function App() {
         </div>
       </div>
 
-      {/* Primary navigation selector */}
-      <RoleSelector
-        currentRole={currentRole}
-        selectedStageId={selectedStageId}
-        onChangeRole={setCurrentRole}
-        onChangeStage={handleStageChange}
-        workerTeamId={workerTeamId}
-        onChangeWorkerTeam={setWorkerTeamId}
-        allTeams={teams}
-        googleUser={googleUser}
-        onGoogleSignIn={handleGoogleSignIn}
-        onGoogleSignOut={handleGoogleSignOut}
-        stationLock={stationLock}
-        loggedInUser={loggedInUser}
-        onLogout={handleLogout}
-      />
-
       {/* Central View Dashboard Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <RoleContextPanel
+          currentRole={currentRole}
+          selectedStageId={selectedStageId}
+          onChangeStage={handleStageChange}
+          workerTeamId={workerTeamId}
+          onChangeWorkerTeam={setWorkerTeamId}
+          allTeams={teams}
+          stationLock={stationLock}
+        />
         {currentRole === 'planning_department' && (
           <PlanningDepartment
             plannedPools={plannedPools}
@@ -2871,6 +2882,8 @@ export default function App() {
           <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Flow Scheduling Engine</p>
         </div>
       </footer>
+
+      </div>
 
       {/* Floating QR Scanner trigger — handy for shop floor quick lookup */}
       {loggedInUser && (
