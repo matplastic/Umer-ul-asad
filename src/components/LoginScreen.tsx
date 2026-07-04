@@ -1,154 +1,19 @@
 import React, { useState } from 'react';
-import { ViewRole } from '../types';
-import { Factory, KeyRound, Info, ChevronRight, ShieldAlert } from 'lucide-react';
-import { dbGetPins } from '../lib/firebaseService';
+import { ViewRole, Employee } from '../types';
+import { Factory, KeyRound, Info, ChevronRight, ShieldAlert, User } from 'lucide-react';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: { role: ViewRole; displayName: string }) => void;
+  employees: Employee[];
 }
 
-interface UserProfile {
-  role: ViewRole;
-  title: string;
-  subtitle: string;
-  colorClass: string;
-  bgIconClass: string;
-  description: string;
-}
-
-const USER_PROFILES: UserProfile[] = [
-  {
-    role: 'management',
-    title: 'Executive Management',
-    subtitle: 'Full Central Admin & Data Portal',
-    colorClass: 'from-blue-600 to-indigo-600 shadow-blue-500/10',
-    bgIconClass: 'bg-blue-50 text-blue-600',
-    description:
-      'Central controls, full access to daily punches, metrics, targets, team overrides, and database configurations.',
-  },
-  {
-    role: 'planning_department',
-    title: 'Planning Department',
-    subtitle: 'Scheduling & Direct Stage Excel Sync',
-    colorClass: 'from-indigo-600 to-purple-600 shadow-indigo-500/10',
-    bgIconClass: 'bg-indigo-50 text-indigo-600',
-    description:
-      'Register production pools, set monthly production targets, configure Excel imports, and release planned tasks.',
-  },
-  {
-    role: 'production_engineer',
-    title: 'Production Engineering',
-    subtitle: 'Fabrication Releases & Workcell Controls',
-    colorClass: 'from-amber-600 to-orange-500 shadow-amber-500/10',
-    bgIconClass: 'bg-amber-50 text-amber-600',
-    description:
-      'Trigger primary fabrications, execute work order listings, and manage floor queues.',
-  },
-  {
-    role: 'quality_inspector',
-    title: 'Quality Assurance',
-    subtitle: 'QA Inspections & Non-Conformance Reports',
-    colorClass: 'from-emerald-600 to-teal-600 shadow-emerald-500/10',
-    bgIconClass: 'bg-emerald-50 text-emerald-600',
-    description:
-      'Audit finished stages, file rejection counts and inspector pictures, change status to approved.',
-  },
-  {
-    role: 'stage_worker',
-    title: 'Stage Shop Floor',
-    subtitle: 'Station Workstation & Claiming Queue',
-    colorClass: 'from-purple-600 to-pink-600 shadow-purple-500/10',
-    bgIconClass: 'bg-purple-50 text-purple-600',
-    description:
-      'Claim production items, record station timers, register start & finish signals for shop floors.',
-  },
-  {
-    role: 'trolley_prod',
-    title: 'Trolley Production Supervisor',
-    subtitle: 'Trolley Yield & Yield Log Tracker',
-    colorClass: 'from-rose-600 to-pink-500 shadow-rose-500/10',
-    bgIconClass: 'bg-rose-50 text-rose-600',
-    description:
-      'Independent tracking logs for trolley fabrications, daily yield entries, and output performance reports.',
-  },
-  {
-    role: 'factory_entrance',
-    title: 'Factory Entrance TV Monitor',
-    subtitle: 'Live Delivery Status Kiosk',
-    colorClass: 'from-cyan-600 to-teal-500 shadow-cyan-500/10',
-    bgIconClass: 'bg-cyan-50 text-cyan-600',
-    description:
-      'General informational display for drivers and logistics personnel at factory gates.',
-  },
-  {
-    role: 'section_dashboard',
-    title: 'Section TV Dashboard',
-    subtitle: 'Live Progress Matrix Display',
-    colorClass: 'from-teal-600 to-emerald-500 shadow-teal-500/10',
-    bgIconClass: 'bg-teal-50 text-teal-600',
-    description:
-      'Floor monitor dashboard displaying station bottlenecks and live performance OEE metrics.',
-  },
-  {
-    role: 'hr_portal',
-    title: 'HR Management Portal',
-    subtitle: 'Employees, Payroll, Leave & Warnings',
-    colorClass: 'from-violet-600 to-purple-600 shadow-violet-500/10',
-    bgIconClass: 'bg-violet-50 text-violet-600',
-    description:
-      'Manage employee directory, attendance records, monthly payroll, leave requests, disciplinary warnings, and HR reports.',
-  },
-  {
-    role: 'store',
-    title: 'Store & Inventory',
-    subtitle: 'Materials, Incoming, BOM & Consumption',
-    colorClass: 'from-orange-600 to-amber-600 shadow-orange-500/10',
-    bgIconClass: 'bg-orange-50 text-orange-600',
-    description:
-      'Manage raw materials, upload inventory via Excel, log incoming stock, define BOM, and view consumption reports.',
-  },
-  {
-    role: 'section_supervisor',
-    title: 'Section Supervisor',
-    subtitle: 'Daily Consumption, Production & Requests',
-    colorClass: 'from-amber-600 to-yellow-600 shadow-amber-500/10',
-    bgIconClass: 'bg-amber-50 text-amber-600',
-    description:
-      'Choose your section (Steel, Primer, Lamination, etc.) — log the material you consumed today, the pools you produced, and raise material requests.',
-  },
-];
-
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
-  const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, employees }) => {
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [pinInput, setPinInput] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [pins, setPins] = useState<Record<string, string>>({
-    management: '',
-    planning_department: '',
-    production_engineer: '',
-    quality_inspector: '',
-    stage_worker: '',
-    trolley_prod: '',
-    factory_entrance: '',
-    section_dashboard: '',
-    hr_portal: '',
-    store: '',
-    section_supervisor: '',
-  });
-
-  React.useEffect(() => {
-    dbGetPins()
-      .then(data => {
-        if (data && typeof data === 'object') {
-          setPins(prev => ({ ...prev, ...data }));
-        }
-      })
-      .catch(err => console.error('Error loading latest access PINs:', err));
-  }, []);
-
-  const handleProfileSelect = (profile: UserProfile) => {
-    setSelectedProfile(profile);
+  const handleEmployeeSelect = (employeeId: string) => {
+    setSelectedEmployeeId(employeeId);
     setPinInput('');
     setErrorMsg(null);
   };
@@ -170,15 +35,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
   const handleLoginSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!selectedProfile) return;
+    if (!selectedEmployeeId) return;
 
-    const actualPin = pins[selectedProfile.role];
+    const employee = employees.find(emp => emp.id === selectedEmployeeId);
+    if (!employee) {
+      setErrorMsg('Selected employee not found.');
+      return;
+    }
 
-    if (actualPin && pinInput === actualPin) {
-      onLoginSuccess({
-        role: selectedProfile.role,
-        displayName: selectedProfile.title,
-      });
+    if (employee.pin && pinInput === employee.pin) {
+      onLoginSuccess({ role: employee.viewRole, displayName: employee.name });
     } else {
       setErrorMsg('Invalid Access PIN. Please input the customized passcode assigned to your department.');
       setPinInput('');
@@ -212,45 +78,45 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       <main className="max-w-6xl w-full mx-auto my-auto grid grid-cols-1 lg:grid-cols-12 gap-8 py-8 items-stretch">
 
         {/* Left: Profile Selector */}
-        <div className="lg:col-span-7 bg-slate-800/40 border border-slate-800 rounded-2xl p-6 flex flex-col gap-6 backdrop-blur-md">
+        <div className="lg:col-span-7 bg-slate-800/40 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4 backdrop-blur-md">
           <div className="space-y-1">
             <h2 className="text-base font-black uppercase text-slate-300 tracking-wider flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-              Department Portals
+              Employee Login
             </h2>
             <p className="text-xs text-slate-400">
-              Select your department profile from the register below to access your active portal. Access permissions are strictly audited.
+              Select your employee profile from the list to access your assigned portal.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {USER_PROFILES.map(profile => {
-              const isSelected = selectedProfile?.role === profile.role;
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 overflow-y-auto max-h-[500px] pr-2">
+            {employees.map(employee => {
+              const isSelected = selectedEmployeeId === employee.id;
               return (
                 <button
-                  key={profile.role}
-                  onClick={() => handleProfileSelect(profile)}
+                  key={employee.id}
+                  onClick={() => handleEmployeeSelect(employee.id)}
                   className={`text-left p-4 rounded-xl border transition-all duration-150 flex items-start gap-3 cursor-pointer group ${
                     isSelected
                       ? 'bg-slate-800 border-indigo-500 shadow-lg ring-1 ring-indigo-500'
                       : 'bg-slate-900/40 border-slate-800 hover:bg-slate-800/60 hover:border-slate-700'
                   }`}
                 >
-                  <div className={`p-2 rounded-lg shrink-0 ${profile.bgIconClass}`}>
-                    <KeyRound className="h-4 w-4" />
+                  <div className="p-2 rounded-lg shrink-0 bg-slate-700 text-slate-300">
+                    <User className="h-4 w-4" />
                   </div>
                   <div className="space-y-0.5 min-w-0">
                     <h3 className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors truncate">
-                      {profile.title}
+                      {employee.name}
                     </h3>
-                    <p className="text-[11px] text-slate-400 truncate">{profile.subtitle}</p>
-                    {profile.description && (
-                      <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">{profile.description}</p>
-                    )}
+                    <p className="text-[11px] text-slate-400 truncate">{employee.department} - {employee.role || 'Operator'}</p>
                   </div>
                 </button>
               );
             })}
+            {employees.length === 0 && (
+              <div className="col-span-full text-center py-10 text-slate-500 text-sm">No employees found. Please add employees in the HR portal.</div>
+            )}
           </div>
 
           {/* Role Description Footer */}
@@ -259,9 +125,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             <div className="space-y-1">
               <h4 className="text-xs font-bold text-slate-200">Role-Based Access Control Rules</h4>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                {selectedProfile
-                  ? selectedProfile.description
-                  : 'Management accounts enjoy central bypass access enabling active view role selection on any portal. Non-management department operators are restricted onto their single-screen operational ledger.'}
+                Each employee has an assigned portal and a unique PIN. Access is logged for security and auditing.
               </p>
             </div>
           </div>
@@ -273,17 +137,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           {/* Decorative gradient border top */}
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-t-2xl" />
 
-          {selectedProfile ? (
+          {selectedEmployeeId ? (() => {
+            const selectedEmployee = employees.find(e => e.id === selectedEmployeeId);
+            if (!selectedEmployee) return null;
+            return (
             <form onSubmit={handleLoginSubmit} className="flex flex-col gap-6 flex-1">
 
               {/* Profile Header */}
               <div className="flex items-center gap-3 border-b border-slate-700/50 pb-4">
-                <div className={`p-2 rounded-lg shrink-0 ${selectedProfile.bgIconClass}`}>
-                  <KeyRound className="h-4 w-4" />
+                <div className="p-2 rounded-lg shrink-0 bg-slate-700 text-slate-300">
+                  <User className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-white">{selectedProfile.title}</h3>
-                  <p className="text-[11px] text-indigo-400 font-medium">{selectedProfile.subtitle}</p>
+                  <h3 className="text-sm font-black text-white">{selectedEmployee.name}</h3>
+                  <p className="text-[11px] text-indigo-400 font-medium">{selectedEmployee.department} - {selectedEmployee.role || 'Operator'}</p>
                 </div>
               </div>
 
@@ -359,16 +226,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 <ChevronRight className="h-4 w-4" />
               </button>
             </form>
-          ) : (
+            );
+          })() : (
             /* No Profile Selected State */
             <div className="flex-1 flex flex-col items-center justify-center gap-4 py-10 text-center">
               <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700">
                 <ShieldAlert className="h-8 w-8 text-slate-500" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-sm font-bold text-slate-300">No Department Selected</h3>
+                <h3 className="text-sm font-bold text-slate-300">No Employee Selected</h3>
                 <p className="text-xs text-slate-500 max-w-[220px]">
-                  Please select a department portal from the left panel to begin authentication.
+                  Please select an employee from the list on the left to begin authentication.
                 </p>
               </div>
             </div>
