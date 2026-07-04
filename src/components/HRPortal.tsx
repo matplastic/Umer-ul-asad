@@ -1333,13 +1333,26 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [newDisplayName, setNewDisplayName] = useState('');
     const [newRole, setNewRole] = useState<ViewRole>('section_supervisor');
     const [newEmployeeId, setNewEmployeeId] = useState<string>('');
+    const [newPasswordMode, setNewPasswordMode] = useState<'auto' | 'manual'>('auto');
+    const [newPassword, setNewPassword] = useState('');
+    const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+    const [showNewPassword, setShowNewPassword] = useState(false);
     const [formError, setFormError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
-    // One-time reveal of a freshly issued temp password
-    const [revealedPassword, setRevealedPassword] = useState<{ username: string; password: string } | null>(null);
+    // One-time reveal of a freshly issued password (auto-generated or admin-set)
+    const [revealedPassword, setRevealedPassword] = useState<{ username: string; password: string; isCustom: boolean } | null>(null);
     const [showRevealed, setShowRevealed] = useState(true);
     const [copiedFlag, setCopiedFlag] = useState(false);
+
+    // Reset-password modal (choose auto-generate vs assign a specific password)
+    const [resetTarget, setResetTarget] = useState<AuthUser | null>(null);
+    const [resetMode, setResetMode] = useState<'auto' | 'manual'>('auto');
+    const [resetPassword, setResetPassword] = useState('');
+    const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
+    const [showResetPassword, setShowResetPassword] = useState(false);
+    const [resetError, setResetError] = useState<string | null>(null);
+    const [resetSaving, setResetSaving] = useState(false);
 
     const loadAccounts = () => {
       setLoading(true);
@@ -1362,6 +1375,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       setNewDisplayName('');
       setNewRole('section_supervisor');
       setNewEmployeeId('');
+      setNewPasswordMode('auto');
+      setNewPassword('');
+      setNewPasswordConfirm('');
+      setShowNewPassword(false);
       setFormError(null);
     };
 
@@ -1370,17 +1387,28 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         setFormError('Username and full name are required.');
         return;
       }
+      if (newPasswordMode === 'manual') {
+        if (newPassword.length < 8) {
+          setFormError('Password must be at least 8 characters long.');
+          return;
+        }
+        if (newPassword !== newPasswordConfirm) {
+          setFormError('Passwords do not match.');
+          return;
+        }
+      }
       setSaving(true);
       setFormError(null);
       try {
-        const { user, tempPassword } = await createUserAccount({
+        const { user, tempPassword, isCustomPassword } = await createUserAccount({
           username: newUsername.trim(),
           displayName: newDisplayName.trim(),
           role: newRole,
           employeeId: newEmployeeId || null,
+          password: newPasswordMode === 'manual' ? newPassword : null,
         });
         setAccounts(prev => [...prev, user]);
-        setRevealedPassword({ username: user.username, password: tempPassword });
+        setRevealedPassword({ username: user.username, password: tempPassword, isCustom: isCustomPassword });
         setShowRevealed(true);
         setShowForm(false);
         resetForm();
@@ -1414,14 +1442,45 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       }
     };
 
-    const handleResetPassword = async (acc: AuthUser) => {
-      if (!confirm(`Reset the password for ${acc.displayName} (${acc.username})? Their old password will stop working immediately.`)) return;
+    const openResetModal = (acc: AuthUser) => {
+      setResetTarget(acc);
+      setResetMode('auto');
+      setResetPassword('');
+      setResetPasswordConfirm('');
+      setShowResetPassword(false);
+      setResetError(null);
+    };
+
+    const closeResetModal = () => {
+      setResetTarget(null);
+      setResetSaving(false);
+    };
+
+    const handleConfirmReset = async () => {
+      if (!resetTarget) return;
+      if (resetMode === 'manual') {
+        if (resetPassword.length < 8) {
+          setResetError('Password must be at least 8 characters long.');
+          return;
+        }
+        if (resetPassword !== resetPasswordConfirm) {
+          setResetError('Passwords do not match.');
+          return;
+        }
+      }
+      setResetSaving(true);
+      setResetError(null);
       try {
-        const { tempPassword } = await resetUserPassword(acc.id);
-        setRevealedPassword({ username: acc.username, password: tempPassword });
+        const { tempPassword, isCustomPassword } = await resetUserPassword(
+          resetTarget.id,
+          resetMode === 'manual' ? resetPassword : null
+        );
+        setRevealedPassword({ username: resetTarget.username, password: tempPassword, isCustom: isCustomPassword });
         setShowRevealed(true);
+        closeResetModal();
       } catch (err: any) {
-        alert(err?.message || 'Failed to reset password.');
+        setResetError(err?.message || 'Failed to reset password.');
+        setResetSaving(false);
       }
     };
 
@@ -1445,7 +1504,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             <div className="flex-1 min-w-0">
               <h4 className="text-sm font-black text-emerald-900">Credentials ready — share these once, they won't be shown again</h4>
               <p className="text-xs text-emerald-800 mt-1">
-                Give these to <span className="font-bold">{revealedPassword.username}</span> directly. They'll be asked to set their own password on first login.
+                Give these to <span className="font-bold">{revealedPassword.username}</span> directly.{' '}
+                {revealedPassword.isCustom
+                  ? 'This is the exact password you set — it will not be shown again.'
+                  : "They'll be asked to set their own password on first login."}
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-3 bg-white border border-emerald-200 rounded-xl px-4 py-3">
                 <div className="text-xs">
@@ -1560,6 +1622,64 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               A temporary password will be generated automatically and shown once after you create the account.
             </p>
 
+            <div className="border border-slate-200 rounded-xl p-3.5 space-y-3 bg-slate-50/60">
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={newPasswordMode === 'auto'}
+                    onChange={() => { setNewPasswordMode('auto'); setFormError(null); }}
+                  />
+                  Auto-generate password
+                </label>
+                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={newPasswordMode === 'manual'}
+                    onChange={() => { setNewPasswordMode('manual'); setFormError(null); }}
+                  />
+                  Set password myself
+                </label>
+              </div>
+
+              {newPasswordMode === 'auto' ? (
+                <p className="text-[11px] text-slate-400">
+                  A temporary password will be generated automatically and shown once after you create the account. The person will be asked to set their own password on first login.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase text-slate-500">Password</label>
+                    <div className="flex items-center gap-2 mt-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-white focus-within:ring-2 focus-within:ring-violet-200">
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="At least 8 characters"
+                        className="w-full text-sm outline-none"
+                      />
+                      <button type="button" onClick={() => setShowNewPassword(v => !v)} className="text-slate-400 hover:text-slate-600 shrink-0">
+                        {showNewPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase text-slate-500">Confirm Password</label>
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPasswordConfirm}
+                      onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                      placeholder="Re-enter password"
+                      className="w-full mt-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 sm:col-span-2">
+                    This exact password will be set on the account. The person won't be forced to change it on first login.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {formError && (
               <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">{formError}</div>
             )}
@@ -1633,7 +1753,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-2">
                           <button
-                            onClick={() => handleResetPassword(acc)}
+                            onClick={() => openResetModal(acc)}
                             title="Reset password"
                             className="p-1.5 rounded-lg text-slate-400 hover:text-violet-700 hover:bg-violet-50"
                           >
@@ -1655,6 +1775,98 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Reset-password modal */}
+        {resetTarget && (
+          <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4" onClick={closeResetModal}>
+            <div
+              className="bg-white rounded-2xl p-5 shadow-2xl w-full max-w-md space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-violet-600" /> Reset Password
+                </h4>
+                <button onClick={closeResetModal} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500">
+                For <span className="font-bold text-slate-700">{resetTarget.displayName}</span> ({resetTarget.username}). Their current password will stop working immediately.
+              </p>
+
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={resetMode === 'auto'}
+                    onChange={() => { setResetMode('auto'); setResetError(null); }}
+                  />
+                  Auto-generate password
+                </label>
+                <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={resetMode === 'manual'}
+                    onChange={() => { setResetMode('manual'); setResetError(null); }}
+                  />
+                  Set password myself
+                </label>
+              </div>
+
+              {resetMode === 'manual' && (
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold uppercase text-slate-500">New Password</label>
+                    <div className="flex items-center gap-2 mt-1 px-3 py-2.5 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-violet-200">
+                      <input
+                        type={showResetPassword ? 'text' : 'password'}
+                        value={resetPassword}
+                        onChange={(e) => setResetPassword(e.target.value)}
+                        placeholder="At least 8 characters"
+                        className="w-full text-sm outline-none"
+                      />
+                      <button type="button" onClick={() => setShowResetPassword(v => !v)} className="text-slate-400 hover:text-slate-600 shrink-0">
+                        {showResetPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold uppercase text-slate-500">Confirm New Password</label>
+                    <input
+                      type={showResetPassword ? 'text' : 'password'}
+                      value={resetPasswordConfirm}
+                      onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                      placeholder="Re-enter password"
+                      className="w-full mt-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {resetError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">{resetError}</div>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={closeResetModal}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmReset}
+                  disabled={resetSaving}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-60"
+                >
+                  <Save className="h-3.5 w-3.5" /> {resetSaving ? 'Saving…' : 'Reset Password'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
