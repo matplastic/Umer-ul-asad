@@ -2,14 +2,15 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
-import { initializeApp as initializeAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
+import { initializeApp as initializeAdminApp, getApps as getAdminApps, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { db } from './src/db/index.ts';
-import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches, materials, bomItems, materialRequests, incomingMaterials, consumptionLogs, productionLogs } from './src/db/schema.ts';
+import { pools, plannedPools, teams, logs, inspectors, engineers, projectsSummary, monthlyTargets, employees, trolleyProduction, recycleBin, employeePunches, materials, bomItems, materialRequests, incomingMaterials, consumptionLogs, productionLogs, users } from './src/db/schema.ts';
 import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
 import { sendMaterialRequestApprovalEmail, sendMaterialRequestDecisionEmail } from './src/lib/emailService.ts';
+import { hashPassword, verifyPassword, generateTempPassword, normalizeUsername, validatePasswordStrength } from './src/lib/authUtils.ts';
 
 // ----------------------------------------------------
 // FIREBASE CONFIG — now sourced entirely from environment variables.
@@ -31,11 +32,43 @@ function getEnvFirebaseConfig() {
   };
 }
 
-// Initialize Firebase Admin with correct projectId
+// Initialize Firebase Admin with correct projectId.
+//
+// IMPORTANT for username/password login: verifying ID tokens (used
+// everywhere else in this file) only needs Google's public certs, so the
+// app has worked fine so far without real credentials. But minting a custom
+// token in /api/auth/login (so a username/password login can become a real
+// Firebase session) requires the Admin SDK to *sign* a JWT, which needs an
+// actual service account private key — not just a project ID.
+//
+// Set FIREBASE_SERVICE_ACCOUNT_KEY to the full JSON contents of a service
+// account key (Firebase Console → Project Settings → Service Accounts →
+// Generate new private key) as a single-line env var — this is the standard
+// pattern for serverless hosts like Netlify where you can't mount a file.
+// Locally, GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json also works and
+// needs no code change.
 if (!getAdminApps().length) {
-  initializeAdminApp({
-    projectId: getEnvFirebaseConfig().projectId,
-  });
+  const serviceAccountKeyRaw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  if (serviceAccountKeyRaw) {
+    try {
+      const serviceAccount = JSON.parse(serviceAccountKeyRaw);
+      initializeAdminApp({
+        credential: cert(serviceAccount),
+        projectId: getEnvFirebaseConfig().projectId,
+      });
+      console.log('Firebase Admin initialized with FIREBASE_SERVICE_ACCOUNT_KEY (custom-token signing enabled).');
+    } catch (err) {
+      console.error('FIREBASE_SERVICE_ACCOUNT_KEY is set but could not be parsed as JSON. Falling back to default credentials:', err);
+      initializeAdminApp({ projectId: getEnvFirebaseConfig().projectId });
+    }
+  } else {
+    initializeAdminApp({ projectId: getEnvFirebaseConfig().projectId });
+    console.warn(
+      'No FIREBASE_SERVICE_ACCOUNT_KEY / GOOGLE_APPLICATION_CREDENTIALS found. ' +
+      'ID token verification will still work, but username/password login ' +
+      '(/api/auth/login) needs one of these to sign custom tokens — see comment above.'
+    );
+  }
 }
 const adminAuth = getAdminAuth();
 
@@ -60,6 +93,36 @@ const optionalAuth = async (req: express.Request, res: express.Response, next: e
 };
 
 app.use(optionalAuth);
+
+// ─── Authenticated-user helpers ─────────────────────────────────────────────
+// After a successful /api/auth/login, the client signs into Firebase with a
+// custom token minted below (see createCustomToken). That custom token carries
+// our own `role` / `username` / `displayName` / `userId` claims, which show up
+// on req.user (decoded by optionalAuth above) on every subsequent request that
+// sends the resulting Firebase ID token as `Authorization: Bearer <token>`.
+const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authedUser = (req as any).user;
+  if (!authedUser || !authedUser.role) {
+    return res.status(401).json({ error: 'Not signed in. Please log in again.' });
+  }
+  next();
+};
+
+const requireRole = (...allowedRoles: string[]) => {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const authedUser = (req as any).user;
+    if (!authedUser || !authedUser.role) {
+      return res.status(401).json({ error: 'Not signed in. Please log in again.' });
+    }
+    if (!allowedRoles.includes(authedUser.role)) {
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
+    }
+    next();
+  };
+};
+
+// Roles allowed to manage login accounts from the HR Portal "Accounts" tab.
+const ACCOUNT_ADMIN_ROLES = ['management', 'hr_portal'];
 
 // Mutating interceptor to auto-update Firestore backup in the background
 app.use((req, res, next) => {
@@ -479,7 +542,16 @@ async function restoreDbIfEmpty() {
 }
 
 // ----------------------------------------------------
-// SECURE GATE ENDPOINTS FOR CUSTOM PASSWORD/PIN CODES
+// LEGACY SHARED-PIN ENDPOINTS — DEPRECATED
+// ----------------------------------------------------
+// The login screen now uses per-person username/password accounts
+// (see "SIGN-IN & USER ACCOUNTS" below). These department-wide PIN
+// endpoints are kept only because the Management Dashboard still has an
+// old "Configure Access PINs" panel that reads/writes them. They are no
+// longer used to authenticate anyone. Recommended follow-up: remove the
+// PIN panel from ManagementDashboard.tsx and delete these two routes.
+// The write endpoint is locked to Management in the meantime so a
+// random visitor can't silently reset the legacy PINs.
 // ----------------------------------------------------
 
 app.get('/api/pins', async (req, res) => {
@@ -518,7 +590,7 @@ app.get('/api/pins', async (req, res) => {
   }
 });
 
-app.post('/api/pins', async (req, res) => {
+app.post('/api/pins', requireRole('management'), async (req, res) => {
   try {
     const pinsData = req.body;
     const firestoreDb = getFirestoreDb();
@@ -536,6 +608,234 @@ app.post('/api/pins', async (req, res) => {
     res.status(500).json({ error: 'Failed to update PIN codes in permanent storage.' });
   }
 });
+
+// ----------------------------------------------------
+// SIGN-IN & USER ACCOUNTS
+// ----------------------------------------------------
+// Real per-person accounts, replacing the shared department PIN above.
+// Accounts are created/managed from the HR Portal "Accounts" tab (or by
+// Management) and live in Postgres (`users` table). On successful login we
+// mint a Firebase custom token carrying the account's role/name as claims;
+// the client exchanges it for a Firebase ID token via signInWithCustomToken,
+// and that ID token is what every other /api request already sends as
+// `Authorization: Bearer <token>` (see optionalAuth above). This means the
+// rest of the API can gate access with requireAuth / requireRole without any
+// new client plumbing.
+
+function toPublicUser(u: typeof users.$inferSelect) {
+  const { passwordHash, passwordSalt, ...rest } = u;
+  return rest;
+}
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const usernameRaw = String(req.body?.username || '');
+    const password = String(req.body?.password || '');
+    if (!usernameRaw || !password) {
+      return res.status(400).json({ error: 'Username and password are required.' });
+    }
+    const username = normalizeUsername(usernameRaw);
+
+    const rows = await db.select().from(users).where(eq(users.username, username));
+    const account = rows[0];
+    if (!account || !verifyPassword(password, account.passwordHash, account.passwordSalt)) {
+      return res.status(401).json({ error: 'Incorrect username or password.' });
+    }
+    if (!account.active) {
+      return res.status(403).json({ error: 'This account has been disabled. Contact HR or Management.' });
+    }
+
+    const customToken = await adminAuth.createCustomToken(account.id, {
+      role: account.role,
+      username: account.username,
+      displayName: account.displayName,
+      userId: account.id,
+    });
+
+    await db.update(users)
+      .set({ lastLoginAt: new Date().toISOString() })
+      .where(eq(users.id, account.id));
+
+    res.json({ customToken, user: toPublicUser(account) });
+  } catch (error: any) {
+    console.error('Login failed:', error);
+    res.status(500).json({ error: 'Login failed. Please try again.' });
+  }
+});
+
+// Self-service password change (any signed-in user, for their own account).
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  try {
+    const authedUser = (req as any).user;
+    const currentPassword = String(req.body?.currentPassword || '');
+    const newPassword = String(req.body?.newPassword || '');
+
+    const strengthError = validatePasswordStrength(newPassword);
+    if (strengthError) return res.status(400).json({ error: strengthError });
+
+    const rows = await db.select().from(users).where(eq(users.id, authedUser.userId || authedUser.uid));
+    const account = rows[0];
+    if (!account) return res.status(404).json({ error: 'Account not found.' });
+
+    if (!verifyPassword(currentPassword, account.passwordHash, account.passwordSalt)) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+
+    const { hash, salt } = hashPassword(newPassword);
+    await db.update(users)
+      .set({ passwordHash: hash, passwordSalt: salt, mustChangePassword: 0, updatedAt: new Date().toISOString() })
+      .where(eq(users.id, account.id));
+
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    console.error('Change password failed:', error);
+    res.status(500).json({ error: 'Failed to change password.' });
+  }
+});
+
+// List accounts — HR / Management only.
+app.get('/api/users', requireRole(...ACCOUNT_ADMIN_ROLES), async (req, res) => {
+  try {
+    const rows = await db.select().from(users);
+    res.json(rows.map(toPublicUser));
+  } catch (error: any) {
+    console.error('Failed to list users:', error);
+    res.status(500).json({ error: 'Failed to load accounts.' });
+  }
+});
+
+// Create an account for an employee — HR / Management only.
+app.post('/api/users', requireRole(...ACCOUNT_ADMIN_ROLES), async (req, res) => {
+  try {
+    const authedUser = (req as any).user;
+    const { username: usernameRaw, displayName, role, employeeId } = req.body || {};
+    if (!usernameRaw || !displayName || !role) {
+      return res.status(400).json({ error: 'Username, display name, and role are required.' });
+    }
+    const username = normalizeUsername(usernameRaw);
+
+    const existing = await db.select().from(users).where(eq(users.username, username));
+    if (existing.length > 0) {
+      return res.status(409).json({ error: `Username "${username}" is already taken.` });
+    }
+
+    const tempPassword = generateTempPassword();
+    const { hash, salt } = hashPassword(tempPassword);
+    const newUser = {
+      id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      username,
+      passwordHash: hash,
+      passwordSalt: salt,
+      displayName: String(displayName),
+      role: String(role),
+      employeeId: employeeId || null,
+      active: 1,
+      mustChangePassword: 1,
+      createdByName: authedUser?.displayName || 'HR Portal',
+      createdAt: new Date().toISOString(),
+      updatedAt: null,
+      lastLoginAt: null,
+    };
+    await db.insert(users).values(newUser);
+
+    // tempPassword is only ever sent back on creation — it is never stored
+    // in plaintext and cannot be retrieved later, only reset.
+    res.json({ user: toPublicUser(newUser as any), tempPassword });
+  } catch (error: any) {
+    console.error('Failed to create user:', error);
+    res.status(500).json({ error: 'Failed to create account.' });
+  }
+});
+
+// Update role / display name / linked employee / active status — HR / Management only.
+app.put('/api/users/:id', requireRole(...ACCOUNT_ADMIN_ROLES), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { displayName, role, employeeId, active } = req.body || {};
+    const patch: Record<string, any> = { updatedAt: new Date().toISOString() };
+    if (displayName !== undefined) patch.displayName = displayName;
+    if (role !== undefined) patch.role = role;
+    if (employeeId !== undefined) patch.employeeId = employeeId;
+    if (active !== undefined) patch.active = active ? 1 : 0;
+
+    await db.update(users).set(patch).where(eq(users.id, id));
+    const rows = await db.select().from(users).where(eq(users.id, id));
+    if (!rows[0]) return res.status(404).json({ error: 'Account not found.' });
+    res.json(toPublicUser(rows[0]));
+  } catch (error: any) {
+    console.error('Failed to update user:', error);
+    res.status(500).json({ error: 'Failed to update account.' });
+  }
+});
+
+// Reset a forgotten password — HR / Management only. Returns a new temp
+// password to hand to the employee; they should change it on first login.
+app.post('/api/users/:id/reset-password', requireRole(...ACCOUNT_ADMIN_ROLES), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tempPassword = generateTempPassword();
+    const { hash, salt } = hashPassword(tempPassword);
+    await db.update(users)
+      .set({ passwordHash: hash, passwordSalt: salt, mustChangePassword: 1, updatedAt: new Date().toISOString() })
+      .where(eq(users.id, id));
+    res.json({ tempPassword });
+  } catch (error: any) {
+    console.error('Failed to reset password:', error);
+    res.status(500).json({ error: 'Failed to reset password.' });
+  }
+});
+
+// Deactivate an account (soft delete — keeps history/audit trail intact).
+app.delete('/api/users/:id', requireRole(...ACCOUNT_ADMIN_ROLES), async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.update(users)
+      .set({ active: 0, updatedAt: new Date().toISOString() })
+      .where(eq(users.id, id));
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    console.error('Failed to deactivate user:', error);
+    res.status(500).json({ error: 'Failed to deactivate account.' });
+  }
+});
+
+// One-time startup seed: if there are no accounts at all yet, create a
+// single Management account so the very first person can log in and start
+// creating everyone else's accounts from the HR Portal.
+async function seedInitialAdminAccount() {
+  try {
+    const existing = await db.select().from(users);
+    if (existing.length > 0) return;
+
+    const tempPassword = generateTempPassword();
+    const { hash, salt } = hashPassword(tempPassword);
+    await db.insert(users).values({
+      id: `user_${Date.now()}_seed`,
+      username: 'admin',
+      passwordHash: hash,
+      passwordSalt: salt,
+      displayName: 'System Administrator',
+      role: 'management',
+      employeeId: null,
+      active: 1,
+      mustChangePassword: 1,
+      createdByName: 'System (initial setup)',
+      createdAt: new Date().toISOString(),
+      updatedAt: null,
+      lastLoginAt: null,
+    });
+
+    console.log('\n──────────────────────────────────────────────────────────');
+    console.log(' No login accounts found — created the first Management account:');
+    console.log(`   username: admin`);
+    console.log(`   password: ${tempPassword}`);
+    console.log(' Log in with this once, then create real accounts for every');
+    console.log(' person from the HR Portal → Accounts tab, and disable this one.');
+    console.log('──────────────────────────────────────────────────────────\n');
+  } catch (err) {
+    console.error('Failed to seed initial admin account:', err);
+  }
+}
 
 // NOTE: The old /api/firebase-config GET and POST endpoints have been removed.
 // They read/wrote firebase-applet-config.json directly to disk with ZERO
@@ -830,7 +1130,7 @@ app.delete('/api/monthly-targets/:id', async (req, res) => {
 });
 
 // 9. Employees CRUD
-app.post('/api/employees', async (req, res) => {
+app.post('/api/employees', requireRole('management', 'hr_portal'), async (req, res) => {
   try {
     const data = req.body;
     await db.insert(employees).values(data).onConflictDoUpdate({
@@ -844,7 +1144,7 @@ app.post('/api/employees', async (req, res) => {
   }
 });
 
-app.delete('/api/employees/:id', async (req, res) => {
+app.delete('/api/employees/:id', requireRole('management', 'hr_portal'), async (req, res) => {
   try {
     const { id } = req.params;
     await db.delete(employees).where(eq(employees.id, id));
@@ -1208,7 +1508,7 @@ app.post('/api/employee-punches/bulk', async (req, res) => {
   }
 });
 
-app.post('/api/employees/bulk', async (req, res) => {
+app.post('/api/employees/bulk', requireRole('management', 'hr_portal'), async (req, res) => {
   try {
     const dataArray = req.body;
     if (!Array.isArray(dataArray)) {
@@ -1244,7 +1544,7 @@ app.get('/api/materials', async (req, res) => {
   }
 });
 
-app.post('/api/materials', async (req, res) => {
+app.post('/api/materials', requireRole('management', 'store'), async (req, res) => {
   try {
     const item = req.body;
     await db.insert(materials).values(item).onConflictDoUpdate({ target: materials.id, set: item });
@@ -1255,7 +1555,7 @@ app.post('/api/materials', async (req, res) => {
   }
 });
 
-app.delete('/api/materials/:id', async (req, res) => {
+app.delete('/api/materials/:id', requireRole('management', 'store'), async (req, res) => {
   try {
     await db.delete(materials).where(eq(materials.id, req.params.id));
     await backupToFirestore();
@@ -1266,7 +1566,7 @@ app.delete('/api/materials/:id', async (req, res) => {
 });
 
 // Manual stock adjustment (e.g. new delivery arrives at the store)
-app.post('/api/materials/:id/adjust-stock', async (req, res) => {
+app.post('/api/materials/:id/adjust-stock', requireRole('management', 'store'), async (req, res) => {
   try {
     const { delta, note } = req.body; // delta can be positive (stock in) or negative (manual correction)
     const [item] = await db.select().from(materials).where(eq(materials.id, req.params.id));
@@ -1485,7 +1785,7 @@ app.delete('/api/material-requests/:id', async (req, res) => {
 
 // ---- Materials bulk (Excel) upload ----
 // Body: { items: [{ name, category?, section?, unit, currentStock, reorderLevel?, notes? }, ...], mode: 'add' | 'update' | 'both' }
-app.post('/api/materials/bulk', async (req, res) => {
+app.post('/api/materials/bulk', requireRole('management', 'store'), async (req, res) => {
   try {
     const { items = [], mode = 'both' } = req.body || {};
     if (!Array.isArray(items) || items.length === 0) {
@@ -1871,6 +2171,10 @@ async function setupViteOrStatic() {
     console.log(`Production-ready Express server running on port ${PORT}`);
   });
 }
+
+seedInitialAdminAccount().catch((err) => {
+  console.error('Failed to seed initial admin account:', err);
+});
 
 setupViteOrStatic().catch((err) => {
   console.error('Vite dev server initialization crash:', err);
