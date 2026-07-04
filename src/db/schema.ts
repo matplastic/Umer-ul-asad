@@ -134,6 +134,26 @@ export const recycleBin = pgTable('recycle_bin', {
   payload: jsonb('payload').notNull(), // JSON containing all deleted items of that type
 });
 
+// Define 'users' table (login accounts — one per authorized person).
+// HR / Management create these from the HR Portal "Accounts" tab. Each account
+// is linked to an employee record and carries the ERP role that decides which
+// portal the person lands on after signing in.
+export const users = pgTable('users', {
+  id: text('id').primaryKey(),
+  username: text('username').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  passwordSalt: text('password_salt').notNull(),
+  displayName: text('display_name').notNull(),
+  role: text('role').notNull(), // one of ViewRole
+  employeeId: text('employee_id'), // links to employees.id, optional (e.g. shared kiosk accounts)
+  active: integer('active').notNull().default(1), // 1 = can log in, 0 = disabled
+  mustChangePassword: integer('must_change_password').notNull().default(1),
+  createdByName: text('created_by_name'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at'),
+  lastLoginAt: text('last_login_at'),
+});
+
 // Define 'employee_punches' table for machine card punching records (In/Out)
 export const employeePunches = pgTable('employee_punches', {
   id: text('id').primaryKey(),
