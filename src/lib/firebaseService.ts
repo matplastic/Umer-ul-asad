@@ -1,6 +1,6 @@
 import { auth, app } from './googleDrive.ts';
 import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock } from '../types';
 
 const clientDb = getFirestore(app);
 
@@ -995,6 +995,46 @@ export async function dbDeleteBomItem(id: string) {
   return res.json();
 }
 
+// --- Floor Stock (material issued out of the Store to a section, not yet
+// consumed — see the FloorStock type comment in types.ts for the full flow) ---
+export async function dbFetchFloorStock(): Promise<FloorStock[]> {
+  if (!apiBase()) return getFirestoreDocArray('floorStock');
+  const res = await fetch(getApiUrl('/api/floor-stock'));
+  return res.ok ? res.json() : [];
+}
+
+// Adds (or subtracts, with a negative delta) `delta` units of a material to
+// the floor stock of one section. Used when a request is approved (+) and
+// when consumption is logged (-) or a consumption log is deleted/reversed (+).
+async function adjustFloorStock(
+  sectionId: string, sectionName: string,
+  materialId: string, materialName: string, unit: string,
+  delta: number,
+): Promise<void> {
+  if (!sectionId || !delta) return;
+  const rowId = `${sectionId}__${materialId}`;
+  await updateFirestoreDocArray('floorStock', (arr) => {
+    const idx = arr.findIndex((f) => f.id === rowId);
+    if (idx !== -1) {
+      arr[idx] = {
+        ...arr[idx],
+        // Refresh labels too — approval time only knows the raw section id,
+        // so once a consumption log call comes through with the friendly
+        // section/material names, adopt those instead of staying stuck
+        // with the placeholder.
+        sectionName: sectionName || arr[idx].sectionName,
+        materialName: materialName || arr[idx].materialName,
+        unit: unit || arr[idx].unit,
+        qty: Number(arr[idx].qty || 0) + delta,
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      arr.push({ id: rowId, sectionId, sectionName, materialId, materialName, unit, qty: delta, updatedAt: new Date().toISOString() });
+    }
+    return arr;
+  });
+}
+
 // --- Material Requests ---
 export async function dbFetchMaterialRequests(): Promise<MaterialRequest[]> {
   if (!apiBase()) return getFirestoreDocArray('materialRequests');
@@ -1038,9 +1078,13 @@ export async function dbDecideMaterialRequest(id: string, action: 'approve' | 'r
     );
     if (action === 'approve' && decided) {
       const qty = Number(decided.qtyRequested);
+      // 1) Leaves the Store
       await updateFirestoreDocArray('materials', (arr) =>
         arr.map((m) => (m.id === decided!.materialId ? { ...m, currentStock: (m.currentStock || 0) - qty } : m))
       );
+      // 2) Arrives on the requesting section's Floor Stock
+      const sectionId = (decided.stageId as string) || 'unassigned';
+      await adjustFloorStock(sectionId, sectionId, decided.materialId, decided.materialName, decided.unit, qty);
     }
     return { success: true, item: decided };
   }
@@ -1423,13 +1467,16 @@ export async function dbFetchConsumptionLogs(): Promise<ConsumptionLog[]> {
   return res.ok ? res.json() : [];
 }
 
+// Logs consumption AND draws the qty down from that section's Floor Stock
+// (the material already left the Store at approval time — see FloorStock).
+// Store's currentStock is intentionally NOT touched here anymore; touching
+// it here as well as at approval time used to double-deduct the same
+// material from the same number.
 export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' | 'createdAt'>) {
   const full: ConsumptionLog = { ...payload, id: newId('cons'), createdAt: new Date().toISOString() } as ConsumptionLog;
   if (!apiBase()) {
     await updateFirestoreDocArray('consumptionLogs', (arr) => { arr.push(full); return arr; });
-    await updateFirestoreDocArray('materials', (arr) =>
-      arr.map((m) => (m.id === payload.materialId ? { ...m, currentStock: (m.currentStock || 0) - Number(payload.qty || 0) } : m))
-    );
+    await adjustFloorStock(payload.sectionId, payload.sectionName, payload.materialId, payload.materialName, payload.unit, -Number(payload.qty || 0));
     return { success: true, item: full };
   }
   const headers = await getHeaders();
@@ -1441,9 +1488,18 @@ export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' 
   return res.json();
 }
 
+// Deleting a consumption log reverses it — the qty goes back onto the
+// section's Floor Stock, since it was never actually a Store transaction.
 export async function dbDeleteConsumptionLog(id: string) {
   if (!apiBase()) {
-    await updateFirestoreDocArray('consumptionLogs', (arr) => arr.filter((c) => c.id !== id), true);
+    let removed: ConsumptionLog | undefined;
+    await updateFirestoreDocArray('consumptionLogs', (arr) => {
+      removed = arr.find((c) => c.id === id);
+      return arr.filter((c) => c.id !== id);
+    }, true);
+    if (removed) {
+      await adjustFloorStock(removed.sectionId, removed.sectionName, removed.materialId, removed.materialName, removed.unit, Number(removed.qty || 0));
+    }
     return { success: true };
   }
   const headers = await getHeaders();
