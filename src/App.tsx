@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from './types';
 import StoreModule from './components/StoreModule';
+import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector, RoleContextPanel } from './components/RoleSelector';
@@ -24,6 +25,8 @@ import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedir
 import { 
   getEntireStateFromFirestore, 
   saveEntireStateToFirestore,
+  saveChangedCollectionsToFirestore,
+  wipeAllCollectionsFromFirestore,
   getLiveStateFromFirestore,
   dbSaveProjectSummary,
   dbDeleteProjectSummary,
@@ -381,6 +384,12 @@ export default function App() {
   // Firebase Integration states
   const [firebaseStatus, setFirebaseStatus] = useState<'idle' | 'linking' | 'connected' | 'error'>('idle');
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
+  // DATA-LOSS FIX: block ALL cloud writes until we have successfully loaded
+  // the real cloud state at least once. Without this, an action performed
+  // right after opening the app (or after a failed load that fell back to an
+  // old localStorage copy) would push STALE data to Firestore and wipe
+  // everything entered from other devices since this copy was cached.
+  const cloudHydratedRef = useRef(false);
 
   // Load state from Firestore & register Auth listener on mount
   useEffect(() => {
@@ -469,6 +478,7 @@ export default function App() {
           localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary));
           localStorage.setItem('apex_monthly_targets', JSON.stringify(cloudData.monthlyTargets));
           localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees));
+          cloudHydratedRef.current = true;
           setFirebaseStatus('connected');
         } else {
           // BUGFIX: truly empty database. We now seed ONLY the structural
@@ -502,6 +512,7 @@ export default function App() {
           localStorage.setItem('apex_projects_summary', JSON.stringify(DEFAULT_PROJECTS_SUMMARY));
           localStorage.setItem('apex_monthly_targets', JSON.stringify(DEFAULT_MONTHLY_TARGETS));
           localStorage.setItem('apex_employees', JSON.stringify(DEFAULT_EMPLOYEES));
+          cloudHydratedRef.current = true;
           setFirebaseStatus('connected');
         }
       } catch (err: any) {
@@ -614,6 +625,7 @@ export default function App() {
       // Keep localStorage hot-cache in sync so offline reload starts with fresh data
       const lsKey = 'apex_' + collection.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
       try { localStorage.setItem(lsKey, JSON.stringify(data)); } catch {}
+      cloudHydratedRef.current = true;
       setFirebaseStatus('connected');
       setFirebaseError(null);
     });
@@ -750,19 +762,39 @@ export default function App() {
     localStorage.setItem('apex_monthly_targets', JSON.stringify(safeTargets));
     localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
 
-    // Write FULL arrays to Firestore — avoids race conditions from concurrent
-    // read-modify-write cycles when saving 50+ items at once
-    saveEntireStateToFirestore(
-      safePools,
-      safeTeams,
-      safeLogs,
-      safeInspectors,
-      safeEngineers,
-      safePlanned,
-      safeProjects,
-      safeTargets,
-      safeEmployees
-    )
+    // ─────────────────────────────────────────────────────────────────────────
+    // DATA-LOSS FIX (v6): write ONLY the collections that actually changed.
+    //
+    // Previous behaviour wrote ALL 9 collections to Firestore on EVERY action.
+    // A tab that had been open for hours (TV dashboard, idle PC) held stale
+    // copies of the 8 collections it wasn't touching — one click on that tab
+    // rewrote the entire database with old data → "all data deleted".
+    //
+    // We detect changed collections by reference: handlers always create a NEW
+    // array for what they modified and pass the existing state reference for
+    // everything else. Unchanged references are skipped entirely.
+    // ─────────────────────────────────────────────────────────────────────────
+    const changed: Record<string, any[]> = {};
+    if (updatedPools !== pools) changed.pools = safePools;
+    if (updatedTeams !== teams) changed.teams = safeTeams;
+    if (updatedLogs !== logs) changed.logs = safeLogs;
+    if (updatedInspectors !== inspectors) changed.inspectors = safeInspectors;
+    if (updatedEngineers !== engineers) changed.engineers = safeEngineers;
+    if (updatedPlannedPools !== plannedPools) changed.plannedPools = safePlanned;
+    if (updatedProjectsSummary !== projectsSummary) changed.projectsSummary = safeProjects;
+    if (updatedMonthlyTargets !== monthlyTargets) changed.monthlyTargets = safeTargets;
+    if (updatedEmployees !== employees) changed.employees = safeEmployees;
+
+    if (Object.keys(changed).length === 0) return;
+
+    if (!cloudHydratedRef.current) {
+      console.warn('[saveState] Cloud state not hydrated yet — skipping Firestore write to protect cloud data from a stale local copy.');
+      setFirebaseStatus('error');
+      setFirebaseError('Change saved on this device only. Cloud sync is paused because the app could not load the latest cloud data — check your internet connection and reload the page.');
+      return;
+    }
+
+    saveChangedCollectionsToFirestore(changed)
       .then(() => {
         setFirebaseStatus('connected');
         setFirebaseError(null);
@@ -1617,7 +1649,14 @@ export default function App() {
 
   // Complete database purge (start entirely from a fresh layout)
   const handlePurgeAllData = async () => {
-    if (window.confirm('🚨 CRITICAL ACTION!\nAre you absolutely sure you want to delete ALL active pools, older projects, floor labor teams, planned pools, monthly targets, employees, and manufacturing history records permanently?\n\nThis will instantly clear both your browser cache AND your Cloud SQL database allowing you to start completely from scratch.')) {
+    if (window.confirm('🚨 CRITICAL ACTION!\nAre you absolutely sure you want to delete ALL active pools, older projects, floor labor teams, planned pools, monthly targets, employees, and manufacturing history records permanently?\n\nThis will instantly clear both your browser cache AND your cloud database allowing you to start completely from scratch.')) {
+      // DATA-LOSS FIX: require explicit typed confirmation — a stray click on
+      // two confirm dialogs can no longer wipe the whole factory database.
+      const typed = window.prompt('FINAL CONFIRMATION\n\nType DELETE (in capital letters) to permanently erase ALL cloud data:');
+      if (typed !== 'DELETE') {
+        alert('Purge cancelled. No data was deleted.');
+        return;
+      }
       setPools([]);
       setTeams([]);
       setLogs([]);
@@ -1641,7 +1680,7 @@ export default function App() {
       localStorage.removeItem('apex_trolleys');
 
       try {
-        await saveEntireStateToFirestore([], [], [], [], [], [], [], [], []);
+        await wipeAllCollectionsFromFirestore();
         setFirebaseStatus('connected');
         setFirebaseError(null);
         alert('Database cleared successfully! You now have a 100% clean worksheet canvas. Start by adding your own staff or releasing new projects.');
@@ -2548,6 +2587,9 @@ export default function App() {
         loggedInUser={loggedInUser}
         onLogout={handleLogout}
       />
+
+      {/* Global Page Up / Page Down floating buttons — visible on all portals */}
+      <ScrollButtons />
 
       <div className="flex-1 min-w-0 flex flex-col justify-between">
 
