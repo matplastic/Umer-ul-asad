@@ -396,8 +396,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           </div>
 
           {/* Inventory table with incoming + consumed columns */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-            <table className="w-full text-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+            <table className="w-full min-w-[700px] text-xs">
               <thead>
                 <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Material</th>
@@ -462,9 +462,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Log Incoming</button>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">Recent GRN (Goods Received)</div>
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[700px] text-xs">
               <thead>
                 <tr className="text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
@@ -555,13 +555,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* ---------- FLOOR STOCK TAB ---------- */}
       {tab === 'floor' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
           <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
             <Boxes className="h-4 w-4 text-orange-400" />
             <div className="text-sm font-bold text-white">Material Currently on the Floor</div>
             <div className="text-xs text-slate-500">Issued out of Store on approval, not yet consumed</div>
           </div>
-          <table className="w-full text-xs">
+          <table className="w-full min-w-[700px] text-xs">
             <thead>
               <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
                 <th className="text-left px-4 py-2">Section</th>
@@ -627,9 +627,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <div key={proj} className="mb-6">
                 <h3 className="text-sm font-bold text-white mb-2">{proj}</h3>
                 {types.map(type => (
-                  <div key={type} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mb-3">
+                  <div key={type} className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto mb-3">
                     <div className="bg-slate-800/60 px-4 py-2 text-xs font-bold text-orange-400 uppercase">{type}</div>
-                    <table className="w-full text-xs">
+                    <table className="w-full min-w-[700px] text-xs">
                       <tbody>
                         {rows.filter(r => r.poolType === type).map(r => (
                           <tr key={r.id} className="border-t border-slate-800">
@@ -742,12 +742,12 @@ const ConsumptionReports: React.FC<{ analytics: any }> = ({ analytics }) => {
   return (
     <div className="space-y-6" data-testid="consumption-reports">
       {/* Overall inventory summary */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
         <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
           <Package className="h-4 w-4 text-orange-400" />
           <div className="text-sm font-bold text-white">Inventory Overview (current + incoming + consumption)</div>
         </div>
-        <table className="w-full text-xs">
+        <table className="w-full min-w-[700px] text-xs">
           <thead>
             <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Material</th>
@@ -773,7 +773,7 @@ const ConsumptionReports: React.FC<{ analytics: any }> = ({ analytics }) => {
       </div>
 
       {/* Daily consumption sparkline */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
         <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-emerald-400" />
           <div className="text-sm font-bold text-white">Daily Consumption (all sections, all materials)</div>
@@ -800,14 +800,14 @@ const ConsumptionReports: React.FC<{ analytics: any }> = ({ analytics }) => {
       </div>
 
       {/* Per project consumption */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
         <div className="px-4 py-3 border-b border-slate-800 text-sm font-bold text-white">Per-Project Material Consumption</div>
         {Object.keys(perProject).length === 0 ? (
           <div className="text-center text-slate-500 py-8 text-sm">No project consumption data yet.</div>
         ) : Object.keys(perProject).map(proj => (
           <div key={proj} className="border-b border-slate-800 last:border-0">
             <div className="px-4 py-2 bg-slate-800/40 text-xs font-bold text-orange-400 uppercase">{proj}</div>
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[700px] text-xs">
               <tbody>
                 {Object.entries(perProject[proj]).map(([matId, cell]: [string, any]) => (
                   <tr key={matId} className="border-t border-slate-800">
@@ -822,7 +822,7 @@ const ConsumptionReports: React.FC<{ analytics: any }> = ({ analytics }) => {
       </div>
 
       {/* Per pool type: planned vs actual */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
         <div className="px-4 py-3 border-b border-slate-800 text-sm font-bold text-white">Per-Pool-Type: Planned (BOM) vs Actual (attributed)</div>
         {perPoolType.length === 0 ? (
           <div className="text-center text-slate-500 py-8 text-sm">Log production and consumption to see this comparison.</div>
@@ -834,7 +834,7 @@ const ConsumptionReports: React.FC<{ analytics: any }> = ({ analytics }) => {
                 <div className="text-xs font-bold text-orange-400 uppercase">{row.projectName} — {row.poolType}</div>
                 <div className="text-[10px] text-slate-400">Pools produced: <span className="text-white font-bold">{row.poolsProduced}</span></div>
               </div>
-              <table className="w-full text-xs">
+              <table className="w-full min-w-[700px] text-xs">
                 <thead>
                   <tr className="text-slate-400 uppercase text-[10px]">
                     <th className="text-left px-4 py-2">Material</th>
