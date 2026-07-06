@@ -7,10 +7,11 @@ import {
   dbFetchMaterials, dbFetchBomItems, dbSubmitMaterialRequest, dbFetchMaterialRequests,
   dbFetchConsumptionLogs, dbCreateConsumptionLog, dbDeleteConsumptionLog,
   dbFetchProductionLogs, dbCreateProductionLog, dbDeleteProductionLog,
+  dbFetchFloorStock,
 } from '../lib/firebaseService';
 import {
-  Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog,
-  SECTION_DEFINITIONS,
+  Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog, FloorStock,
+  SECTION_DEFINITIONS, SUPERVISOR_SECTIONS,
 } from '../types';
 
 interface SupervisorPortalProps {
@@ -20,15 +21,6 @@ interface SupervisorPortalProps {
 }
 
 type Tab = 'consumption' | 'production' | 'request' | 'history';
-
-// Supervisor Portal shows only these 2 broad working sections (per request).
-// This is intentionally local to this file only — it does not affect the
-// production-stage pipeline (Stage Shop Floor, Quality Inspector, targets,
-// etc.), which still uses the full SECTION_DEFINITIONS/StageId list from types.ts.
-const SUPERVISOR_SECTIONS: { id: string; name: string }[] = [
-  { id: 'mep_material', name: 'MEP Material' },
-  { id: 'civil_material', name: 'Civil Material' },
-];
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -40,6 +32,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [consumption, setConsumption] = useState<ConsumptionLog[]>([]);
   const [production, setProduction] = useState<ProductionLog[]>([]);
+  const [floorStock, setFloorStock] = useState<FloorStock[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -68,18 +61,20 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, c, p] = await Promise.all([
+      const [m, b, r, c, p, fs] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
         dbFetchConsumptionLogs(),
         dbFetchProductionLogs(),
+        dbFetchFloorStock(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
       setBom(Array.isArray(b) ? b : []);
       setRequests(Array.isArray(r) ? r : []);
       setConsumption(Array.isArray(c) ? c : []);
       setProduction(Array.isArray(p) ? p : []);
+      setFloorStock(Array.isArray(fs) ? fs : []);
       setError(null);
     } catch (e: any) {
       setError('Could not reach the server. Check your connection.');
@@ -101,6 +96,17 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       return aTag - bTag || a.name.localeCompare(b.name);
     });
   }, [materials, section]);
+
+  // How much of each material has actually been issued to THIS section and
+  // is sitting on the floor, not yet consumed. This is what a supervisor can
+  // really consume from — not the Store's total stock.
+  const sectionFloorStock = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const f of floorStock) {
+      if (f.sectionId === section) map[f.materialId] = Number(f.qty || 0);
+    }
+    return map;
+  }, [floorStock, section]);
 
   const myConsumption = useMemo(() => consumption
     .filter(c => c.sectionId === section)
@@ -152,6 +158,8 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     if (!cMaterialId || !cQty) { setFlash('Select a material and quantity'); return; }
     const mat = materials.find(m => m.id === cMaterialId);
     if (!mat) return;
+    const available = sectionFloorStock[cMaterialId] || 0;
+    const overBy = Number(cQty) > available;
     await dbCreateConsumptionLog({
       date: cDate,
       sectionId: section,
@@ -164,8 +172,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       loggedByName: currentUserName,
     });
     setCMaterialId(''); setCQty(''); setCNotes('');
-    setFlash('Consumption logged. Stock updated.');
-    setTimeout(() => setFlash(null), 2500);
+    setFlash(overBy
+      ? `Logged — but that's more than the ${available} ${mat.unit} of ${mat.name} issued to ${sectionName}. Ask Store to check the issue slip.`
+      : 'Consumption logged. Floor stock updated.');
+    setTimeout(() => setFlash(null), overBy ? 6000 : 2500);
     loadAll(true);
   };
 
@@ -299,13 +309,29 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* CONSUMPTION TAB */}
       {tab === 'consumption' && (
         <div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5">
+            <div className="text-[10px] uppercase font-bold text-slate-500 mb-2">Currently on the floor — {sectionName} (issued by Store, not yet consumed)</div>
+            <div className="flex flex-wrap gap-2">
+              {Object.keys(sectionFloorStock).length === 0 && (
+                <span className="text-xs text-slate-600">Nothing issued to this section yet — request material first.</span>
+              )}
+              {Object.entries(sectionFloorStock).filter(([, qty]) => qty !== 0).map(([matId, qty]) => {
+                const mat = materials.find(m => m.id === matId);
+                return (
+                  <span key={matId} className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-200">
+                    {mat?.name || matId}: <span className="font-mono font-bold text-emerald-400">{qty}</span> {mat?.unit || ''}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
             <input type="date" data-testid="cons-date" value={cDate} onChange={e => setCDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <select value={cMaterialId} onChange={e => setCMaterialId(e.target.value)} data-testid="cons-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
               <option value="">Material used…</option>
               {sectionMaterials.map(m => (
                 <option key={m.id} value={m.id}>
-                  {m.name} ({m.unit}) {m.section === section ? '• section' : ''} — stock: {m.currentStock}
+                  {m.name} ({m.unit}) — on floor: {sectionFloorStock[m.id] || 0}
                 </option>
               ))}
             </select>
