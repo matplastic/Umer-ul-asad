@@ -10,6 +10,14 @@ import {
   listUserAccounts, createUserAccount, updateUserAccount,
   resetUserPassword, deactivateUserAccount, type AuthUser
 } from '../lib/authClient';
+import {
+  dbFetchHRLeaves, dbSaveHRLeaves,
+  dbFetchHRWarnings, dbSaveHRWarnings,
+  dbFetchHRPayroll, dbSaveHRPayroll,
+  dbFetchHRAccidents, dbSaveHRAccidents,
+  dbFetchHRMedicals, dbSaveHRMedicals,
+  subscribeToLiveState,
+} from '../lib/firebaseService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,35 +131,112 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'reports' | 'accounts'>('directory');
 
-  // ── Leave state (localStorage-backed) ──
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIX: Leave / Warnings / Payroll / Accidents / Medical records used to be
+  // localStorage-only, so they never left the PC that created them — that's
+  // why HR data "wasn't updating live". They now live in Firestore and are
+  // kept in sync across every PC in real time (see useEffect below). The
+  // localStorage read here is kept only as an instant-load cache so the tab
+  // isn't blank for a moment before Firestore responds; Firestore is always
+  // the source of truth once it answers.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Leave state ──
   const [leaves, setLeaves] = useState<LeaveRequest[]>(() => {
     try { return JSON.parse(localStorage.getItem('hr_leaves') || '[]'); } catch { return []; }
   });
-  const saveLeaves = (l: LeaveRequest[]) => { setLeaves(l); localStorage.setItem('hr_leaves', JSON.stringify(l)); };
+  const saveLeaves = (l: LeaveRequest[]) => {
+    setLeaves(l);
+    try { localStorage.setItem('hr_leaves', JSON.stringify(l)); } catch {}
+    dbSaveHRLeaves(l).catch(err => console.error('[HRPortal] Failed to sync leave data to Firestore:', err));
+  };
 
   // ── Warnings state ──
   const [warnings, setWarnings] = useState<Warning[]>(() => {
     try { return JSON.parse(localStorage.getItem('hr_warnings') || '[]'); } catch { return []; }
   });
-  const saveWarnings = (w: Warning[]) => { setWarnings(w); localStorage.setItem('hr_warnings', JSON.stringify(w)); };
+  const saveWarnings = (w: Warning[]) => {
+    setWarnings(w);
+    try { localStorage.setItem('hr_warnings', JSON.stringify(w)); } catch {}
+    dbSaveHRWarnings(w).catch(err => console.error('[HRPortal] Failed to sync warnings to Firestore:', err));
+  };
 
   // ── Payroll state ──
   const [payroll, setPayroll] = useState<PayrollRecord[]>(() => {
     try { return JSON.parse(localStorage.getItem('hr_payroll') || '[]'); } catch { return []; }
   });
-  const savePayroll = (p: PayrollRecord[]) => { setPayroll(p); localStorage.setItem('hr_payroll', JSON.stringify(p)); };
+  const savePayroll = (p: PayrollRecord[]) => {
+    setPayroll(p);
+    try { localStorage.setItem('hr_payroll', JSON.stringify(p)); } catch {}
+    dbSaveHRPayroll(p).catch(err => console.error('[HRPortal] Failed to sync payroll to Firestore:', err));
+  };
 
   // ── Accident state ──
   const [accidents, setAccidents] = useState<AccidentReport[]>(() => {
     try { return JSON.parse(localStorage.getItem('hr_accidents') || '[]'); } catch { return []; }
   });
-  const saveAccidents = (a: AccidentReport[]) => { setAccidents(a); localStorage.setItem('hr_accidents', JSON.stringify(a)); };
+  const saveAccidents = (a: AccidentReport[]) => {
+    setAccidents(a);
+    try { localStorage.setItem('hr_accidents', JSON.stringify(a)); } catch {}
+    dbSaveHRAccidents(a).catch(err => console.error('[HRPortal] Failed to sync accident reports to Firestore:', err));
+  };
 
   // ── Medical state ──
   const [medicals, setMedicals] = useState<MedicalRecord[]>(() => {
     try { return JSON.parse(localStorage.getItem('hr_medicals') || '[]'); } catch { return []; }
   });
-  const saveMedicals = (m: MedicalRecord[]) => { setMedicals(m); localStorage.setItem('hr_medicals', JSON.stringify(m)); };
+  const saveMedicals = (m: MedicalRecord[]) => {
+    setMedicals(m);
+    try { localStorage.setItem('hr_medicals', JSON.stringify(m)); } catch {}
+    dbSaveHRMedicals(m).catch(err => console.error('[HRPortal] Failed to sync medical records to Firestore:', err));
+  };
+
+  // ── Load HR data from Firestore on mount, then stay live-synced ──
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.all([
+      dbFetchHRLeaves(), dbFetchHRWarnings(), dbFetchHRPayroll(), dbFetchHRAccidents(), dbFetchHRMedicals(),
+    ]).then(([l, w, p, a, m]) => {
+      if (cancelled) return;
+      // Never let an empty Firestore read blank out data already showing
+      // from the local cache — only apply results that have data, or apply
+      // an empty result if the cache was already empty too.
+      if (l.length > 0 || leaves.length === 0) { setLeaves(l); try { localStorage.setItem('hr_leaves', JSON.stringify(l)); } catch {} }
+      if (w.length > 0 || warnings.length === 0) { setWarnings(w); try { localStorage.setItem('hr_warnings', JSON.stringify(w)); } catch {} }
+      if (p.length > 0 || payroll.length === 0) { setPayroll(p); try { localStorage.setItem('hr_payroll', JSON.stringify(p)); } catch {} }
+      if (a.length > 0 || accidents.length === 0) { setAccidents(a); try { localStorage.setItem('hr_accidents', JSON.stringify(a)); } catch {} }
+      if (m.length > 0 || medicals.length === 0) { setMedicals(m); try { localStorage.setItem('hr_medicals', JSON.stringify(m)); } catch {} }
+    }).catch(err => console.error('[HRPortal] Failed to load HR data from Firestore:', err));
+
+    // Live sync: any change made on any other PC arrives here within about a
+    // second via Firestore onSnapshot — no refresh needed.
+    const unsub = subscribeToLiveState(({ collection, data }) => {
+      const safeUpdate = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, incoming: T[], lsKey: string) => {
+        setter(prev => {
+          if (incoming.length === 0 && prev.length > 0) {
+            console.warn(`[HRPortal liveSync] Blocked empty snapshot for '${collection}' — keeping ${prev.length} existing records.`);
+            return prev;
+          }
+          try { localStorage.setItem(lsKey, JSON.stringify(incoming)); } catch {}
+          return incoming as T[];
+        });
+      };
+      switch (collection) {
+        case 'hrLeaves':    safeUpdate(setLeaves, data as LeaveRequest[], 'hr_leaves'); break;
+        case 'hrWarnings':  safeUpdate(setWarnings, data as Warning[], 'hr_warnings'); break;
+        case 'hrPayroll':   safeUpdate(setPayroll, data as PayrollRecord[], 'hr_payroll'); break;
+        case 'hrAccidents': safeUpdate(setAccidents, data as AccidentReport[], 'hr_accidents'); break;
+        case 'hrMedicals':  safeUpdate(setMedicals, data as MedicalRecord[], 'hr_medicals'); break;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (typeof unsub === 'function') unsub();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // DIRECTORY TAB
