@@ -10,11 +10,11 @@ import {
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
   dbFetchMaterialRequests, dbDecideMaterialRequest, dbMarkMaterialRequestPrinted,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
-  dbFetchConsumptionAnalytics, dbFetchConsumptionLogs,
+  dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, SECTION_DEFINITIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 
-type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'reports';
+type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'reports';
 
 interface StoreModuleProps {
   currentUserName: string;
@@ -33,6 +33,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [incoming, setIncoming] = useState<IncomingMaterial[]>([]);
   const [consumptionLogs, setConsumptionLogs] = useState<ConsumptionLog[]>([]);
+  const [floorStock, setFloorStock] = useState<FloorStock[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,19 +53,21 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, inc, an, cons] = await Promise.all([
+      const [m, b, r, inc, an, cons, fs] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
         dbFetchIncomingMaterials(),
         dbFetchConsumptionAnalytics(),
         dbFetchConsumptionLogs(),
+        dbFetchFloorStock(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
       setBom(Array.isArray(b) ? b : []);
       setRequests(Array.isArray(r) ? r.map((x: any) => ({ ...x, qtyRequested: Number(x.qtyRequested) })) : []);
       setIncoming(Array.isArray(inc) ? inc.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setConsumptionLogs(Array.isArray(cons) ? cons.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
+      setFloorStock(Array.isArray(fs) ? fs.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setAnalytics(an);
       setError(null);
     } catch (e: any) {
@@ -338,6 +341,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           {pendingApprovalCount > 0 && <span className="ml-1 bg-amber-500 text-slate-950 rounded-full px-1.5 text-[10px]">{pendingApprovalCount}</span>}
           {pendingPrintCount > 0 && <span className="ml-1 bg-emerald-500 text-slate-950 rounded-full px-1.5 text-[10px]">{pendingPrintCount} print</span>}
         </button>
+        <button onClick={() => setTab('floor')} data-testid="tab-floor" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'floor' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <Boxes className="h-4 w-4" /> On Floor
+        </button>
         <button onClick={() => setTab('reports')} data-testid="tab-reports" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reports' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <BarChart3 className="h-4 w-4" /> Consumption Reports
         </button>
@@ -547,6 +553,48 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
+      {/* ---------- FLOOR STOCK TAB ---------- */}
+      {tab === 'floor' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
+            <Boxes className="h-4 w-4 text-orange-400" />
+            <div className="text-sm font-bold text-white">Material Currently on the Floor</div>
+            <div className="text-xs text-slate-500">Issued out of Store on approval, not yet consumed</div>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+                <th className="text-left px-4 py-2">Section</th>
+                <th className="text-left px-4 py-2">Material</th>
+                <th className="text-right px-4 py-2">On Floor</th>
+                <th className="text-left px-4 py-2">Last Movement</th>
+              </tr>
+            </thead>
+            <tbody>
+              {floorStock
+                .slice()
+                .sort((a, b) => (a.sectionName || a.sectionId).localeCompare(b.sectionName || b.sectionId) || a.materialName.localeCompare(b.materialName))
+                .map(f => {
+                  const sectionLbl = SUPERVISOR_SECTIONS.find(s => s.id === f.sectionId)?.name
+                    || SECTION_DEFINITIONS.find(s => s.id === f.sectionId)?.name
+                    || f.sectionName || f.sectionId;
+                  return (
+                    <tr key={f.id} className="border-t border-slate-800">
+                      <td className="px-4 py-2 text-slate-300">{sectionLbl}</td>
+                      <td className="px-4 py-2 text-slate-200 font-semibold">{f.materialName}</td>
+                      <td className={`px-4 py-2 text-right font-mono font-bold ${f.qty <= 0 ? 'text-slate-500' : 'text-emerald-400'}`}>{f.qty} {f.unit}</td>
+                      <td className="px-4 py-2 text-slate-500 font-mono">{f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '—'}</td>
+                    </tr>
+                  );
+                })}
+              {floorStock.length === 0 && (
+                <tr><td colSpan={4} className="text-center text-slate-500 py-10">Nothing issued to the floor yet. Approve a request to move material out of the Store.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* ---------- BOM TAB ---------- */}
       {tab === 'bom' && (
         <div>
@@ -629,8 +677,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               </div>
             </div>
             <div id="printable-slip" className="bg-white text-slate-900 p-6 rounded-lg">
-              <h2 className="text-lg font-bold mb-1">MAT Plastic Industries LLC — Store Issue Slip</h2>
-              <p className="text-xs text-slate-500 mb-4">Slip #{printRequest.id.slice(-8).toUpperCase()} · {new Date().toLocaleString()}</p>
+              <div className="flex items-start justify-between border-b-2 border-slate-900 pb-3 mb-4">
+                <div>
+                  <h2 className="text-lg font-black tracking-tight">MAT PLASTIC INDUSTRIES LLC</h2>
+                  <p className="text-xs text-slate-600">Store Department — Material Issue Slip</p>
+                </div>
+                <div className="text-right text-xs text-slate-600">
+                  <div>Slip No. <span className="font-mono font-bold text-slate-900">MIS-{printRequest.id.slice(-8).toUpperCase()}</span></div>
+                  <div>{new Date().toLocaleString()}</div>
+                </div>
+              </div>
+
               <table className="w-full text-sm mb-4">
                 <tbody>
                   <tr><td className="py-1 text-slate-500 w-40">Project</td><td className="py-1 font-semibold">{printRequest.projectName}</td></tr>
@@ -639,12 +696,18 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <tr><td className="py-1 text-slate-500">Material</td><td className="py-1 font-semibold">{printRequest.materialName}</td></tr>
                   <tr><td className="py-1 text-slate-500">Quantity Issued</td><td className="py-1 font-semibold">{printRequest.qtyRequested} {printRequest.unit}</td></tr>
                   <tr><td className="py-1 text-slate-500">Requested By</td><td className="py-1">{printRequest.requestedByName} ({printRequest.requestedByRole})</td></tr>
-                  <tr><td className="py-1 text-slate-500">Approved By</td><td className="py-1">{printRequest.decidedByName || '—'}</td></tr>
+                  <tr><td className="py-1 text-slate-500">Approved By</td><td className="py-1">{printRequest.decidedByName || '—'}{printRequest.decidedAt ? ` · ${new Date(printRequest.decidedAt).toLocaleString()}` : ''}</td></tr>
+                  {printRequest.reason && <tr><td className="py-1 text-slate-500">Reason / Note</td><td className="py-1 italic">{printRequest.reason}</td></tr>}
                 </tbody>
               </table>
+
+              <div className="text-xs bg-slate-100 border border-slate-300 rounded px-3 py-2 mb-6">
+                Status: material has left the Store and is recorded on the <b>{printRequest.requestedByRole}</b> Floor Stock. It will be deducted from Floor Stock as it is consumed and logged in Consumption.
+              </div>
+
               <div className="grid grid-cols-2 gap-6 mt-10 text-xs">
-                <div className="border-t border-slate-400 pt-1">Store Keeper Signature</div>
-                <div className="border-t border-slate-400 pt-1">Received By Signature</div>
+                <div className="border-t border-slate-400 pt-1">Store Keeper Signature &amp; Date</div>
+                <div className="border-t border-slate-400 pt-1">Received By (Supervisor) Signature &amp; Date</div>
               </div>
             </div>
           </div>
