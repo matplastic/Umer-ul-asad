@@ -25,6 +25,11 @@ export function subscribeToLiveState(
     'trolleys',
     'recycleBin',
     'employeePunches',
+    'hrLeaves',
+    'hrWarnings',
+    'hrPayroll',
+    'hrAccidents',
+    'hrMedicals',
   ];
   const unsubs: Unsubscribe[] = collections.map(name =>
     onSnapshot(
@@ -1670,4 +1675,64 @@ export async function dbFetchConsumptionAnalytics(): Promise<any> {
   }
   const res = await fetch(getApiUrl('/api/consumption/analytics'));
   return res.ok ? res.json() : { inventoryReport: [], consumptionByMaterial: [], incomingByMaterial: [], dailyBySection: {}, plannedBySection: {}, perProject: {}, perPoolType: [] };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HR PORTAL: Leave, Warnings, Payroll, Accident Reports, Medical Records
+//
+// THE BUG: these five record types were stored ONLY in browser localStorage.
+// localStorage never leaves the device it was written on, so nothing here
+// ever synced between PCs — that's why HR data looked like it "wasn't
+// updating live". There was no live sync because there was nothing wired to
+// Firestore to sync in the first place.
+//
+// THE FIX: each record type now lives in Firestore under system_state
+// (same pattern as materials/employees/pools/etc.) and is included in
+// subscribeToLiveState's collection list above, so changes made on any PC
+// appear on every other PC within about a second via onSnapshot — no
+// refresh needed. The empty-write safety guard in setFirestoreDocArray
+// still protects all five from accidental wipes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// --- HR: Leave Requests ---
+export async function dbFetchHRLeaves(): Promise<any[]> {
+  return getFirestoreDocArray('hrLeaves');
+}
+export async function dbSaveHRLeaves(leaves: any[]): Promise<void> {
+  // allowEmpty=true: the caller (HRPortal) always passes the full intended
+  // list, including the legitimate case of deleting the last remaining
+  // record — that's a real user action, not an accidental empty write.
+  await setFirestoreDocArray('hrLeaves', leaves, true);
+}
+
+// --- HR: Warnings ---
+export async function dbFetchHRWarnings(): Promise<any[]> {
+  return getFirestoreDocArray('hrWarnings');
+}
+export async function dbSaveHRWarnings(warnings: any[]): Promise<void> {
+  await setFirestoreDocArray('hrWarnings', warnings, true);
+}
+
+// --- HR: Payroll ---
+export async function dbFetchHRPayroll(): Promise<any[]> {
+  return getFirestoreDocArray('hrPayroll');
+}
+export async function dbSaveHRPayroll(payroll: any[]): Promise<void> {
+  await setFirestoreDocArray('hrPayroll', payroll, true);
+}
+
+// --- HR: Accident Reports ---
+export async function dbFetchHRAccidents(): Promise<any[]> {
+  return getFirestoreDocArray('hrAccidents');
+}
+export async function dbSaveHRAccidents(accidents: any[]): Promise<void> {
+  await setFirestoreDocArray('hrAccidents', accidents, true);
+}
+
+// --- HR: Medical Records ---
+export async function dbFetchHRMedicals(): Promise<any[]> {
+  return getFirestoreDocArray('hrMedicals');
+}
+export async function dbSaveHRMedicals(medicals: any[]): Promise<void> {
+  await setFirestoreDocArray('hrMedicals', medicals, true);
 }
