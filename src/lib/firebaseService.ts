@@ -49,7 +49,11 @@ export function subscribeToLiveState(
   return () => unsubs.forEach(u => { try { u(); } catch {} });
 }
 
-// Direct client firestore document read utilities
+// Direct client firestore document read utilities.
+// NOTE: this version is tolerant of transient errors — it returns [] instead of
+// throwing so the UI doesn't crash on a brief network hiccup. It is used for
+// normal reads (loading data to show on screen), NOT for the empty-write
+// safety check below. See getFirestoreDocArrayStrict for that.
 async function getFirestoreDocArray(docName: string): Promise<any[]> {
   try {
     const docRef = doc(clientDb, 'system_state', docName);
@@ -60,6 +64,31 @@ async function getFirestoreDocArray(docName: string): Promise<any[]> {
     }
   } catch (err) {
     console.warn(`Direct client Firestore fetch warning for '${docName}':`, err);
+  }
+  return [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CRITICAL FIX (data-loss root cause): FAIL-SAFE read used ONLY by the
+// empty-write safety guard in setFirestoreDocArray.
+//
+// THE BUG: the old code used getFirestoreDocArray (above) for the "is it
+// really safe to write an empty array?" check. That function swallows every
+// error — a slow connection, a brief auth hiccup, Firestore having a bad
+// half-second — and quietly returns [], identical to "this collection is
+// genuinely empty". The guard then concluded "nothing here, safe to write
+// empty" and overwrote real data.
+//
+// THE FIX: this function does NOT catch read errors. If the check-read fails
+// for any reason, the error propagates up so the caller can refuse the write
+// instead of assuming the collection is empty. Fail safe, not fail open.
+// ─────────────────────────────────────────────────────────────────────────────
+async function getFirestoreDocArrayStrict(docName: string): Promise<any[]> {
+  const docRef = doc(clientDb, 'system_state', docName);
+  const snap = await getDoc(docRef);
+  if (snap.exists()) {
+    const resp = snap.data();
+    return Array.isArray(resp?.data) ? resp.data : [];
   }
   return [];
 }
@@ -82,8 +111,19 @@ async function setFirestoreDocArray(docName: string, data: any[], allowEmpty: bo
     // SAFETY GUARD: never overwrite a collection with an empty array unless
     // the caller explicitly passes allowEmpty=true (e.g. dbClearAllEmployeePunches)
     if (!allowEmpty && data.length === 0) {
-      // Check if Firestore already has data — if yes, refuse to wipe it
-      const existing = await getFirestoreDocArray(docName);
+      // Check if Firestore already has data — if yes, refuse to wipe it.
+      // FAIL-SAFE: if this check-read itself throws (network blip, auth
+      // hiccup, Firestore error), we do NOT know whether real data exists.
+      // We must never treat "couldn't check" as "must be empty" — that was
+      // the exact bug that wiped real collections. So on any check failure,
+      // refuse the write and log it, same as when we positively detect data.
+      let existing: any[];
+      try {
+        existing = await getFirestoreDocArrayStrict(docName);
+      } catch (checkErr) {
+        console.error(`[setFirestoreDocArray] Safety check failed for '${docName}' — refusing empty write to avoid risking data loss:`, checkErr);
+        return;
+      }
       if (existing.length > 0) {
         console.warn(`[setFirestoreDocArray] Blocked empty-array write to '${docName}' — Firestore already has ${existing.length} records. Use allowEmpty=true to intentionally clear.`);
         return;
