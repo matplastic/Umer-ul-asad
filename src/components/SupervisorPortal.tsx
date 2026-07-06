@@ -342,11 +342,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </button>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
               My recent consumption ({sectionName})
             </div>
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[700px] text-xs">
               <thead>
                 <tr className="text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
@@ -400,11 +400,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </button>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
               My recent production ({SECTION_DEFINITIONS.find(s => s.id === pStage)?.name || pStage})
             </div>
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[700px] text-xs">
               <thead>
                 <tr className="text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
@@ -460,11 +460,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </button>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
               My recent requests
             </div>
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[700px] text-xs">
               <thead>
                 <tr className="text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
@@ -496,13 +496,13 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* HISTORY / TODAY COMPARISON TAB */}
       {tab === 'history' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-emerald-400" />
               <div className="text-sm font-bold text-white">Today: planned vs actual</div>
               <div className="text-xs text-slate-500">{sectionName} · {todayStr()}</div>
             </div>
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[700px] text-xs">
               <thead>
                 <tr className="text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Material</th>
