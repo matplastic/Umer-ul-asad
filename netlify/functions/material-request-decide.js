@@ -59,6 +59,7 @@ exports.handler = async (event) => {
     await reqRef.set({ data: arr });
 
     if (approve) {
+      // 1) Leaves the Store
       const matRef = db.collection('system_state').doc('materials');
       const matSnap = await matRef.get();
       const matArr = matSnap.exists ? (matSnap.data().data || []) : [];
@@ -67,6 +68,27 @@ exports.handler = async (event) => {
         matArr[mIdx] = { ...matArr[mIdx], currentStock: (matArr[mIdx].currentStock || 0) - Number(item.qtyRequested) };
         await matRef.set({ data: matArr });
       }
+
+      // 2) Arrives on the requesting section's Floor Stock (issued, not yet
+      // consumed). Mirrors adjustFloorStock() in src/lib/firebaseService.ts —
+      // keep the two in sync if this logic ever changes.
+      const sectionId = item.stageId || 'unassigned';
+      const floorRef = db.collection('system_state').doc('floorStock');
+      const floorSnap = await floorRef.get();
+      const floorArr = floorSnap.exists ? (floorSnap.data().data || []) : [];
+      const rowId = `${sectionId}__${item.materialId}`;
+      const fIdx = floorArr.findIndex((f) => f.id === rowId);
+      const qty = Number(item.qtyRequested);
+      if (fIdx !== -1) {
+        floorArr[fIdx] = { ...floorArr[fIdx], qty: (floorArr[fIdx].qty || 0) + qty, updatedAt: new Date().toISOString() };
+      } else {
+        floorArr.push({
+          id: rowId, sectionId, sectionName: sectionId,
+          materialId: item.materialId, materialName: item.materialName, unit: item.unit,
+          qty, updatedAt: new Date().toISOString(),
+        });
+      }
+      await floorRef.set({ data: floorArr });
     }
 
     return html(
