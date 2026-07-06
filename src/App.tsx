@@ -4,7 +4,7 @@ import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, getInitialData, createEmptyHistory } from './data/mockData';
-import { RoleSelector, RoleContextPanel } from './components/RoleSelector';
+import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { LoginScreen } from './components/LoginScreen';
 import { getStoredUser, logout as logoutUser, type AuthUser } from './lib/authClient';
 import { ProductionEngineer } from './components/ProductionEngineer';
@@ -196,6 +196,10 @@ export default function App() {
   });
 
   // Simulation controls
+  // Portal drawer visibility — the hamburger button in TopBar toggles this.
+  // Closed by default so the current portal has the full screen; opening it
+  // shows the RoleSelector as a slide-in drawer instead of a permanent sidebar.
+  const [navOpen, setNavOpen] = useState(false);
   const [currentRole, setCurrentRole] = useState<ViewRole>(() => {
     // First: check if station is locked — that takes priority
     const lockRaw = localStorage.getItem('apex_station_lock');
@@ -2569,9 +2573,14 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-blue-250 antialiased">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-250 antialiased">
 
-      {/* Primary navigation sidebar */}
+      {/* Always-visible top bar: hamburger opens the portal drawer, logo + name centered */}
+      <TopBar onMenuClick={() => setNavOpen(true)} />
+
+      {/* Portal drawer — hidden until the hamburger is tapped, then overlays
+          the screen. This replaces the old permanent left sidebar, so every
+          portal now gets the full screen by default. */}
       <RoleSelector
         currentRole={currentRole}
         selectedStageId={selectedStageId}
@@ -2586,6 +2595,8 @@ export default function App() {
         stationLock={stationLock}
         loggedInUser={loggedInUser}
         onLogout={handleLogout}
+        isOpen={navOpen}
+        onClose={() => setNavOpen(false)}
       />
 
       {/* Global Page Up / Page Down floating buttons — visible on all portals */}
