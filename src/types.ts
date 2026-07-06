@@ -285,6 +285,36 @@ export interface ProductionLog {
   createdAt: string;
 }
 
+// Material that has been APPROVED + ISSUED out of the Store to a working
+// section, but not yet consumed. One row per (section, material) pair —
+// id is `${sectionId}__${materialId}`. This is what makes the flow
+// Store → Floor → Consumed instead of double-counting a single stock number:
+//   1) Supervisor requests material
+//   2) Manager approves (email/WhatsApp) → Store's currentStock goes DOWN,
+//      this FloorStock row goes UP by the same qty (material has physically
+//      left the store and is now sitting on the shop floor)
+//   3) Supervisor logs consumption against the floor stock → this row goes
+//      DOWN by the qty consumed. Store's currentStock is untouched at this
+//      step (it already left the store at approval time).
+export interface FloorStock {
+  id: string; // `${sectionId}__${materialId}`
+  sectionId: string;
+  sectionName: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qty: number; // currently on the floor, issued but not yet consumed
+  updatedAt: string;
+}
+
+// Section list used by the Supervisor Portal. Shared here (rather than kept
+// local to SupervisorPortal.tsx) so Store's Floor Stock view and any other
+// screen can label sections consistently.
+export const SUPERVISOR_SECTIONS: SectionDefinition[] = [
+  { id: 'mep_material', name: 'MEP Material' },
+  { id: 'civil_material', name: 'Civil Material' },
+];
+
 export interface SectionDefinition {
   id: StageId | string;
   name: string;
