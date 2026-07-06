@@ -365,6 +365,56 @@ export async function saveEntireStateToFirestore(
   }
 }
 
+function makeSentinel() {
+  return {
+    id: 'SENTINEL_DB_INITIALIZED',
+    projectName: 'System Sentinel',
+    orientation: 'Normal',
+    poolType: 'Type 1',
+    totalPools: 0,
+    deliveredPools: 0,
+    producedPools: 0,
+    remainingPools: 0,
+    notes: 'Database initialization sentinel record.',
+    createdAt: new Date().toISOString()
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA-LOSS FIX (v6): partial, transactional state save.
+// Only the collections the user actually CHANGED are written — the other 8
+// collections are never touched, so a stale tab can no longer overwrite the
+// whole database with old data. Each write goes through a Firestore
+// TRANSACTION (updateFirestoreDocArray) which:
+//   • serializes concurrent writes from multiple PCs (no last-write-wins wipe)
+//   • FAILS when the device is offline instead of silently queueing a stale
+//     full-document overwrite that would flush hours later on reconnect
+// ─────────────────────────────────────────────────────────────────────────────
+export async function saveChangedCollectionsToFirestore(changed: Record<string, any[]>) {
+  const entries = Object.entries(changed);
+  if (entries.length === 0) return { success: true };
+  await Promise.all(entries.map(([name, arr]) => {
+    let data = arr;
+    if (name === 'logs') data = arr.slice(-200);
+    if (name === 'projectsSummary' && !arr.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
+      data = [...arr, makeSentinel()];
+    }
+    return updateFirestoreDocArray(name, () => data);
+  }));
+  return { success: true };
+}
+
+// Intentional full wipe — ONLY used by the Management "Purge All Data" button
+// after the user types DELETE to confirm. Keeps the sentinel so the app never
+// re-seeds demo data afterwards.
+export async function wipeAllCollectionsFromFirestore() {
+  const names = ['pools', 'plannedPools', 'teams', 'logs', 'inspectors', 'engineers', 'projectsSummary', 'monthlyTargets', 'employees', 'trolleys', 'recycleBin'];
+  await Promise.all(names.map(n =>
+    setFirestoreDocArray(n, n === 'projectsSummary' ? [makeSentinel()] : [], true)
+  ));
+  return { success: true };
+}
+
 // 2.1 Fine-grained operations: Employees
 export async function dbSaveEmployee(employee: Employee) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
