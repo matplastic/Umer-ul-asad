@@ -421,11 +421,12 @@ async function backupToFirestore() {
 
     const writes = await Promise.all(
       Object.entries(candidates).map(async ([docName, rows]) => {
-        if (Array.isArray(rows) && rows.length === 0) {
+        {
           const existingSnap = await systemStateCol.doc(docName).get();
           const existingData = existingSnap.exists ? existingSnap.data()?.data : undefined;
-          if (Array.isArray(existingData) && existingData.length > 0) {
-            console.warn(`[backupToFirestore] Skipped '${docName}' — Postgres returned 0 rows but Firestore already has ${existingData.length}. Refusing to overwrite; check whether this table was actually migrated.`);
+          const existingCount = Array.isArray(existingData) ? existingData.length : 0;
+          if (Array.isArray(rows) && rows.length < existingCount) {
+            console.warn(`[backupToFirestore] Skipped '${docName}' — Postgres has ${rows.length} rows but Firestore backup already has ${existingCount}. Refusing to shrink; check whether Postgres data is intact.`);
             return null;
           }
         }
@@ -544,8 +545,11 @@ async function restoreFromFirestore() {
   }
 }
 
+let hasCheckedRestoreOnBoot = false;
 async function restoreDbIfEmpty() {
   if (process.env.DISABLE_FIRESTORE_RESTORE === 'true') return;
+  if (hasCheckedRestoreOnBoot) return;
+  hasCheckedRestoreOnBoot = true;
   try {
     const items = await db.select().from(projectsSummary).limit(1);
     if (items.length === 0) {
