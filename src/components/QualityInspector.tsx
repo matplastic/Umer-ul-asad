@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pool, StageId } from '../types';
-import { STAGES } from '../data/mockData';
+import { STAGES, DUAL_STAGE_IDS } from '../data/mockData';
 import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
 
@@ -71,8 +71,14 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     setReviewStageId(null);
   }, [activePoolId]);
 
+  const dualGateIdx = STAGES.findIndex((s) => s.id === DUAL_STAGE_IDS[0]);
   const pendingPools = pools.filter((p) => {
     if (p.currentStageIndex >= STAGES.length) return false;
+    // While parked at the shared Skimmer Fitting/Lamination gate, either
+    // sibling stage can independently be waiting on QC sign-off.
+    if (p.currentStageIndex === dualGateIdx) {
+      return DUAL_STAGE_IDS.some((id) => p.stageHistory[id]?.status === 'PENDING_INSPECTION');
+    }
     const currentStageId = STAGES[p.currentStageIndex].id;
     return p.stageHistory[currentStageId]?.status === 'PENDING_INSPECTION';
   });
@@ -265,7 +271,15 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             <div className="space-y-2 overflow-y-auto pr-1 flex-1">
               {displayedPools.map((pool) => {
                 const isSelected = pool.id === activePoolId;
-                const activeStage = pool.currentStageIndex < STAGES.length ? STAGES[pool.currentStageIndex] : null;
+                const atDualGateRow = pool.currentStageIndex === dualGateIdx;
+                const dualRowStageId = atDualGateRow
+                  ? (DUAL_STAGE_IDS.find((id) => pool.stageHistory[id]?.status === 'PENDING_INSPECTION')
+                    || DUAL_STAGE_IDS.find((id) => pool.stageHistory[id]?.status !== 'APPROVED')
+                    || DUAL_STAGE_IDS[0])
+                  : null;
+                const activeStage = atDualGateRow
+                  ? STAGES.find((s) => s.id === dualRowStageId) || null
+                  : (pool.currentStageIndex < STAGES.length ? STAGES[pool.currentStageIndex] : null);
                 const activeHist = activeStage ? pool.stageHistory[activeStage.id] : null;
                 const team = activeHist ? allTeams.find(t => t.id === activeHist.teamId) : null;
                 const isUrgent = activeHist?.status === 'PENDING_INSPECTION';
