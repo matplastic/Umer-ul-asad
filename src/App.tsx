@@ -524,7 +524,37 @@ export default function App() {
         setFirebaseStatus('error');
         setFirebaseError(err?.message || String(err));
 
-        // Sync with local copy fallback
+        // ─────────────────────────────────────────────────────────────────
+        // DATA-LOSS FIX: TEAM DATA WIPE ROOT CAUSE
+        //
+        // THE OLD BUG: this fallback required pools AND teams AND logs to
+        // ALL be cached on THIS device before restoring any of them. If
+        // even one was missing (e.g. a PC that hadn't cached apex_teams
+        // yet), it fell into the `else` branch below and called
+        // setTeams(getInitialData().teams) — which is NOT "keep what you
+        // had", it's generateDefaultTeams(): a hardcoded generic list
+        // ("Steel Fabrication - Team 1", "Team 2", ...). That silently
+        // replaced your real, customized team roster in memory.
+        //
+        // Normally the live Firestore listener (subscribeToLiveState)
+        // would correct this within about a second by pushing the real
+        // teams back in. But that listener flips cloudHydratedRef.current
+        // to true as soon as ANY collection arrives — not specifically
+        // teams. If pools or logs happened to arrive first, saving became
+        // "allowed" for a brief window before the real teams data landed.
+        // Anything that saved teams during that window (e.g. an open
+        // Management tab editing teams) pushed the fake generic list to
+        // Firestore for real — permanently, on every device. And because
+        // the existing safety guard for teams only checks array LENGTH
+        // (not content), the 51-entry generic list sailed right past it
+        // as if it were valid data.
+        //
+        // THE FIX: restore every collection independently from its own
+        // cache, exactly like employees/plannedPools/projectsSummary
+        // already do below. A missing cache for ONE collection no longer
+        // resets ALL of them, and teams is never replaced by a hardcoded
+        // generic list on this device — only ever by real cached data.
+        // ─────────────────────────────────────────────────────────────────
         const storedPools = localStorage.getItem('apex_pools');
         const storedTeams = localStorage.getItem('apex_teams');
         const storedLogs = localStorage.getItem('apex_logs');
@@ -534,42 +564,67 @@ export default function App() {
         const storedProjectsSummary = localStorage.getItem('apex_projects_summary');
         const storedMonthlyTargets = localStorage.getItem('apex_monthly_targets');
 
-        if (storedPools && storedTeams && storedLogs) {
-          try {
+        try {
+          if (storedPools) {
             setPools(JSON.parse(storedPools));
-            setTeams(JSON.parse(storedTeams));
-            setLogs(JSON.parse(storedLogs));
-            setInspectors(storedInspectors ? JSON.parse(storedInspectors) : DEFAULT_INSPECTORS);
-            setEngineers(storedEngineers ? JSON.parse(storedEngineers) : DEFAULT_ENGINEERS);
-            if (storedPlannedPools) {
-              setPlannedPools(JSON.parse(storedPlannedPools));
-            } else {
-              setPlannedPools(getInitialData().plannedPools);
-            }
-            if (storedProjectsSummary) {
-              setProjectsSummary(JSON.parse(storedProjectsSummary));
-            } else {
-              setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
-            }
-            if (storedMonthlyTargets) {
-              setMonthlyTargets(JSON.parse(storedMonthlyTargets));
-            } else {
-              setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
-            }
-          } catch (e) {
-            loadDefaultMockData();
+          } else {
+            setPools([]);
           }
-        } else {
-          // FIX: no localStorage means fresh install — init empty state, never seed demo data
-          setPools([]);
-          setTeams(getInitialData().teams);
-          setLogs([]);
-          setInspectors(DEFAULT_INSPECTORS);
-          setEngineers(DEFAULT_ENGINEERS);
-          setPlannedPools([]);
-          setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
-          setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
-        }
+        } catch (e) { console.error('Failed to parse cached pools:', e); }
+
+        try {
+          if (storedTeams) {
+            setTeams(JSON.parse(storedTeams));
+          } else {
+            // Only reached if this device has NEVER cached real team data
+            // before (true first-ever launch). This seeds the structural
+            // skeleton for THIS DEVICE'S DISPLAY ONLY — it is not written
+            // to Firestore here, so it can never silently overwrite real
+            // cloud team data.
+            console.warn('[loadCloudData] No cached teams found on this device — showing structural default skeleton locally only, NOT saved to cloud.');
+            setTeams(getInitialData().teams);
+          }
+        } catch (e) { console.error('Failed to parse cached teams:', e); }
+
+        try {
+          if (storedLogs) {
+            setLogs(JSON.parse(storedLogs));
+          } else {
+            setLogs([]);
+          }
+        } catch (e) { console.error('Failed to parse cached logs:', e); }
+
+        try {
+          setInspectors(storedInspectors ? JSON.parse(storedInspectors) : DEFAULT_INSPECTORS);
+        } catch (e) { console.error('Failed to parse cached inspectors:', e); }
+
+        try {
+          setEngineers(storedEngineers ? JSON.parse(storedEngineers) : DEFAULT_ENGINEERS);
+        } catch (e) { console.error('Failed to parse cached engineers:', e); }
+
+        try {
+          if (storedPlannedPools) {
+            setPlannedPools(JSON.parse(storedPlannedPools));
+          } else {
+            setPlannedPools(getInitialData().plannedPools);
+          }
+        } catch (e) { console.error('Failed to parse cached plannedPools:', e); }
+
+        try {
+          if (storedProjectsSummary) {
+            setProjectsSummary(JSON.parse(storedProjectsSummary));
+          } else {
+            setProjectsSummary(DEFAULT_PROJECTS_SUMMARY);
+          }
+        } catch (e) { console.error('Failed to parse cached projectsSummary:', e); }
+
+        try {
+          if (storedMonthlyTargets) {
+            setMonthlyTargets(JSON.parse(storedMonthlyTargets));
+          } else {
+            setMonthlyTargets(DEFAULT_MONTHLY_TARGETS);
+          }
+        } catch (e) { console.error('Failed to parse cached monthlyTargets:', e); }
       }
     };
 
