@@ -23,6 +23,18 @@ export const STAGES: StageDefinition[] = [
 // Fitting) once BOTH of these have been APPROVED by QC.
 export const DUAL_STAGE_IDS: StageId[] = ['skimmer_fitting', 'lamination'];
 
+// Returns true if a pool's currentStageIndex falls anywhere within the dual
+// stage range (i.e. the Skimmer Fitting OR Lamination slot). This matters
+// because pools created/advanced BEFORE this parallel-stage logic existed
+// may already sit at the Lamination index (having passed Skimmer Fitting
+// under the old strictly-sequential model) rather than at the Skimmer
+// Fitting index. Both positions mean "this pool is at the shared gate."
+export const isAtDualStageGate = (currentStageIndex: number): boolean => {
+  const gateStart = STAGES.findIndex((s) => s.id === DUAL_STAGE_IDS[0]);
+  const gateEnd = gateStart + DUAL_STAGE_IDS.length - 1;
+  return currentStageIndex >= gateStart && currentStageIndex <= gateEnd;
+};
+
 // Generate teams based on STAGES
 export const generateDefaultTeams = (): Team[] => {
   const teams: Team[] = [];
