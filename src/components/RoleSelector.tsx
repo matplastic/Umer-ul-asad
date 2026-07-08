@@ -46,15 +46,15 @@ export const TopBar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
     </button>
 
     {/* Logo + name — centered in the bar regardless of hamburger width */}
-    <div className="flex-1 flex items-center justify-center gap-2.5 min-w-0 px-2">
-      <div className="h-9 w-9 shrink-0 rounded-lg bg-white shadow-[0_4px_10px_rgba(0,0,0,0.35)] ring-1 ring-amber-500/25 flex items-center justify-center p-1">
-        <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-full w-full object-contain" />
+    <div className="flex-1 flex items-center justify-center gap-3 min-w-0 px-2">
+      <div className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 flex items-center justify-center">
+        <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-full w-full object-contain drop-shadow-[0_4px_10px_rgba(0,0,0,0.35)]" />
       </div>
       <div className="min-w-0 text-center leading-tight">
-        <h1 className="text-[12px] sm:text-[13px] font-bold tracking-[0.12em] uppercase text-white truncate">
+        <h1 className="text-[15px] sm:text-[17px] font-bold tracking-[0.12em] uppercase text-white truncate">
           MAT Plastic Industries
         </h1>
-        <p className="text-[8.5px] sm:text-[9px] font-medium tracking-[0.14em] uppercase text-slate-400 truncate">
+        <p className="text-[10px] sm:text-[11px] font-medium tracking-[0.14em] uppercase text-slate-400 truncate">
           Manufacturing ERP
         </p>
       </div>
