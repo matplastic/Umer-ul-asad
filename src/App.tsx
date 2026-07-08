@@ -3,7 +3,7 @@ import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPoo
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
-import { STAGES, DUAL_STAGE_IDS, getInitialData, createEmptyHistory } from './data/mockData';
+import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { LoginScreen } from './components/LoginScreen';
 import { getStoredUser, logout as logoutUser, type AuthUser } from './lib/authClient';
@@ -2385,7 +2385,7 @@ export default function App() {
       // Skimmer Fitting & Lamination run in parallel off the same gate index.
       // Only move the pool forward once BOTH siblings are QC-approved.
       const gateIdx = STAGES.findIndex(s => s.id === DUAL_STAGE_IDS[0]);
-      if (pool.currentStageIndex === gateIdx) {
+      if (isAtDualStageGate(pool.currentStageIndex)) {
         const siblingId = DUAL_STAGE_IDS.find(id => id !== stageId)!;
         const siblingApproved = pool.stageHistory[siblingId]?.status === 'APPROVED';
         if (siblingApproved) {
