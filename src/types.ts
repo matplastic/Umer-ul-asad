@@ -201,6 +201,7 @@ export interface Material {
   brand?: string | null;
   location?: string | null; // storage bin/rack, e.g. "Rack A-3"
   hsCode?: string | null; // customs HS code
+  isCritical?: boolean | null; // manual override to force-include/exclude from the Key Materials dashboard
   createdAt: string;
 }
 
