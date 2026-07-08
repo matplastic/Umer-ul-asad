@@ -67,9 +67,11 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     }
   }, [inspectors, selectedInspector]);
 
-  React.useEffect(() => {
-    setReviewStageId(null);
-  }, [activePoolId]);
+  // NOTE: reviewStageId is now set explicitly wherever activePoolId changes
+  // (see the pool-list onClick handler and the auto-select effect below).
+  // We intentionally do NOT force-reset it here on every activePoolId change,
+  // since that used to wipe out the correct dual-gate sibling stage selection
+  // right after it was set by the click handler.
 
   const pendingPools = pools.filter((p) => {
     if (p.currentStageIndex >= STAGES.length) return false;
@@ -101,7 +103,19 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
 
   React.useEffect(() => {
     if (displayedPools.length > 0 && (!activePoolId || !pools.some(p => p.id === activePoolId))) {
-      setActivePoolId(displayedPools[0].id);
+      const nextPool = displayedPools[0];
+      setActivePoolId(nextPool.id);
+      // Same rule as the manual click handler: if this pool is parked at the
+      // shared Skimmer Fitting / Lamination gate, land on whichever sibling
+      // stage is actually still pending QC, not just STAGES[currentStageIndex].
+      if (isAtDualStageGate(nextPool.currentStageIndex)) {
+        const pendingSibling = DUAL_STAGE_IDS.find((id) => nextPool.stageHistory[id]?.status === 'PENDING_INSPECTION')
+          || DUAL_STAGE_IDS.find((id) => nextPool.stageHistory[id]?.status !== 'APPROVED')
+          || DUAL_STAGE_IDS[0];
+        setReviewStageId(pendingSibling);
+      } else {
+        setReviewStageId(null);
+      }
     } else if (displayedPools.length === 0) {
       setActivePoolId(null);
     }
@@ -290,7 +304,15 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                 return (
                   <button
                     key={pool.id}
-                    onClick={() => { setActivePoolId(pool.id); setErrorMsg(''); }}
+                    onClick={() => {
+                      setActivePoolId(pool.id);
+                      setErrorMsg('');
+                      // For pools parked at the shared Skimmer Fitting / Lamination
+                      // gate, open the panel directly on whichever sibling stage is
+                      // actually still pending QC — not just whatever STAGES[currentStageIndex]
+                      // happens to be (which may be the OTHER sibling that's already approved).
+                      setReviewStageId(atDualGateRow ? dualRowStageId : null);
+                    }}
                     className={`w-full p-4 text-left rounded-xl border transition-all cursor-pointer block ${
                       isSelected
                         ? 'border-emerald-500 bg-emerald-50/20 shadow-sm ring-1 ring-emerald-500'
