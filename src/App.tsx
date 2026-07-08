@@ -3,7 +3,7 @@ import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPoo
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
-import { STAGES, getInitialData, createEmptyHistory } from './data/mockData';
+import { STAGES, DUAL_STAGE_IDS, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { LoginScreen } from './components/LoginScreen';
 import { getStoredUser, logout as logoutUser, type AuthUser } from './lib/authClient';
@@ -2378,20 +2378,52 @@ export default function App() {
 
     const stageIndex = STAGES.findIndex(s => s.id === stageId);
     let updatedPlans = [...plannedPools];
-    const nextIndex = stageIndex + 1;
-    if (stageIndex === pool.currentStageIndex) {
-      // Advance pool to the next stage index
-      pool.currentStageIndex = nextIndex;
+    let unlockedStageName = 'Final Completion Shipment';
+    let advanced = false;
 
-      // If advanced past all stages, stamp completedAt and update corresponding PlannedPool
-      if (nextIndex >= STAGES.length) {
-        pool.completedAt = new Date().toISOString();
-        updatedPlans = plannedPools.map(pp => 
-          pp.releasedPoolId === pool.id ? { ...pp, status: 'COMPLETED' as const } : pp
-        );
-        setPlannedPools(updatedPlans);
+    if (DUAL_STAGE_IDS.includes(stageId)) {
+      // Skimmer Fitting & Lamination run in parallel off the same gate index.
+      // Only move the pool forward once BOTH siblings are QC-approved.
+      const gateIdx = STAGES.findIndex(s => s.id === DUAL_STAGE_IDS[0]);
+      if (pool.currentStageIndex === gateIdx) {
+        const siblingId = DUAL_STAGE_IDS.find(id => id !== stageId)!;
+        const siblingApproved = pool.stageHistory[siblingId]?.status === 'APPROVED';
+        if (siblingApproved) {
+          const nextIndex = gateIdx + DUAL_STAGE_IDS.length; // past both dual stages
+          pool.currentStageIndex = nextIndex;
+          advanced = true;
+          unlockedStageName = nextIndex < STAGES.length ? STAGES[nextIndex].name : 'Final Completion Shipment';
+          if (nextIndex >= STAGES.length) {
+            pool.completedAt = new Date().toISOString();
+            updatedPlans = plannedPools.map(pp =>
+              pp.releasedPoolId === pool.id ? { ...pp, status: 'COMPLETED' as const } : pp
+            );
+            setPlannedPools(updatedPlans);
+          }
+        }
+      }
+    } else {
+      const nextIndex = stageIndex + 1;
+      if (stageIndex === pool.currentStageIndex) {
+        // Advance pool to the next stage index
+        pool.currentStageIndex = nextIndex;
+        advanced = true;
+        unlockedStageName = nextIndex < STAGES.length ? STAGES[nextIndex].name : 'Final Completion Shipment';
+
+        // If advanced past all stages, stamp completedAt and update corresponding PlannedPool
+        if (nextIndex >= STAGES.length) {
+          pool.completedAt = new Date().toISOString();
+          updatedPlans = plannedPools.map(pp => 
+            pp.releasedPoolId === pool.id ? { ...pp, status: 'COMPLETED' as const } : pp
+          );
+          setPlannedPools(updatedPlans);
+        }
       }
     }
+
+    const dualWaitingNote = DUAL_STAGE_IDS.includes(stageId) && !advanced
+      ? ` Waiting on parallel stage "${STAGES.find(s => s.id === DUAL_STAGE_IDS.find(id => id !== stageId))?.name}" before advancing.`
+      : '';
 
     const newLog: ActivityLog = {
       id: `log_${Date.now()}`,
@@ -2402,7 +2434,7 @@ export default function App() {
       stageId,
       type: 'APPROVED',
       operatorName: inspectorId,
-      notes: `QC APPROVED: ${notes}. Unlocked stage: ${nextIndex < STAGES.length ? STAGES[nextIndex].name : 'Final Completion Shipment'}`,
+      notes: `QC APPROVED: ${notes}.${advanced ? ` Unlocked stage: ${unlockedStageName}` : ' Stage signed off.'}${dualWaitingNote}`,
       inspectorPicture
     };
 
