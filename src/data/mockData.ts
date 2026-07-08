@@ -15,6 +15,14 @@ export const STAGES: StageDefinition[] = [
   { id: 'acrylic', name: 'Acrylic', defaultTeamsCount: 3, color: '#6366f1' }, // Indigo
 ];
 
+// These two stages run in PARALLEL on the shop floor (skimmer boxes get set
+// into the shell during the lamination layup, not after it). A pool sits at
+// the shared "gate" (the Skimmer Fitting index in STAGES) and is visible on
+// BOTH boards at once. Each stage is claimed, worked, and QC-signed off
+// independently. The pool only advances to the next stage (Mechanical
+// Fitting) once BOTH of these have been APPROVED by QC.
+export const DUAL_STAGE_IDS: StageId[] = ['skimmer_fitting', 'lamination'];
+
 // Generate teams based on STAGES
 export const generateDefaultTeams = (): Team[] => {
   const teams: Team[] = [];
