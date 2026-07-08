@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
-  Truck, BarChart3, FileSpreadsheet,
+  Truck, BarChart3, FileSpreadsheet, Star,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -14,7 +14,7 @@ import {
 } from '../lib/firebaseService';
 import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 
-type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'reports';
+type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'reports' | 'key';
 
 interface StoreModuleProps {
   currentUserName: string;
@@ -22,7 +22,21 @@ interface StoreModuleProps {
   poolTypesByProject: Record<string, string[]>;
 }
 
-const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '' };
+const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '', isCritical: null as boolean | null };
+
+// Keywords used to auto-detect "critical" bulk raw materials (steel, resin, fiber, mosaic, etc.)
+// Matched against both the material's name and category, case-insensitively.
+// Edit this list any time to add/remove which materials count as "key materials".
+const CRITICAL_MATERIAL_KEYWORDS = ['steel', 'resin', 'fiber', 'fibre', 'glass', 'mosaic', 'gelcoat', 'gel coat', 'grp'];
+
+// A material is critical if it was manually flagged, or (when not manually flagged either way)
+// its name/category matches one of the keywords above.
+const isMaterialCritical = (m: Material): boolean => {
+  if (m.isCritical === true) return true;
+  if (m.isCritical === false) return false;
+  const haystack = `${m.name || ''} ${m.category || ''}`.toLowerCase();
+  return CRITICAL_MATERIAL_KEYWORDS.some(k => haystack.includes(k));
+};
 const emptyBom = { projectName: '', poolType: '', materialId: '', qtyPerPool: '' };
 const emptyIncoming = { materialId: '', qty: '', supplier: '', invoiceNo: '', notes: '' };
 
@@ -177,6 +191,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     loadAll(true);
   };
 
+  const toggleCritical = async (mat: Material) => {
+    const current = isMaterialCritical(mat);
+    await dbSaveMaterial({ ...mat, isCritical: !current } as any);
+    loadAll(true);
+  };
+
   const editSection = async (mat: Material) => {
     const options = SECTION_DEFINITIONS.map(s => s.id).join(', ');
     const sec = prompt(`Assign section for "${mat.name}" (${options} or blank):`, mat.section || '');
@@ -327,6 +347,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-2 mb-6">
+        <button onClick={() => setTab('key')} data-testid="tab-key" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'key' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <Star className="h-4 w-4" /> Key Materials
+        </button>
         <button onClick={() => setTab('inventory')} data-testid="tab-inventory" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'inventory' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <Package className="h-4 w-4" /> Inventory
         </button>
@@ -387,6 +410,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input placeholder="Category" value={newMaterial.category} onChange={e => setNewMaterial((p: any) => ({ ...p, category: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Unit (kg/ltr/pcs)" data-testid="new-mat-unit" value={newMaterial.unit} onChange={e => setNewMaterial((p: any) => ({ ...p, unit: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input type="number" placeholder="Opening stock" data-testid="new-mat-stock" value={newMaterial.currentStock} onChange={e => setNewMaterial((p: any) => ({ ...p, currentStock: Number(e.target.value) }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-300 cursor-pointer" title="Force this into the Key Materials dashboard regardless of name/category">
+              <input type="checkbox" checked={!!newMaterial.isCritical} onChange={e => setNewMaterial((p: any) => ({ ...p, isCritical: e.target.checked }))} className="accent-orange-500" />
+              Critical
+            </label>
             <button onClick={saveMaterial} data-testid="new-mat-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Material</button>
             <input placeholder="ERP Code" data-testid="new-mat-erpcode" value={newMaterial.erpCode} onChange={e => setNewMaterial((p: any) => ({ ...p, erpCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Supplier name" data-testid="new-mat-supplier" value={newMaterial.supplierName} onChange={e => setNewMaterial((p: any) => ({ ...p, supplierName: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
@@ -400,6 +427,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <table className="w-full min-w-[700px] text-xs">
               <thead>
                 <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+                  <th className="px-2 py-2" title="Key material"></th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-left px-4 py-2">ERP Code</th>
                   <th className="text-left px-4 py-2">Section</th>
@@ -421,6 +449,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     const inv = analytics?.inventoryReport?.find((r: any) => r.materialId === m.id);
                     return (
                       <tr key={m.id} className="border-t border-slate-800">
+                        <td className="px-2 py-2 text-center">
+                          <button onClick={() => toggleCritical(m)} title={isMaterialCritical(m) ? 'Marked as Key Material — click to unmark' : 'Click to mark as Key Material'} className="cursor-pointer">
+                            <Star className={`h-3.5 w-3.5 ${isMaterialCritical(m) ? 'text-amber-400 fill-amber-400' : 'text-slate-600'}`} />
+                          </button>
+                        </td>
                         <td className="px-4 py-2 text-slate-200 font-semibold">{m.name}</td>
                         <td className="px-4 py-2 text-slate-400 font-mono">{(m as any).erpCode || '—'}</td>
                         <td className="px-4 py-2 text-slate-400"><button onClick={() => editSection(m)} className="hover:text-orange-400 cursor-pointer">{sectionLabel(m.section)}</button></td>
@@ -446,6 +479,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             {filteredMaterials.length === 0 && <div className="text-center text-slate-500 text-sm py-10">No materials found. Add materials above or upload Excel.</div>}
           </div>
         </div>
+      )}
+
+      {/* ---------- KEY MATERIALS TAB (steel, resin, fiber mat, mosaic, etc.) ---------- */}
+      {tab === 'key' && (
+        <KeyMaterialsDashboard materials={materials} analytics={analytics} onToggleCritical={toggleCritical} />
       )}
 
       {/* ---------- INCOMING TAB ---------- */}
@@ -720,6 +758,88 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 // ==========================================================
 // ConsumptionReports subcomponent
 // ==========================================================
+
+// Focused dashboard for the small set of big-ticket bulk raw materials (steel, resin,
+// fiber mat, mosaic, etc.) so they don't get lost among masks/plumbing/hardware in the
+// main Inventory tab. A material shows up here if it's auto-detected via
+// CRITICAL_MATERIAL_KEYWORDS, or manually starred in the Inventory tab.
+const KeyMaterialsDashboard: React.FC<{ materials: Material[]; analytics: any; onToggleCritical: (m: Material) => void }> = ({ materials, analytics, onToggleCritical }) => {
+  const keyMaterials = useMemo(() => materials.filter(isMaterialCritical), [materials]);
+  const lowStockCount = keyMaterials.filter(m => (m.reorderLevel || 0) > 0 && m.currentStock <= (m.reorderLevel || 0)).length;
+
+  return (
+    <div className="space-y-5" data-testid="key-materials-dashboard">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs text-slate-400">
+          Showing <span className="text-white font-bold">{keyMaterials.length}</span> key material{keyMaterials.length === 1 ? '' : 's'}
+          {lowStockCount > 0 && <span className="ml-2 text-rose-400 font-bold">· {lowStockCount} at/below reorder level</span>}
+        </div>
+        <div className="text-[10px] text-slate-500">
+          Auto-included by name/category match (steel, resin, fiber/fibre, glass, mosaic, gelcoat, GRP) — or click the <Star className="inline h-3 w-3 text-amber-400 fill-amber-400 -mt-0.5" /> star on any material in the Inventory tab to add/remove it manually.
+        </div>
+      </div>
+
+      {keyMaterials.length === 0 ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl text-center text-slate-500 text-sm py-10">
+          No key materials found yet. Go to the Inventory tab and click the star next to steel, resin, fiber mat, mosaic, etc. to pin them here.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {keyMaterials.map(m => {
+            const inv = analytics?.inventoryReport?.find((r: any) => r.materialId === m.id);
+            const totalIncoming = inv?.totalIncoming || 0;
+            const totalConsumed = inv?.totalConsumed || 0;
+            const isLow = (m.reorderLevel || 0) > 0 && m.currentStock <= (m.reorderLevel || 0);
+            const netMax = Math.max(totalIncoming, totalConsumed, 1);
+            return (
+              <div key={m.id} className={`bg-slate-900 border rounded-xl p-4 ${isLow ? 'border-rose-800' : 'border-slate-800'}`}>
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                      {m.name}
+                      <button onClick={() => onToggleCritical(m)} title="Unpin from Key Materials">
+                        <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400 cursor-pointer" />
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-slate-500">{m.category || '—'}{m.erpCode ? ` · ${m.erpCode}` : ''}</div>
+                  </div>
+                  {isLow && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-950/40 text-rose-400 border border-rose-800 shrink-0">
+                      <AlertTriangle className="h-3 w-3" /> Low
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-baseline gap-1 mb-3">
+                  <span className={`text-2xl font-mono font-bold ${isLow ? 'text-rose-400' : 'text-white'}`}>{m.currentStock}</span>
+                  <span className="text-xs text-slate-500">{m.unit} in stock</span>
+                  {(m.reorderLevel || 0) > 0 && <span className="text-[10px] text-slate-600 ml-auto">reorder at {m.reorderLevel}</span>}
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="w-16 text-slate-500 shrink-0">Incoming</span>
+                    <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.max(4, (totalIncoming / netMax) * 100)}%` }} />
+                    </div>
+                    <span className="w-16 text-right font-mono text-emerald-400">+{totalIncoming.toFixed(1)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="w-16 text-slate-500 shrink-0">Consumed</span>
+                    <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.max(4, (totalConsumed / netMax) * 100)}%` }} />
+                    </div>
+                    <span className="w-16 text-right font-mono text-rose-400">−{totalConsumed.toFixed(1)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const ConsumptionReports: React.FC<{ analytics: any }> = ({ analytics }) => {
   const { inventoryReport = [], consumptionByMaterial = [], incomingByMaterial = [], dailyBySection = {}, perProject = {}, perPoolType = [] } = analytics || {};
