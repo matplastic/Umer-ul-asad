@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pool, StageId, Team, StageDefinition } from '../types';
-import { STAGES, DUAL_STAGE_IDS } from '../data/mockData';
+import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
 import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 import { QCDefectBadge, QCDefect } from './QCDefectPanel';
@@ -71,13 +71,12 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
         const stageName = s.name.padEnd(25);
         
         const isDualGateStage = DUAL_STAGE_IDS.includes(s.id);
-        const dualGateIdxTraveler = STAGES.findIndex((st) => st.id === DUAL_STAGE_IDS[0]);
         let statusVal = 'WAITING';
         if (pool.currentStageIndex > idx) {
           statusVal = 'APPROVED';
         } else if (pool.currentStageIndex === idx) {
           statusVal = hist?.status || 'ACTIVE';
-        } else if (isDualGateStage && pool.currentStageIndex === dualGateIdxTraveler) {
+        } else if (isDualGateStage && isAtDualStageGate(pool.currentStageIndex)) {
           // Pool is parked at the shared Skimmer Fitting/Lamination gate;
           // this stage's own history reflects its true independent status.
           statusVal = hist?.status || 'ACTIVE';
@@ -123,13 +122,13 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   // Pools currently waiting to be worked on or worked on in this stage (including skipped rework)
   const stageIdx = STAGES.findIndex((s) => s.id === stage.id);
   const isDualStage = DUAL_STAGE_IDS.includes(stage.id);
-  const dualGateIdx = STAGES.findIndex((s) => s.id === DUAL_STAGE_IDS[0]);
   const currentStagePools = pools.filter((p) => {
     const isSkippedRework = p.currentStageIndex > stageIdx && p.stageHistory[stage.id]?.status === 'SKIPPED';
     if (isDualStage) {
-      // Pool sits at the shared gate and hasn't finished THIS particular
-      // dual stage yet (the sibling stage may still be in progress).
-      const atGate = p.currentStageIndex === dualGateIdx;
+      // Pool sits anywhere in the shared gate range (covers pools that
+      // reached Lamination's index before this parallel logic existed)
+      // and hasn't finished THIS particular dual stage yet.
+      const atGate = isAtDualStageGate(p.currentStageIndex);
       const notYetApprovedHere = p.stageHistory[stage.id]?.status !== 'APPROVED';
       return (atGate && notYetApprovedHere) || isSkippedRework;
     }
@@ -864,8 +863,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       {STAGES.map((s, idx) => {
                         const hist = printPool.stageHistory[s.id];
                         const isDualGateStage = DUAL_STAGE_IDS.includes(s.id);
-                        const dualGateIdxPrint = STAGES.findIndex((st) => st.id === DUAL_STAGE_IDS[0]);
-                        const atDualGate = isDualGateStage && printPool.currentStageIndex === dualGateIdxPrint;
+                        const atDualGate = isDualGateStage && isAtDualStageGate(printPool.currentStageIndex);
                         const isActive = printPool.currentStageIndex === idx || (atDualGate && hist?.status !== 'APPROVED');
                         const isPassed = printPool.currentStageIndex > idx || (atDualGate && hist?.status === 'APPROVED');
 
