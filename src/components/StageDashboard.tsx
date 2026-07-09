@@ -42,6 +42,17 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   const [viewingDrawingPool, setViewingDrawingPool] = useState<Pool | null>(null);
   const [driveUploading, setDriveUploading] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [driveError, setDriveError] = useState('');
+  const [poolSearchQuery, setPoolSearchQuery] = useState('');
+
+  // Matches a pool against the labour search bar by Pool No or Project Name
+  const matchesPoolSearch = (pool: Pool) => {
+    const q = poolSearchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      pool.poolNo?.toLowerCase().includes(q) ||
+      pool.projectName?.toLowerCase().includes(q)
+    );
+  };
 
   const handleUploadTravelerToDrive = async (pool: Pool) => {
     setDriveUploading('uploading');
@@ -434,6 +445,29 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
 
         {/* Pools queues (Right) */}
         <div className="lg:col-span-8 space-y-6">
+
+          {/* Pool Search Bar - lets labour quickly find their pool across all queues below */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+            <div className="relative">
+              <Compass className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                value={poolSearchQuery}
+                onChange={(e) => setPoolSearchQuery(e.target.value)}
+                placeholder="Search your pool by Pool No or Project Name..."
+                className="w-full pl-9 pr-9 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-400"
+              />
+              {poolSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setPoolSearchQuery('')}
+                  className="absolute top-2 right-2.5 text-slate-400 hover:text-slate-700 p-0.5 rounded cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
           
           {/* Unclaimed Queue */}
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
@@ -443,7 +477,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                 Unclaimed Available Pool Tasks
               </h3>
               <span className="text-xs text-slate-400 font-bold font-mono">
-                {availablePools.length} pools available
+                {availablePools.filter(matchesPoolSearch).length} pools available
               </span>
             </div>
 
@@ -453,9 +487,15 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                 <p className="text-xs font-bold text-slate-500">All pools are currently claimed or processed for {stage.name}!</p>
                 <p className="text-[10px] text-slate-450 text-slate-400 mt-1">Waiting for production engineer releases or previous-stage inspections.</p>
               </div>
+            ) : availablePools.filter(matchesPoolSearch).length === 0 ? (
+              <div className="text-center py-10 bg-slate-50 border border-slate-100 rounded-xl">
+                <Compass className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs font-bold text-slate-500">No pool matches "{poolSearchQuery}"</p>
+                <p className="text-[10px] text-slate-450 text-slate-400 mt-1">Check the Pool No or Project Name spelling.</p>
+              </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {availablePools.map((pool) => {
+                {availablePools.filter(matchesPoolSearch).map((pool) => {
                   const hist = pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
                   return (
                     <div 
@@ -552,9 +592,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
 
             {inProgressPools.length === 0 ? (
               <p className="text-xs text-slate-400 py-4 text-center">No active work currently underway on the floor.</p>
+            ) : inProgressPools.filter(matchesPoolSearch).length === 0 ? (
+              <p className="text-xs text-slate-400 py-4 text-center">No pool matches "{poolSearchQuery}" in this section.</p>
             ) : (
               <div className="space-y-3">
-                {inProgressPools.map((pool) => {
+                {inProgressPools.filter(matchesPoolSearch).map((pool) => {
                   const hist = pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
                   const claimingTeam = teams.find(t => t.id === hist.teamId);
                   return (
@@ -624,9 +666,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
 
             {approvedPools.length === 0 ? (
               <p className="text-xs text-slate-450 italic py-4 text-center text-slate-400">No pools have passed inspection at this stage yet.</p>
+            ) : approvedPools.filter(matchesPoolSearch).length === 0 ? (
+              <p className="text-xs text-slate-450 italic py-4 text-center text-slate-400">No pool matches "{poolSearchQuery}" in this history.</p>
             ) : (
               <div className="space-y-2">
-                {approvedPools.map((pool) => {
+                {approvedPools.filter(matchesPoolSearch).map((pool) => {
                   const hist = pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
                   const signTeam = teams.find(t => t.id === hist.teamId);
                   return (
