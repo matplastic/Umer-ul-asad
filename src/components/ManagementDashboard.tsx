@@ -131,7 +131,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'teams' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'daily_progress' | 'teams' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal'>('analytics');
 
   // Interactive Award & Nomination state
   const [activeNominationSubTab, setActiveNominationSubTab] = useState<'section_teams' | 'employee_of_the_year'>('section_teams');
@@ -1291,6 +1291,43 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [poolsPage, setPoolsPage] = useState(1);
   const poolsPerPage = 7;
 
+  // Daily Stage-wise Progress: pick any date and see exactly which pools were
+  // marked done (QA approved) in each stage on that day, and which team did them.
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  const [progressFilterDate, setProgressFilterDate] = useState<string>(todayStr);
+
+  const toLocalDateStr = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const stageDailyProgress = STAGES.map((stage) => {
+    const donePools = pools
+      .filter((p) => {
+        const hist = p.stageHistory[stage.id];
+        return hist && hist.status === 'APPROVED' && hist.inspectionTime && toLocalDateStr(hist.inspectionTime) === progressFilterDate;
+      })
+      .map((p) => {
+        const hist = p.stageHistory[stage.id];
+        const team = teams.find((t) => t.id === hist.teamId);
+        const teamName = team?.name || (hist.teamId ? hist.teamId.replace(`${stage.id}_`, '').toUpperCase() : 'Unknown Team');
+        return {
+          poolId: p.id,
+          poolNo: p.poolNo,
+          projectName: p.projectName,
+          teamName,
+          inspectorId: hist.inspectorId || '—',
+          time: hist.inspectionTime ? new Date(hist.inspectionTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '',
+        };
+      });
+    return { stage, donePools };
+  });
+
+  const totalDonePoolsOnDate = stageDailyProgress.reduce((sum, s) => sum + s.donePools.length, 0);
+
   // Filter pools by date range before calculating statistics and other listings
   const dateFilteredPools = pools.filter((p) => {
     if (startDateStr) {
@@ -1758,6 +1795,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         >
           <Layers className="h-4 w-4" />
           Pools Register Tracking
+        </button>
+
+        <button
+          onClick={() => setActiveTab('daily_progress')}
+          className={`flex-1 min-w-[120px] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+            activeTab === 'daily_progress' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+          id="tab-mgmt-daily-progress"
+        >
+          <Calendar className="h-4 w-4 text-blue-500" />
+          Daily Stage Progress
         </button>
 
         <button
@@ -3390,6 +3438,101 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </div>
               )}
             </div>
+
+          </div>
+        )}
+
+        {/* Tab: Daily Stage-wise Progress (date filter shows which pools finished each stage that day, and which team) */}
+        {activeTab === 'daily_progress' && (
+          <div className="space-y-6">
+
+            {/* Date picker header */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4 text-blue-500" />
+                  Daily Stage-wise Progress
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Pick a date to see exactly which pools were QA-approved in each stage that day, and which team did the work.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={progressFilterDate}
+                  onChange={(e) => setProgressFilterDate(e.target.value)}
+                  className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                <button
+                  onClick={() => setProgressFilterDate(todayStr)}
+                  className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
+
+            {/* Summary strip */}
+            <div className="bg-slate-900 text-white rounded-2xl p-5 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                  {new Date(progressFilterDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-2xl font-extrabold mt-1">{totalDonePoolsOnDate} pool-stage sign-offs</p>
+              </div>
+              <div className="flex gap-4 flex-wrap justify-end">
+                {stageDailyProgress.filter(s => s.donePools.length > 0).map(s => (
+                  <div key={s.stage.id} className="text-center px-3">
+                    <span className="block text-lg font-bold">{s.donePools.length}</span>
+                    <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">{s.stage.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Per-stage breakdown */}
+            {totalDonePoolsOnDate === 0 ? (
+              <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl">
+                <Calendar className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-bold text-slate-500">No stage sign-offs recorded on this date.</p>
+                <p className="text-xs text-slate-400 mt-1">Try another date, or check that stages were QA-approved (not just started) that day.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {stageDailyProgress.map(({ stage, donePools }) => (
+                  <div key={stage.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                    <div
+                      className="px-4 py-3 flex items-center justify-between"
+                      style={{ background: `linear-gradient(135deg, ${stage.color}ee, ${stage.color})` }}
+                    >
+                      <span className="text-white font-bold text-xs tracking-wide">{stage.name}</span>
+                      <span className="bg-white/20 text-white text-xs font-black px-2 py-0.5 rounded-full">
+                        {donePools.length} done
+                      </span>
+                    </div>
+                    {donePools.length === 0 ? (
+                      <p className="text-xs text-slate-400 text-center py-6">No pools completed in this stage on this date.</p>
+                    ) : (
+                      <div className="divide-y divide-slate-100 max-h-[260px] overflow-y-auto">
+                        {donePools.map((dp) => (
+                          <div key={dp.poolId} className="px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50">
+                            <div className="min-w-0">
+                              <p className="font-black text-slate-800 truncate">{dp.poolNo}</p>
+                              <p className="text-slate-400 truncate">{dp.projectName}</p>
+                            </div>
+                            <div className="text-right flex-shrink-0 ml-2">
+                              <p className="font-bold text-slate-600">{dp.teamName}</p>
+                              <p className="text-[10px] text-slate-400">{dp.time}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
           </div>
         )}
