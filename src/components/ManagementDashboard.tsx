@@ -4,6 +4,7 @@ import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employ
 import { STAGES } from '../data/mockData';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
+import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
   CartesianGrid, Tooltip as RechartsTooltip, Legend
@@ -2206,17 +2207,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             })()}
                             margin={{ top: 10, right: 20, left: -20, bottom: 0 }}
                           >
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartAxisDefaults.gridStroke} />
                             <XAxis 
                               dataKey="name" 
-                              stroke="#64748b" 
+                              stroke={chartAxisDefaults.axisStroke} 
                               fontSize={11} 
                               tickLine={false} 
                               axisLine={false} 
                               dy={10} 
                             />
                             <YAxis 
-                              stroke="#64748b" 
+                              stroke={chartAxisDefaults.axisStroke} 
                               fontSize={11} 
                               tickLine={false} 
                               axisLine={false} 
@@ -2262,20 +2263,20 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             <Line 
                               type="monotone" 
                               dataKey="Target" 
-                              stroke="#94a3b8" 
+                              stroke={chartAxisDefaults.secondaryLineStroke} 
                               strokeWidth={2} 
                               strokeDasharray="5 5"
-                              dot={{ r: 3, fill: '#94a3b8', strokeWidth: 1 }}
+                              dot={{ r: 3, fill: chartTokens.neutral[400], strokeWidth: 1 }}
                               activeDot={{ r: 5 }}
                               name="Target"
                             />
                             <Line 
                               type="monotone" 
                               dataKey="Actual" 
-                              stroke="#4f46e5" 
+                              stroke={chartAxisDefaults.primaryLineStroke} 
                               strokeWidth={3} 
-                              dot={{ r: 5, fill: '#4f46e5', stroke: '#ffffff', strokeWidth: 2 }}
-                              activeDot={{ r: 7, fill: '#4f46e5', stroke: '#ffffff', strokeWidth: 3 }}
+                              dot={{ r: 5, fill: chartTokens.primary[600], stroke: chartTokens.neutral.white, strokeWidth: 2 }}
+                              activeDot={{ r: 7, fill: chartTokens.primary[600], stroke: chartTokens.neutral.white, strokeWidth: 3 }}
                               name="Actual"
                             />
                           </LineChart>
@@ -3929,17 +3930,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         data={computedAttendanceTrend}
                         margin={{ top: 10, right: 20, left: -20, bottom: 0 }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartAxisDefaults.gridStroke} />
                         <XAxis 
                           dataKey="displayDate" 
-                          stroke="#64748b" 
+                          stroke={chartAxisDefaults.axisStroke} 
                           fontSize={10} 
                           tickLine={false} 
                           axisLine={false} 
                           dy={10} 
                         />
                         <YAxis 
-                          stroke="#64748b" 
+                          stroke={chartAxisDefaults.axisStroke} 
                           fontSize={10} 
                           tickLine={false} 
                           axisLine={false} 
@@ -3983,14 +3984,14 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           dataKey="rate" 
                           stroke="url(#attendanceGradient)" 
                           strokeWidth={3} 
-                          dot={{ r: 3, stroke: '#4f46e5', strokeWidth: 1.5, fill: '#ffffff' }}
-                          activeDot={{ r: 5, stroke: '#4f46e5', strokeWidth: 2, fill: '#eff6ff' }}
+                          dot={{ r: 3, stroke: chartTokens.primary[600], strokeWidth: 1.5, fill: chartTokens.neutral.white }}
+                          activeDot={{ r: 5, stroke: chartTokens.primary[600], strokeWidth: 2, fill: chartTokens.primaryTint }}
                         />
                         <defs>
                           <linearGradient id="attendanceGradient" x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0%" stopColor="#6366f1" />
-                            <stop offset="50%" stopColor="#4f46e5" />
-                            <stop offset="100%" stopColor="#3730a3" />
+                            <stop offset="0%" stopColor={chartTokens.primary[500]} />
+                            <stop offset="50%" stopColor={chartTokens.primary[600]} />
+                            <stop offset="100%" stopColor={chartTokens.primary[800]} />
                           </linearGradient>
                         </defs>
                       </LineChart>
