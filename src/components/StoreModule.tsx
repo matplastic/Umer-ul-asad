@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
-  dbFetchMaterialRequests, dbDecideMaterialRequest, dbMarkMaterialRequestPrinted,
+  dbFetchMaterialRequests, dbDecideMaterialRequestBatch, dbMarkMaterialRequestBatchPrinted,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock,
 } from '../lib/firebaseService';
@@ -52,7 +52,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
-  const [printRequest, setPrintRequest] = useState<MaterialRequest | null>(null);
+  const [printBatch, setPrintBatch] = useState<MaterialRequest[] | null>(null);
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
 
@@ -97,8 +97,29 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return () => clearInterval(interval);
   }, [loadAll]);
 
-  const pendingPrintCount = requests.filter(r => r.status === 'APPROVED').length;
-  const pendingApprovalCount = requests.filter(r => r.status === 'PENDING').length;
+  // Everything a supervisor sent together from one cart shares a batchId —
+  // group by that so Store approves/rejects/prints ONE card per request,
+  // not one per material line. Legacy requests with no batchId (sent before
+  // batching existed) fall back to grouping by their own id ("batch of one").
+  const requestGroups = useMemo(() => {
+    const map = new Map<string, MaterialRequest[]>();
+    for (const r of requests) {
+      const key = r.batchId || r.id;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    }
+    return Array.from(map.entries()).map(([key, items]) => ({
+      key,
+      items,
+      // All lines in a batch move together (approved/rejected/printed as
+      // one unit), so the first line's status represents the whole group.
+      status: items[0].status,
+      createdAt: items[0].createdAt,
+    }));
+  }, [requests]);
+
+  const pendingPrintCount = requestGroups.filter(g => g.status === 'APPROVED').length;
+  const pendingApprovalCount = requestGroups.filter(g => g.status === 'PENDING').length;
 
   const filteredMaterials = useMemo(() => {
     if (!sectionFilter) return materials;
@@ -257,15 +278,16 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     loadAll(true);
   };
 
-  // --- Requests ---
-  const decide = async (id: string, action: 'approve' | 'reject') => {
-    await dbDecideMaterialRequest(id, action, currentUserName, decisionNotes[id] || undefined);
+  // --- Requests --- decide/print act on the WHOLE group (every material
+  // line the supervisor sent together) in one call, not line by line.
+  const decideGroup = async (ids: string[], action: 'approve' | 'reject', noteKey: string) => {
+    await dbDecideMaterialRequestBatch(ids, action, currentUserName, decisionNotes[noteKey] || undefined);
     loadAll(true);
   };
 
-  const markPrinted = async (id: string) => {
-    await dbMarkMaterialRequestPrinted(id);
-    setPrintRequest(null);
+  const markPrinted = async (ids: string[]) => {
+    await dbMarkMaterialRequestBatchPrinted(ids);
+    setPrintBatch(null);
     loadAll(true);
   };
 
@@ -536,58 +558,70 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- REQUESTS TAB ---------- */}
       {tab === 'requests' && (
         <div className="space-y-3">
-          {requests.length === 0 && !loading && (
+          {requestGroups.length === 0 && !loading && (
             <div className="text-center text-slate-500 text-sm py-16 border border-dashed border-slate-800 rounded-xl">No material requests yet.</div>
           )}
-          {requests
+          {requestGroups
             .slice()
-            .sort((a, b) => (a.status === 'PENDING' ? -1 : 1) - (b.status === 'PENDING' ? -1 : 1))
-            .map(r => (
-              <div key={r.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    {statusPill(r.status)}
-                    <span className="text-xs text-slate-500 font-mono">{new Date(r.createdAt).toLocaleString()}</span>
+            .sort((a, b) => (a.status === 'PENDING' ? -1 : 1) - (b.status === 'PENDING' ? -1 : 1) || (a.createdAt < b.createdAt ? 1 : -1))
+            .map(group => {
+              const first = group.items[0];
+              const ids = group.items.map(it => it.id);
+              return (
+                <div key={group.key} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      {statusPill(group.status)}
+                      <span className="text-xs text-slate-500 font-mono">{new Date(first.createdAt).toLocaleString()}</span>
+                      {group.items.length > 1 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-400 border border-indigo-800">{group.items.length} items</span>}
+                    </div>
+                    <div className="text-xs text-slate-400 mb-1.5">
+                      {first.projectName} / {first.poolType}{first.poolNo ? ` / Pool ${first.poolNo}` : ''} · requested by {first.requestedByName} ({first.requestedByRole})
+                    </div>
+                    {/* Line items — every material in this request, whether it's 1 or 40 */}
+                    <div className="flex flex-wrap gap-1.5 mb-1">
+                      {group.items.map(it => (
+                        <span key={it.id} className="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-200">
+                          {it.materialName}: <span className="font-mono font-bold text-white">{Number(it.qtyRequested)}</span> {it.unit}
+                        </span>
+                      ))}
+                    </div>
+                    {first.reason && <div className="text-xs text-slate-500 italic mt-0.5">&ldquo;{first.reason}&rdquo;</div>}
+                    {first.decidedByName && (
+                      <div className="text-[11px] text-slate-500 mt-1">Decided by {first.decidedByName}{first.decisionNotes ? ` — ${first.decisionNotes}` : ''}</div>
+                    )}
                   </div>
-                  <div className="text-sm font-bold text-white">{r.materialName} — {r.qtyRequested} {r.unit}</div>
-                  <div className="text-xs text-slate-400">
-                    {r.projectName} / {r.poolType}{r.poolNo ? ` / Pool ${r.poolNo}` : ''} · requested by {r.requestedByName} ({r.requestedByRole})
-                  </div>
-                  {r.reason && <div className="text-xs text-slate-500 italic mt-0.5">&ldquo;{r.reason}&rdquo;</div>}
-                  {r.decidedByName && (
-                    <div className="text-[11px] text-slate-500 mt-1">Decided by {r.decidedByName}{r.decisionNotes ? ` — ${r.decisionNotes}` : ''}</div>
-                  )}
-                </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  {r.status === 'PENDING' && (
-                    <>
-                      <input
-                        type="text"
-                        placeholder="Note (optional)"
-                        value={decisionNotes[r.id] || ''}
-                        onChange={e => setDecisionNotes(prev => ({ ...prev, [r.id]: e.target.value }))}
-                        className="hidden md:block w-36 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white"
-                      />
-                      <button onClick={() => decide(r.id, 'approve')} data-testid={`req-approve-${r.id}`} className="flex items-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                  <div className="flex items-center gap-2 shrink-0">
+                    {group.status === 'PENDING' && (
+                      <>
+                        <input
+                          type="text"
+                          placeholder="Note (optional)"
+                          value={decisionNotes[group.key] || ''}
+                          onChange={e => setDecisionNotes(prev => ({ ...prev, [group.key]: e.target.value }))}
+                          className="hidden md:block w-36 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white"
+                        />
+                        <button onClick={() => decideGroup(ids, 'approve', group.key)} data-testid={`req-approve-${group.key}`} className="flex items-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Approve{group.items.length > 1 ? ' All' : ''}
+                        </button>
+                        <button onClick={() => decideGroup(ids, 'reject', group.key)} data-testid={`req-reject-${group.key}`} className="flex items-center gap-1 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                          <XCircle className="h-3.5 w-3.5" /> Reject{group.items.length > 1 ? ' All' : ''}
+                        </button>
+                      </>
+                    )}
+                    {group.status === 'APPROVED' && (
+                      <button onClick={() => setPrintBatch(group.items)} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer animate-pulse">
+                        <Printer className="h-3.5 w-3.5" /> Print Issue Slip
                       </button>
-                      <button onClick={() => decide(r.id, 'reject')} data-testid={`req-reject-${r.id}`} className="flex items-center gap-1 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-                        <XCircle className="h-3.5 w-3.5" /> Reject
-                      </button>
-                    </>
-                  )}
-                  {r.status === 'APPROVED' && (
-                    <button onClick={() => setPrintRequest(r)} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer animate-pulse">
-                      <Printer className="h-3.5 w-3.5" /> Print Issue Slip
-                    </button>
-                  )}
-                  {r.status === 'PRINTED' && (
-                    <span className="flex items-center gap-1 text-xs text-slate-500"><Clock className="h-3.5 w-3.5" /> Printed {r.printedAt ? new Date(r.printedAt).toLocaleTimeString() : ''}</span>
-                  )}
+                    )}
+                    {group.status === 'PRINTED' && (
+                      <span className="flex items-center gap-1 text-xs text-slate-500"><Clock className="h-3.5 w-3.5" /> Printed {first.printedAt ? new Date(first.printedAt).toLocaleTimeString() : ''}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
         </div>
       )}
 
@@ -693,7 +727,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       )}
 
       {/* ---------- PRINT SLIP MODAL ---------- */}
-      {printRequest && (
+      {printBatch && printBatch.length > 0 && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <style dangerouslySetInnerHTML={{ __html: `
             @media print {
@@ -703,44 +737,65 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               .no-print { display: none !important; }
             }
           `}} />
-          <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl max-w-lg w-full shadow-2xl">
+          <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="no-print flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <span className="text-xs font-bold uppercase text-slate-400">Material Issue Slip</span>
+              <span className="text-xs font-bold uppercase text-slate-400">Material Issue Slip{printBatch.length > 1 ? ` — ${printBatch.length} items` : ''}</span>
               <div className="flex gap-2">
                 <button onClick={() => setTimeout(() => window.print(), 50)} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                   <Printer className="h-3.5 w-3.5" /> Print
                 </button>
-                <button onClick={() => markPrinted(printRequest.id)} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">Mark Printed</button>
-                <button onClick={() => setPrintRequest(null)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
+                <button onClick={() => markPrinted(printBatch.map(it => it.id))} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">Mark Printed</button>
+                <button onClick={() => setPrintBatch(null)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
               </div>
             </div>
             <div id="printable-slip" className="bg-white text-slate-900 p-6 rounded-lg">
-              <div className="flex items-start justify-between border-b-2 border-slate-900 pb-3 mb-4">
-                <div>
-                  <h2 className="text-lg font-black tracking-tight">MAT PLASTIC INDUSTRIES LLC</h2>
-                  <p className="text-xs text-slate-600">Store Department — Material Issue Slip</p>
+              <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-4">
+                <div className="flex items-center gap-3">
+                  <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-12 w-auto object-contain" />
+                  <div>
+                    <h2 className="text-lg font-black tracking-tight">MAT PLASTIC INDUSTRIES LLC</h2>
+                    <p className="text-xs text-slate-600">Store Department — Material Issue Slip</p>
+                  </div>
                 </div>
-                <div className="text-right text-xs text-slate-600">
-                  <div>Slip No. <span className="font-mono font-bold text-slate-900">MIS-{printRequest.id.slice(-8).toUpperCase()}</span></div>
+                <div className="text-right text-xs text-slate-600 shrink-0">
+                  <div>Slip No. <span className="font-mono font-bold text-slate-900">MIS-{(printBatch[0].batchId || printBatch[0].id).slice(-8).toUpperCase()}</span></div>
                   <div>{new Date().toLocaleString()}</div>
                 </div>
               </div>
 
               <table className="w-full text-sm mb-4">
                 <tbody>
-                  <tr><td className="py-1 text-slate-500 w-40">Project</td><td className="py-1 font-semibold">{printRequest.projectName}</td></tr>
-                  <tr><td className="py-1 text-slate-500">Pool Type</td><td className="py-1 font-semibold">{printRequest.poolType}</td></tr>
-                  {printRequest.poolNo && <tr><td className="py-1 text-slate-500">Pool No.</td><td className="py-1 font-semibold">{printRequest.poolNo}</td></tr>}
-                  <tr><td className="py-1 text-slate-500">Material</td><td className="py-1 font-semibold">{printRequest.materialName}</td></tr>
-                  <tr><td className="py-1 text-slate-500">Quantity Issued</td><td className="py-1 font-semibold">{printRequest.qtyRequested} {printRequest.unit}</td></tr>
-                  <tr><td className="py-1 text-slate-500">Requested By</td><td className="py-1">{printRequest.requestedByName} ({printRequest.requestedByRole})</td></tr>
-                  <tr><td className="py-1 text-slate-500">Approved By</td><td className="py-1">{printRequest.decidedByName || '—'}{printRequest.decidedAt ? ` · ${new Date(printRequest.decidedAt).toLocaleString()}` : ''}</td></tr>
-                  {printRequest.reason && <tr><td className="py-1 text-slate-500">Reason / Note</td><td className="py-1 italic">{printRequest.reason}</td></tr>}
+                  <tr><td className="py-1 text-slate-500 w-40">Project</td><td className="py-1 font-semibold">{printBatch[0].projectName}</td></tr>
+                  <tr><td className="py-1 text-slate-500">Pool Type</td><td className="py-1 font-semibold">{printBatch[0].poolType}</td></tr>
+                  {printBatch[0].poolNo && <tr><td className="py-1 text-slate-500">Pool No.</td><td className="py-1 font-semibold">{printBatch[0].poolNo}</td></tr>}
+                  <tr><td className="py-1 text-slate-500">Requested By</td><td className="py-1">{printBatch[0].requestedByName} ({printBatch[0].requestedByRole})</td></tr>
+                  <tr><td className="py-1 text-slate-500">Approved By</td><td className="py-1">{printBatch[0].decidedByName || '—'}{printBatch[0].decidedAt ? ` · ${new Date(printBatch[0].decidedAt).toLocaleString()}` : ''}</td></tr>
+                  {printBatch[0].reason && <tr><td className="py-1 text-slate-500">Reason / Note</td><td className="py-1 italic">{printBatch[0].reason}</td></tr>}
+                </tbody>
+              </table>
+
+              {/* Line items — one row per material, however many are in this batch */}
+              <table className="w-full text-sm mb-4 border border-slate-300 rounded overflow-hidden">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 text-xs uppercase">
+                    <th className="text-left px-3 py-2 w-10">#</th>
+                    <th className="text-left px-3 py-2">Material</th>
+                    <th className="text-right px-3 py-2">Quantity Issued</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {printBatch.map((it, idx) => (
+                    <tr key={it.id} className="border-t border-slate-200">
+                      <td className="px-3 py-1.5 text-slate-500">{idx + 1}</td>
+                      <td className="px-3 py-1.5 font-semibold">{it.materialName}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{Number(it.qtyRequested)} {it.unit}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
 
               <div className="text-xs bg-slate-100 border border-slate-300 rounded px-3 py-2 mb-6">
-                Status: material has left the Store and is recorded on the <b>{printRequest.requestedByRole}</b> Floor Stock. It will be deducted from Floor Stock as it is consumed and logged in Consumption.
+                Status: material has left the Store and is recorded on the <b>{printBatch[0].requestedByRole}</b> Floor Stock. It will be deducted from Floor Stock as it is consumed and logged in Consumption.
               </div>
 
               <div className="grid grid-cols-2 gap-6 mt-10 text-xs">
