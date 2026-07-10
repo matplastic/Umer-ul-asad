@@ -1831,6 +1831,7 @@ export default function App() {
     orientation: PoolOrientation;
     dimensions: string;
     shape: string;
+    poolType?: string;
     notes: string;
     operatorName: string;
     createdAt?: string;
@@ -1842,6 +1843,7 @@ export default function App() {
       orientation: spec.orientation,
       dimensions: spec.dimensions,
       shape: spec.shape,
+      poolType: spec.poolType || undefined,
       notes: spec.notes,
       createdAt: spec.createdAt || new Date().toISOString(),
       completedAt: null,
@@ -1858,7 +1860,7 @@ export default function App() {
       stageId: 'steel_fabrication',
       type: 'CREATED',
       operatorName: spec.operatorName || 'Engineer',
-      notes: `Pool created & released. Specs: Orientation - ${spec.orientation}, Dims - ${spec.dimensions}, Shape - ${spec.shape}.`
+      notes: `Pool created & released. Specs: Orientation - ${spec.orientation}, Dims - ${spec.dimensions}, Shape - ${spec.shape}${spec.poolType ? `, Type - ${spec.poolType}` : ''}.`
     };
 
     const updatedPools = [...pools, newPool];
@@ -1877,6 +1879,7 @@ export default function App() {
     orientation: PoolOrientation,
     dimensions: string,
     shape: string,
+    poolType: string,
     notes: string,
     operatorName: string
   ) => {
@@ -1894,6 +1897,7 @@ export default function App() {
         orientation,
         dimensions,
         shape,
+        poolType: poolType || undefined,
         notes: notes ? `${notes} (Batch #${i + 1})` : `Batch #${i + 1}`,
         createdAt: timestamp,
         completedAt: null,
@@ -1912,7 +1916,7 @@ export default function App() {
       stageId: 'steel_fabrication',
       type: 'CREATED',
       operatorName: operatorName || 'Engineer',
-      notes: `Batch spawner released ${count} serialized hulls [${prefix}${startRange} to ${prefix}${startRange + count - 1}] for Project "${projectName}" into fabrication queue.`
+      notes: `Batch spawner released ${count} serialized hulls [${prefix}${startRange} to ${prefix}${startRange + count - 1}] for Project "${projectName}"${poolType ? ` (Type: ${poolType})` : ''} into fabrication queue.`
     };
 
     const updatedPools = [...pools, ...newPools];
