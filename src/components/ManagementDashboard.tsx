@@ -1504,20 +1504,20 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     <div className="space-y-6">
       
       {/* Date Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white p-4 rounded-[var(--radius-card)] border border-neutral-200 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-shadow hover:shadow-[var(--shadow-elevation-1)]">
         <div className="flex items-center gap-3">
-          <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-lg border border-indigo-100">
+          <div className="bg-primary-50 text-primary-600 p-2.5 rounded-[var(--radius-control)]">
             <Clock className="h-5 w-5" />
           </div>
           <div>
-            <span className="text-xs font-black text-slate-800 uppercase tracking-wider block">Shop Floor Date Range</span>
-            <span className="text-[10.5px] text-slate-400 font-medium font-sans">Filters statistics & pool listings by production release date</span>
+            <span className="text-sm font-semibold text-neutral-800 block">Shop floor date range</span>
+            <span className="text-xs text-neutral-400 font-sans">Filters statistics and pool listings by production release date</span>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-550 font-semibold text-slate-600">From:</span>
+            <span className="font-medium text-neutral-500">From</span>
             <input
               type="date"
               value={startDateStr}
@@ -1525,12 +1525,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 setStartDateStr(e.target.value);
                 setPoolsPage(1); // reset pagination
               }}
-              className="bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg px-2.5 py-1.5 font-sans font-semibold text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 cursor-pointer text-xs"
+              className="bg-neutral-50 border border-neutral-200 hover:border-neutral-300 rounded-[var(--radius-control)] px-2.5 py-1.5 font-sans font-medium text-neutral-700 focus:outline-hidden focus:ring-2 focus:ring-primary-200 focus:border-primary-400 cursor-pointer text-xs transition-colors"
             />
           </div>
 
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-550 font-semibold text-slate-600">To:</span>
+            <span className="font-medium text-neutral-500">To</span>
             <input
               type="date"
               value={endDateStr}
@@ -1538,7 +1538,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 setEndDateStr(e.target.value);
                 setPoolsPage(1); // reset pagination
               }}
-              className="bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg px-2.5 py-1.5 font-sans font-semibold text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 cursor-pointer text-xs"
+              className="bg-neutral-50 border border-neutral-200 hover:border-neutral-300 rounded-[var(--radius-control)] px-2.5 py-1.5 font-sans font-medium text-neutral-700 focus:outline-hidden focus:ring-2 focus:ring-primary-200 focus:border-primary-400 cursor-pointer text-xs transition-colors"
             />
           </div>
 
@@ -1550,7 +1550,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 setEndDateStr('');
                 setPoolsPage(1);
               }}
-              className="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[10px] uppercase tracking-wide border border-rose-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+              className="bg-danger-50 hover:bg-danger-100 text-danger-600 font-medium text-xs border border-danger-100 px-3 py-1.5 rounded-[var(--radius-control)] transition-colors cursor-pointer"
             >
               Clear
             </button>
@@ -1560,77 +1560,77 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
       {/* KPI Stats cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="bg-blue-50 p-3.5 rounded-xl border border-blue-105 text-blue-600">
+
+        <div className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)]">
+          <div className="bg-primary-50 p-3 rounded-[var(--radius-control)] text-primary-600 transition-colors group-hover:bg-primary-100">
             <Layers className="h-5 w-5" />
           </div>
           <div>
-            <span className="block text-2xl font-black text-slate-800 font-mono">{activePools.length}</span>
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Active In Fabrication</span>
+            <span className="block text-2xl font-semibold text-neutral-800 font-mono tracking-tight">{activePools.length}</span>
+            <span className="text-xs font-medium text-neutral-400">Active in fabrication</span>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-100 text-emerald-600">
+        <div className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)]">
+          <div className="bg-success-50 p-3 rounded-[var(--radius-control)] text-success-600 transition-colors group-hover:bg-success-100">
             <TrendingUp className="h-5 w-5" />
           </div>
           <div>
-            <span className="block text-2xl font-black text-slate-800 font-mono">{completedPools.length}</span>
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Despatched & Clear</span>
+            <span className="block text-2xl font-semibold text-neutral-800 font-mono tracking-tight">{completedPools.length}</span>
+            <span className="text-xs font-medium text-neutral-400">Despatched and clear</span>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="bg-rose-50 p-3.5 rounded-xl border border-rose-100 text-rose-600">
+        <div className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)]">
+          <div className="bg-danger-50 p-3 rounded-[var(--radius-control)] text-danger-600 transition-colors group-hover:bg-danger-100">
             <ThumbsDown className="h-5 w-5" />
           </div>
           <div>
-            <span className="block text-2xl font-black text-slate-800 font-mono">{totalRejections}</span>
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Total Rework holds</span>
+            <span className="block text-2xl font-semibold text-neutral-800 font-mono tracking-tight">{totalRejections}</span>
+            <span className="text-xs font-medium text-neutral-400">Total rework holds</span>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="bg-purple-50 p-3.5 rounded-xl border border-purple-105 text-purple-600">
+        <div className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)]">
+          <div className="bg-neutral-100 p-3 rounded-[var(--radius-control)] text-neutral-600 transition-colors group-hover:bg-neutral-200">
             <Users className="h-5 w-5" />
           </div>
           <div>
-            <span className="block text-2xl font-black text-slate-800 font-mono">
+            <span className="block text-2xl font-semibold text-neutral-800 font-mono tracking-tight">
               {teams.filter(t => t.status === 'BUSY').length} / {teams.length}
             </span>
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Assigned Teams Rate</span>
+            <span className="text-xs font-medium text-neutral-400">Assigned teams rate</span>
           </div>
         </div>
 
       </div>
 
       {/* Live Operations & Quality Summary section */}
-      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
+      <div className="bg-neutral-50 p-6 rounded-[var(--radius-card)] border border-neutral-200 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-indigo-600 animate-pulse" />
-            <span className="text-sm font-black text-slate-800 uppercase tracking-wider">Real-Time Factory Summary & Bottleneck KPIs</span>
+            <Activity className="h-4.5 w-4.5 text-primary-600 animate-pulse" />
+            <span className="text-sm font-semibold text-neutral-800">Real-time factory summary and bottleneck KPIs</span>
           </div>
-          <span className="text-[10px] font-mono text-slate-400 bg-white border border-slate-200/50 px-2 py-0.5 rounded uppercase font-bold shadow-xs">Live Status Feed</span>
+          <span className="text-[11px] font-mono text-neutral-500 bg-white border border-neutral-200 px-2 py-0.5 rounded-[var(--radius-control)] font-medium">Live</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 font-sans">
           
           {/* Card 1: Total Active Pools */}
-          <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs flex flex-col justify-between space-y-3.5">
+          <div className="bg-white p-5 rounded-[var(--radius-control)] border border-neutral-200 flex flex-col justify-between space-y-3.5 transition-shadow hover:shadow-[var(--shadow-elevation-1)]">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Operational Workload</span>
-                <span className="text-xl font-black text-slate-800 font-mono tracking-tight">{activePools.length} Active Pools</span>
+                <span className="text-[11px] font-medium text-neutral-400 block">Operational workload</span>
+                <span className="text-lg font-semibold text-neutral-800 font-mono tracking-tight">{activePools.length} active pools</span>
               </div>
-              <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-lg border border-indigo-100">
+              <div className="bg-primary-50 text-primary-600 p-2.5 rounded-[var(--radius-control)]">
                 <Layers className="h-4.5 w-4.5" />
               </div>
             </div>
 
             <div className="space-y-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Stage Distribution:</span>
+              <span className="text-[11px] font-medium text-neutral-400 block">Stage distribution</span>
               <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
                 {stageStats.map(s => {
                   const stageIndex = STAGES.findIndex(st => st.id === s.stage.id);
@@ -1639,9 +1639,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     <div key={s.stage.id} className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5 truncate">
                         <span className="h-2 w-2 rounded-full inline-block shrink-0" style={{ backgroundColor: s.stage.color }} />
-                        <span className="font-medium text-slate-600 truncate">{s.stage.name}</span>
+                        <span className="font-medium text-neutral-600 truncate">{s.stage.name}</span>
                       </div>
-                      <span className="font-mono font-bold text-slate-800 bg-slate-50 border border-slate-100 px-1.5 py-0.2 rounded shrink-0">
+                      <span className="font-mono font-medium text-neutral-700 bg-neutral-50 border border-neutral-200 px-1.5 py-0.5 rounded shrink-0">
                         {activeCount} {activeCount === 1 ? 'pool' : 'pools'}
                       </span>
                     </div>
