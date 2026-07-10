@@ -1830,7 +1830,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
         {/* Tab 1: Analytics/Summary Dashboard */}
         {activeTab === 'analytics' && (
-          <>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             {/* Custom stage statistics bento card bar charts */}
@@ -3539,12 +3538,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               );
             })}
           </div>
+        )}
 
+        {activeTab === 'analytics' && (
           <MonthlyKPIDashboard
             pools={pools}
             plannedPools={plannedPools}
           />
-          </>
         )}
 
         {/* Tab 3.5: Employee Portal */}
