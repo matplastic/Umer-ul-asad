@@ -3,6 +3,10 @@
 // never reaches the browser. Mirrors send-material-request-email.js and is
 // safe to call even before Twilio is configured (it just no-ops).
 //
+// Sends ONE WhatsApp message per batch (the supervisor's whole cart — 1 to
+// many material lines) with ONE Approve/ONE Reject link for the whole batch
+// — instead of one message per material.
+//
 // Env vars needed (set in Netlify → Site settings → Environment variables):
 //   TWILIO_ACCOUNT_SID       - starts with "AC..."
 //   TWILIO_AUTH_TOKEN        - from the same Twilio Console page
@@ -27,7 +31,12 @@ exports.handler = async (event) => {
   }
 
   try {
-    const item = JSON.parse(event.body || '{}');
+    const payload = JSON.parse(event.body || '{}');
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    if (items.length === 0) {
+      return { statusCode: 200, body: JSON.stringify({ skipped: true, reason: 'no items' }) };
+    }
+
     const sid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const from = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886';
@@ -41,8 +50,13 @@ exports.handler = async (event) => {
     }
 
     const siteUrl = process.env.APP_BASE_URL || `https://${event.headers.host}`;
-    const approveUrl = `${siteUrl}/.netlify/functions/material-request-decide?id=${item.id}&token=${item.approvalToken}&action=approve`;
-    const rejectUrl = `${siteUrl}/.netlify/functions/material-request-decide?id=${item.id}&token=${item.approvalToken}&action=reject`;
+    const idOrBatchQuery = payload.batchId
+      ? `batchId=${encodeURIComponent(payload.batchId)}`
+      : `id=${encodeURIComponent(payload.id || '')}`;
+    const approveUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}&action=approve`;
+    const rejectUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}&action=reject`;
+
+    const itemsLines = items.map((it) => `• ${it.materialName || ''}: ${it.qtyRequested ?? ''} ${it.unit || ''}`).join('\n');
 
     const params = new URLSearchParams();
     params.append('From', from);
@@ -54,9 +68,9 @@ exports.handler = async (event) => {
       // out your approved template in the Twilio Console.
       params.append('ContentSid', contentSid);
       params.append('ContentVariables', JSON.stringify({
-        1: item.materialName || '',
-        2: `${item.qtyRequested ?? ''} ${item.unit || ''}`.trim(),
-        3: item.projectName || '',
+        1: items.length > 1 ? `${items.length} items` : (items[0].materialName || ''),
+        2: items.length > 1 ? itemsLines : `${items[0].qtyRequested ?? ''} ${items[0].unit || ''}`.trim(),
+        3: payload.projectName || '',
         4: approveUrl,
         5: rejectUrl,
       }));
@@ -64,11 +78,10 @@ exports.handler = async (event) => {
       // Plain-text fallback — only delivers if the manager already has an
       // open session with the Sandbox number (messaged it in the last 24h).
       params.append('Body',
-        `MAT Plastic Store — New Material Request\n\n` +
-        `Material: ${item.materialName || ''}\n` +
-        `Qty: ${item.qtyRequested ?? ''} ${item.unit || ''}\n` +
-        `Project: ${item.projectName || ''}${item.poolType ? ' / ' + item.poolType : ''}\n` +
-        `Requested by: ${item.requestedByName || ''} (${item.requestedByRole || ''})\n\n` +
+        `MAT Plastic Store — New Material Request${items.length > 1 ? ` (${items.length} items)` : ''}\n\n` +
+        `${itemsLines}\n\n` +
+        `Project: ${payload.projectName || ''}${payload.poolType ? ' / ' + payload.poolType : ''}\n` +
+        `Requested by: ${payload.requestedByName || ''} (${payload.requestedByRole || ''})\n\n` +
         `Approve: ${approveUrl}\n` +
         `Reject: ${rejectUrl}`
       );
