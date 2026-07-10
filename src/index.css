@@ -1,1 +1,93 @@
 @import "tailwindcss";
+
+/*
+  MAT ERP Design Tokens
+  ----------------------------------------------------
+  Single source of truth for brand color, typography, radius
+  and shadow values. Components should reference these
+  semantic classes (bg-primary, text-danger, etc.) instead of
+  raw Tailwind palette classes (indigo-600, rose-500, etc.)
+  so the whole app can be re-themed from one place.
+
+  Mapping decisions (based on current dominant usage in the
+  codebase, so migration is a rename rather than a redesign):
+    primary  -> indigo   (was indigo/blue/cyan mixed)
+    success  -> emerald  (was emerald/lime/green mixed)
+    warning  -> amber    (was amber/orange mixed)
+    danger   -> rose     (was rose/red mixed)
+    neutral  -> slate    (already dominant, kept as-is)
+*/
+
+@theme {
+  /* ---- Brand / semantic color scales ---- */
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-200: #a7f3d0;
+  --color-success-300: #6ee7b7;
+  --color-success-400: #34d399;
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-success-700: #047857;
+  --color-success-800: #065f46;
+  --color-success-900: #064e3b;
+
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-300: #fcd34d;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-warning-800: #92400e;
+  --color-warning-900: #78350f;
+
+  --color-danger-50: #fff1f2;
+  --color-danger-100: #ffe4e6;
+  --color-danger-200: #fecdd3;
+  --color-danger-300: #fda4af;
+  --color-danger-400: #fb7185;
+  --color-danger-500: #f43f5e;
+  --color-danger-600: #e11d48;
+  --color-danger-700: #be123c;
+  --color-danger-800: #9f1239;
+  --color-danger-900: #881337;
+
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+  --color-neutral-950: #020617;
+
+  /* ---- Typography ---- */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* ---- Radius scale (pick ONE default per component tier) ---- */
+  --radius-control: 0.5rem;   /* buttons, inputs -> rounded-control */
+  --radius-card: 0.75rem;     /* cards, panels    -> rounded-card */
+  --radius-surface: 1rem;     /* modals, sheets   -> rounded-surface */
+
+  /* ---- Elevation scale ---- */
+  --shadow-elevation-1: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-elevation-2: 0 4px 6px -1px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.06);
+  --shadow-elevation-3: 0 10px 15px -3px rgb(15 23 42 / 0.10), 0 4px 6px -4px rgb(15 23 42 / 0.08);
+}
