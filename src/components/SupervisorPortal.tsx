@@ -4,7 +4,7 @@ import {
   RefreshCw, AlertTriangle, Filter, Plus, Trash2, TrendingUp, Boxes,
 } from 'lucide-react';
 import {
-  dbFetchMaterials, dbFetchBomItems, dbSubmitMaterialRequest, dbFetchMaterialRequests,
+  dbFetchMaterials, dbFetchBomItems, dbSubmitMaterialRequestBatch, dbFetchMaterialRequests,
   dbFetchConsumptionLogs, dbCreateConsumptionLog, dbDeleteConsumptionLog,
   dbFetchProductionLogs, dbCreateProductionLog, dbDeleteProductionLog,
   dbFetchFloorStock,
@@ -51,12 +51,16 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const [pPoolNo, setPPoolNo] = useState('');
   const [pQty, setPQty] = useState('1');
 
-  // Request form
+  // Request form — Project/Pool Type is picked once for the whole cart.
+  // Each line (material + qty) gets added to `rCart` before sending, so a
+  // supervisor can request 10, 40, however many materials in one go instead
+  // of one request at a time.
   const [rProject, setRProject] = useState('');
   const [rPoolType, setRPoolType] = useState('');
   const [rMaterialId, setRMaterialId] = useState('');
   const [rQty, setRQty] = useState('');
   const [rReason, setRReason] = useState('');
+  const [rCart, setRCart] = useState<Array<{ materialId: string; materialName: string; unit: string; qty: string }>>([]);
 
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -118,11 +122,24 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     [production, pStage]);
 
-  const myRequests = useMemo(() => requests
-    .filter(r => (r.stageId || '') === section)
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-    .slice(0, 20),
-    [requests, section]);
+  // Group requests belonging to this section into "batches" — everything
+  // sent together from one cart shares a batchId, so it shows as ONE row
+  // here instead of one row per material. Legacy requests sent before
+  // batching existed have no batchId, so they fall back to grouping by their
+  // own id (a "batch of one").
+  const myRequestBatches = useMemo(() => {
+    const mine = requests.filter(r => (r.stageId || '') === section);
+    const map = new Map<string, MaterialRequest[]>();
+    for (const r of mine) {
+      const key = r.batchId || r.id;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    }
+    return Array.from(map.entries())
+      .map(([key, items]) => ({ key, items, createdAt: items[0].createdAt, status: items[0].status }))
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, 20);
+  }, [requests, section]);
 
   // Compute planned vs actual for TODAY in this section
   const todayComparison = useMemo(() => {
@@ -200,25 +217,50 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     loadAll(true);
   };
 
-  const submitRequest = async () => {
-    if (!rProject || !rPoolType || !rMaterialId || !rQty) { setFlash('Fill all request fields'); return; }
+  // Adds the currently-selected material+qty as one line in the cart. The
+  // Project/Pool Type stay selected so the next line can be added right away.
+  const addToCart = () => {
+    if (!rProject || !rPoolType) { setFlash('Pick a project and pool type first'); return; }
+    if (!rMaterialId || !rQty) { setFlash('Select a material and quantity'); return; }
     const mat = materials.find(m => m.id === rMaterialId);
     if (!mat) return;
-    await dbSubmitMaterialRequest({
+    setRCart(prev => {
+      // If this material's already in the cart, bump its qty instead of a duplicate line.
+      const idx = prev.findIndex(l => l.materialId === mat.id);
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], qty: String(Number(next[idx].qty || 0) + Number(rQty)) };
+        return next;
+      }
+      return [...prev, { materialId: mat.id, materialName: mat.name, unit: mat.unit, qty: rQty }];
+    });
+    setRMaterialId(''); setRQty('');
+  };
+
+  const removeFromCart = (materialId: string) => {
+    setRCart(prev => prev.filter(l => l.materialId !== materialId));
+  };
+
+  // Sends every line in the cart together as one batch — one manager
+  // email/WhatsApp with one Approve/Reject action, one issue slip at Store.
+  const submitRequest = async () => {
+    if (!rProject || !rPoolType) { setFlash('Pick a project and pool type'); return; }
+    if (rCart.length === 0) { setFlash('Add at least one material to the cart first'); return; }
+    await dbSubmitMaterialRequestBatch(rCart.map(line => ({
       projectName: rProject,
       poolType: rPoolType,
       poolId: null,
       poolNo: null,
       stageId: section as any,
-      materialId: mat.id,
-      materialName: mat.name,
-      unit: mat.unit,
-      qtyRequested: Number(rQty),
+      materialId: line.materialId,
+      materialName: line.materialName,
+      unit: line.unit,
+      qtyRequested: Number(line.qty),
       reason: rReason || null,
       requestedByName: currentUserName,
       requestedByRole: `Section Supervisor - ${sectionName}`,
-    });
-    setRMaterialId(''); setRQty(''); setRReason('');
+    })));
+    setRCart([]); setRProject(''); setRPoolType(''); setRMaterialId(''); setRQty(''); setRReason('');
     setFlash('Request sent to store/manager for approval.');
     setTimeout(() => setFlash(null), 2500);
     loadAll(true);
@@ -440,7 +482,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* REQUEST TAB */}
       {tab === 'request' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-3 grid grid-cols-1 md:grid-cols-6 gap-2">
             <select value={rProject} onChange={e => { setRProject(e.target.value); setRPoolType(''); }} data-testid="req-project" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
               <option value="">Project…</option>
               {projectNames.map(p => <option key={p} value={p}>{p}</option>)}
@@ -454,10 +496,43 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               {sectionMaterials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit}) — stock: {m.currentStock}</option>)}
             </select>
             <input type="number" step="any" data-testid="req-qty" placeholder="Qty" value={rQty} onChange={e => setRQty(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Reason (optional)" value={rReason} onChange={e => setRReason(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <button onClick={submitRequest} data-testid="req-submit" className="md:col-span-6 flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-              <Send className="h-3.5 w-3.5" /> Send Request for Approval
+            <button onClick={addToCart} data-testid="req-add-line" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <Plus className="h-3.5 w-3.5" /> Add to Cart
             </button>
+          </div>
+
+          {/* CART — every line added here goes out together as ONE request:
+              one manager email/WhatsApp, one Approve/Reject action, one
+              issue slip at Store — however many materials are in it. */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto mb-5" data-testid="req-cart">
+            <div className="px-4 py-2 border-b border-slate-800 flex items-center justify-between">
+              <span className="text-xs font-bold uppercase text-slate-400">
+                Cart {rCart.length > 0 && <span className="text-orange-400">({rCart.length} item{rCart.length === 1 ? '' : 's'})</span>}
+              </span>
+              {rCart.length > 0 && <span className="text-[10px] text-slate-500">Sent together as one request</span>}
+            </div>
+            <table className="w-full min-w-[500px] text-xs">
+              <tbody>
+                {rCart.map(line => (
+                  <tr key={line.materialId} className="border-t border-slate-800">
+                    <td className="px-4 py-2 text-slate-200 font-semibold">{line.materialName}</td>
+                    <td className="px-4 py-2 text-right text-slate-200 font-mono">{line.qty} {line.unit}</td>
+                    <td className="px-4 py-2 text-right w-10">
+                      <button onClick={() => removeFromCart(line.materialId)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </td>
+                  </tr>
+                ))}
+                {rCart.length === 0 && (
+                  <tr><td colSpan={3} className="text-center text-slate-500 py-6">Cart is empty — add materials above, then send them all at once.</td></tr>
+                )}
+              </tbody>
+            </table>
+            <div className="p-3 border-t border-slate-800 flex flex-col md:flex-row gap-2">
+              <input placeholder="Reason (optional, applies to the whole request)" value={rReason} onChange={e => setRReason(e.target.value)} className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+              <button onClick={submitRequest} data-testid="req-submit" className="flex items-center justify-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" disabled={rCart.length === 0}>
+                <Send className="h-3.5 w-3.5" /> Send {rCart.length > 0 ? `${rCart.length} Item${rCart.length === 1 ? '' : 's'}` : 'Request'} for Approval
+              </button>
+            </div>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
@@ -469,23 +544,26 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                 <tr className="text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Project / Type</th>
-                  <th className="text-left px-4 py-2">Material</th>
-                  <th className="text-right px-4 py-2">Qty</th>
+                  <th className="text-left px-4 py-2">Materials</th>
                   <th className="text-left px-4 py-2">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {myRequests.map(r => (
-                  <tr key={r.id} className="border-t border-slate-800">
-                    <td className="px-4 py-2 text-slate-500 font-mono">{new Date(r.createdAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-2 text-slate-300">{r.projectName} / {r.poolType}</td>
-                    <td className="px-4 py-2 text-slate-200">{r.materialName}</td>
-                    <td className="px-4 py-2 text-right text-slate-200 font-mono">{Number(r.qtyRequested)} {r.unit}</td>
-                    <td className="px-4 py-2">{statusPill(r.status)}</td>
-                  </tr>
-                ))}
-                {myRequests.length === 0 && (
-                  <tr><td colSpan={5} className="text-center text-slate-500 py-8">No requests yet.</td></tr>
+                {myRequestBatches.map(batch => {
+                  const first = batch.items[0];
+                  const summary = batch.items.slice(0, 3).map(it => `${it.materialName} (${Number(it.qtyRequested)} ${it.unit})`).join(', ');
+                  const more = batch.items.length > 3 ? ` +${batch.items.length - 3} more` : '';
+                  return (
+                    <tr key={batch.key} className="border-t border-slate-800">
+                      <td className="px-4 py-2 text-slate-500 font-mono">{new Date(first.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-slate-300">{first.projectName} / {first.poolType}</td>
+                      <td className="px-4 py-2 text-slate-200">{summary}{more}</td>
+                      <td className="px-4 py-2">{statusPill(batch.status)}</td>
+                    </tr>
+                  );
+                })}
+                {myRequestBatches.length === 0 && (
+                  <tr><td colSpan={4} className="text-center text-slate-500 py-8">No requests yet.</td></tr>
                 )}
               </tbody>
             </table>
