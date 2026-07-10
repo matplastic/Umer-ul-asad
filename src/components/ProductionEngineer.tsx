@@ -12,7 +12,9 @@ import {
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
-  Info
+  Info,
+  Tag,
+  BarChart3
 } from 'lucide-react';
 
 interface ProductionEngineerProps {
@@ -23,6 +25,7 @@ interface ProductionEngineerProps {
     orientation: PoolOrientation;
     dimensions: string;
     shape: string;
+    poolType: string;
     notes: string;
     operatorName: string;
     createdAt?: string;
@@ -35,6 +38,7 @@ interface ProductionEngineerProps {
     orientation: PoolOrientation,
     dimensions: string,
     shape: string,
+    poolType: string,
     notes: string,
     operatorName: string
   ) => void;
@@ -66,6 +70,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
   const [orientation, setOrientation] = useState<PoolOrientation>('Normal');
   const [dimensions, setDimensions] = useState('12m x 5m x 1.4m');
   const [shape, setShape] = useState('Rectangular');
+  const [poolType, setPoolType] = useState('');
   const [notes, setNotes] = useState('');
 
   // Entry date for backdating (defaults to today)
@@ -79,6 +84,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
   const [batchOrientation, setBatchOrientation] = useState<PoolOrientation>('Normal');
   const [batchDimensions, setBatchDimensions] = useState('12m x 5m x 1.4m');
   const [batchShape, setBatchShape] = useState('Rectangular');
+  const [batchPoolType, setBatchPoolType] = useState('');
   const [batchNotes, setBatchNotes] = useState('');
 
   // Sync selectedEngineer if list changes on the fly
@@ -101,8 +107,33 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
   // Total statistics
   const firstStagePools = pools.filter(p => p.currentStageIndex === 0);
 
-  // Unique projects list for filtering
+  // Unique projects list for filtering (queue-only, used by the queue panel)
   const uniqueProjects = Array.from(new Set(firstStagePools.map(p => p.projectName))).filter(Boolean);
+
+  // ---- Pool Count Explorer state (searches across ALL pools, any stage) ----
+  const [countProject, setCountProject] = useState('ALL');
+  const [countPoolType, setCountPoolType] = useState('ALL');
+  const [countOrientation, setCountOrientation] = useState('ALL');
+  const [countPoolNo, setCountPoolNo] = useState('');
+
+  const allUniqueProjects = Array.from(new Set(pools.map(p => p.projectName))).filter(Boolean).sort();
+  const allUniquePoolTypes = Array.from(new Set(pools.map(p => p.poolType).filter(Boolean))) as string[];
+  const allUniqueOrientations = Array.from(new Set(pools.map(p => p.orientation))).filter(Boolean);
+
+  const countFilteredPools = pools.filter(p => {
+    const matchesProject = countProject === 'ALL' || p.projectName === countProject;
+    const matchesType = countPoolType === 'ALL' || (p.poolType || 'Unspecified') === countPoolType;
+    const matchesOrientation = countOrientation === 'ALL' || p.orientation === countOrientation;
+    const matchesPoolNo = !countPoolNo.trim() || p.poolNo.toLowerCase().includes(countPoolNo.trim().toLowerCase());
+    return matchesProject && matchesType && matchesOrientation && matchesPoolNo;
+  });
+
+  // Breakdown of the filtered set, grouped by Pool Type
+  const countByType = countFilteredPools.reduce((acc: Record<string, number>, p) => {
+    const key = p.poolType || 'Unspecified';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
 
   // Filtering of current list
   const filteredFirstStage = firstStagePools.filter(p => {
@@ -142,6 +173,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
         setNotes('');
         setDimensions('12m x 5m x 1.4m');
         setShape('Rectangular');
+        setPoolType('');
         setCurrentPage(1);
       } else {
         setErrorMsg('Failed to release the selected pre-planned pool design.');
@@ -162,6 +194,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
       orientation,
       dimensions: dimensions.trim(),
       shape: shape.trim(),
+      poolType: poolType.trim(),
       notes: notes.trim(),
       operatorName: selectedEngineer,
       createdAt: entryDate ? new Date(entryDate + 'T08:00:00').toISOString() : new Date().toISOString()
@@ -175,6 +208,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
     setNotes('');
     setDimensions('12m x 5m x 1.4m');
     setShape('Rectangular');
+    setPoolType('');
     setCurrentPage(1);
   };
 
@@ -216,6 +250,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
       batchOrientation,
       batchDimensions.trim(),
       batchShape.trim(),
+      batchPoolType.trim(),
       batchNotes.trim(),
       selectedEngineer
     );
@@ -338,6 +373,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                           setNotes('');
                           setDimensions('12m x 5m x 1.4m');
                           setShape('Rectangular');
+                          setPoolType('');
                         }} 
                         className="text-red-650 hover:underline font-extrabold"
                       >
@@ -356,6 +392,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                         setNotes('');
                         setDimensions('12m x 5m x 1.4m');
                         setShape('Rectangular');
+                        setPoolType('');
                       } else {
                         const matched = plannedPools.find(ap => ap.id === planId);
                         if (matched) {
@@ -364,6 +401,7 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                           setOrientation(matched.orientation);
                           setDimensions(matched.dimensions);
                           setShape(matched.shape);
+                          setPoolType(matched.poolType || '');
                           setNotes(matched.notes || '');
                         }
                       }
@@ -451,6 +489,27 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                       className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium disabled:bg-slate-100 disabled:text-slate-500"
                     />
                   </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wide mb-1.5">
+                  Pool Type
+                </label>
+                <div className="relative">
+                  <Tag className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    disabled={!!selectedPlanId}
+                    list="pool-type-suggestions"
+                    placeholder="e.g. Skimmer, Overflow, Plunge, Lap"
+                    value={poolType}
+                    onChange={(e) => setPoolType(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium disabled:bg-slate-100 disabled:text-slate-500"
+                  />
+                  <datalist id="pool-type-suggestions">
+                    {allUniquePoolTypes.map(pt => <option key={pt} value={pt} />)}
+                  </datalist>
                 </div>
               </div>
 
@@ -619,6 +678,23 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
 
               <div>
                 <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wide mb-1.5">
+                  Template Pool Type
+                </label>
+                <div className="relative">
+                  <Tag className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    list="pool-type-suggestions"
+                    placeholder="e.g. Skimmer, Overflow, Plunge, Lap"
+                    value={batchPoolType}
+                    onChange={(e) => setBatchPoolType(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 font-medium"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wide mb-1.5">
                   Template Dimensions
                 </label>
                 <div className="relative">
@@ -726,6 +802,12 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                           <span>Dim: <strong className="text-slate-600">{pool.dimensions}</strong></span>
                           <span>•</span>
                           <span>Shape: <strong className="text-slate-600">{pool.shape}</strong></span>
+                          {pool.poolType && (
+                            <>
+                              <span>•</span>
+                              <span>Type: <strong className="text-slate-600">{pool.poolType}</strong></span>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -795,6 +877,124 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
 
         </div>
 
+      </div>
+
+      {/* Pool Count Explorer — search/filter across ALL pools by type, project, orientation, pool number */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-indigo-500" />
+              Pool Count Explorer
+            </h3>
+            <p className="text-xs text-slate-400">
+              Check how many pools exist across the whole plant — filter by pool type, project, orientation, or a specific pool number.
+            </p>
+          </div>
+          <div className="bg-indigo-50 px-4 py-2.5 rounded-xl border border-indigo-100/80 text-center min-w-[110px]">
+            <span className="block text-xl font-black text-indigo-600 font-mono">{countFilteredPools.length}</span>
+            <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-widest">Matching Pools</span>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Project</label>
+            <select
+              value={countProject}
+              onChange={(e) => setCountProject(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 text-xs text-slate-600 px-2.5 py-2 rounded-lg font-medium outline-none"
+            >
+              <option value="ALL">All Projects ({allUniqueProjects.length})</option>
+              {allUniqueProjects.map(proj => (
+                <option key={proj} value={proj}>{proj}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pool Type</label>
+            <select
+              value={countPoolType}
+              onChange={(e) => setCountPoolType(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 text-xs text-slate-600 px-2.5 py-2 rounded-lg font-medium outline-none"
+            >
+              <option value="ALL">All Types</option>
+              {allUniquePoolTypes.map(pt => (
+                <option key={pt} value={pt}>{pt}</option>
+              ))}
+              {pools.some(p => !p.poolType) && (
+                <option value="Unspecified">Unspecified</option>
+              )}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Orientation</label>
+            <select
+              value={countOrientation}
+              onChange={(e) => setCountOrientation(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 text-xs text-slate-600 px-2.5 py-2 rounded-lg font-medium outline-none"
+            >
+              <option value="ALL">All Orientations</option>
+              {allUniqueOrientations.map(o => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pool Number</label>
+            <div className="relative">
+              <Search className="absolute top-2.5 left-2.5 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="e.g. P-1050"
+                value={countPoolNo}
+                onChange={(e) => setCountPoolNo(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none font-mono"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Breakdown by Pool Type for the current filtered set */}
+        {countFilteredPools.length === 0 ? (
+          <div className="text-center py-10 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+            <Tag className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+            <p className="text-sm font-bold text-slate-600">No pools match these filters</p>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2.5">
+            {Object.entries(countByType)
+              .sort((a, b) => b[1] - a[1])
+              .map(([type, count]) => (
+                <div
+                  key={type}
+                  className="flex items-center gap-2 px-3.5 py-2 bg-slate-50 border border-slate-150 rounded-xl text-xs"
+                >
+                  <Tag className="h-3.5 w-3.5 text-indigo-400" />
+                  <span className="font-bold text-slate-700">{type}</span>
+                  <span className="font-mono font-black text-indigo-600">{count}</span>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* Pool number match highlight — show the specific pool(s) when searching a Pool Number */}
+        {countPoolNo.trim() && countFilteredPools.length > 0 && countFilteredPools.length <= 20 && (
+          <div className="mt-4 space-y-2">
+            {countFilteredPools.map(p => (
+              <div key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 p-3 border border-slate-100 rounded-xl bg-slate-50/40 text-xs">
+                <span className="font-mono font-black text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">{p.poolNo}</span>
+                <span className="font-bold text-slate-700">{p.projectName}</span>
+                <span className="text-slate-400">Type: <strong className="text-slate-600">{p.poolType || 'Unspecified'}</strong></span>
+                <span className="text-slate-400">Orient: <strong className="text-slate-600">{p.orientation}</strong></span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
     </div>
