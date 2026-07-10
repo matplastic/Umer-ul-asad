@@ -222,6 +222,14 @@ export type MaterialRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'PRINT
 
 export interface MaterialRequest {
   id: string;
+  // Requests submitted together from the Supervisor's "cart" (10, 40, however
+  // many material lines at once) share one batchId + one approvalToken, so
+  // the manager gets ONE email with ONE Approve/Reject action for the whole
+  // batch, and Store gets ONE issue slip listing every line — instead of a
+  // separate email/slip per material. Requests submitted before this feature
+  // existed have batchId === null/undefined and are simply treated as a
+  // "batch of one" everywhere batchId is used for grouping.
+  batchId?: string | null;
   projectName: string;
   poolType: string;
   poolId?: string | null;
