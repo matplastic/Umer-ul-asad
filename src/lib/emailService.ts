@@ -26,6 +26,19 @@ interface MaterialRequestEmailPayload {
   rejectUrl: string;
 }
 
+interface MaterialRequestBatchEmailPayload {
+  batchId: string;
+  projectName: string;
+  poolType: string;
+  poolNo?: string | null;
+  items: Array<{ materialName: string; unit: string; qtyRequested: number }>;
+  reason?: string | null;
+  requestedByName: string;
+  requestedByRole: string;
+  approveUrl: string;
+  rejectUrl: string;
+}
+
 function baseTemplate(title: string, bodyHtml: string) {
   return `
   <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #1e293b;">
@@ -96,6 +109,60 @@ export async function sendMaterialRequestApprovalEmail(payload: MaterialRequestE
   `);
 
   return sendEmail(managerEmails, `Material Request: ${payload.materialName} for ${payload.projectName} / ${payload.poolType}`, html);
+}
+
+// Batch version — one email for a supervisor's whole cart (many material
+// lines) with ONE Approve/ONE Reject action, instead of one email per line.
+// Mirrors netlify/functions/send-material-request-email.js. Not yet wired
+// into server.ts (which still uses the single-item version above for its
+// existing /api/material-requests route) — add a batch route there if the
+// Express/API deployment path needs cart-style requests too.
+export async function sendMaterialRequestApprovalEmailBatch(payload: MaterialRequestBatchEmailPayload) {
+  const managerEmails = (process.env.STORE_MANAGER_EMAIL || '')
+    .split(',')
+    .map(e => e.trim())
+    .filter(Boolean);
+
+  if (managerEmails.length === 0) {
+    console.warn('[emailService] STORE_MANAGER_EMAIL not set — no manager to notify.');
+    return { skipped: true };
+  }
+
+  const rows = payload.items.map(it => `
+    <tr>
+      <td style="padding:6px 8px 6px 0; border-bottom:1px solid #e2e8f0;">${it.materialName}</td>
+      <td style="padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${it.qtyRequested} ${it.unit}</td>
+    </tr>`).join('');
+
+  const html = baseTemplate(`New Material Request${payload.items.length > 1 ? ` — ${payload.items.length} items` : ''}`, `
+    <table style="width:100%; border-collapse:collapse; font-size:14px; margin-bottom:16px;">
+      <tr><td style="padding:6px 0; color:#64748b; width:140px;">Project</td><td style="padding:6px 0; font-weight:600;">${payload.projectName}</td></tr>
+      <tr><td style="padding:6px 0; color:#64748b;">Pool Type</td><td style="padding:6px 0; font-weight:600;">${payload.poolType}</td></tr>
+      ${payload.poolNo ? `<tr><td style="padding:6px 0; color:#64748b;">Pool No.</td><td style="padding:6px 0; font-weight:600;">${payload.poolNo}</td></tr>` : ''}
+      <tr><td style="padding:6px 0; color:#64748b;">Requested by</td><td style="padding:6px 0; font-weight:600;">${payload.requestedByName} (${payload.requestedByRole})</td></tr>
+      ${payload.reason ? `<tr><td style="padding:6px 0; color:#64748b;">Reason</td><td style="padding:6px 0;">${payload.reason}</td></tr>` : ''}
+    </table>
+    <table style="width:100%; border-collapse:collapse; font-size:14px; margin-bottom:20px;">
+      <thead>
+        <tr>
+          <th style="text-align:left; padding:6px 8px 6px 0; border-bottom:2px solid #0f172a; color:#64748b; font-size:11px; text-transform:uppercase;">Material</th>
+          <th style="text-align:right; padding:6px 0; border-bottom:2px solid #0f172a; color:#64748b; font-size:11px; text-transform:uppercase;">Qty</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="display:flex; gap:12px;">
+      <a href="${payload.approveUrl}" style="background:#16a34a; color:#fff; text-decoration:none; padding:12px 22px; border-radius:8px; font-weight:700; font-size:14px; display:inline-block; margin-right:10px;">✓ Approve ${payload.items.length > 1 ? 'All' : ''}</a>
+      <a href="${payload.rejectUrl}" style="background:#dc2626; color:#fff; text-decoration:none; padding:12px 22px; border-radius:8px; font-weight:700; font-size:14px; display:inline-block;">✗ Reject ${payload.items.length > 1 ? 'All' : ''}</a>
+    </div>
+    <p style="color:#94a3b8; font-size:12px; margin-top:20px;">Tapping Approve/Reject opens a confirmation page — nothing happens until you tap the button on that page. Batch: ${payload.batchId}</p>
+  `);
+
+  const subject = payload.items.length > 1
+    ? `Material Request: ${payload.items.length} items for ${payload.projectName} / ${payload.poolType}`
+    : `Material Request: ${payload.items[0]?.materialName || ''} for ${payload.projectName} / ${payload.poolType}`;
+
+  return sendEmail(managerEmails, subject, html);
 }
 
 // Optional: confirm back to the requester once the manager has decided
