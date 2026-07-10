@@ -5,6 +5,7 @@ import { STAGES } from '../data/mockData';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
+import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
   CartesianGrid, Tooltip as RechartsTooltip, Legend
@@ -1750,125 +1751,78 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </div>
       </div>
 
-      {/* Tabs navigation + Refresh All button */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-1.5 shadow-sm flex flex-wrap gap-1 items-center">
-        <button
-          onClick={() => setActiveTab('analytics')}
-          className={`flex-1 min-w-[120px] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'analytics' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <BarChart2 className="h-4 w-4 text-blue-500" />
-          Analytics / Bottlenecks
-        </button>
-
-        {/* ── Refresh All Data button ── */}
-        {onRefreshAll && (
+      {/* Utility bar: sync status + refresh, sits above the tab row so it never gets caught in tab wrapping */}
+      {onRefreshAll && (
+        <div className="flex items-center justify-end gap-3 px-1">
+          {lastSyncTime && !isFullSyncing && (
+            <span className="text-xs text-neutral-400">Last synced {lastSyncTime}</span>
+          )}
           <button
             onClick={onRefreshAll}
             disabled={isFullSyncing}
-            className="ml-auto flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm shrink-0"
+            className="flex items-center gap-1.5 bg-white hover:bg-neutral-50 disabled:opacity-60 text-neutral-600 text-xs font-medium px-3 py-1.5 rounded-[var(--radius-control)] border border-neutral-200 transition-colors"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFullSyncing ? 'animate-spin' : ''}`} />
-            {isFullSyncing ? 'Refreshing...' : 'Refresh All Data'}
-            {lastSyncTime && !isFullSyncing && (
-              <span className="text-indigo-200 font-normal">· {lastSyncTime}</span>
-            )}
+            {isFullSyncing ? 'Refreshing…' : 'Refresh data'}
           </button>
-        )}
+        </div>
+      )}
 
-        <button
-          onClick={() => setActiveTab('projects_portal')}
-          className={`flex-1 min-w-[120px] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'projects_portal' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-          id="tab-mgmt-projects-portal"
-        >
-          <Briefcase className="h-4 w-4 text-emerald-500" />
-          All Projects Portal
-        </button>
-
-        <button
-          onClick={() => setActiveTab('pools')}
-          className={`flex-1 min-w-[120px] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'pools' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <Layers className="h-4 w-4" />
-          Pools Register Tracking
-        </button>
-
-        <button
-          onClick={() => setActiveTab('daily_progress')}
-          className={`flex-1 min-w-[120px] py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'daily_progress' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-          id="tab-mgmt-daily-progress"
-        >
-          <Calendar className="h-4 w-4 text-blue-500" />
-          Daily Stage Progress
-        </button>
-
-        <button
-          onClick={() => setActiveTab('teams')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'teams' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <Users className="h-4 w-4" />
-          Teams Allocation
-        </button>
-
-        <button
-          onClick={() => setActiveTab('employee_portal')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'employee_portal' ? 'bg-slate-800 text-white shadow-md border border-slate-700' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-          id="tab-mgmt-employees-portal"
-        >
-          <UserPlus className="h-4 w-4 text-pink-500" />
-          Employee directory
-        </button>
-
-        <button
-          onClick={() => setActiveTab('audit_logs')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'audit_logs' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <FileSpreadsheet className="h-4 w-4" />
-          Audit Dispatch Ledger
-        </button>
-
-        <button
-          onClick={() => setActiveTab('workspace_setup')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'workspace_setup' ? 'bg-indigo-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <SlidersHorizontal className="h-4 w-4 text-indigo-400" />
-          Workspace Setup & Names
-        </button>
-
-        <button
-          onClick={() => setActiveTab('google_drive')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'google_drive' ? 'bg-cyan-900 text-cyan-200 shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <Cloud className="h-4 w-4 text-cyan-500" />
-          Google Drive Backups
-        </button>
-
-        <button
-          onClick={() => setActiveTab('terminal_settings')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-            activeTab === 'terminal_settings' ? 'bg-amber-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <Lock className="h-4 w-4 text-amber-300" />
-          Terminal Control 🔒
-        </button>
+      {/* Tabs navigation — grouped by function so placement reads as organized, not a random row */}
+      <div className="bg-white rounded-[var(--radius-card)] border border-neutral-200 p-4 space-y-4">
+        {([
+          {
+            group: 'Overview',
+            tabs: [
+              { id: 'analytics', label: 'Analytics / Bottlenecks', icon: BarChart2 },
+              { id: 'projects_portal', label: 'All Projects Portal', icon: Briefcase, elId: 'tab-mgmt-projects-portal' },
+              { id: 'pools', label: 'Pools Register Tracking', icon: Layers },
+              { id: 'daily_progress', label: 'Daily Stage Progress', icon: Calendar, elId: 'tab-mgmt-daily-progress' },
+            ],
+          },
+          {
+            group: 'Operations',
+            tabs: [
+              { id: 'teams', label: 'Teams Allocation', icon: Users },
+              { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
+              { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
+            ],
+          },
+          {
+            group: 'Admin',
+            tabs: [
+              { id: 'workspace_setup', label: 'Workspace Setup & Names', icon: SlidersHorizontal },
+              { id: 'google_drive', label: 'Google Drive Backups', icon: Cloud },
+              { id: 'terminal_settings', label: 'Terminal Control', icon: Lock },
+            ],
+          },
+        ] as const).map((section, i) => (
+          <div key={section.group}>
+            {i > 0 && <div className="h-px bg-neutral-100 -mx-4 mb-4" />}
+            <span className="text-[11px] font-medium text-neutral-400 block mb-2">{section.group}</span>
+            <div className="flex flex-wrap gap-1.5">
+              {section.tabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    id={(tab as any).elId}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`py-2 px-3.5 rounded-[var(--radius-control)] text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
+                      isActive
+                        ? 'bg-neutral-900 text-white'
+                        : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'
+                    }`}
+                  >
+                    <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Panels viewport */}
@@ -1876,6 +1830,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
         {/* Tab 1: Analytics/Summary Dashboard */}
         {activeTab === 'analytics' && (
+          <>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             {/* Custom stage statistics bento card bar charts */}
@@ -3584,6 +3539,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               );
             })}
           </div>
+
+          <MonthlyKPIDashboard
+            pools={pools}
+            plannedPools={plannedPools}
+          />
+          </>
         )}
 
         {/* Tab 3.5: Employee Portal */}
