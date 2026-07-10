@@ -992,26 +992,47 @@ function newToken(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 }
 
-// Fire-and-forget call to the Netlify Function that emails the manager.
-// Safe to call even when email isn't configured yet — it just no-ops server-side.
-async function notifyManagerOfMaterialRequest(item: MaterialRequest) {
+// Fire-and-forget call to the Netlify Functions that email + WhatsApp the
+// manager. Safe to call even when email/WhatsApp aren't configured yet —
+// they just no-op server-side. Takes the WHOLE batch (every material line
+// the supervisor added to their cart) so the manager gets ONE message with
+// ONE Approve/ONE Reject action, not one message per material.
+async function notifyManagerOfMaterialRequestBatch(items: MaterialRequest[]) {
+  if (items.length === 0) return;
+  const first = items[0];
+  const payload = {
+    batchId: first.batchId,
+    approvalToken: first.approvalToken,
+    projectName: first.projectName,
+    poolType: first.poolType,
+    poolNo: first.poolNo,
+    reason: first.reason,
+    requestedByName: first.requestedByName,
+    requestedByRole: first.requestedByRole,
+    items: items.map((it) => ({
+      materialId: it.materialId,
+      materialName: it.materialName,
+      unit: it.unit,
+      qtyRequested: it.qtyRequested,
+    })),
+  };
   try {
     await fetch('/.netlify/functions/send-material-request-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(item),
+      body: JSON.stringify(payload),
     });
   } catch (err) {
-    console.warn('[notifyManagerOfMaterialRequest] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
+    console.warn('[notifyManagerOfMaterialRequestBatch] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
   }
   try {
     await fetch('/.netlify/functions/send-material-request-whatsapp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(item),
+      body: JSON.stringify(payload),
     });
   } catch (err) {
-    console.warn('[notifyManagerOfMaterialRequest] Could not reach the WhatsApp function (this is fine in local dev without `netlify dev`):', err);
+    console.warn('[notifyManagerOfMaterialRequestBatch] Could not reach the WhatsApp function (this is fine in local dev without `netlify dev`):', err);
   }
 }
 
@@ -1137,72 +1158,132 @@ export async function dbFetchMaterialRequests(): Promise<MaterialRequest[]> {
   return res.ok ? res.json() : [];
 }
 
-// Section Supervisor submits a request. Saves it, then fires the manager email
-// (via a Netlify Function when static-hosted, or the Express route otherwise).
-export async function dbSubmitMaterialRequest(payload: Omit<MaterialRequest, 'id' | 'status' | 'approvalToken' | 'createdAt'>) {
-  const item: MaterialRequest = {
+// Section Supervisor submits their whole cart (1 to however-many material
+// lines) in one go. Every line shares one batchId + one approvalToken, so
+// the manager's email/WhatsApp has ONE Approve/Reject action for the whole
+// batch, and Store prints ONE issue slip for it — instead of one
+// email/slip per material line.
+export async function dbSubmitMaterialRequestBatch(
+  lines: Array<Omit<MaterialRequest, 'id' | 'status' | 'approvalToken' | 'createdAt' | 'batchId'>>
+): Promise<{ success: boolean; items: MaterialRequest[] }> {
+  if (lines.length === 0) return { success: true, items: [] };
+  const batchId = newId('batch');
+  const approvalToken = newToken();
+  const createdAt = new Date().toISOString();
+  const items: MaterialRequest[] = lines.map((payload) => ({
     ...payload,
     id: newId('mr'),
+    batchId,
     status: 'PENDING',
-    approvalToken: newToken(),
-    createdAt: new Date().toISOString(),
-  };
+    approvalToken,
+    createdAt,
+  } as MaterialRequest));
 
   if (!apiBase()) {
-    await updateFirestoreDocArray('materialRequests', (arr) => [...arr, item]);
-    await notifyManagerOfMaterialRequest(item);
-    return { success: true, item };
+    await updateFirestoreDocArray('materialRequests', (arr) => [...arr, ...items]);
+    await notifyManagerOfMaterialRequestBatch(items);
+    return { success: true, items };
   }
 
+  // Express/API deployment: no batch endpoint exists there yet, so submit
+  // each line individually against the existing single-item route. Each line
+  // still keeps the same batchId/approvalToken so Store's grouping-by-batchId
+  // works the same either way — it's only the manager's email that would
+  // arrive as several messages instead of one under this fallback path.
   const headers = await getHeaders();
-  const res = await fetch(getApiUrl('/api/material-requests'), { method: 'POST', headers, body: JSON.stringify(item) });
-  return res.json();
+  const results: MaterialRequest[] = [];
+  for (const item of items) {
+    const res = await fetch(getApiUrl('/api/material-requests'), { method: 'POST', headers, body: JSON.stringify(item) });
+    const json = await res.json().catch(() => null);
+    results.push(json?.item || item);
+  }
+  return { success: true, items: results };
 }
 
-// In-app approve/reject (the manager's email link hits a separate serverless
-// function directly, not this one — this is for deciding from inside the app).
-export async function dbDecideMaterialRequest(id: string, action: 'approve' | 'reject', decidedByName: string, decisionNotes?: string) {
+// In-app approve/reject for a whole batch (the manager's email/WhatsApp link
+// hits a separate serverless function directly, not this one — this is for
+// deciding from inside the app). Pass every request id in the group —
+// for a legacy single-line request that's just an array of one.
+export async function dbDecideMaterialRequestBatch(
+  ids: string[], action: 'approve' | 'reject', decidedByName: string, decisionNotes?: string
+): Promise<{ success: boolean; items: MaterialRequest[] }> {
+  if (ids.length === 0) return { success: true, items: [] };
+
   if (!apiBase()) {
-    let decided: MaterialRequest | undefined;
+    const decidedItems: MaterialRequest[] = [];
     await updateFirestoreDocArray('materialRequests', (arr) =>
       arr.map((r) => {
-        if (r.id !== id) return r;
-        decided = { ...r, status: action === 'approve' ? 'APPROVED' : 'REJECTED', decidedByName, decisionNotes: decisionNotes || null, decidedAt: new Date().toISOString() };
+        if (!ids.includes(r.id) || r.status !== 'PENDING') return r;
+        const decided: MaterialRequest = {
+          ...r,
+          status: action === 'approve' ? 'APPROVED' : 'REJECTED',
+          decidedByName,
+          decisionNotes: decisionNotes || null,
+          decidedAt: new Date().toISOString(),
+        };
+        decidedItems.push(decided);
         return decided;
       })
     );
-    if (action === 'approve' && decided) {
-      const qty = Number(decided.qtyRequested);
-      // 1) Leaves the Store
+
+    if (action === 'approve' && decidedItems.length > 0) {
+      // 1) Leaves the Store — aggregate per material first, so a batch with
+      // two lines of the same material only touches currentStock once.
+      const stockDeltas: Record<string, number> = {};
+      for (const d of decidedItems) {
+        stockDeltas[d.materialId] = (stockDeltas[d.materialId] || 0) + Number(d.qtyRequested);
+      }
       await updateFirestoreDocArray('materials', (arr) =>
-        arr.map((m) => (m.id === decided!.materialId ? { ...m, currentStock: (m.currentStock || 0) - qty } : m))
+        arr.map((m) => (stockDeltas[m.id] ? { ...m, currentStock: (m.currentStock || 0) - stockDeltas[m.id] } : m))
       );
-      // 2) Arrives on the requesting section's Floor Stock
-      const sectionId = (decided.stageId as string) || 'unassigned';
-      await adjustFloorStock(sectionId, sectionId, decided.materialId, decided.materialName, decided.unit, qty);
+
+      // 2) Arrives on the requesting section's Floor Stock, one row per material.
+      for (const d of decidedItems) {
+        const sectionId = (d.stageId as string) || 'unassigned';
+        await adjustFloorStock(sectionId, sectionId, d.materialId, d.materialName, d.unit, Number(d.qtyRequested));
+      }
     }
-    return { success: true, item: decided };
+    return { success: true, items: decidedItems };
   }
+
+  // Express/API deployment: no batch decide endpoint exists there yet, so
+  // decide each id individually against the existing single-item route.
   const headers = await getHeaders();
-  const res = await fetch(getApiUrl(`/api/material-requests/${id}/decide`), { method: 'POST', headers, body: JSON.stringify({ action, decidedByName, decisionNotes }) });
-  return res.json();
+  const results: MaterialRequest[] = [];
+  for (const id of ids) {
+    const res = await fetch(getApiUrl(`/api/material-requests/${id}/decide`), { method: 'POST', headers, body: JSON.stringify({ action, decidedByName, decisionNotes }) });
+    const json = await res.json().catch(() => null);
+    if (json?.item) results.push(json.item);
+  }
+  return { success: true, items: results };
 }
 
-export async function dbMarkMaterialRequestPrinted(id: string) {
+// Marks every request in a group (batch, or a legacy single request) as
+// PRINTED once Store has printed its one issue slip.
+export async function dbMarkMaterialRequestBatchPrinted(ids: string[]): Promise<{ success: boolean; items: MaterialRequest[] }> {
+  if (ids.length === 0) return { success: true, items: [] };
+
   if (!apiBase()) {
-    let updated: MaterialRequest | undefined;
+    const updated: MaterialRequest[] = [];
     await updateFirestoreDocArray('materialRequests', (arr) =>
       arr.map((r) => {
-        if (r.id !== id) return r;
-        updated = { ...r, status: 'PRINTED', printedAt: new Date().toISOString() };
-        return updated;
+        if (!ids.includes(r.id)) return r;
+        const printed: MaterialRequest = { ...r, status: 'PRINTED', printedAt: new Date().toISOString() };
+        updated.push(printed);
+        return printed;
       })
     );
-    return { success: true, item: updated };
+    return { success: true, items: updated };
   }
+
   const headers = await getHeaders();
-  const res = await fetch(getApiUrl(`/api/material-requests/${id}/mark-printed`), { method: 'POST', headers });
-  return res.json();
+  const results: MaterialRequest[] = [];
+  for (const id of ids) {
+    const res = await fetch(getApiUrl(`/api/material-requests/${id}/mark-printed`), { method: 'POST', headers });
+    const json = await res.json().catch(() => null);
+    if (json?.item) results.push(json.item);
+  }
+  return { success: true, items: results };
 }
 
 export async function dbSaveEmployeePunch(punch: EmployeePunch) {
