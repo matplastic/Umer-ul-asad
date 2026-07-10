@@ -12,7 +12,6 @@ import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
 import { FactoryEntrance } from './components/FactoryEntrance';
 import { ManagementDashboard } from './components/ManagementDashboard';
-import { MonthlyKPIDashboard } from './components/MonthlyKPIDashboard';
 import { SectionDashboardTV } from './components/SectionDashboardTV';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
@@ -2930,16 +2929,6 @@ export default function App() {
           />
         )}
 
-        {/* Monthly KPI Dashboard — Management only */}
-        {currentRole === 'management' && (
-          <div className="mt-6">
-            <MonthlyKPIDashboard
-              pools={pools}
-              plannedPools={plannedPools}
-            />
-          </div>
-        )}
-
         {currentRole === 'section_dashboard' && (
           <SectionDashboardTV
             pools={pools}
@@ -2948,13 +2937,6 @@ export default function App() {
           />
         )}
 
-        {currentRole === 'trolley_prod' && (
-          <TrolleyProductionTracker
-            trolleys={trolleys}
-            onSaveTrolley={handleSaveTrolley}
-            onDeleteTrolley={handleDeleteTrolley}
-          />
-        )}
         {currentRole === 'trolley_prod' && (
           <TrolleyProductionTracker
             trolleys={trolleys}
