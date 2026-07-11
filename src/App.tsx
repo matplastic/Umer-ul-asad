@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from './types';
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
@@ -12,6 +12,7 @@ import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
 import { FactoryEntrance } from './components/FactoryEntrance';
 import { ManagementDashboard } from './components/ManagementDashboard';
+import { MonthlyKPIDashboard } from './components/MonthlyKPIDashboard';
 import { SectionDashboardTV } from './components/SectionDashboardTV';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
@@ -56,8 +57,7 @@ import {
   dbSaveTeam,
   dbSaveLog,
   dbSavePool,
-  subscribeToLiveState,
-  flushPendingCloudWrites
+  subscribeToLiveState
 } from './lib/firebaseService';
 
 // BUGFIX (v3 — data loss): previous build seeded 3 demo inspectors and 2 demo
@@ -79,12 +79,12 @@ const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [];
 const DEFAULT_EMPLOYEES: Employee[] = [];
 
 export default function App() {
-  const [pools, setPoolsRaw] = useState<Pool[]>([]);
-  const [teams, setTeamsRaw] = useState<Team[]>([]);
-  const [logs, setLogsRaw] = useState<ActivityLog[]>([]);
-  const [inspectors, setInspectorsRaw] = useState<{ id: string; name: string; title: string }[]>([]);
-  const [engineers, setEngineersRaw] = useState<{ id: string; name: string; title: string }[]>([]);
-  const [projectsSummary, setProjectsSummaryRaw] = useState<ProjectSummary[]>(() => {
+  const [pools, setPools] = useState<Pool[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [logs, setLogs] = useState<ActivityLog[]>([]);
+  const [inspectors, setInspectors] = useState<{ id: string; name: string; title: string }[]>([]);
+  const [engineers, setEngineers] = useState<{ id: string; name: string; title: string }[]>([]);
+  const [projectsSummary, setProjectsSummary] = useState<ProjectSummary[]>(() => {
     const raw = localStorage.getItem('apex_projects_summary');
     if (raw) {
       try {
@@ -93,7 +93,7 @@ export default function App() {
     }
     return DEFAULT_PROJECTS_SUMMARY;
   });
-  const [monthlyTargets, setMonthlyTargetsRaw] = useState<MonthlyTarget[]>(() => {
+  const [monthlyTargets, setMonthlyTargets] = useState<MonthlyTarget[]>(() => {
     const raw = localStorage.getItem('apex_monthly_targets');
     if (raw) {
       try {
@@ -102,7 +102,7 @@ export default function App() {
     }
     return DEFAULT_MONTHLY_TARGETS;
   });
-  const [plannedPools, setPlannedPoolsRaw] = useState<PlannedPool[]>(() => {
+  const [plannedPools, setPlannedPools] = useState<PlannedPool[]>(() => {
     const raw = localStorage.getItem('apex_planned_pools');
     if (raw) {
       try {
@@ -111,7 +111,7 @@ export default function App() {
     }
     return [];
   });
-  const [employees, setEmployeesRaw] = useState<Employee[]>(() => {
+  const [employees, setEmployees] = useState<Employee[]>(() => {
     const raw = localStorage.getItem('apex_employees');
     if (raw) {
       try {
@@ -120,63 +120,6 @@ export default function App() {
     }
     return DEFAULT_EMPLOYEES;
   });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // RACE-FIX (v9): stale-closure protection for rapid back-to-back actions.
-  //
-  // THE BUG: every handler below builds its update like:
-  //   const updatedPools = [...pools]; ...mutate...; setPools(updatedPools);
-  // `pools` here is a plain variable captured by THIS render's closure. If a
-  // second action (e.g. clearing pool 33 right after clearing pool 22) fires
-  // before React has finished re-rendering from the first action — very
-  // possible on a heavy screen (StageDashboard/ManagementDashboard are huge)
-  // or a slower factory PC — the second handler is still bound to the OLD
-  // closure, so its `pools` does NOT yet contain the first action's change.
-  // Its `setPools(...)` call then overwrites the first change entirely
-  // (last setState wins), which is exactly the "approve pool 22, approve
-  // pool 33, pool 22 reverts / needs re-clearing" symptom.
-  //
-  // THE FIX: keep a ref that is updated SYNCHRONOUSLY the instant any change
-  // happens (not waiting on a re-render), and wrap each setter so every
-  // existing `setPools(x)` call site keeps working unchanged while also
-  // updating the ref. Handlers then read `poolsRef.current` (via a one-line
-  // shadow at the top of each handler) instead of the render-closure `pools`,
-  // so the very next click — even mid-render — always sees the latest data.
-  // ─────────────────────────────────────────────────────────────────────────
-  const poolsRef = useRef<Pool[]>(pools);
-  const teamsRef = useRef<Team[]>(teams);
-  const logsRef = useRef<ActivityLog[]>(logs);
-  const inspectorsRef = useRef<{ id: string; name: string; title: string }[]>(inspectors);
-  const engineersRef = useRef<{ id: string; name: string; title: string }[]>(engineers);
-  const projectsSummaryRef = useRef<ProjectSummary[]>(projectsSummary);
-  const monthlyTargetsRef = useRef<MonthlyTarget[]>(monthlyTargets);
-  const plannedPoolsRef = useRef<PlannedPool[]>(plannedPools);
-  const employeesRef = useRef<Employee[]>(employees);
-
-  function makeRaceSafeSetter<T>(
-    ref: React.MutableRefObject<T[]>,
-    rawSetter: React.Dispatch<React.SetStateAction<T[]>>
-  ) {
-    return (updater: T[] | ((prev: T[]) => T[])) => {
-      // IMPORTANT: compute off ref.current (always the latest value) and
-      // write ref.current SYNCHRONOUSLY, right here — not inside React's
-      // setState updater callback, which only runs later during React's
-      // render phase and would reopen the exact race this is meant to close.
-      const next = typeof updater === 'function' ? (updater as (p: T[]) => T[])(ref.current) : updater;
-      ref.current = next;
-      rawSetter(next);
-    };
-  }
-
-  const setPools = makeRaceSafeSetter(poolsRef, setPoolsRaw);
-  const setTeams = makeRaceSafeSetter(teamsRef, setTeamsRaw);
-  const setLogs = makeRaceSafeSetter(logsRef, setLogsRaw);
-  const setInspectors = makeRaceSafeSetter(inspectorsRef, setInspectorsRaw);
-  const setEngineers = makeRaceSafeSetter(engineersRef, setEngineersRaw);
-  const setProjectsSummary = makeRaceSafeSetter(projectsSummaryRef, setProjectsSummaryRaw);
-  const setMonthlyTargets = makeRaceSafeSetter(monthlyTargetsRef, setMonthlyTargetsRaw);
-  const setPlannedPools = makeRaceSafeSetter(plannedPoolsRef, setPlannedPoolsRaw);
-  const setEmployees = makeRaceSafeSetter(employeesRef, setEmployeesRaw);
 
   const [trolleys, setTrolleys] = useState<TrolleyProduction[]>(() => {
     const raw = localStorage.getItem('apex_trolleys');
@@ -452,40 +395,6 @@ export default function App() {
   // everything entered from other devices since this copy was cached.
   const cloudHydratedRef = useRef(false);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // MERGE-SAFETY FIX (v8): "last known good from server" snapshots.
-  //
-  // WHY THIS EXISTS: several handlers in this file mutate a pool/team object
-  // IN PLACE (e.g. `pool.stageHistory[stageId] = ...`) rather than creating a
-  // new object. Because `[...pools]` only copies the ARRAY, not the objects
-  // inside it, that mutation also changes the object referenced by the
-  // OLD `pools` state variable — the same object, aliased. That made it
-  // impossible to reliably tell "what did this device actually just change"
-  // by comparing the old state to the new state (they're often the same
-  // object by the time we look). The v7 fix used the full local array as the
-  // "changes to apply" set, which silently reapplied every OTHER pool/team
-  // this device happened to have a stale copy of — causing the "approved
-  // pool reverts / duplicates / vanishes" regression.
-  //
-  // THE FIX: keep a separate, deep-cloned snapshot of each collection that is
-  // ONLY ever updated when data actually arrives FROM the server (initial
-  // load or a live onSnapshot update). Local mutations never touch these
-  // refs. Diffing the live state against this untouched snapshot correctly
-  // identifies exactly which items this device actually changed, so saves
-  // only ever push real changes — never a stale reapply of everything else.
-  // ─────────────────────────────────────────────────────────────────────────
-  const poolsBaselineRef = useRef<Pool[]>([]);
-  const teamsBaselineRef = useRef<Team[]>([]);
-  const logsBaselineRef = useRef<ActivityLog[]>([]);
-  const inspectorsBaselineRef = useRef<any[]>([]);
-  const engineersBaselineRef = useRef<any[]>([]);
-  const plannedPoolsBaselineRef = useRef<PlannedPool[]>([]);
-  const projectsSummaryBaselineRef = useRef<ProjectSummary[]>([]);
-  const monthlyTargetsBaselineRef = useRef<MonthlyTarget[]>([]);
-  const employeesBaselineRef = useRef<Employee[]>([]);
-
-  const deepClone = <T,>(arr: T[]): T[] => (arr.length ? JSON.parse(JSON.stringify(arr)) : []);
-
   // Load state from Firestore & register Auth listener on mount
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -573,19 +482,6 @@ export default function App() {
           localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary));
           localStorage.setItem('apex_monthly_targets', JSON.stringify(cloudData.monthlyTargets));
           localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees));
-
-          // Seed the "last known good from server" baselines used for
-          // merge-safe diffing (see the v8 fix note above cloudHydratedRef).
-          poolsBaselineRef.current = deepClone(cloudData.pools);
-          teamsBaselineRef.current = deepClone(cloudData.teams);
-          logsBaselineRef.current = deepClone(cloudData.logs);
-          inspectorsBaselineRef.current = deepClone(cloudData.inspectors);
-          engineersBaselineRef.current = deepClone(cloudData.engineers);
-          plannedPoolsBaselineRef.current = deepClone(cloudData.plannedPools);
-          projectsSummaryBaselineRef.current = deepClone(cloudData.projectsSummary);
-          monthlyTargetsBaselineRef.current = deepClone(cloudData.monthlyTargets);
-          employeesBaselineRef.current = deepClone(cloudData.employees);
-
           cloudHydratedRef.current = true;
           setFirebaseStatus('connected');
         } else {
@@ -735,17 +631,6 @@ export default function App() {
     loadCloudData();
 
     // ─────────────────────────────────────────────────────────────────────────
-    // LOW-NETWORK RESILIENCE: any changes made while offline/on a flaky
-    // connection are queued (see firebaseService.ts) instead of being lost or
-    // forced through as a stale overwrite. Flush that queue now (in case the
-    // app was reloaded after losing connection) and again the moment the
-    // browser reports the connection is back.
-    // ─────────────────────────────────────────────────────────────────────────
-    flushPendingCloudWrites().catch(() => {});
-    const handleOnline = () => { flushPendingCloudWrites().catch(() => {}); };
-    window.addEventListener('online', handleOnline);
-
-    // ─────────────────────────────────────────────────────────────────────────
     // 🔴 LIVE SYNC — Firestore onSnapshot (BUGFIX v5)
     // ─────────────────────────────────────────────────────────────────────────
     // Previously this used 3-minute setInterval polling that only updated
@@ -770,21 +655,6 @@ export default function App() {
       // Inside the updater, `prev` is always the CURRENT live React state —
       // no stale closure, no missed updates, no accidental empty overwrites.
       // ─────────────────────────────────────────────────────────────────────
-      const baselineRefFor = (name: string) => {
-        switch (name) {
-          case 'pools': return poolsBaselineRef;
-          case 'teams': return teamsBaselineRef;
-          case 'logs': return logsBaselineRef;
-          case 'inspectors': return inspectorsBaselineRef;
-          case 'engineers': return engineersBaselineRef;
-          case 'plannedPools': return plannedPoolsBaselineRef;
-          case 'projectsSummary': return projectsSummaryBaselineRef;
-          case 'monthlyTargets': return monthlyTargetsBaselineRef;
-          case 'employees': return employeesBaselineRef;
-          default: return null;
-        }
-      };
-
       const safeUpdate = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, incoming: T[]) => {
         setter(prev => {
           // Never replace real data with an empty array
@@ -792,10 +662,6 @@ export default function App() {
             console.warn(`[liveSync] Blocked empty snapshot for '${collection}' — keeping ${prev.length} existing records.`);
             return prev;
           }
-          // This data genuinely came from the server, so it's a trustworthy
-          // "last known good" baseline for future merge-diffing.
-          const ref = baselineRefFor(collection);
-          if (ref) ref.current = deepClone(incoming as any[]);
           return incoming;
         });
       };
@@ -814,7 +680,6 @@ export default function App() {
         case 'recycleBin':       safeUpdate(setRecycleBin, data as RecycleBinItem[]); break;
         case 'employeePunches':  safeUpdate(setEmployeePunches, data as EmployeePunch[]); break;
         case 'qcDefects':        safeUpdate(setQcDefects, data as QCDefect[]); break;
-        case 'undoRequests':     safeUpdate(setPendingUndoRequests as any, data); break;
       }
       // Keep localStorage hot-cache in sync so offline reload starts with fresh data
       const lsKey = 'apex_' + collection.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
@@ -831,7 +696,6 @@ export default function App() {
       if (typeof liveUnsub === 'function') {
         liveUnsub();
       }
-      window.removeEventListener('online', handleOnline);
     };
   }, []);
   const handleGoogleSignIn = async () => {
@@ -929,25 +793,23 @@ export default function App() {
     updatedPools: Pool[], 
     updatedTeams: Team[], 
     updatedLogs: ActivityLog[],
-    updatedInspectors = inspectorsRef.current,
-    updatedEngineers = engineersRef.current,
-    updatedPlannedPools = plannedPoolsRef.current,
-    updatedProjectsSummary = projectsSummaryRef.current,
-    updatedMonthlyTargets = monthlyTargetsRef.current,
-    updatedEmployees = employeesRef.current
+    updatedInspectors = inspectors,
+    updatedEngineers = engineers,
+    updatedPlannedPools = plannedPools,
+    updatedProjectsSummary = projectsSummary,
+    updatedMonthlyTargets = monthlyTargets,
+    updatedEmployees = employees
   ) => {
-    // Safety: never wipe existing data with empty arrays from stale closures.
-    // RACE-FIX (v9): fall back to the live refs (always current), not the
-    // render-closure state variables, which may be a beat behind.
-    const safePools = updatedPools.length > 0 ? updatedPools : (poolsRef.current.length > 0 ? poolsRef.current : updatedPools);
-    const safePlanned = updatedPlannedPools.length > 0 ? updatedPlannedPools : (plannedPoolsRef.current.length > 0 ? plannedPoolsRef.current : updatedPlannedPools);
-    const safeEmployees = updatedEmployees.length > 0 ? updatedEmployees : (employeesRef.current.length > 0 ? employeesRef.current : updatedEmployees);
-    const safeLogs = updatedLogs.length > 0 ? updatedLogs : (logsRef.current.length > 0 ? logsRef.current : updatedLogs);
-    const safeInspectors = updatedInspectors.length > 0 ? updatedInspectors : (inspectorsRef.current.length > 0 ? inspectorsRef.current : updatedInspectors);
-    const safeEngineers = updatedEngineers.length > 0 ? updatedEngineers : (engineersRef.current.length > 0 ? engineersRef.current : updatedEngineers);
-    const safeProjects = updatedProjectsSummary.length > 0 ? updatedProjectsSummary : (projectsSummaryRef.current.length > 0 ? projectsSummaryRef.current : updatedProjectsSummary);
-    const safeTargets = updatedMonthlyTargets.length > 0 ? updatedMonthlyTargets : (monthlyTargetsRef.current.length > 0 ? monthlyTargetsRef.current : updatedMonthlyTargets);
-    const safeTeams = updatedTeams.length > 0 ? updatedTeams : (teamsRef.current.length > 0 ? teamsRef.current : updatedTeams);
+    // Safety: never wipe existing data with empty arrays from stale closures
+    const safePools = updatedPools.length > 0 ? updatedPools : (pools.length > 0 ? pools : updatedPools);
+    const safePlanned = updatedPlannedPools.length > 0 ? updatedPlannedPools : (plannedPools.length > 0 ? plannedPools : updatedPlannedPools);
+    const safeEmployees = updatedEmployees.length > 0 ? updatedEmployees : (employees.length > 0 ? employees : updatedEmployees);
+    const safeLogs = updatedLogs.length > 0 ? updatedLogs : (logs.length > 0 ? logs : updatedLogs);
+    const safeInspectors = updatedInspectors.length > 0 ? updatedInspectors : (inspectors.length > 0 ? inspectors : updatedInspectors);
+    const safeEngineers = updatedEngineers.length > 0 ? updatedEngineers : (engineers.length > 0 ? engineers : updatedEngineers);
+    const safeProjects = updatedProjectsSummary.length > 0 ? updatedProjectsSummary : (projectsSummary.length > 0 ? projectsSummary : updatedProjectsSummary);
+    const safeTargets = updatedMonthlyTargets.length > 0 ? updatedMonthlyTargets : (monthlyTargets.length > 0 ? monthlyTargets : updatedMonthlyTargets);
+    const safeTeams = updatedTeams.length > 0 ? updatedTeams : (teams.length > 0 ? teams : updatedTeams);
 
     localStorage.setItem('apex_pools', JSON.stringify(safePools));
     localStorage.setItem('apex_teams', JSON.stringify(safeTeams));
@@ -960,74 +822,27 @@ export default function App() {
     localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
 
     // ─────────────────────────────────────────────────────────────────────────
-    // DATA-LOSS FIX (v8): write ONLY the items that actually changed, diffed
-    // against the last KNOWN-GOOD SERVER snapshot (poolsBaselineRef etc.),
-    // NOT against the live React state and NOT as a full-array replace.
+    // DATA-LOSS FIX (v6): write ONLY the collections that actually changed.
     //
-    // Why not the live state (`pools`, `teams`, ...)? Several handlers mutate
-    // a pool/team object in place, so by the time we get here the "before"
-    // and "after" can literally be the same object — comparing them can't
-    // tell us what changed. The baseline refs are deep-cloned snapshots that
-    // are ONLY updated when data actually arrives from the server, so they
-    // stay a true, untouched "before" no matter what local mutations happen.
+    // Previous behaviour wrote ALL 9 collections to Firestore on EVERY action.
+    // A tab that had been open for hours (TV dashboard, idle PC) held stale
+    // copies of the 8 collections it wasn't touching — one click on that tab
+    // rewrote the entire database with old data → "all data deleted".
     //
-    // Why not a full-array replace? Because a device can be several actions
-    // ahead of its last server sync — pushing its ENTIRE current array would
-    // re-apply items it hasn't touched (possibly stale) on top of newer
-    // versions other devices already wrote. Diffing to a per-item changeset
-    // means we only ever touch the specific pool/team/etc. this action
-    // actually modified.
+    // We detect changed collections by reference: handlers always create a NEW
+    // array for what they modified and pass the existing state reference for
+    // everything else. Unchanged references are skipped entirely.
     // ─────────────────────────────────────────────────────────────────────────
-    const diffCollection = (baseline: any[], local: any[]) => {
-      const baselineMap = new Map(baseline.map(item => [item.id, item]));
-      const localIds = new Set(local.map(item => item.id));
-      const upserts: any[] = [];
-      for (const item of local) {
-        const before = baselineMap.get(item.id);
-        // New item, or content differs from the last known server version -> real change
-        if (!before || JSON.stringify(before) !== JSON.stringify(item)) {
-          upserts.push(item);
-        }
-      }
-      const deletedIds: string[] = [];
-      for (const item of baseline) {
-        if (!localIds.has(item.id)) deletedIds.push(item.id);
-      }
-      return { upserts, deletedIds };
-    };
-
-    const changed: Record<string, { upserts: any[]; deletedIds: string[] }> = {};
-    const addIfChanged = (name: string, refArr: any[] | null, safe: any[]) => {
-      const baseline = refArr ?? [];
-      const { upserts, deletedIds } = diffCollection(baseline, safe);
-      if (upserts.length > 0 || deletedIds.length > 0) {
-        changed[name] = { upserts, deletedIds };
-      }
-    };
-    // RACE-FIX (v9.1): the old `if (updatedX !== xRef.current)` shortcut here
-    // was meant purely as a skip-if-unchanged optimization, but every caller
-    // does `setPools(updatedPools); saveState(updatedPools, ...)` — and since
-    // setPools now updates poolsRef.current SYNCHRONOUSLY (that's the whole
-    // point of the v9 fix), poolsRef.current already equals updatedPools by
-    // the time this line runs. The comparison was therefore always false,
-    // addIfChanged never ran, and NOTHING reached Firestore — changes stayed
-    // local to that one device and never synced to any other PC.
-    //
-    // diffCollection() is already safe to call unconditionally: it only
-    // produces upserts/deletedIds when content actually differs from the
-    // last known-good SERVER baseline, and addIfChanged only adds to
-    // `changed` when that diff is non-empty. So there's no need for (and no
-    // safe way to do) a reference-equality pre-check here — just always run
-    // the diff.
-    addIfChanged('pools', poolsBaselineRef.current, safePools);
-    addIfChanged('teams', teamsBaselineRef.current, safeTeams);
-    addIfChanged('logs', logsBaselineRef.current, safeLogs);
-    addIfChanged('inspectors', inspectorsBaselineRef.current, safeInspectors);
-    addIfChanged('engineers', engineersBaselineRef.current, safeEngineers);
-    addIfChanged('plannedPools', plannedPoolsBaselineRef.current, safePlanned);
-    addIfChanged('projectsSummary', projectsSummaryBaselineRef.current, safeProjects);
-    addIfChanged('monthlyTargets', monthlyTargetsBaselineRef.current, safeTargets);
-    addIfChanged('employees', employeesBaselineRef.current, safeEmployees);
+    const changed: Record<string, any[]> = {};
+    if (updatedPools !== pools) changed.pools = safePools;
+    if (updatedTeams !== teams) changed.teams = safeTeams;
+    if (updatedLogs !== logs) changed.logs = safeLogs;
+    if (updatedInspectors !== inspectors) changed.inspectors = safeInspectors;
+    if (updatedEngineers !== engineers) changed.engineers = safeEngineers;
+    if (updatedPlannedPools !== plannedPools) changed.plannedPools = safePlanned;
+    if (updatedProjectsSummary !== projectsSummary) changed.projectsSummary = safeProjects;
+    if (updatedMonthlyTargets !== monthlyTargets) changed.monthlyTargets = safeTargets;
+    if (updatedEmployees !== employees) changed.employees = safeEmployees;
 
     if (Object.keys(changed).length === 0) return;
 
@@ -1039,25 +854,14 @@ export default function App() {
     }
 
     saveChangedCollectionsToFirestore(changed)
-      .then((result) => {
-        if (result.success) {
-          setFirebaseStatus('connected');
-          setFirebaseError(null);
-        } else {
-          // Some collections couldn't reach the cloud (e.g. low/no network).
-          // Nothing is lost — the change is safe in local state/localStorage
-          // and has been queued to auto-retry as soon as the connection
-          // recovers (see flushPendingCloudWrites).
-          setFirebaseStatus('error');
-          setFirebaseError(
-            `Saved on this device. Still syncing to cloud: ${result.failedCollections?.join(', ')} (will retry automatically when the connection improves).`
-          );
-        }
+      .then(() => {
+        setFirebaseStatus('connected');
+        setFirebaseError(null);
       })
       .catch((err: any) => {
         console.error('Cloud save error:', err);
         setFirebaseStatus('error');
-        setFirebaseError('Saved on this device. Waiting for a stable connection to sync to the cloud — it will retry automatically.');
+        setFirebaseError(err?.message || String(err));
       });
   };
 
@@ -1071,14 +875,14 @@ export default function App() {
       updated = [employee, ...employees];
     }
     setEmployees(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, engineersRef.current, plannedPoolsRef.current, projectsSummaryRef.current, monthlyTargetsRef.current, updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, updated);
     dbSaveEmployee(employee).catch(console.error);
   };
 
   const handleDeleteEmployee = (id: string) => {
     const updated = employees.filter(e => e.id !== id);
     setEmployees(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, engineersRef.current, plannedPoolsRef.current, projectsSummaryRef.current, monthlyTargetsRef.current, updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, updated);
     dbDeleteEmployee(id).catch(console.error);
   };
 
@@ -1130,7 +934,7 @@ export default function App() {
       }
     });
     setEmployees(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, engineersRef.current, plannedPoolsRef.current, projectsSummaryRef.current, monthlyTargetsRef.current, updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, updated);
     dbSaveEmployeesBulk(newStaffList).catch(console.error);
   };
 
@@ -1216,17 +1020,17 @@ export default function App() {
 
   const handleUpdateTeams = (updatedTeams: Team[]) => {
     setTeams(updatedTeams);
-    saveState(poolsRef.current, updatedTeams, logsRef.current, inspectorsRef.current, engineersRef.current);
+    saveState(pools, updatedTeams, logs, inspectors, engineers);
   };
 
   const handleUpdateInspectors = (updatedInspectors: { id: string; name: string; title: string }[]) => {
     setInspectors(updatedInspectors);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, updatedInspectors, engineersRef.current);
+    saveState(pools, teams, logs, updatedInspectors, engineers);
   };
 
   const handleUpdateEngineers = (updatedEngineers: { id: string; name: string; title: string }[]) => {
     setEngineers(updatedEngineers);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, updatedEngineers);
+    saveState(pools, teams, logs, inspectors, updatedEngineers);
   };
 
   const handleRenameProject = (oldName: string, newName: string) => {
@@ -1237,7 +1041,7 @@ export default function App() {
     
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teamsRef.current, updatedLogs, inspectorsRef.current, engineersRef.current);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers);
   };
 
   const handleDirectOverridePool = (
@@ -1412,14 +1216,14 @@ export default function App() {
 
     saveState(
       updatedPools,
-      teamsRef.current,
+      teams,
       updatedLogs,
-      inspectorsRef.current,
-      engineersRef.current,
-      plannedPoolsRef.current,
+      inspectors,
+      engineers,
+      plannedPools,
       updatedProjects,
-      monthlyTargetsRef.current,
-      employeesRef.current
+      monthlyTargets,
+      employees
     );
   };
 
@@ -1657,14 +1461,14 @@ export default function App() {
 
     saveState(
       updatedPools,
-      teamsRef.current,
+      teams,
       updatedLogs,
-      inspectorsRef.current,
-      engineersRef.current,
+      inspectors,
+      engineers,
       updatedPlannedPools,
       updatedProjects,
-      monthlyTargetsRef.current,
-      employeesRef.current
+      monthlyTargets,
+      employees
     );
 
     return true;
@@ -1680,7 +1484,7 @@ export default function App() {
       updated = [summary, ...projectsSummary];
     }
     setProjectsSummary(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, engineersRef.current, plannedPoolsRef.current, updated, monthlyTargetsRef.current);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, updated, monthlyTargets);
     dbSaveProjectSummary(summary).catch(console.error);
   };
 
@@ -1697,7 +1501,7 @@ export default function App() {
     }
     const updated = projectsSummary.filter(p => p.id !== id);
     setProjectsSummary(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, engineersRef.current, plannedPoolsRef.current, updated, monthlyTargetsRef.current);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, updated, monthlyTargets);
     await dbDeleteProjectSummary(id).catch(console.error);
 
     // Refresh recycle bin state
@@ -1717,7 +1521,7 @@ export default function App() {
       updated = [target, ...monthlyTargets];
     }
     setMonthlyTargets(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, engineersRef.current, plannedPoolsRef.current, projectsSummaryRef.current, updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, updated);
     dbSaveMonthlyTarget(target).catch(console.error);
   };
 
@@ -1729,7 +1533,7 @@ export default function App() {
     }
     const updated = monthlyTargets.filter(t => t.id !== id);
     setMonthlyTargets(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, engineersRef.current, plannedPoolsRef.current, projectsSummaryRef.current, updated);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, updated);
     await dbDeleteMonthlyTarget(id).catch(console.error);
   };
 
@@ -1744,7 +1548,7 @@ export default function App() {
       updated = [...inspectors, insp];
     }
     setInspectors(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, updated, engineersRef.current, plannedPoolsRef.current, projectsSummaryRef.current, monthlyTargetsRef.current);
+    saveState(pools, teams, logs, updated, engineers, plannedPools, projectsSummary, monthlyTargets);
     dbSaveInspector(insp).catch(console.error);
   };
 
@@ -1754,7 +1558,7 @@ export default function App() {
     if (!window.confirm(`Delete inspector "${insp.name}" permanently?`)) return;
     const updated = inspectors.filter(i => i.id !== id);
     setInspectors(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, updated, engineersRef.current, plannedPoolsRef.current, projectsSummaryRef.current, monthlyTargetsRef.current);
+    saveState(pools, teams, logs, updated, engineers, plannedPools, projectsSummary, monthlyTargets);
     await dbDeleteInspector(id).catch(console.error);
   };
 
@@ -1768,7 +1572,7 @@ export default function App() {
       updated = [...engineers, eng];
     }
     setEngineers(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, updated, plannedPoolsRef.current, projectsSummaryRef.current, monthlyTargetsRef.current);
+    saveState(pools, teams, logs, inspectors, updated, plannedPools, projectsSummary, monthlyTargets);
     dbSaveEngineer(eng).catch(console.error);
   };
 
@@ -1778,7 +1582,7 @@ export default function App() {
     if (!window.confirm(`Delete engineer "${eng.name}" permanently?`)) return;
     const updated = engineers.filter(e => e.id !== id);
     setEngineers(updated);
-    saveState(poolsRef.current, teamsRef.current, logsRef.current, inspectorsRef.current, updated, plannedPoolsRef.current, projectsSummaryRef.current, monthlyTargetsRef.current);
+    saveState(pools, teams, logs, inspectors, updated, plannedPools, projectsSummary, monthlyTargets);
     await dbDeleteEngineer(id).catch(console.error);
   };
 
@@ -1820,15 +1624,15 @@ export default function App() {
     if (recovered.monthlyTargets) setMonthlyTargets(recovered.monthlyTargets);
 
     saveState(
-      recovered.pools || poolsRef.current,
-      recovered.teams || teamsRef.current,
-      recovered.logs || logsRef.current,
-      recovered.inspectors || inspectorsRef.current,
-      recovered.engineers || engineersRef.current,
-      recovered.plannedPools || plannedPoolsRef.current,
-      recovered.projectsSummary || projectsSummaryRef.current,
-      recovered.monthlyTargets || monthlyTargetsRef.current,
-      recovered.employees || employeesRef.current
+      recovered.pools || pools,
+      recovered.teams || teams,
+      recovered.logs || logs,
+      recovered.inspectors || inspectors,
+      recovered.engineers || engineers,
+      recovered.plannedPools || plannedPools,
+      recovered.projectsSummary || projectsSummary,
+      recovered.monthlyTargets || monthlyTargets,
+      recovered.employees || employees
     );
 
     if (missing.length > 0) {
@@ -1880,7 +1684,7 @@ export default function App() {
     setPools(updatedPools);
     setTeams(updatedTeams);
     setLogs(updatedLogs);
-    saveState(updatedPools, updatedTeams, updatedLogs, inspectorsRef.current, engineersRef.current);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers);
     await dbDeletePool(poolId).catch(console.error);
 
     // Refresh recycle bin state
@@ -2064,7 +1868,7 @@ export default function App() {
 
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teamsRef.current, updatedLogs, inspectorsRef.current, engineersRef.current);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers);
   };
 
   const handleCreatePoolBatch = (
@@ -2120,7 +1924,7 @@ export default function App() {
 
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teamsRef.current, updatedLogs);
+    saveState(updatedPools, teams, updatedLogs);
   };
 
   // ==========================================
@@ -2308,15 +2112,15 @@ export default function App() {
 
     // Save full state to Firestore — this triggers snapshot on all devices
     saveState(
-      poolsRef.current,
-      teamsRef.current,
+      pools,
+      teams,
       updatedLogs,
-      inspectorsRef.current,
-      engineersRef.current,
+      inspectors,
+      engineers,
       updated,
-      projectsSummaryRef.current,
-      monthlyTargetsRef.current,
-      employeesRef.current
+      projectsSummary,
+      monthlyTargets,
+      employees
     );
 
     alert(`Success! Imported ${newPlans.length} pools from Excel successfully.${dupsCount > 0 ? ` Filtered out ${dupsCount} duplicate codes.` : ''}`);
@@ -2420,7 +2224,7 @@ export default function App() {
     setPools(updatedPools);
     setPlannedPools(updatedPlans);
     setLogs(updatedLogs);
-    saveState(updatedPools, teamsRef.current, updatedLogs, inspectorsRef.current, engineersRef.current, updatedPlans, projectsSummaryRef.current, monthlyTargetsRef.current, employeesRef.current);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, updatedPlans, projectsSummary, monthlyTargets, employees);
     // Also targeted-save the planned pool status update
     dbSavePlannedPool(updatedPlans[designIndex]).catch(console.error);
     return livePoolId;
@@ -2428,11 +2232,6 @@ export default function App() {
 
   // 2. Claim Pool (Stage worker claims available pool card)
   const handleClaimPool = (poolId: string, teamId: string, stageId: StageId) => {
-    // RACE-FIX (v9): read from the always-fresh refs, not this render's
-    // closure, so a rapid follow-up action never overwrites this one.
-    const pools = poolsRef.current;
-    const teams = teamsRef.current;
-    const logs = logsRef.current;
     // Find the pool
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
@@ -2479,9 +2278,6 @@ export default function App() {
 
   // 3. Start Stage Timer
   const handleStartStage = (poolId: string, stageId: StageId, customDateTime?: string) => {
-    const pools = poolsRef.current;
-    const teams = teamsRef.current;
-    const logs = logsRef.current;
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -2510,14 +2306,11 @@ export default function App() {
     const updatedLogs = [...logs, newLog];
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teamsRef.current, updatedLogs);
+    saveState(updatedPools, teams, updatedLogs);
   };
 
   // 4. Complete / Finish Stage (Promotes to QA validation)
   const handleFinishStage = (poolId: string, stageId: StageId, customDateTime?: string) => {
-    const pools = poolsRef.current;
-    const teams = teamsRef.current;
-    const logs = logsRef.current;
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -2557,17 +2350,11 @@ export default function App() {
     const updatedLogs = [...logs, newLog];
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teamsRef.current, updatedLogs);
+    saveState(updatedPools, teams, updatedLogs);
   };
 
   // 5. Approve Stage (By Quality Inspector)
   const handleApproveStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string) => {
-    const pools = poolsRef.current;
-    const teams = teamsRef.current;
-    const logs = logsRef.current;
-    const plannedPools = plannedPoolsRef.current;
-    const inspectors = inspectorsRef.current;
-    const engineers = engineersRef.current;
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -2660,14 +2447,11 @@ export default function App() {
     setPools(updatedPools);
     setTeams(updatedTeams);
     setLogs(updatedLogs);
-    saveState(updatedPools, updatedTeams, updatedLogs, inspectorsRef.current, engineersRef.current, updatedPlans);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans);
   };
 
   // 6. Reject Stage (Sends pool back for rework)
   const handleRejectStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string) => {
-    const pools = poolsRef.current;
-    const teams = teamsRef.current;
-    const logs = logsRef.current;
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -2724,7 +2508,6 @@ export default function App() {
 
   // ── Request Undo Claim (from Shop Floor worker) ───────────────────────────────
   const handleRequestUndoClaim = (poolId: string, stageId: StageId, teamName: string, reason: string) => {
-    const pools = poolsRef.current;
     const pool = pools.find(p => p.id === poolId);
     if (!pool) return;
     const stage = STAGES.find(s => s.id === stageId);
@@ -2742,23 +2525,11 @@ export default function App() {
     const updated = [newRequest, ...pendingUndoRequests];
     setPendingUndoRequests(updated);
     localStorage.setItem('pending_undo_requests', JSON.stringify(updated));
-    // BUGFIX: this used to be localStorage-only, so an undo request made on
-    // PC-1 never showed up on PC-2/PC-3 (the QA portal on another device had
-    // no way to know about it). Now pushed to Firestore like every other
-    // collection so it shows up live everywhere.
-    saveChangedCollectionsToFirestore({ undoRequests: { upserts: [newRequest], deletedIds: [] } })
-      .catch(err => console.error('Failed to sync undo request to cloud:', err));
     alert(`✅ Request sent to QA! They will review and unclaim pool ${pool.poolNo} so you can re-pick it.`);
   };
 
   // ── QA Approves Undo (unclaims the pool stage so correct team can pick) ──────
   const handleApproveUndo = (requestId: string, poolId: string, stageId: StageId, inspectorName: string) => {
-    const pools = poolsRef.current;
-    const teams = teamsRef.current;
-    const logs = logsRef.current;
-    const inspectors = inspectorsRef.current;
-    const engineers = engineersRef.current;
-    const plannedPools = plannedPoolsRef.current;
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -2798,14 +2569,12 @@ export default function App() {
     setPools(updatedPools);
     setTeams(updatedTeams);
     setLogs(updatedLogs);
-    saveState(updatedPools, updatedTeams, updatedLogs, inspectorsRef.current, engineersRef.current, plannedPoolsRef.current);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, plannedPools);
 
     // Remove from pending requests
     const updatedRequests = pendingUndoRequests.filter(r => r.id !== requestId);
     setPendingUndoRequests(updatedRequests);
     localStorage.setItem('pending_undo_requests', JSON.stringify(updatedRequests));
-    saveChangedCollectionsToFirestore({ undoRequests: { upserts: [], deletedIds: [requestId] } })
-      .catch(err => console.error('Failed to sync undo approval to cloud:', err));
   };
 
   // ── QA Rejects Undo ───────────────────────────────────────────────────────────
@@ -2813,17 +2582,9 @@ export default function App() {
     const updatedRequests = pendingUndoRequests.filter(r => r.id !== requestId);
     setPendingUndoRequests(updatedRequests);
     localStorage.setItem('pending_undo_requests', JSON.stringify(updatedRequests));
-    saveChangedCollectionsToFirestore({ undoRequests: { upserts: [], deletedIds: [requestId] } })
-      .catch(err => console.error('Failed to sync undo rejection to cloud:', err));
   };
 
   const handleSkipOrCarryOnSite = (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => {
-    const pools = poolsRef.current;
-    const teams = teamsRef.current;
-    const logs = logsRef.current;
-    const plannedPools = plannedPoolsRef.current;
-    const inspectors = inspectorsRef.current;
-    const engineers = engineersRef.current;
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -2883,7 +2644,7 @@ export default function App() {
     setPools(updatedPools);
     setTeams(updatedTeams);
     setLogs(updatedLogs);
-    saveState(updatedPools, updatedTeams, updatedLogs, inspectorsRef.current, engineersRef.current, updatedPlans);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans);
   };
 
   const handleStageChange = (stageId: StageId) => {
@@ -3169,6 +2930,16 @@ export default function App() {
           />
         )}
 
+        {/* Monthly KPI Dashboard — Management only */}
+        {currentRole === 'management' && (
+          <div className="mt-6">
+            <MonthlyKPIDashboard
+              pools={pools}
+              plannedPools={plannedPools}
+            />
+          </div>
+        )}
+
         {currentRole === 'section_dashboard' && (
           <SectionDashboardTV
             pools={pools}
@@ -3177,6 +2948,13 @@ export default function App() {
           />
         )}
 
+        {currentRole === 'trolley_prod' && (
+          <TrolleyProductionTracker
+            trolleys={trolleys}
+            onSaveTrolley={handleSaveTrolley}
+            onDeleteTrolley={handleDeleteTrolley}
+          />
+        )}
         {currentRole === 'trolley_prod' && (
           <TrolleyProductionTracker
             trolleys={trolleys}
