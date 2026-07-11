@@ -30,7 +30,6 @@ export function subscribeToLiveState(
     'hrPayroll',
     'hrAccidents',
     'hrMedicals',
-    'undoRequests',
   ];
   const unsubs: Unsubscribe[] = collections.map(name =>
     onSnapshot(
@@ -436,112 +435,18 @@ function makeSentinel() {
 //   • FAILS when the device is offline instead of silently queueing a stale
 //     full-document overwrite that would flush hours later on reconnect
 // ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// DATA-LOSS FIX (v8): merge an explicit per-item DIFF into the freshest server
-// array, instead of a full-array replace.
-//
-// v7 merged by id but still used the device's ENTIRE local array as "the
-// changes to apply" — which meant every pool/team this device had a stale
-// copy of (not just the one it actually touched) got reapplied on top of
-// `current`, undoing other devices' newer writes. That caused pools to
-// revert to an earlier stage, flicker, or appear duplicated in the Quality
-// portal.
-//
-// The fix: callers now diff against a true last-known-server baseline (see
-// App.tsx) and send only `upserts` (items that actually changed/are new) and
-// `deletedIds` (items intentionally removed). Only those specific ids are
-// ever touched here — everything else in `current` (including additions
-// from other devices this one doesn't know about yet) is left completely
-// alone.
-// ─────────────────────────────────────────────────────────────────────────────
-function applyDiff(current: any[], upserts: any[], deletedIds: string[]): any[] {
-  const byId = new Map(current.map(item => [item.id, item]));
-  for (const id of deletedIds) byId.delete(id);
-  for (const item of upserts) byId.set(item.id, item);
-  return Array.from(byId.values());
-}
-
-export interface ChangedCollection {
-  upserts: any[];
-  deletedIds: string[];
-}
-
-const PENDING_QUEUE_KEY = 'apex_pending_cloud_writes';
-
-function readPendingQueue(): Record<string, ChangedCollection> {
-  try {
-    const raw = localStorage.getItem(PENDING_QUEUE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
-}
-
-function writePendingQueue(queue: Record<string, ChangedCollection>) {
-  try { localStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(queue)); } catch {}
-}
-
-function queuePendingWrite(name: string, change: ChangedCollection) {
-  const queue = readPendingQueue();
-  const existing = queue[name];
-  if (existing) {
-    // Merge multiple queued offline changes for the same collection: later
-    // upserts for the same id win, deletions accumulate.
-    const upsertMap = new Map(existing.upserts.map((i: any) => [i.id, i]));
-    for (const item of change.upserts) upsertMap.set(item.id, item);
-    const deletedIds = Array.from(new Set([...existing.deletedIds, ...change.deletedIds]));
-    queue[name] = { upserts: Array.from(upsertMap.values()), deletedIds };
-  } else {
-    queue[name] = change;
-  }
-  writePendingQueue(queue);
-}
-
-function clearPendingWrite(name: string) {
-  const queue = readPendingQueue();
-  delete queue[name];
-  writePendingQueue(queue);
-}
-
-async function writeOneCollection(name: string, change: ChangedCollection, attempt = 0): Promise<void> {
-  try {
-    await updateFirestoreDocArray(name, (current) => {
-      let merged = applyDiff(current, change.upserts, change.deletedIds);
-      if (name === 'logs') merged = merged.slice(-200);
-      if (name === 'projectsSummary' && !merged.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
-        merged = [...merged, makeSentinel()];
-      }
-      return merged;
-    });
-    clearPendingWrite(name);
-  } catch (err: any) {
-    const isNetworkish = err?.code === 'unavailable' || err?.code === 'deadline-exceeded' || err?.code === 'cancelled' || !navigator.onLine;
-    if (isNetworkish && attempt < 3) {
-      const delay = 500 * Math.pow(2, attempt);
-      await new Promise(res => setTimeout(res, delay));
-      return writeOneCollection(name, change, attempt + 1);
-    }
-    queuePendingWrite(name, change);
-    throw err;
-  }
-}
-
-export async function saveChangedCollectionsToFirestore(changed: Record<string, ChangedCollection>) {
+export async function saveChangedCollectionsToFirestore(changed: Record<string, any[]>) {
   const entries = Object.entries(changed);
   if (entries.length === 0) return { success: true };
-  const results = await Promise.allSettled(entries.map(([name, change]) => writeOneCollection(name, change)));
-  const failed = results
-    .map((r, i) => ({ r, name: entries[i][0] }))
-    .filter(x => x.r.status === 'rejected');
-  if (failed.length > 0) {
-    return { success: false, failedCollections: failed.map(f => f.name) };
-  }
+  await Promise.all(entries.map(([name, arr]) => {
+    let data = arr;
+    if (name === 'logs') data = arr.slice(-200);
+    if (name === 'projectsSummary' && !arr.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
+      data = [...arr, makeSentinel()];
+    }
+    return updateFirestoreDocArray(name, () => data);
+  }));
   return { success: true };
-}
-
-export async function flushPendingCloudWrites(): Promise<void> {
-  const queue = readPendingQueue();
-  const names = Object.keys(queue);
-  if (names.length === 0) return;
-  await Promise.allSettled(names.map(name => writeOneCollection(name, queue[name])));
 }
 
 // Intentional full wipe — ONLY used by the Management "Purge All Data" button
@@ -1087,47 +992,26 @@ function newToken(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 }
 
-// Fire-and-forget call to the Netlify Functions that email + WhatsApp the
-// manager. Safe to call even when email/WhatsApp aren't configured yet —
-// they just no-op server-side. Takes the WHOLE batch (every material line
-// the supervisor added to their cart) so the manager gets ONE message with
-// ONE Approve/ONE Reject action, not one message per material.
-async function notifyManagerOfMaterialRequestBatch(items: MaterialRequest[]) {
-  if (items.length === 0) return;
-  const first = items[0];
-  const payload = {
-    batchId: first.batchId,
-    approvalToken: first.approvalToken,
-    projectName: first.projectName,
-    poolType: first.poolType,
-    poolNo: first.poolNo,
-    reason: first.reason,
-    requestedByName: first.requestedByName,
-    requestedByRole: first.requestedByRole,
-    items: items.map((it) => ({
-      materialId: it.materialId,
-      materialName: it.materialName,
-      unit: it.unit,
-      qtyRequested: it.qtyRequested,
-    })),
-  };
+// Fire-and-forget call to the Netlify Function that emails the manager.
+// Safe to call even when email isn't configured yet — it just no-ops server-side.
+async function notifyManagerOfMaterialRequest(item: MaterialRequest) {
   try {
     await fetch('/.netlify/functions/send-material-request-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(item),
     });
   } catch (err) {
-    console.warn('[notifyManagerOfMaterialRequestBatch] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
+    console.warn('[notifyManagerOfMaterialRequest] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
   }
   try {
     await fetch('/.netlify/functions/send-material-request-whatsapp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(item),
     });
   } catch (err) {
-    console.warn('[notifyManagerOfMaterialRequestBatch] Could not reach the WhatsApp function (this is fine in local dev without `netlify dev`):', err);
+    console.warn('[notifyManagerOfMaterialRequest] Could not reach the WhatsApp function (this is fine in local dev without `netlify dev`):', err);
   }
 }
 
@@ -1253,132 +1137,72 @@ export async function dbFetchMaterialRequests(): Promise<MaterialRequest[]> {
   return res.ok ? res.json() : [];
 }
 
-// Section Supervisor submits their whole cart (1 to however-many material
-// lines) in one go. Every line shares one batchId + one approvalToken, so
-// the manager's email/WhatsApp has ONE Approve/Reject action for the whole
-// batch, and Store prints ONE issue slip for it — instead of one
-// email/slip per material line.
-export async function dbSubmitMaterialRequestBatch(
-  lines: Array<Omit<MaterialRequest, 'id' | 'status' | 'approvalToken' | 'createdAt' | 'batchId'>>
-): Promise<{ success: boolean; items: MaterialRequest[] }> {
-  if (lines.length === 0) return { success: true, items: [] };
-  const batchId = newId('batch');
-  const approvalToken = newToken();
-  const createdAt = new Date().toISOString();
-  const items: MaterialRequest[] = lines.map((payload) => ({
+// Section Supervisor submits a request. Saves it, then fires the manager email
+// (via a Netlify Function when static-hosted, or the Express route otherwise).
+export async function dbSubmitMaterialRequest(payload: Omit<MaterialRequest, 'id' | 'status' | 'approvalToken' | 'createdAt'>) {
+  const item: MaterialRequest = {
     ...payload,
     id: newId('mr'),
-    batchId,
     status: 'PENDING',
-    approvalToken,
-    createdAt,
-  } as MaterialRequest));
+    approvalToken: newToken(),
+    createdAt: new Date().toISOString(),
+  };
 
   if (!apiBase()) {
-    await updateFirestoreDocArray('materialRequests', (arr) => [...arr, ...items]);
-    await notifyManagerOfMaterialRequestBatch(items);
-    return { success: true, items };
+    await updateFirestoreDocArray('materialRequests', (arr) => [...arr, item]);
+    await notifyManagerOfMaterialRequest(item);
+    return { success: true, item };
   }
 
-  // Express/API deployment: no batch endpoint exists there yet, so submit
-  // each line individually against the existing single-item route. Each line
-  // still keeps the same batchId/approvalToken so Store's grouping-by-batchId
-  // works the same either way — it's only the manager's email that would
-  // arrive as several messages instead of one under this fallback path.
   const headers = await getHeaders();
-  const results: MaterialRequest[] = [];
-  for (const item of items) {
-    const res = await fetch(getApiUrl('/api/material-requests'), { method: 'POST', headers, body: JSON.stringify(item) });
-    const json = await res.json().catch(() => null);
-    results.push(json?.item || item);
-  }
-  return { success: true, items: results };
+  const res = await fetch(getApiUrl('/api/material-requests'), { method: 'POST', headers, body: JSON.stringify(item) });
+  return res.json();
 }
 
-// In-app approve/reject for a whole batch (the manager's email/WhatsApp link
-// hits a separate serverless function directly, not this one — this is for
-// deciding from inside the app). Pass every request id in the group —
-// for a legacy single-line request that's just an array of one.
-export async function dbDecideMaterialRequestBatch(
-  ids: string[], action: 'approve' | 'reject', decidedByName: string, decisionNotes?: string
-): Promise<{ success: boolean; items: MaterialRequest[] }> {
-  if (ids.length === 0) return { success: true, items: [] };
-
+// In-app approve/reject (the manager's email link hits a separate serverless
+// function directly, not this one — this is for deciding from inside the app).
+export async function dbDecideMaterialRequest(id: string, action: 'approve' | 'reject', decidedByName: string, decisionNotes?: string) {
   if (!apiBase()) {
-    const decidedItems: MaterialRequest[] = [];
+    let decided: MaterialRequest | undefined;
     await updateFirestoreDocArray('materialRequests', (arr) =>
       arr.map((r) => {
-        if (!ids.includes(r.id) || r.status !== 'PENDING') return r;
-        const decided: MaterialRequest = {
-          ...r,
-          status: action === 'approve' ? 'APPROVED' : 'REJECTED',
-          decidedByName,
-          decisionNotes: decisionNotes || null,
-          decidedAt: new Date().toISOString(),
-        };
-        decidedItems.push(decided);
+        if (r.id !== id) return r;
+        decided = { ...r, status: action === 'approve' ? 'APPROVED' : 'REJECTED', decidedByName, decisionNotes: decisionNotes || null, decidedAt: new Date().toISOString() };
         return decided;
       })
     );
-
-    if (action === 'approve' && decidedItems.length > 0) {
-      // 1) Leaves the Store — aggregate per material first, so a batch with
-      // two lines of the same material only touches currentStock once.
-      const stockDeltas: Record<string, number> = {};
-      for (const d of decidedItems) {
-        stockDeltas[d.materialId] = (stockDeltas[d.materialId] || 0) + Number(d.qtyRequested);
-      }
+    if (action === 'approve' && decided) {
+      const qty = Number(decided.qtyRequested);
+      // 1) Leaves the Store
       await updateFirestoreDocArray('materials', (arr) =>
-        arr.map((m) => (stockDeltas[m.id] ? { ...m, currentStock: (m.currentStock || 0) - stockDeltas[m.id] } : m))
+        arr.map((m) => (m.id === decided!.materialId ? { ...m, currentStock: (m.currentStock || 0) - qty } : m))
       );
-
-      // 2) Arrives on the requesting section's Floor Stock, one row per material.
-      for (const d of decidedItems) {
-        const sectionId = (d.stageId as string) || 'unassigned';
-        await adjustFloorStock(sectionId, sectionId, d.materialId, d.materialName, d.unit, Number(d.qtyRequested));
-      }
+      // 2) Arrives on the requesting section's Floor Stock
+      const sectionId = (decided.stageId as string) || 'unassigned';
+      await adjustFloorStock(sectionId, sectionId, decided.materialId, decided.materialName, decided.unit, qty);
     }
-    return { success: true, items: decidedItems };
+    return { success: true, item: decided };
   }
-
-  // Express/API deployment: no batch decide endpoint exists there yet, so
-  // decide each id individually against the existing single-item route.
   const headers = await getHeaders();
-  const results: MaterialRequest[] = [];
-  for (const id of ids) {
-    const res = await fetch(getApiUrl(`/api/material-requests/${id}/decide`), { method: 'POST', headers, body: JSON.stringify({ action, decidedByName, decisionNotes }) });
-    const json = await res.json().catch(() => null);
-    if (json?.item) results.push(json.item);
-  }
-  return { success: true, items: results };
+  const res = await fetch(getApiUrl(`/api/material-requests/${id}/decide`), { method: 'POST', headers, body: JSON.stringify({ action, decidedByName, decisionNotes }) });
+  return res.json();
 }
 
-// Marks every request in a group (batch, or a legacy single request) as
-// PRINTED once Store has printed its one issue slip.
-export async function dbMarkMaterialRequestBatchPrinted(ids: string[]): Promise<{ success: boolean; items: MaterialRequest[] }> {
-  if (ids.length === 0) return { success: true, items: [] };
-
+export async function dbMarkMaterialRequestPrinted(id: string) {
   if (!apiBase()) {
-    const updated: MaterialRequest[] = [];
+    let updated: MaterialRequest | undefined;
     await updateFirestoreDocArray('materialRequests', (arr) =>
       arr.map((r) => {
-        if (!ids.includes(r.id)) return r;
-        const printed: MaterialRequest = { ...r, status: 'PRINTED', printedAt: new Date().toISOString() };
-        updated.push(printed);
-        return printed;
+        if (r.id !== id) return r;
+        updated = { ...r, status: 'PRINTED', printedAt: new Date().toISOString() };
+        return updated;
       })
     );
-    return { success: true, items: updated };
+    return { success: true, item: updated };
   }
-
   const headers = await getHeaders();
-  const results: MaterialRequest[] = [];
-  for (const id of ids) {
-    const res = await fetch(getApiUrl(`/api/material-requests/${id}/mark-printed`), { method: 'POST', headers });
-    const json = await res.json().catch(() => null);
-    if (json?.item) results.push(json.item);
-  }
-  return { success: true, items: results };
+  const res = await fetch(getApiUrl(`/api/material-requests/${id}/mark-printed`), { method: 'POST', headers });
+  return res.json();
 }
 
 export async function dbSaveEmployeePunch(punch: EmployeePunch) {
