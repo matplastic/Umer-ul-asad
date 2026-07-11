@@ -2315,8 +2315,15 @@ export default function App() {
     if (!team || team.status === 'BUSY') return;
 
     // Update pool: assign stage team details
+    // MUTATION FIX: `pool` must be a fresh object (including a fresh
+    // `stageHistory`), never the same reference as the pre-update pools[]
+    // entry. Mutating it in place used to silently poison the diff check in
+    // saveState — since old and new pointed at the identical mutated nested
+    // object, the diff engine saw "no change" and never sent this pool to
+    // Firestore at all, with no error shown anywhere.
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
     stageHist.teamId = teamId;
     pool.stageHistory[stageId] = stageHist;
@@ -2356,7 +2363,8 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
     stageHist.status = 'IN_PROGRESS';
     stageHist.startTime = customDateTime || new Date().toISOString();
@@ -2389,7 +2397,8 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
     
     stageHist.status = 'PENDING_INSPECTION';
@@ -2433,7 +2442,8 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Set approved status
@@ -2530,7 +2540,8 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Set rejected status & increment loop
@@ -2608,7 +2619,7 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex] };
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Reset the stage so any team can claim it again
@@ -2663,7 +2674,8 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Record skipped / custom carry status
