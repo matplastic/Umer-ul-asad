@@ -12,6 +12,7 @@ import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
 import { FactoryEntrance } from './components/FactoryEntrance';
 import { ManagementDashboard } from './components/ManagementDashboard';
+import { MonthlyKPIDashboard } from './components/MonthlyKPIDashboard';
 import { SectionDashboardTV } from './components/SectionDashboardTV';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
@@ -788,6 +789,30 @@ export default function App() {
     // NOTE: intentionally NOT calling saveState() here — see comment above.
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // DATA-LOSS FIX (v7): compute a per-record diff between what this device
+  // had before (`oldArr`) and what it has now (`newArr`), instead of ever
+  // sending a full array snapshot to Firestore. `saveChangedCollectionsToFirestore`
+  // merges only these touched records onto the LIVE server state, so a
+  // device with a stale local copy of unrelated records can no longer
+  // overwrite what another PC just wrote to Firestore.
+  // ─────────────────────────────────────────────────────────────────────────
+  const diffArrayById = (oldArr: any[], newArr: any[]): { upserts: any[]; deletes: string[] } => {
+    const newIds = new Set(newArr.map(item => item.id));
+    const upserts: any[] = [];
+    for (const item of newArr) {
+      const prev = oldArr.find(o => o.id === item.id);
+      if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+        upserts.push(item);
+      }
+    }
+    const deletes: string[] = [];
+    for (const item of oldArr) {
+      if (!newIds.has(item.id)) deletes.push(item.id);
+    }
+    return { upserts, deletes };
+  };
+
   const saveState = (
     updatedPools: Pool[], 
     updatedTeams: Team[], 
@@ -821,27 +846,63 @@ export default function App() {
     localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
 
     // ─────────────────────────────────────────────────────────────────────────
-    // DATA-LOSS FIX (v6): write ONLY the collections that actually changed.
+    // DATA-LOSS FIX (v7): write ONLY the records that actually changed, as a
+    // diff — never a full collection snapshot.
     //
-    // Previous behaviour wrote ALL 9 collections to Firestore on EVERY action.
-    // A tab that had been open for hours (TV dashboard, idle PC) held stale
-    // copies of the 8 collections it wasn't touching — one click on that tab
-    // rewrote the entire database with old data → "all data deleted".
+    // v6 wrote only the CHANGED COLLECTIONS, which stopped an idle tab from
+    // overwriting collections it never touched — but within a changed
+    // collection it still sent this device's entire local array. If two
+    // people edited two different pools within the same collection at
+    // nearly the same time, whichever save landed second would blind-
+    // overwrite the whole `pools` array and silently discard the other
+    // person's change (or their own change reappeared moments later when
+    // the other device's stale save finally landed) — exactly the
+    // "completed task comes back" bug.
     //
-    // We detect changed collections by reference: handlers always create a NEW
-    // array for what they modified and pass the existing state reference for
-    // everything else. Unchanged references are skipped entirely.
+    // v7 diffs old vs. new per record (by `id`) and sends only the touched
+    // record(s). saveChangedCollectionsToFirestore merges that diff onto
+    // whatever Firestore's LATEST state is, inside a transaction — so
+    // untouched records, no matter how stale this device's local copy of
+    // them is, are never re-sent and can never clobber another device's
+    // concurrent edit.
     // ─────────────────────────────────────────────────────────────────────────
-    const changed: Record<string, any[]> = {};
-    if (updatedPools !== pools) changed.pools = safePools;
-    if (updatedTeams !== teams) changed.teams = safeTeams;
-    if (updatedLogs !== logs) changed.logs = safeLogs;
-    if (updatedInspectors !== inspectors) changed.inspectors = safeInspectors;
-    if (updatedEngineers !== engineers) changed.engineers = safeEngineers;
-    if (updatedPlannedPools !== plannedPools) changed.plannedPools = safePlanned;
-    if (updatedProjectsSummary !== projectsSummary) changed.projectsSummary = safeProjects;
-    if (updatedMonthlyTargets !== monthlyTargets) changed.monthlyTargets = safeTargets;
-    if (updatedEmployees !== employees) changed.employees = safeEmployees;
+    const changed: Record<string, { upserts: any[]; deletes: string[] }> = {};
+    if (updatedPools !== pools) {
+      const d = diffArrayById(pools, safePools);
+      if (d.upserts.length || d.deletes.length) changed.pools = d;
+    }
+    if (updatedTeams !== teams) {
+      const d = diffArrayById(teams, safeTeams);
+      if (d.upserts.length || d.deletes.length) changed.teams = d;
+    }
+    if (updatedLogs !== logs) {
+      const d = diffArrayById(logs, safeLogs);
+      if (d.upserts.length || d.deletes.length) changed.logs = d;
+    }
+    if (updatedInspectors !== inspectors) {
+      const d = diffArrayById(inspectors, safeInspectors);
+      if (d.upserts.length || d.deletes.length) changed.inspectors = d;
+    }
+    if (updatedEngineers !== engineers) {
+      const d = diffArrayById(engineers, safeEngineers);
+      if (d.upserts.length || d.deletes.length) changed.engineers = d;
+    }
+    if (updatedPlannedPools !== plannedPools) {
+      const d = diffArrayById(plannedPools, safePlanned);
+      if (d.upserts.length || d.deletes.length) changed.plannedPools = d;
+    }
+    if (updatedProjectsSummary !== projectsSummary) {
+      const d = diffArrayById(projectsSummary, safeProjects);
+      if (d.upserts.length || d.deletes.length) changed.projectsSummary = d;
+    }
+    if (updatedMonthlyTargets !== monthlyTargets) {
+      const d = diffArrayById(monthlyTargets, safeTargets);
+      if (d.upserts.length || d.deletes.length) changed.monthlyTargets = d;
+    }
+    if (updatedEmployees !== employees) {
+      const d = diffArrayById(employees, safeEmployees);
+      if (d.upserts.length || d.deletes.length) changed.employees = d;
+    }
 
     if (Object.keys(changed).length === 0) return;
 
@@ -1830,7 +1891,6 @@ export default function App() {
     orientation: PoolOrientation;
     dimensions: string;
     shape: string;
-    poolType?: string;
     notes: string;
     operatorName: string;
     createdAt?: string;
@@ -1842,7 +1902,6 @@ export default function App() {
       orientation: spec.orientation,
       dimensions: spec.dimensions,
       shape: spec.shape,
-      poolType: spec.poolType || undefined,
       notes: spec.notes,
       createdAt: spec.createdAt || new Date().toISOString(),
       completedAt: null,
@@ -1859,7 +1918,7 @@ export default function App() {
       stageId: 'steel_fabrication',
       type: 'CREATED',
       operatorName: spec.operatorName || 'Engineer',
-      notes: `Pool created & released. Specs: Orientation - ${spec.orientation}, Dims - ${spec.dimensions}, Shape - ${spec.shape}${spec.poolType ? `, Type - ${spec.poolType}` : ''}.`
+      notes: `Pool created & released. Specs: Orientation - ${spec.orientation}, Dims - ${spec.dimensions}, Shape - ${spec.shape}.`
     };
 
     const updatedPools = [...pools, newPool];
@@ -1878,7 +1937,6 @@ export default function App() {
     orientation: PoolOrientation,
     dimensions: string,
     shape: string,
-    poolType: string,
     notes: string,
     operatorName: string
   ) => {
@@ -1896,7 +1954,6 @@ export default function App() {
         orientation,
         dimensions,
         shape,
-        poolType: poolType || undefined,
         notes: notes ? `${notes} (Batch #${i + 1})` : `Batch #${i + 1}`,
         createdAt: timestamp,
         completedAt: null,
@@ -1915,7 +1972,7 @@ export default function App() {
       stageId: 'steel_fabrication',
       type: 'CREATED',
       operatorName: operatorName || 'Engineer',
-      notes: `Batch spawner released ${count} serialized hulls [${prefix}${startRange} to ${prefix}${startRange + count - 1}] for Project "${projectName}"${poolType ? ` (Type: ${poolType})` : ''} into fabrication queue.`
+      notes: `Batch spawner released ${count} serialized hulls [${prefix}${startRange} to ${prefix}${startRange + count - 1}] for Project "${projectName}" into fabrication queue.`
     };
 
     const updatedPools = [...pools, ...newPools];
@@ -2663,7 +2720,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-250 antialiased">
+    <div className="min-h-screen bg-[#F6F8F9] flex flex-col font-sans selection:bg-[#0E7C86]/20 antialiased">
 
       {/* Always-visible top bar: hamburger opens the portal drawer, logo + name centered */}
       <TopBar onMenuClick={() => setNavOpen(true)} />
@@ -2929,6 +2986,16 @@ export default function App() {
           />
         )}
 
+        {/* Monthly KPI Dashboard — Management only */}
+        {currentRole === 'management' && (
+          <div className="mt-6">
+            <MonthlyKPIDashboard
+              pools={pools}
+              plannedPools={plannedPools}
+            />
+          </div>
+        )}
+
         {currentRole === 'section_dashboard' && (
           <SectionDashboardTV
             pools={pools}
@@ -2937,6 +3004,13 @@ export default function App() {
           />
         )}
 
+        {currentRole === 'trolley_prod' && (
+          <TrolleyProductionTracker
+            trolleys={trolleys}
+            onSaveTrolley={handleSaveTrolley}
+            onDeleteTrolley={handleDeleteTrolley}
+          />
+        )}
         {currentRole === 'trolley_prod' && (
           <TrolleyProductionTracker
             trolleys={trolleys}
