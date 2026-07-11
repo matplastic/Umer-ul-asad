@@ -2,8 +2,17 @@
 // Runs server-side, so the Resend API key never reaches the browser.
 //
 // Sends ONE email per batch (the supervisor's whole cart — 1 to many
-// material lines), with a line-items table and ONE Approve/ONE Reject
-// action for the whole batch — instead of one email per material.
+// material lines), with a line-items table.
+//
+// PER-ITEM APPROVE/REJECT: the email no longer forces an all-or-nothing
+// choice on the whole batch. "Review & Decide Items" opens a page (see
+// netlify/functions/material-request-decide.js) that lists every material
+// line with its own Approve/Reject choice, so e.g. out of 32 items the
+// manager can approve 28 and reject 4 in one submit. "Quick Approve All" /
+// "Quick Reject All" are shortcuts to the same page with every line
+// pre-selected the same way — nothing is written to Firestore until the
+// manager reviews and clicks Submit on that page, so these are still safe
+// against email-scanner link prefetching.
 //
 // Env vars needed (set in Netlify → Site settings → Environment variables):
 //   RESEND_API_KEY, STORE_EMAIL_FROM, STORE_MANAGER_EMAIL, APP_BASE_URL (optional)
@@ -34,8 +43,9 @@ exports.handler = async (event) => {
     const idOrBatchQuery = payload.batchId
       ? `batchId=${encodeURIComponent(payload.batchId)}`
       : `id=${encodeURIComponent(payload.id || '')}`;
-    const approveUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}&action=approve`;
-    const rejectUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}&action=reject`;
+    const reviewUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}`;
+    const quickApproveUrl = `${reviewUrl}&action=approve`;
+    const quickRejectUrl = `${reviewUrl}&action=reject`;
     const from = process.env.STORE_EMAIL_FROM || 'MAT Plastic Store <onboarding@resend.dev>';
 
     const rows = items.map((it) => `
@@ -73,10 +83,14 @@ exports.handler = async (event) => {
             <tbody>${rows}</tbody>
           </table>
           <div>
-            <a href="${approveUrl}" style="background:#16a34a; color:#fff; text-decoration:none; padding:12px 22px; border-radius:8px; font-weight:700; font-size:14px; display:inline-block; margin-right:10px;">✓ Approve ${items.length > 1 ? 'All' : ''}</a>
-            <a href="${rejectUrl}" style="background:#dc2626; color:#fff; text-decoration:none; padding:12px 22px; border-radius:8px; font-weight:700; font-size:14px; display:inline-block;">✗ Reject ${items.length > 1 ? 'All' : ''}</a>
+            <a href="${reviewUrl}" style="background:#0f172a; color:#fff; text-decoration:none; padding:12px 22px; border-radius:8px; font-weight:700; font-size:14px; display:inline-block; margin-right:10px; margin-bottom:8px;">📋 Review &amp; Decide${items.length > 1 ? ' Items' : ''}</a>
           </div>
-          <p style="color:#94a3b8; font-size:12px; margin-top:20px;">Tapping Approve/Reject opens a confirmation page — nothing happens until you tap the button on that page. ${payload.batchId ? `Batch: ${payload.batchId}` : `Request ID: ${payload.id}`}</p>
+          ${items.length > 1 ? `
+          <div style="margin-top:4px;">
+            <a href="${quickApproveUrl}" style="color:#16a34a; text-decoration:none; font-weight:700; font-size:13px; margin-right:18px;">✓ Quick Approve All</a>
+            <a href="${quickRejectUrl}" style="color:#dc2626; text-decoration:none; font-weight:700; font-size:13px;">✗ Quick Reject All</a>
+          </div>` : ''}
+          <p style="color:#94a3b8; font-size:12px; margin-top:20px;">Opens a page where each item${items.length > 1 ? ' can be approved or rejected individually' : ' can be approved or rejected'} — nothing happens until you submit on that page. ${payload.batchId ? `Batch: ${payload.batchId}` : `Request ID: ${payload.id}`}</p>
         </div>
       </div>`;
 
