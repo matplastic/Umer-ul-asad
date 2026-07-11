@@ -395,6 +395,40 @@ export default function App() {
   // everything entered from other devices since this copy was cached.
   const cloudHydratedRef = useRef(false);
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // MERGE-SAFETY FIX (v8): "last known good from server" snapshots.
+  //
+  // WHY THIS EXISTS: several handlers in this file mutate a pool/team object
+  // IN PLACE (e.g. `pool.stageHistory[stageId] = ...`) rather than creating a
+  // new object. Because `[...pools]` only copies the ARRAY, not the objects
+  // inside it, that mutation also changes the object referenced by the
+  // OLD `pools` state variable — the same object, aliased. That made it
+  // impossible to reliably tell "what did this device actually just change"
+  // by comparing the old state to the new state (they're often the same
+  // object by the time we look). The v7 fix used the full local array as the
+  // "changes to apply" set, which silently reapplied every OTHER pool/team
+  // this device happened to have a stale copy of — causing the "approved
+  // pool reverts / duplicates / vanishes" regression.
+  //
+  // THE FIX: keep a separate, deep-cloned snapshot of each collection that is
+  // ONLY ever updated when data actually arrives FROM the server (initial
+  // load or a live onSnapshot update). Local mutations never touch these
+  // refs. Diffing the live state against this untouched snapshot correctly
+  // identifies exactly which items this device actually changed, so saves
+  // only ever push real changes — never a stale reapply of everything else.
+  // ─────────────────────────────────────────────────────────────────────────
+  const poolsBaselineRef = useRef<Pool[]>([]);
+  const teamsBaselineRef = useRef<Team[]>([]);
+  const logsBaselineRef = useRef<ActivityLog[]>([]);
+  const inspectorsBaselineRef = useRef<any[]>([]);
+  const engineersBaselineRef = useRef<any[]>([]);
+  const plannedPoolsBaselineRef = useRef<PlannedPool[]>([]);
+  const projectsSummaryBaselineRef = useRef<ProjectSummary[]>([]);
+  const monthlyTargetsBaselineRef = useRef<MonthlyTarget[]>([]);
+  const employeesBaselineRef = useRef<Employee[]>([]);
+
+  const deepClone = <T,>(arr: T[]): T[] => (arr.length ? JSON.parse(JSON.stringify(arr)) : []);
+
   // Load state from Firestore & register Auth listener on mount
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -482,6 +516,19 @@ export default function App() {
           localStorage.setItem('apex_projects_summary', JSON.stringify(cloudData.projectsSummary));
           localStorage.setItem('apex_monthly_targets', JSON.stringify(cloudData.monthlyTargets));
           localStorage.setItem('apex_employees', JSON.stringify(cloudData.employees));
+
+          // Seed the "last known good from server" baselines used for
+          // merge-safe diffing (see the v8 fix note above cloudHydratedRef).
+          poolsBaselineRef.current = deepClone(cloudData.pools);
+          teamsBaselineRef.current = deepClone(cloudData.teams);
+          logsBaselineRef.current = deepClone(cloudData.logs);
+          inspectorsBaselineRef.current = deepClone(cloudData.inspectors);
+          engineersBaselineRef.current = deepClone(cloudData.engineers);
+          plannedPoolsBaselineRef.current = deepClone(cloudData.plannedPools);
+          projectsSummaryBaselineRef.current = deepClone(cloudData.projectsSummary);
+          monthlyTargetsBaselineRef.current = deepClone(cloudData.monthlyTargets);
+          employeesBaselineRef.current = deepClone(cloudData.employees);
+
           cloudHydratedRef.current = true;
           setFirebaseStatus('connected');
         } else {
@@ -666,6 +713,21 @@ export default function App() {
       // Inside the updater, `prev` is always the CURRENT live React state —
       // no stale closure, no missed updates, no accidental empty overwrites.
       // ─────────────────────────────────────────────────────────────────────
+      const baselineRefFor = (name: string) => {
+        switch (name) {
+          case 'pools': return poolsBaselineRef;
+          case 'teams': return teamsBaselineRef;
+          case 'logs': return logsBaselineRef;
+          case 'inspectors': return inspectorsBaselineRef;
+          case 'engineers': return engineersBaselineRef;
+          case 'plannedPools': return plannedPoolsBaselineRef;
+          case 'projectsSummary': return projectsSummaryBaselineRef;
+          case 'monthlyTargets': return monthlyTargetsBaselineRef;
+          case 'employees': return employeesBaselineRef;
+          default: return null;
+        }
+      };
+
       const safeUpdate = <T,>(setter: React.Dispatch<React.SetStateAction<T[]>>, incoming: T[]) => {
         setter(prev => {
           // Never replace real data with an empty array
@@ -673,6 +735,10 @@ export default function App() {
             console.warn(`[liveSync] Blocked empty snapshot for '${collection}' — keeping ${prev.length} existing records.`);
             return prev;
           }
+          // This data genuinely came from the server, so it's a trustworthy
+          // "last known good" baseline for future merge-diffing.
+          const ref = baselineRefFor(collection);
+          if (ref) ref.current = deepClone(incoming as any[]);
           return incoming;
         });
       };
@@ -691,6 +757,7 @@ export default function App() {
         case 'recycleBin':       safeUpdate(setRecycleBin, data as RecycleBinItem[]); break;
         case 'employeePunches':  safeUpdate(setEmployeePunches, data as EmployeePunch[]); break;
         case 'qcDefects':        safeUpdate(setQcDefects, data as QCDefect[]); break;
+        case 'undoRequests':     safeUpdate(setPendingUndoRequests as any, data); break;
       }
       // Keep localStorage hot-cache in sync so offline reload starts with fresh data
       const lsKey = 'apex_' + collection.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
@@ -834,34 +901,59 @@ export default function App() {
     localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
 
     // ─────────────────────────────────────────────────────────────────────────
-    // DATA-LOSS FIX (v6): write ONLY the collections that actually changed.
+    // DATA-LOSS FIX (v8): write ONLY the items that actually changed, diffed
+    // against the last KNOWN-GOOD SERVER snapshot (poolsBaselineRef etc.),
+    // NOT against the live React state and NOT as a full-array replace.
     //
-    // Previous behaviour wrote ALL 9 collections to Firestore on EVERY action.
-    // A tab that had been open for hours (TV dashboard, idle PC) held stale
-    // copies of the 8 collections it wasn't touching — one click on that tab
-    // rewrote the entire database with old data → "all data deleted".
+    // Why not the live state (`pools`, `teams`, ...)? Several handlers mutate
+    // a pool/team object in place, so by the time we get here the "before"
+    // and "after" can literally be the same object — comparing them can't
+    // tell us what changed. The baseline refs are deep-cloned snapshots that
+    // are ONLY updated when data actually arrives from the server, so they
+    // stay a true, untouched "before" no matter what local mutations happen.
     //
-    // We detect changed collections by reference: handlers always create a NEW
-    // array for what they modified and pass the existing state reference for
-    // everything else. Unchanged references are skipped entirely.
+    // Why not a full-array replace? Because a device can be several actions
+    // ahead of its last server sync — pushing its ENTIRE current array would
+    // re-apply items it hasn't touched (possibly stale) on top of newer
+    // versions other devices already wrote. Diffing to a per-item changeset
+    // means we only ever touch the specific pool/team/etc. this action
+    // actually modified.
     // ─────────────────────────────────────────────────────────────────────────
-    // NOTE: we pass BOTH the baseline (what this device had loaded before
-    // this change) and the local (final) array for each changed collection.
-    // saveChangedCollectionsToFirestore merges by id against the freshest
-    // server data instead of blindly overwriting the whole collection with
-    // this device's local array — see the v7 fix in firebaseService.ts for
-    // why that matters (this is what was causing whole collections, like
-    // teams, to get wiped on a slow/lagging connection).
-    const changed: Record<string, { baseline: any[]; local: any[] }> = {};
-    if (updatedPools !== pools) changed.pools = { baseline: pools, local: safePools };
-    if (updatedTeams !== teams) changed.teams = { baseline: teams, local: safeTeams };
-    if (updatedLogs !== logs) changed.logs = { baseline: logs, local: safeLogs };
-    if (updatedInspectors !== inspectors) changed.inspectors = { baseline: inspectors, local: safeInspectors };
-    if (updatedEngineers !== engineers) changed.engineers = { baseline: engineers, local: safeEngineers };
-    if (updatedPlannedPools !== plannedPools) changed.plannedPools = { baseline: plannedPools, local: safePlanned };
-    if (updatedProjectsSummary !== projectsSummary) changed.projectsSummary = { baseline: projectsSummary, local: safeProjects };
-    if (updatedMonthlyTargets !== monthlyTargets) changed.monthlyTargets = { baseline: monthlyTargets, local: safeTargets };
-    if (updatedEmployees !== employees) changed.employees = { baseline: employees, local: safeEmployees };
+    const diffCollection = (baseline: any[], local: any[]) => {
+      const baselineMap = new Map(baseline.map(item => [item.id, item]));
+      const localIds = new Set(local.map(item => item.id));
+      const upserts: any[] = [];
+      for (const item of local) {
+        const before = baselineMap.get(item.id);
+        // New item, or content differs from the last known server version -> real change
+        if (!before || JSON.stringify(before) !== JSON.stringify(item)) {
+          upserts.push(item);
+        }
+      }
+      const deletedIds: string[] = [];
+      for (const item of baseline) {
+        if (!localIds.has(item.id)) deletedIds.push(item.id);
+      }
+      return { upserts, deletedIds };
+    };
+
+    const changed: Record<string, { upserts: any[]; deletedIds: string[] }> = {};
+    const addIfChanged = (name: string, refArr: any[] | null, safe: any[]) => {
+      const baseline = refArr ?? [];
+      const { upserts, deletedIds } = diffCollection(baseline, safe);
+      if (upserts.length > 0 || deletedIds.length > 0) {
+        changed[name] = { upserts, deletedIds };
+      }
+    };
+    if (updatedPools !== pools) addIfChanged('pools', poolsBaselineRef.current, safePools);
+    if (updatedTeams !== teams) addIfChanged('teams', teamsBaselineRef.current, safeTeams);
+    if (updatedLogs !== logs) addIfChanged('logs', logsBaselineRef.current, safeLogs);
+    if (updatedInspectors !== inspectors) addIfChanged('inspectors', inspectorsBaselineRef.current, safeInspectors);
+    if (updatedEngineers !== engineers) addIfChanged('engineers', engineersBaselineRef.current, safeEngineers);
+    if (updatedPlannedPools !== plannedPools) addIfChanged('plannedPools', plannedPoolsBaselineRef.current, safePlanned);
+    if (updatedProjectsSummary !== projectsSummary) addIfChanged('projectsSummary', projectsSummaryBaselineRef.current, safeProjects);
+    if (updatedMonthlyTargets !== monthlyTargets) addIfChanged('monthlyTargets', monthlyTargetsBaselineRef.current, safeTargets);
+    if (updatedEmployees !== employees) addIfChanged('employees', employeesBaselineRef.current, safeEmployees);
 
     if (Object.keys(changed).length === 0) return;
 
@@ -2555,6 +2647,12 @@ export default function App() {
     const updated = [newRequest, ...pendingUndoRequests];
     setPendingUndoRequests(updated);
     localStorage.setItem('pending_undo_requests', JSON.stringify(updated));
+    // BUGFIX: this used to be localStorage-only, so an undo request made on
+    // PC-1 never showed up on PC-2/PC-3 (the QA portal on another device had
+    // no way to know about it). Now pushed to Firestore like every other
+    // collection so it shows up live everywhere.
+    saveChangedCollectionsToFirestore({ undoRequests: { upserts: [newRequest], deletedIds: [] } })
+      .catch(err => console.error('Failed to sync undo request to cloud:', err));
     alert(`✅ Request sent to QA! They will review and unclaim pool ${pool.poolNo} so you can re-pick it.`);
   };
 
@@ -2605,6 +2703,8 @@ export default function App() {
     const updatedRequests = pendingUndoRequests.filter(r => r.id !== requestId);
     setPendingUndoRequests(updatedRequests);
     localStorage.setItem('pending_undo_requests', JSON.stringify(updatedRequests));
+    saveChangedCollectionsToFirestore({ undoRequests: { upserts: [], deletedIds: [requestId] } })
+      .catch(err => console.error('Failed to sync undo approval to cloud:', err));
   };
 
   // ── QA Rejects Undo ───────────────────────────────────────────────────────────
@@ -2612,6 +2712,8 @@ export default function App() {
     const updatedRequests = pendingUndoRequests.filter(r => r.id !== requestId);
     setPendingUndoRequests(updatedRequests);
     localStorage.setItem('pending_undo_requests', JSON.stringify(updatedRequests));
+    saveChangedCollectionsToFirestore({ undoRequests: { upserts: [], deletedIds: [requestId] } })
+      .catch(err => console.error('Failed to sync undo rejection to cloud:', err));
   };
 
   const handleSkipOrCarryOnSite = (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => {
