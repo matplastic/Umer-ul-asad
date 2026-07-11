@@ -61,6 +61,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [newIncoming, setNewIncoming] = useState<any>(emptyIncoming);
   const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
   const [sectionFilter, setSectionFilter] = useState<string>('');
+  // Inventory tab search — matches name, ERP code, supplier, brand,
+  // storage location, HS code, or category.
+  const [inventorySearch, setInventorySearch] = useState('');
   const [importMode, setImportMode] = useState<'add' | 'update' | 'both'>('both');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -122,9 +125,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const pendingApprovalCount = requestGroups.filter(g => g.status === 'PENDING').length;
 
   const filteredMaterials = useMemo(() => {
-    if (!sectionFilter) return materials;
-    return materials.filter(m => (m.section || '') === sectionFilter);
-  }, [materials, sectionFilter]);
+    let list = !sectionFilter ? materials : materials.filter(m => (m.section || '') === sectionFilter);
+    const q = inventorySearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter(m => {
+        const haystack = [m.name, (m as any).erpCode, (m as any).supplierName, (m as any).brand, (m as any).location, (m as any).hsCode, m.category]
+          .filter(Boolean).join(' | ').toLowerCase();
+        return haystack.includes(q);
+      });
+    }
+    return list;
+  }, [materials, sectionFilter, inventorySearch]);
 
   // Date-range helper: dates on records are 'YYYY-MM-DD' or ISO strings — a
   // plain string comparison works fine for both since they're lexicographic.
@@ -413,6 +424,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <Upload className="h-3.5 w-3.5" /> Upload Excel to Update Inventory
             </button>
             <div className="ml-auto flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Search name, ERP code, brand, supplier, location…"
+                value={inventorySearch}
+                onChange={e => setInventorySearch(e.target.value)}
+                data-testid="inventory-search"
+                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white w-64"
+              />
               <label className="text-[10px] uppercase text-slate-400 font-bold">Filter by section:</label>
               <select value={sectionFilter} onChange={e => setSectionFilter(e.target.value)} data-testid="section-filter" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white">
                 <option value="">All sections</option>
@@ -498,7 +517,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   })}
               </tbody>
             </table>
-            {filteredMaterials.length === 0 && <div className="text-center text-slate-500 text-sm py-10">No materials found. Add materials above or upload Excel.</div>}
+            {filteredMaterials.length === 0 && (
+              <div className="text-center text-slate-500 text-sm py-10">
+                {inventorySearch ? `No materials match "${inventorySearch}".` : 'No materials found. Add materials above or upload Excel.'}
+              </div>
+            )}
           </div>
         </div>
       )}
