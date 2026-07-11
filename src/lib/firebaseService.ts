@@ -30,6 +30,7 @@ export function subscribeToLiveState(
     'hrPayroll',
     'hrAccidents',
     'hrMedicals',
+    'undoRequests',
   ];
   const unsubs: Unsubscribe[] = collections.map(name =>
     onSnapshot(
@@ -435,21 +436,34 @@ function makeSentinel() {
 //   • FAILS when the device is offline instead of silently queueing a stale
 //     full-document overwrite that would flush hours later on reconnect
 // ─────────────────────────────────────────────────────────────────────────────
-function mergeArraysById(current: any[], baseline: any[], local: any[]): any[] {
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA-LOSS FIX (v8): merge an explicit per-item DIFF into the freshest server
+// array, instead of a full-array replace.
+//
+// v7 merged by id but still used the device's ENTIRE local array as "the
+// changes to apply" — which meant every pool/team this device had a stale
+// copy of (not just the one it actually touched) got reapplied on top of
+// `current`, undoing other devices' newer writes. That caused pools to
+// revert to an earlier stage, flicker, or appear duplicated in the Quality
+// portal.
+//
+// The fix: callers now diff against a true last-known-server baseline (see
+// App.tsx) and send only `upserts` (items that actually changed/are new) and
+// `deletedIds` (items intentionally removed). Only those specific ids are
+// ever touched here — everything else in `current` (including additions
+// from other devices this one doesn't know about yet) is left completely
+// alone.
+// ─────────────────────────────────────────────────────────────────────────────
+function applyDiff(current: any[], upserts: any[], deletedIds: string[]): any[] {
   const byId = new Map(current.map(item => [item.id, item]));
-  const localIds = new Set(local.map(item => item.id));
-  for (const item of baseline) {
-    if (!localIds.has(item.id)) byId.delete(item.id);
-  }
-  for (const item of local) {
-    byId.set(item.id, item);
-  }
+  for (const id of deletedIds) byId.delete(id);
+  for (const item of upserts) byId.set(item.id, item);
   return Array.from(byId.values());
 }
 
 export interface ChangedCollection {
-  baseline: any[];
-  local: any[];
+  upserts: any[];
+  deletedIds: string[];
 }
 
 const PENDING_QUEUE_KEY = 'apex_pending_cloud_writes';
@@ -468,7 +482,16 @@ function writePendingQueue(queue: Record<string, ChangedCollection>) {
 function queuePendingWrite(name: string, change: ChangedCollection) {
   const queue = readPendingQueue();
   const existing = queue[name];
-  queue[name] = existing ? { baseline: existing.baseline, local: change.local } : change;
+  if (existing) {
+    // Merge multiple queued offline changes for the same collection: later
+    // upserts for the same id win, deletions accumulate.
+    const upsertMap = new Map(existing.upserts.map((i: any) => [i.id, i]));
+    for (const item of change.upserts) upsertMap.set(item.id, item);
+    const deletedIds = Array.from(new Set([...existing.deletedIds, ...change.deletedIds]));
+    queue[name] = { upserts: Array.from(upsertMap.values()), deletedIds };
+  } else {
+    queue[name] = change;
+  }
   writePendingQueue(queue);
 }
 
@@ -479,15 +502,15 @@ function clearPendingWrite(name: string) {
 }
 
 async function writeOneCollection(name: string, change: ChangedCollection, attempt = 0): Promise<void> {
-  let data = change.local;
-  if (name === 'logs') data = data.slice(-200);
-  if (name === 'projectsSummary' && !data.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
-    data = [...data, makeSentinel()];
-  }
-  const finalLocal = data;
-
   try {
-    await updateFirestoreDocArray(name, (current) => mergeArraysById(current, change.baseline, finalLocal));
+    await updateFirestoreDocArray(name, (current) => {
+      let merged = applyDiff(current, change.upserts, change.deletedIds);
+      if (name === 'logs') merged = merged.slice(-200);
+      if (name === 'projectsSummary' && !merged.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
+        merged = [...merged, makeSentinel()];
+      }
+      return merged;
+    });
     clearPendingWrite(name);
   } catch (err: any) {
     const isNetworkish = err?.code === 'unavailable' || err?.code === 'deadline-exceeded' || err?.code === 'cancelled' || !navigator.onLine;
