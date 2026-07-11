@@ -219,11 +219,36 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
   // Adds the currently-selected material+qty as one line in the cart. The
   // Project/Pool Type stay selected so the next line can be added right away.
+  //
+  // INVENTORY GUARD: a supervisor can only request a material that actually
+  // exists in the Store's inventory, and only up to the quantity the Store
+  // currently has in stock (minus whatever is already sitting in this cart
+  // for the same material, since that hasn't been deducted yet). This
+  // closes the gap where a material with 0 (or insufficient) stock could
+  // still be requested and would only surface as a problem after a manager
+  // approved it.
   const addToCart = () => {
     if (!rProject || !rPoolType) { setFlash('Pick a project and pool type first'); return; }
     if (!rMaterialId || !rQty) { setFlash('Select a material and quantity'); return; }
     const mat = materials.find(m => m.id === rMaterialId);
-    if (!mat) return;
+    if (!mat) { setFlash('That material is not in the inventory list.'); return; }
+
+    const stock = Number(mat.currentStock || 0);
+    if (stock <= 0) {
+      setFlash(`${mat.name} is not available in inventory (0 ${mat.unit} in stock). Ask Store to add stock before requesting it.`);
+      setTimeout(() => setFlash(null), 5000);
+      return;
+    }
+
+    const alreadyInCart = rCart.find(l => l.materialId === mat.id);
+    const requestedTotal = Number(alreadyInCart?.qty || 0) + Number(rQty);
+    if (requestedTotal > stock) {
+      const remaining = stock - Number(alreadyInCart?.qty || 0);
+      setFlash(`Only ${stock} ${mat.unit} of ${mat.name} in stock${alreadyInCart ? ` (you already added ${alreadyInCart.qty} to this cart — ${Math.max(remaining, 0)} left to add)` : ''}. Reduce the quantity.`);
+      setTimeout(() => setFlash(null), 6000);
+      return;
+    }
+
     setRCart(prev => {
       // If this material's already in the cart, bump its qty instead of a duplicate line.
       const idx = prev.findIndex(l => l.materialId === mat.id);
@@ -493,7 +518,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </select>
             <select value={rMaterialId} onChange={e => setRMaterialId(e.target.value)} data-testid="req-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
               <option value="">Material…</option>
-              {sectionMaterials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit}) — stock: {m.currentStock}</option>)}
+              {sectionMaterials.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.unit}) — stock: {m.currentStock}{Number(m.currentStock || 0) <= 0 ? ' — OUT OF STOCK' : ''}
+                </option>
+              ))}
             </select>
             <input type="number" step="any" data-testid="req-qty" placeholder="Qty" value={rQty} onChange={e => setRQty(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={addToCart} data-testid="req-add-line" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold cursor-pointer">
