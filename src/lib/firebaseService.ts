@@ -435,18 +435,90 @@ function makeSentinel() {
 //   • FAILS when the device is offline instead of silently queueing a stale
 //     full-document overwrite that would flush hours later on reconnect
 // ─────────────────────────────────────────────────────────────────────────────
-export async function saveChangedCollectionsToFirestore(changed: Record<string, any[]>) {
+function mergeArraysById(current: any[], baseline: any[], local: any[]): any[] {
+  const byId = new Map(current.map(item => [item.id, item]));
+  const localIds = new Set(local.map(item => item.id));
+  for (const item of baseline) {
+    if (!localIds.has(item.id)) byId.delete(item.id);
+  }
+  for (const item of local) {
+    byId.set(item.id, item);
+  }
+  return Array.from(byId.values());
+}
+
+export interface ChangedCollection {
+  baseline: any[];
+  local: any[];
+}
+
+const PENDING_QUEUE_KEY = 'apex_pending_cloud_writes';
+
+function readPendingQueue(): Record<string, ChangedCollection> {
+  try {
+    const raw = localStorage.getItem(PENDING_QUEUE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function writePendingQueue(queue: Record<string, ChangedCollection>) {
+  try { localStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(queue)); } catch {}
+}
+
+function queuePendingWrite(name: string, change: ChangedCollection) {
+  const queue = readPendingQueue();
+  const existing = queue[name];
+  queue[name] = existing ? { baseline: existing.baseline, local: change.local } : change;
+  writePendingQueue(queue);
+}
+
+function clearPendingWrite(name: string) {
+  const queue = readPendingQueue();
+  delete queue[name];
+  writePendingQueue(queue);
+}
+
+async function writeOneCollection(name: string, change: ChangedCollection, attempt = 0): Promise<void> {
+  let data = change.local;
+  if (name === 'logs') data = data.slice(-200);
+  if (name === 'projectsSummary' && !data.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
+    data = [...data, makeSentinel()];
+  }
+  const finalLocal = data;
+
+  try {
+    await updateFirestoreDocArray(name, (current) => mergeArraysById(current, change.baseline, finalLocal));
+    clearPendingWrite(name);
+  } catch (err: any) {
+    const isNetworkish = err?.code === 'unavailable' || err?.code === 'deadline-exceeded' || err?.code === 'cancelled' || !navigator.onLine;
+    if (isNetworkish && attempt < 3) {
+      const delay = 500 * Math.pow(2, attempt);
+      await new Promise(res => setTimeout(res, delay));
+      return writeOneCollection(name, change, attempt + 1);
+    }
+    queuePendingWrite(name, change);
+    throw err;
+  }
+}
+
+export async function saveChangedCollectionsToFirestore(changed: Record<string, ChangedCollection>) {
   const entries = Object.entries(changed);
   if (entries.length === 0) return { success: true };
-  await Promise.all(entries.map(([name, arr]) => {
-    let data = arr;
-    if (name === 'logs') data = arr.slice(-200);
-    if (name === 'projectsSummary' && !arr.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
-      data = [...arr, makeSentinel()];
-    }
-    return updateFirestoreDocArray(name, () => data);
-  }));
+  const results = await Promise.allSettled(entries.map(([name, change]) => writeOneCollection(name, change)));
+  const failed = results
+    .map((r, i) => ({ r, name: entries[i][0] }))
+    .filter(x => x.r.status === 'rejected');
+  if (failed.length > 0) {
+    return { success: false, failedCollections: failed.map(f => f.name) };
+  }
   return { success: true };
+}
+
+export async function flushPendingCloudWrites(): Promise<void> {
+  const queue = readPendingQueue();
+  const names = Object.keys(queue);
+  if (names.length === 0) return;
+  await Promise.allSettled(names.map(name => writeOneCollection(name, queue[name])));
 }
 
 // Intentional full wipe — ONLY used by the Management "Purge All Data" button
