@@ -394,6 +394,11 @@ export default function App() {
   // old localStorage copy) would push STALE data to Firestore and wipe
   // everything entered from other devices since this copy was cached.
   const cloudHydratedRef = useRef(false);
+  // QUEUE FIX (Stage→QC not syncing): if a save happens before cloud hydration
+  // completes, we used to silently drop it. Now we queue it here and flush it
+  // the moment the live listener confirms a connection (see subscribeToLiveState
+  // callback below). Nothing entered by a worker is ever thrown away.
+  const pendingWritesRef = useRef<Record<string, { upserts: any[]; deletes: string[] }>[]>([]);
 
   // Load state from Firestore & register Auth listener on mount
   useEffect(() => {
@@ -687,6 +692,18 @@ export default function App() {
       cloudHydratedRef.current = true;
       setFirebaseStatus('connected');
       setFirebaseError(null);
+
+      // Flush any writes that were queued while we were waiting to hydrate
+      if (pendingWritesRef.current.length > 0) {
+        const queued = pendingWritesRef.current.splice(0);
+        queued.forEach(changedCollections => {
+          saveChangedCollectionsToFirestore(changedCollections).catch((err: any) => {
+            console.error('[saveState] Queued write failed to flush:', err);
+            setFirebaseStatus('error');
+            setFirebaseError(err?.message || String(err));
+          });
+        });
+      }
     });
 
     return () => {
@@ -907,9 +924,10 @@ export default function App() {
     if (Object.keys(changed).length === 0) return;
 
     if (!cloudHydratedRef.current) {
-      console.warn('[saveState] Cloud state not hydrated yet — skipping Firestore write to protect cloud data from a stale local copy.');
+      console.warn('[saveState] Cloud not hydrated yet — queuing write, will sync automatically once connected.');
+      pendingWritesRef.current.push(changed);
       setFirebaseStatus('error');
-      setFirebaseError('Change saved on this device only. Cloud sync is paused because the app could not load the latest cloud data — check your internet connection and reload the page.');
+      setFirebaseError('Waiting for cloud connection — this change will sync automatically the moment the connection is back. Do not close this tab.');
       return;
     }
 
@@ -2842,6 +2860,18 @@ export default function App() {
 
         </div>
       </div>
+
+      {/* PROMINENT not-synced banner — shows on every screen, every role, until cloud confirms the write */}
+      {firebaseStatus === 'error' && (
+        <div className="bg-rose-950/60 border-b-2 border-rose-500 py-2 px-4 text-center">
+          <span className="text-rose-300 font-black text-xs uppercase tracking-wide">
+            ⚠️ Not synced to cloud — changes are saved on this device only and other computers will not see them yet.
+          </span>
+          <span className="text-rose-400/80 text-[11px] block sm:inline sm:ml-2">
+            {firebaseError || 'Waiting to reconnect...'} It will sync automatically once connected — do not close this tab.
+          </span>
+        </div>
+      )}
 
       {/* Central View Dashboard Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
