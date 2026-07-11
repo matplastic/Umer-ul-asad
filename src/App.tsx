@@ -1004,15 +1004,30 @@ export default function App() {
         changed[name] = { upserts, deletedIds };
       }
     };
-    if (updatedPools !== poolsRef.current) addIfChanged('pools', poolsBaselineRef.current, safePools);
-    if (updatedTeams !== teamsRef.current) addIfChanged('teams', teamsBaselineRef.current, safeTeams);
-    if (updatedLogs !== logsRef.current) addIfChanged('logs', logsBaselineRef.current, safeLogs);
-    if (updatedInspectors !== inspectorsRef.current) addIfChanged('inspectors', inspectorsBaselineRef.current, safeInspectors);
-    if (updatedEngineers !== engineersRef.current) addIfChanged('engineers', engineersBaselineRef.current, safeEngineers);
-    if (updatedPlannedPools !== plannedPoolsRef.current) addIfChanged('plannedPools', plannedPoolsBaselineRef.current, safePlanned);
-    if (updatedProjectsSummary !== projectsSummaryRef.current) addIfChanged('projectsSummary', projectsSummaryBaselineRef.current, safeProjects);
-    if (updatedMonthlyTargets !== monthlyTargetsRef.current) addIfChanged('monthlyTargets', monthlyTargetsBaselineRef.current, safeTargets);
-    if (updatedEmployees !== employeesRef.current) addIfChanged('employees', employeesBaselineRef.current, safeEmployees);
+    // RACE-FIX (v9.1): the old `if (updatedX !== xRef.current)` shortcut here
+    // was meant purely as a skip-if-unchanged optimization, but every caller
+    // does `setPools(updatedPools); saveState(updatedPools, ...)` — and since
+    // setPools now updates poolsRef.current SYNCHRONOUSLY (that's the whole
+    // point of the v9 fix), poolsRef.current already equals updatedPools by
+    // the time this line runs. The comparison was therefore always false,
+    // addIfChanged never ran, and NOTHING reached Firestore — changes stayed
+    // local to that one device and never synced to any other PC.
+    //
+    // diffCollection() is already safe to call unconditionally: it only
+    // produces upserts/deletedIds when content actually differs from the
+    // last known-good SERVER baseline, and addIfChanged only adds to
+    // `changed` when that diff is non-empty. So there's no need for (and no
+    // safe way to do) a reference-equality pre-check here — just always run
+    // the diff.
+    addIfChanged('pools', poolsBaselineRef.current, safePools);
+    addIfChanged('teams', teamsBaselineRef.current, safeTeams);
+    addIfChanged('logs', logsBaselineRef.current, safeLogs);
+    addIfChanged('inspectors', inspectorsBaselineRef.current, safeInspectors);
+    addIfChanged('engineers', engineersBaselineRef.current, safeEngineers);
+    addIfChanged('plannedPools', plannedPoolsBaselineRef.current, safePlanned);
+    addIfChanged('projectsSummary', projectsSummaryBaselineRef.current, safeProjects);
+    addIfChanged('monthlyTargets', monthlyTargetsBaselineRef.current, safeTargets);
+    addIfChanged('employees', employeesBaselineRef.current, safeEmployees);
 
     if (Object.keys(changed).length === 0) return;
 
