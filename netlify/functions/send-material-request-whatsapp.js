@@ -4,8 +4,13 @@
 // safe to call even before Twilio is configured (it just no-ops).
 //
 // Sends ONE WhatsApp message per batch (the supervisor's whole cart — 1 to
-// many material lines) with ONE Approve/ONE Reject link for the whole batch
-// — instead of one message per material.
+// many material lines).
+//
+// PER-ITEM APPROVE/REJECT: the message links to the same "Review & Decide"
+// page as the email (see netlify/functions/material-request-decide.js),
+// which lists every material line with its own Approve/Reject choice —
+// so the manager can approve some and reject others in one submit instead
+// of an all-or-nothing decision for the whole batch.
 //
 // Env vars needed (set in Netlify → Site settings → Environment variables):
 //   TWILIO_ACCOUNT_SID       - starts with "AC..."
@@ -53,8 +58,9 @@ exports.handler = async (event) => {
     const idOrBatchQuery = payload.batchId
       ? `batchId=${encodeURIComponent(payload.batchId)}`
       : `id=${encodeURIComponent(payload.id || '')}`;
-    const approveUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}&action=approve`;
-    const rejectUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}&action=reject`;
+    const reviewUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}`;
+    const quickApproveUrl = `${reviewUrl}&action=approve`;
+    const quickRejectUrl = `${reviewUrl}&action=reject`;
 
     const itemsLines = items.map((it) => `• ${it.materialName || ''}: ${it.qtyRequested ?? ''} ${it.unit || ''}`).join('\n');
 
@@ -71,8 +77,8 @@ exports.handler = async (event) => {
         1: items.length > 1 ? `${items.length} items` : (items[0].materialName || ''),
         2: items.length > 1 ? itemsLines : `${items[0].qtyRequested ?? ''} ${items[0].unit || ''}`.trim(),
         3: payload.projectName || '',
-        4: approveUrl,
-        5: rejectUrl,
+        4: reviewUrl,
+        5: items.length > 1 ? quickApproveUrl : quickRejectUrl,
       }));
     } else {
       // Plain-text fallback — only delivers if the manager already has an
@@ -82,8 +88,10 @@ exports.handler = async (event) => {
         `${itemsLines}\n\n` +
         `Project: ${payload.projectName || ''}${payload.poolType ? ' / ' + payload.poolType : ''}\n` +
         `Requested by: ${payload.requestedByName || ''} (${payload.requestedByRole || ''})\n\n` +
-        `Approve: ${approveUrl}\n` +
-        `Reject: ${rejectUrl}`
+        `Review & decide (approve/reject each item): ${reviewUrl}\n` +
+        (items.length > 1
+          ? `Quick approve all: ${quickApproveUrl}\nQuick reject all: ${quickRejectUrl}`
+          : '')
       );
     }
 
