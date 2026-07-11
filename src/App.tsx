@@ -12,7 +12,6 @@ import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
 import { FactoryEntrance } from './components/FactoryEntrance';
 import { ManagementDashboard } from './components/ManagementDashboard';
-import { MonthlyKPIDashboard } from './components/MonthlyKPIDashboard';
 import { SectionDashboardTV } from './components/SectionDashboardTV';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
@@ -394,11 +393,6 @@ export default function App() {
   // old localStorage copy) would push STALE data to Firestore and wipe
   // everything entered from other devices since this copy was cached.
   const cloudHydratedRef = useRef(false);
-  // QUEUE FIX (Stage→QC not syncing): if a save happens before cloud hydration
-  // completes, we used to silently drop it. Now we queue it here and flush it
-  // the moment the live listener confirms a connection (see subscribeToLiveState
-  // callback below). Nothing entered by a worker is ever thrown away.
-  const pendingWritesRef = useRef<Record<string, { upserts: any[]; deletes: string[] }>[]>([]);
 
   // Load state from Firestore & register Auth listener on mount
   useEffect(() => {
@@ -692,18 +686,6 @@ export default function App() {
       cloudHydratedRef.current = true;
       setFirebaseStatus('connected');
       setFirebaseError(null);
-
-      // Flush any writes that were queued while we were waiting to hydrate
-      if (pendingWritesRef.current.length > 0) {
-        const queued = pendingWritesRef.current.splice(0);
-        queued.forEach(changedCollections => {
-          saveChangedCollectionsToFirestore(changedCollections).catch((err: any) => {
-            console.error('[saveState] Queued write failed to flush:', err);
-            setFirebaseStatus('error');
-            setFirebaseError(err?.message || String(err));
-          });
-        });
-      }
     });
 
     return () => {
@@ -806,30 +788,6 @@ export default function App() {
     // NOTE: intentionally NOT calling saveState() here — see comment above.
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // DATA-LOSS FIX (v7): compute a per-record diff between what this device
-  // had before (`oldArr`) and what it has now (`newArr`), instead of ever
-  // sending a full array snapshot to Firestore. `saveChangedCollectionsToFirestore`
-  // merges only these touched records onto the LIVE server state, so a
-  // device with a stale local copy of unrelated records can no longer
-  // overwrite what another PC just wrote to Firestore.
-  // ─────────────────────────────────────────────────────────────────────────
-  const diffArrayById = (oldArr: any[], newArr: any[]): { upserts: any[]; deletes: string[] } => {
-    const newIds = new Set(newArr.map(item => item.id));
-    const upserts: any[] = [];
-    for (const item of newArr) {
-      const prev = oldArr.find(o => o.id === item.id);
-      if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
-        upserts.push(item);
-      }
-    }
-    const deletes: string[] = [];
-    for (const item of oldArr) {
-      if (!newIds.has(item.id)) deletes.push(item.id);
-    }
-    return { upserts, deletes };
-  };
-
   const saveState = (
     updatedPools: Pool[], 
     updatedTeams: Team[], 
@@ -863,71 +821,34 @@ export default function App() {
     localStorage.setItem('apex_employees', JSON.stringify(safeEmployees));
 
     // ─────────────────────────────────────────────────────────────────────────
-    // DATA-LOSS FIX (v7): write ONLY the records that actually changed, as a
-    // diff — never a full collection snapshot.
+    // DATA-LOSS FIX (v6): write ONLY the collections that actually changed.
     //
-    // v6 wrote only the CHANGED COLLECTIONS, which stopped an idle tab from
-    // overwriting collections it never touched — but within a changed
-    // collection it still sent this device's entire local array. If two
-    // people edited two different pools within the same collection at
-    // nearly the same time, whichever save landed second would blind-
-    // overwrite the whole `pools` array and silently discard the other
-    // person's change (or their own change reappeared moments later when
-    // the other device's stale save finally landed) — exactly the
-    // "completed task comes back" bug.
+    // Previous behaviour wrote ALL 9 collections to Firestore on EVERY action.
+    // A tab that had been open for hours (TV dashboard, idle PC) held stale
+    // copies of the 8 collections it wasn't touching — one click on that tab
+    // rewrote the entire database with old data → "all data deleted".
     //
-    // v7 diffs old vs. new per record (by `id`) and sends only the touched
-    // record(s). saveChangedCollectionsToFirestore merges that diff onto
-    // whatever Firestore's LATEST state is, inside a transaction — so
-    // untouched records, no matter how stale this device's local copy of
-    // them is, are never re-sent and can never clobber another device's
-    // concurrent edit.
+    // We detect changed collections by reference: handlers always create a NEW
+    // array for what they modified and pass the existing state reference for
+    // everything else. Unchanged references are skipped entirely.
     // ─────────────────────────────────────────────────────────────────────────
-    const changed: Record<string, { upserts: any[]; deletes: string[] }> = {};
-    if (updatedPools !== pools) {
-      const d = diffArrayById(pools, safePools);
-      if (d.upserts.length || d.deletes.length) changed.pools = d;
-    }
-    if (updatedTeams !== teams) {
-      const d = diffArrayById(teams, safeTeams);
-      if (d.upserts.length || d.deletes.length) changed.teams = d;
-    }
-    if (updatedLogs !== logs) {
-      const d = diffArrayById(logs, safeLogs);
-      if (d.upserts.length || d.deletes.length) changed.logs = d;
-    }
-    if (updatedInspectors !== inspectors) {
-      const d = diffArrayById(inspectors, safeInspectors);
-      if (d.upserts.length || d.deletes.length) changed.inspectors = d;
-    }
-    if (updatedEngineers !== engineers) {
-      const d = diffArrayById(engineers, safeEngineers);
-      if (d.upserts.length || d.deletes.length) changed.engineers = d;
-    }
-    if (updatedPlannedPools !== plannedPools) {
-      const d = diffArrayById(plannedPools, safePlanned);
-      if (d.upserts.length || d.deletes.length) changed.plannedPools = d;
-    }
-    if (updatedProjectsSummary !== projectsSummary) {
-      const d = diffArrayById(projectsSummary, safeProjects);
-      if (d.upserts.length || d.deletes.length) changed.projectsSummary = d;
-    }
-    if (updatedMonthlyTargets !== monthlyTargets) {
-      const d = diffArrayById(monthlyTargets, safeTargets);
-      if (d.upserts.length || d.deletes.length) changed.monthlyTargets = d;
-    }
-    if (updatedEmployees !== employees) {
-      const d = diffArrayById(employees, safeEmployees);
-      if (d.upserts.length || d.deletes.length) changed.employees = d;
-    }
+    const changed: Record<string, any[]> = {};
+    if (updatedPools !== pools) changed.pools = safePools;
+    if (updatedTeams !== teams) changed.teams = safeTeams;
+    if (updatedLogs !== logs) changed.logs = safeLogs;
+    if (updatedInspectors !== inspectors) changed.inspectors = safeInspectors;
+    if (updatedEngineers !== engineers) changed.engineers = safeEngineers;
+    if (updatedPlannedPools !== plannedPools) changed.plannedPools = safePlanned;
+    if (updatedProjectsSummary !== projectsSummary) changed.projectsSummary = safeProjects;
+    if (updatedMonthlyTargets !== monthlyTargets) changed.monthlyTargets = safeTargets;
+    if (updatedEmployees !== employees) changed.employees = safeEmployees;
 
     if (Object.keys(changed).length === 0) return;
 
     if (!cloudHydratedRef.current) {
-      console.warn('[saveState] Cloud not hydrated yet — queuing write, will sync automatically once connected.');
-      pendingWritesRef.current.push(changed);
+      console.warn('[saveState] Cloud state not hydrated yet — skipping Firestore write to protect cloud data from a stale local copy.');
       setFirebaseStatus('error');
-      setFirebaseError('Waiting for cloud connection — this change will sync automatically the moment the connection is back. Do not close this tab.');
+      setFirebaseError('Change saved on this device only. Cloud sync is paused because the app could not load the latest cloud data — check your internet connection and reload the page.');
       return;
     }
 
@@ -1909,6 +1830,7 @@ export default function App() {
     orientation: PoolOrientation;
     dimensions: string;
     shape: string;
+    poolType?: string;
     notes: string;
     operatorName: string;
     createdAt?: string;
@@ -1920,6 +1842,7 @@ export default function App() {
       orientation: spec.orientation,
       dimensions: spec.dimensions,
       shape: spec.shape,
+      poolType: spec.poolType || undefined,
       notes: spec.notes,
       createdAt: spec.createdAt || new Date().toISOString(),
       completedAt: null,
@@ -1936,7 +1859,7 @@ export default function App() {
       stageId: 'steel_fabrication',
       type: 'CREATED',
       operatorName: spec.operatorName || 'Engineer',
-      notes: `Pool created & released. Specs: Orientation - ${spec.orientation}, Dims - ${spec.dimensions}, Shape - ${spec.shape}.`
+      notes: `Pool created & released. Specs: Orientation - ${spec.orientation}, Dims - ${spec.dimensions}, Shape - ${spec.shape}${spec.poolType ? `, Type - ${spec.poolType}` : ''}.`
     };
 
     const updatedPools = [...pools, newPool];
@@ -1955,6 +1878,7 @@ export default function App() {
     orientation: PoolOrientation,
     dimensions: string,
     shape: string,
+    poolType: string,
     notes: string,
     operatorName: string
   ) => {
@@ -1972,6 +1896,7 @@ export default function App() {
         orientation,
         dimensions,
         shape,
+        poolType: poolType || undefined,
         notes: notes ? `${notes} (Batch #${i + 1})` : `Batch #${i + 1}`,
         createdAt: timestamp,
         completedAt: null,
@@ -1990,7 +1915,7 @@ export default function App() {
       stageId: 'steel_fabrication',
       type: 'CREATED',
       operatorName: operatorName || 'Engineer',
-      notes: `Batch spawner released ${count} serialized hulls [${prefix}${startRange} to ${prefix}${startRange + count - 1}] for Project "${projectName}" into fabrication queue.`
+      notes: `Batch spawner released ${count} serialized hulls [${prefix}${startRange} to ${prefix}${startRange + count - 1}] for Project "${projectName}"${poolType ? ` (Type: ${poolType})` : ''} into fabrication queue.`
     };
 
     const updatedPools = [...pools, ...newPools];
@@ -2315,15 +2240,8 @@ export default function App() {
     if (!team || team.status === 'BUSY') return;
 
     // Update pool: assign stage team details
-    // MUTATION FIX: `pool` must be a fresh object (including a fresh
-    // `stageHistory`), never the same reference as the pre-update pools[]
-    // entry. Mutating it in place used to silently poison the diff check in
-    // saveState — since old and new pointed at the identical mutated nested
-    // object, the diff engine saw "no change" and never sent this pool to
-    // Firestore at all, with no error shown anywhere.
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
-    updatedPools[poolIndex] = pool;
+    const pool = updatedPools[poolIndex];
     const stageHist = { ...pool.stageHistory[stageId] };
     stageHist.teamId = teamId;
     pool.stageHistory[stageId] = stageHist;
@@ -2363,8 +2281,7 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
-    updatedPools[poolIndex] = pool;
+    const pool = updatedPools[poolIndex];
     const stageHist = { ...pool.stageHistory[stageId] };
     stageHist.status = 'IN_PROGRESS';
     stageHist.startTime = customDateTime || new Date().toISOString();
@@ -2397,8 +2314,7 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
-    updatedPools[poolIndex] = pool;
+    const pool = updatedPools[poolIndex];
     const stageHist = { ...pool.stageHistory[stageId] };
     
     stageHist.status = 'PENDING_INSPECTION';
@@ -2442,8 +2358,7 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
-    updatedPools[poolIndex] = pool;
+    const pool = updatedPools[poolIndex];
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Set approved status
@@ -2540,8 +2455,7 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
-    updatedPools[poolIndex] = pool;
+    const pool = updatedPools[poolIndex];
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Set rejected status & increment loop
@@ -2619,7 +2533,7 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    const pool = { ...updatedPools[poolIndex] };
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Reset the stage so any team can claim it again
@@ -2674,8 +2588,7 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
-    updatedPools[poolIndex] = pool;
+    const pool = updatedPools[poolIndex];
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Record skipped / custom carry status
@@ -2750,7 +2663,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F6F8F9] flex flex-col font-sans selection:bg-[#0E7C86]/20 antialiased">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-250 antialiased">
 
       {/* Always-visible top bar: hamburger opens the portal drawer, logo + name centered */}
       <TopBar onMenuClick={() => setNavOpen(true)} />
@@ -2872,18 +2785,6 @@ export default function App() {
 
         </div>
       </div>
-
-      {/* PROMINENT not-synced banner — shows on every screen, every role, until cloud confirms the write */}
-      {firebaseStatus === 'error' && (
-        <div className="bg-rose-950/60 border-b-2 border-rose-500 py-2 px-4 text-center">
-          <span className="text-rose-300 font-black text-xs uppercase tracking-wide">
-            ⚠️ Not synced to cloud — changes are saved on this device only and other computers will not see them yet.
-          </span>
-          <span className="text-rose-400/80 text-[11px] block sm:inline sm:ml-2">
-            {firebaseError || 'Waiting to reconnect...'} It will sync automatically once connected — do not close this tab.
-          </span>
-        </div>
-      )}
 
       {/* Central View Dashboard Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -3028,16 +2929,6 @@ export default function App() {
           />
         )}
 
-        {/* Monthly KPI Dashboard — Management only */}
-        {currentRole === 'management' && (
-          <div className="mt-6">
-            <MonthlyKPIDashboard
-              pools={pools}
-              plannedPools={plannedPools}
-            />
-          </div>
-        )}
-
         {currentRole === 'section_dashboard' && (
           <SectionDashboardTV
             pools={pools}
@@ -3046,13 +2937,6 @@ export default function App() {
           />
         )}
 
-        {currentRole === 'trolley_prod' && (
-          <TrolleyProductionTracker
-            trolleys={trolleys}
-            onSaveTrolley={handleSaveTrolley}
-            onDeleteTrolley={handleDeleteTrolley}
-          />
-        )}
         {currentRole === 'trolley_prod' && (
           <TrolleyProductionTracker
             trolleys={trolleys}
