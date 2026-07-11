@@ -61,6 +61,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const [rQty, setRQty] = useState('');
   const [rReason, setRReason] = useState('');
   const [rCart, setRCart] = useState<Array<{ materialId: string; materialName: string; unit: string; qty: string }>>([]);
+  // Search box for picking a material to request — searches the FULL
+  // inventory (every section, not just this one) by name, ERP code,
+  // supplier, brand, storage location, HS code, or category.
+  const [rSearch, setRSearch] = useState('');
+  const [rDropdownOpen, setRDropdownOpen] = useState(false);
 
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -100,6 +105,32 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       return aTag - bTag || a.name.localeCompare(b.name);
     });
   }, [materials, section]);
+
+  // Material picker for the Request tab. Two things this fixes:
+  //  1. Searches the FULL inventory across every section (not just this
+  //     one) — the search box matches name, ERP code, supplier, brand,
+  //     storage location, HS code, or category, so any of those terms finds
+  //     the item.
+  //  2. Only lists materials that actually have stock right now (>0), so
+  //     supervisors can't even pick something that isn't available to
+  //     request in the first place — no more scrolling past dozens of
+  //     zero-stock lines to find something requestable.
+  const requestSearchResults = useMemo(() => {
+    const q = rSearch.trim().toLowerCase();
+    const available = materials.filter(m => Number(m.currentStock || 0) > 0);
+    const matches = !q ? available : available.filter(m => {
+      const haystack = [m.name, m.erpCode, m.supplierName, m.brand, m.location, m.hsCode, m.category]
+        .filter(Boolean).join(' | ').toLowerCase();
+      return haystack.includes(q);
+    });
+    return matches
+      .sort((a, b) => {
+        const aTag = a.section === section ? 0 : 1;
+        const bTag = b.section === section ? 0 : 1;
+        return aTag - bTag || a.name.localeCompare(b.name);
+      })
+      .slice(0, 50);
+  }, [materials, rSearch, section]);
 
   // How much of each material has actually been issued to THIS section and
   // is sitting on the floor, not yet consumed. This is what a supervisor can
@@ -259,7 +290,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       }
       return [...prev, { materialId: mat.id, materialName: mat.name, unit: mat.unit, qty: rQty }];
     });
-    setRMaterialId(''); setRQty('');
+    setRMaterialId(''); setRQty(''); setRSearch('');
   };
 
   const removeFromCart = (materialId: string) => {
@@ -285,7 +316,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       requestedByName: currentUserName,
       requestedByRole: `Section Supervisor - ${sectionName}`,
     })));
-    setRCart([]); setRProject(''); setRPoolType(''); setRMaterialId(''); setRQty(''); setRReason('');
+    setRCart([]); setRProject(''); setRPoolType(''); setRMaterialId(''); setRQty(''); setRReason(''); setRSearch('');
     setFlash('Request sent to store/manager for approval.');
     setTimeout(() => setFlash(null), 2500);
     loadAll(true);
@@ -516,14 +547,43 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               <option value="">Pool type…</option>
               {(poolTypesByProject[rProject] || []).map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-            <select value={rMaterialId} onChange={e => setRMaterialId(e.target.value)} data-testid="req-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
-              <option value="">Material…</option>
-              {sectionMaterials.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.unit}) — stock: {m.currentStock}{Number(m.currentStock || 0) <= 0 ? ' — OUT OF STOCK' : ''}
-                </option>
-              ))}
-            </select>
+            <div className="relative md:col-span-2">
+              <input
+                type="text"
+                data-testid="req-material-search"
+                placeholder="Search material — name, ERP code, brand, supplier…"
+                value={rSearch}
+                onChange={e => { setRSearch(e.target.value); setRMaterialId(''); setRDropdownOpen(true); }}
+                onFocus={() => setRDropdownOpen(true)}
+                onBlur={() => setTimeout(() => setRDropdownOpen(false), 150)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+              />
+              {rDropdownOpen && (
+                <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-2xl">
+                  {requestSearchResults.length === 0 && (
+                    <div className="px-3 py-3 text-xs text-slate-500">
+                      {rSearch ? `No available material matches "${rSearch}".` : 'No materials currently in stock.'}
+                    </div>
+                  )}
+                  {requestSearchResults.map(m => (
+                    <div
+                      key={m.id}
+                      onMouseDown={() => { setRMaterialId(m.id); setRSearch(m.name); setRDropdownOpen(false); }}
+                      data-testid="req-material-option"
+                      className="px-3 py-2 border-b border-slate-900 last:border-b-0 hover:bg-slate-700 cursor-pointer"
+                    >
+                      <div className="text-xs font-semibold text-white flex items-center justify-between gap-2">
+                        <span>{m.name}</span>
+                        <span className="text-emerald-400 font-mono">{m.currentStock} {m.unit}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate">
+                        {[m.erpCode, m.brand, m.supplierName, m.location].filter(Boolean).join(' · ') || '—'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <input type="number" step="any" data-testid="req-qty" placeholder="Qty" value={rQty} onChange={e => setRQty(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={addToCart} data-testid="req-add-line" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold cursor-pointer">
               <Plus className="h-3.5 w-3.5" /> Add to Cart
