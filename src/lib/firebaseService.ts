@@ -426,26 +426,72 @@ function makeSentinel() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DATA-LOSS FIX (v6): partial, transactional state save.
-// Only the collections the user actually CHANGED are written — the other 8
-// collections are never touched, so a stale tab can no longer overwrite the
-// whole database with old data. Each write goes through a Firestore
-// TRANSACTION (updateFirestoreDocArray) which:
-//   • serializes concurrent writes from multiple PCs (no last-write-wins wipe)
-//   • FAILS when the device is offline instead of silently queueing a stale
-//     full-document overwrite that would flush hours later on reconnect
+// DATA-LOSS FIX (v7 — root-cause fix for the "changes revert" / "6 PCs
+// overwrite each other" bug):
+//
+// THE BUG (v6 and earlier): this function called
+//   updateFirestoreDocArray(name, () => data)
+// The `() => data` updater IGNORES the `current` array that the transaction
+// just read live from Firestore, and unconditionally writes this device's
+// local `data` instead. Every save from every device replaced the ENTIRE
+// collection with whatever that one device happened to have locally — so
+// any record another device had written moments earlier (that this device
+// hadn't synced yet) was silently discarded. That's why a completed task
+// could "come back", and why more devices made it worse.
+//
+// THE FIX: each entry now carries a per-record diff (`upserts` + `deletes`)
+// instead of a full array snapshot. The updater merges that diff onto the
+// live `current` array read inside the transaction:
+//   • records neither added nor removed by this device are left exactly as
+//     Firestore already has them (protects concurrent edits from other PCs)
+//   • only the record(s) this device actually touched are upserted/removed
+//   • Firestore transactions still retry automatically on write conflicts
 // ─────────────────────────────────────────────────────────────────────────────
-export async function saveChangedCollectionsToFirestore(changed: Record<string, any[]>) {
+export interface CollectionDiff {
+  /** Records that were added or modified on this device, keyed by `id`. */
+  upserts: any[];
+  /** IDs of records that were removed on this device. */
+  deletes: string[];
+}
+
+function isPlainDiff(value: any): value is CollectionDiff {
+  return value && typeof value === 'object' && Array.isArray(value.upserts) && Array.isArray(value.deletes);
+}
+
+export async function saveChangedCollectionsToFirestore(
+  changed: Record<string, CollectionDiff | any[]>
+) {
   const entries = Object.entries(changed);
   if (entries.length === 0) return { success: true };
-  await Promise.all(entries.map(([name, arr]) => {
-    let data = arr;
-    if (name === 'logs') data = arr.slice(-200);
-    if (name === 'projectsSummary' && !arr.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
-      data = [...arr, makeSentinel()];
-    }
-    return updateFirestoreDocArray(name, () => data);
+
+  await Promise.all(entries.map(([name, value]) => {
+    // Backward-compatible: if a caller ever passes a raw array again (old
+    // call shape), treat every record in it as an upsert with no deletes,
+    // rather than silently reverting to the unsafe blind-overwrite behavior.
+    const diff: CollectionDiff = isPlainDiff(value)
+      ? value
+      : { upserts: Array.isArray(value) ? value : [], deletes: [] };
+
+    return updateFirestoreDocArray(name, (current) => {
+      // Start from the FRESH server-side array read inside this transaction —
+      // never from this device's possibly-stale local copy.
+      let next = current.filter((item: any) => !diff.deletes.includes(item?.id));
+
+      diff.upserts.forEach((record: any) => {
+        const idx = next.findIndex((item: any) => item?.id === record?.id);
+        if (idx !== -1) next[idx] = record;
+        else next.push(record);
+      });
+
+      if (name === 'logs') next = next.slice(-200);
+      if (name === 'projectsSummary' && !next.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
+        next = [...next, makeSentinel()];
+      }
+
+      return next;
+    });
   }));
+
   return { success: true };
 }
 
