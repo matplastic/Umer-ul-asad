@@ -56,7 +56,8 @@ import {
   dbSaveTeam,
   dbSaveLog,
   dbSavePool,
-  subscribeToLiveState
+  subscribeToLiveState,
+  flushPendingCloudWrites
 } from './lib/firebaseService';
 
 // BUGFIX (v3 — data loss): previous build seeded 3 demo inspectors and 2 demo
@@ -630,6 +631,17 @@ export default function App() {
     loadCloudData();
 
     // ─────────────────────────────────────────────────────────────────────────
+    // LOW-NETWORK RESILIENCE: any changes made while offline/on a flaky
+    // connection are queued (see firebaseService.ts) instead of being lost or
+    // forced through as a stale overwrite. Flush that queue now (in case the
+    // app was reloaded after losing connection) and again the moment the
+    // browser reports the connection is back.
+    // ─────────────────────────────────────────────────────────────────────────
+    flushPendingCloudWrites().catch(() => {});
+    const handleOnline = () => { flushPendingCloudWrites().catch(() => {}); };
+    window.addEventListener('online', handleOnline);
+
+    // ─────────────────────────────────────────────────────────────────────────
     // 🔴 LIVE SYNC — Firestore onSnapshot (BUGFIX v5)
     // ─────────────────────────────────────────────────────────────────────────
     // Previously this used 3-minute setInterval polling that only updated
@@ -695,6 +707,7 @@ export default function App() {
       if (typeof liveUnsub === 'function') {
         liveUnsub();
       }
+      window.removeEventListener('online', handleOnline);
     };
   }, []);
   const handleGoogleSignIn = async () => {
@@ -832,16 +845,23 @@ export default function App() {
     // array for what they modified and pass the existing state reference for
     // everything else. Unchanged references are skipped entirely.
     // ─────────────────────────────────────────────────────────────────────────
-    const changed: Record<string, any[]> = {};
-    if (updatedPools !== pools) changed.pools = safePools;
-    if (updatedTeams !== teams) changed.teams = safeTeams;
-    if (updatedLogs !== logs) changed.logs = safeLogs;
-    if (updatedInspectors !== inspectors) changed.inspectors = safeInspectors;
-    if (updatedEngineers !== engineers) changed.engineers = safeEngineers;
-    if (updatedPlannedPools !== plannedPools) changed.plannedPools = safePlanned;
-    if (updatedProjectsSummary !== projectsSummary) changed.projectsSummary = safeProjects;
-    if (updatedMonthlyTargets !== monthlyTargets) changed.monthlyTargets = safeTargets;
-    if (updatedEmployees !== employees) changed.employees = safeEmployees;
+    // NOTE: we pass BOTH the baseline (what this device had loaded before
+    // this change) and the local (final) array for each changed collection.
+    // saveChangedCollectionsToFirestore merges by id against the freshest
+    // server data instead of blindly overwriting the whole collection with
+    // this device's local array — see the v7 fix in firebaseService.ts for
+    // why that matters (this is what was causing whole collections, like
+    // teams, to get wiped on a slow/lagging connection).
+    const changed: Record<string, { baseline: any[]; local: any[] }> = {};
+    if (updatedPools !== pools) changed.pools = { baseline: pools, local: safePools };
+    if (updatedTeams !== teams) changed.teams = { baseline: teams, local: safeTeams };
+    if (updatedLogs !== logs) changed.logs = { baseline: logs, local: safeLogs };
+    if (updatedInspectors !== inspectors) changed.inspectors = { baseline: inspectors, local: safeInspectors };
+    if (updatedEngineers !== engineers) changed.engineers = { baseline: engineers, local: safeEngineers };
+    if (updatedPlannedPools !== plannedPools) changed.plannedPools = { baseline: plannedPools, local: safePlanned };
+    if (updatedProjectsSummary !== projectsSummary) changed.projectsSummary = { baseline: projectsSummary, local: safeProjects };
+    if (updatedMonthlyTargets !== monthlyTargets) changed.monthlyTargets = { baseline: monthlyTargets, local: safeTargets };
+    if (updatedEmployees !== employees) changed.employees = { baseline: employees, local: safeEmployees };
 
     if (Object.keys(changed).length === 0) return;
 
@@ -853,14 +873,25 @@ export default function App() {
     }
 
     saveChangedCollectionsToFirestore(changed)
-      .then(() => {
-        setFirebaseStatus('connected');
-        setFirebaseError(null);
+      .then((result) => {
+        if (result.success) {
+          setFirebaseStatus('connected');
+          setFirebaseError(null);
+        } else {
+          // Some collections couldn't reach the cloud (e.g. low/no network).
+          // Nothing is lost — the change is safe in local state/localStorage
+          // and has been queued to auto-retry as soon as the connection
+          // recovers (see flushPendingCloudWrites).
+          setFirebaseStatus('error');
+          setFirebaseError(
+            `Saved on this device. Still syncing to cloud: ${result.failedCollections?.join(', ')} (will retry automatically when the connection improves).`
+          );
+        }
       })
       .catch((err: any) => {
         console.error('Cloud save error:', err);
         setFirebaseStatus('error');
-        setFirebaseError(err?.message || String(err));
+        setFirebaseError('Saved on this device. Waiting for a stable connection to sync to the cloud — it will retry automatically.');
       });
   };
 
