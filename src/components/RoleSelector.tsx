@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ViewRole, StageId } from '../types';
 import { STAGES } from '../data/mockData';
-import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X } from 'lucide-react';
+import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 interface RoleSelectorProps {
   currentRole: ViewRole;
@@ -30,8 +30,10 @@ interface RoleSelectorProps {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TOP BAR — always visible, full width, logo + company name centered.
-// The hamburger button on the left is the ONLY way to open the portal list
-// (RoleSelector below is now a hidden slide-in drawer, not a permanent sidebar).
+// The hamburger button is only shown on smaller screens (< lg breakpoint),
+// where the sidebar collapses back to an overlay drawer. On lg+ screens the
+// sidebar is a permanent flex column next to the content (see RoleSelector
+// below), so the hamburger has nothing to toggle there and is hidden.
 // Rendered by App.tsx above the main content, same as before.
 // ─────────────────────────────────────────────────────────────────────────────
 export const TopBar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => (
@@ -40,17 +42,17 @@ export const TopBar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
       onClick={onMenuClick}
       aria-label="Open portal menu"
       title="Open portal menu"
-      className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white active:scale-95 transition-all cursor-pointer"
+      className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white active:scale-95 transition-all cursor-pointer lg:hidden"
     >
       <Menu className="h-6 w-6" />
     </button>
 
     {/* Logo + name — centered in the bar regardless of hamburger width */}
-    <div className="flex-1 flex items-center justify-center gap-3 min-w-0 px-2">
+    <div className="flex-1 flex items-center justify-center lg:justify-start gap-3 min-w-0 px-2">
       <div className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 flex items-center justify-center">
         <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-full w-full object-contain drop-shadow-[0_4px_10px_rgba(0,0,0,0.35)]" />
       </div>
-      <div className="min-w-0 text-center leading-tight">
+      <div className="min-w-0 text-center lg:text-left leading-tight">
         <h1 className="text-[15px] sm:text-[17px] font-bold tracking-[0.12em] uppercase text-white truncate">
           MAT Plastic Industries
         </h1>
@@ -61,9 +63,10 @@ export const TopBar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
     </div>
 
     {/* Invisible spacer matching the hamburger button width, so the brand
-        block above stays visually centered in the bar instead of drifting
-        right (flex centering alone would be thrown off by the button). */}
-    <div className="h-10 w-10 shrink-0" aria-hidden="true" />
+        block above stays visually centered in the bar on mobile instead of
+        drifting right. Hidden on lg+ since the hamburger itself is hidden
+        there too (brand is left-aligned instead of centered on desktop). */}
+    <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
   </header>
 );
 
@@ -93,6 +96,8 @@ const LOCKED_LABELS: Partial<Record<ViewRole, { label: string; icon: React.Eleme
   trolley_prod: { label: 'Trolley Ledger', icon: Boxes },
 };
 
+const SIDEBAR_COLLAPSE_KEY = 'mat-erp-sidebar-collapsed';
+
 export const RoleSelector: React.FC<RoleSelectorProps> = ({
   currentRole,
   onChangeRole,
@@ -105,13 +110,35 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
   isOpen,
   onClose,
 }) => {
+  // Persistent-sidebar collapse state (SAP Fiori launchpads let you shrink the
+  // nav rail to icon-only to reclaim screen width). Only meaningful on lg+
+  // screens — on mobile the sidebar is always the full-width overlay drawer.
+  // Remembered across sessions via localStorage so a user's preference sticks.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return typeof window !== 'undefined' && window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, next ? '1' : '0'); } catch {}
+      return next;
+    });
+  };
+
   const itemClass = (active: boolean) =>
     `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium cursor-pointer transition-colors ${
+      collapsed ? 'lg:justify-center lg:px-0' : ''
+    } ${
       active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
     }`;
 
-  // Picking a role closes the drawer too — one tap to switch portals, then
-  // the full screen goes straight back to showing only that portal.
+  // Picking a role closes the drawer too — on mobile this collapses the
+  // overlay back down; on desktop it's a no-op (isOpen only governs mobile).
   const selectRole = (role: ViewRole) => {
     onChangeRole(role);
     onClose();
@@ -119,36 +146,50 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
 
   return (
     <>
-      {/* Backdrop — click anywhere outside the drawer to close it */}
+      {/* Backdrop — mobile-only overlay, click anywhere outside to close.
+          Never shown on lg+ since the sidebar is a permanent flex column
+          there rather than an overlay. */}
       {isOpen && (
         <div
           onClick={onClose}
           aria-hidden="true"
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px] transition-opacity duration-300"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px] transition-opacity duration-300 lg:hidden"
         />
       )}
 
-      {/* Drawer — hidden off-screen by default, slides in over the content
-          when isOpen is true. This is now the ONLY way portals are shown;
-          otherwise the current portal has the full screen to itself. */}
+      {/* Sidebar — on mobile this is a fixed, hidden-by-default drawer that
+          slides in over the content (unchanged behavior). On lg+ screens it
+          becomes a permanent, always-visible flex column sitting next to the
+          page content (see the flex wrapper in App.tsx), collapsible between
+          a full 18rem rail and an icon-only 5rem rail. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-hidden={!isOpen}
-        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] h-screen bg-slate-900 text-slate-100 border-r border-slate-800 flex flex-col overflow-y-auto shadow-2xl transform transition-transform duration-300 ease-in-out ${
-          isOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] h-screen bg-slate-900 text-slate-100 border-r border-slate-800 flex flex-col overflow-y-auto shadow-2xl transform transition-transform duration-300 ease-in-out
+          ${isOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'}
+          lg:static lg:translate-x-0 lg:pointer-events-auto lg:shadow-none lg:shrink-0 lg:h-auto lg:transition-[width] lg:duration-200
+          ${collapsed ? 'lg:w-[4.5rem] lg:max-w-none' : 'lg:w-64 lg:max-w-none'}
+        `}
       >
-        {/* Drawer header: close button */}
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Portals</span>
+        {/* Drawer header: close button (mobile) / collapse toggle (desktop) */}
+        <div className={`flex items-center pt-4 pb-2 ${collapsed ? 'lg:justify-center px-2' : 'justify-between px-4'}`}>
+          <span className={`text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'lg:hidden' : ''}`}>Portals</span>
           <button
             onClick={onClose}
             aria-label="Close portal menu"
             title="Close"
-            className="p-2 -mr-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 active:scale-95 transition-all cursor-pointer"
+            className="p-2 -mr-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 active:scale-95 transition-all cursor-pointer lg:hidden"
           >
             <X className="h-5 w-5" />
+          </button>
+          <button
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="hidden lg:flex p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 active:scale-95 transition-all cursor-pointer"
+          >
+            {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
           </button>
         </div>
 
@@ -157,32 +198,33 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
         {!stationLock?.isLocked ? (
           loggedInUser?.role === 'management' ? (
             <>
-              <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Role view</p>
+              <p className={`px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'lg:hidden' : ''}`}>Role view</p>
               <nav className="flex flex-col gap-0.5">
                 {NAV_ITEMS.map(({ role, label, icon: Icon, testId }) => (
                   <button
                     key={role}
                     onClick={() => selectRole(role)}
                     data-testid={testId}
+                    title={collapsed ? label : undefined}
                     className={itemClass(currentRole === role)}
                   >
                     <Icon className="h-[18px] w-[18px] shrink-0" />
-                    <span className="truncate">{label}</span>
+                    <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>{label}</span>
                   </button>
                 ))}
               </nav>
             </>
           ) : (
-            <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-2.5 rounded-lg border border-slate-700/50 text-[11px] text-slate-200">
+            <div className={`flex items-center gap-2 bg-slate-800/80 px-3 py-2.5 rounded-lg border border-slate-700/50 text-[11px] text-slate-200 ${collapsed ? 'lg:justify-center' : ''}`}>
               <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>
+              <span className={collapsed ? 'lg:hidden' : ''}>
                 Active session: <strong className="text-white uppercase font-mono block mt-0.5">{loggedInUser ? loggedInUser.displayName : currentRole.replace('_', ' ')}</strong>
               </span>
             </div>
           )
         ) : stationLock?.allowedRoles && stationLock.allowedRoles.length > 1 ? (
           <>
-            <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
+            <p className={`px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-500 flex items-center gap-1.5 ${collapsed ? 'lg:hidden' : ''}`}>
               <ShieldAlert className="h-3 w-3" /> Locked station tabs
             </p>
             <nav className="flex flex-col gap-0.5">
@@ -191,18 +233,18 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                 if (!meta) return null;
                 const Icon = meta.icon;
                 return (
-                  <button key={role} onClick={() => selectRole(role)} className={itemClass(currentRole === role)}>
+                  <button key={role} onClick={() => selectRole(role)} title={collapsed ? meta.label : undefined} className={itemClass(currentRole === role)}>
                     <Icon className="h-[18px] w-[18px] shrink-0" />
-                    <span className="truncate">{meta.label}</span>
+                    <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>{meta.label}</span>
                   </button>
                 );
               })}
             </nav>
           </>
         ) : (
-          <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-800/50 border border-slate-700/80 rounded-lg text-[11px] font-semibold text-slate-300">
+          <div className={`flex items-center gap-2 px-3 py-2.5 bg-slate-800/50 border border-slate-700/80 rounded-lg text-[11px] font-semibold text-slate-300 ${collapsed ? 'lg:justify-center' : ''}`}>
             <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-400 animate-ping"></span>
-            <span>Viewport role: <strong className="text-white uppercase font-mono block mt-0.5">{currentRole.replace('_', ' ')}</strong></span>
+            <span className={collapsed ? 'lg:hidden' : ''}>Viewport role: <strong className="text-white uppercase font-mono block mt-0.5">{currentRole.replace('_', ' ')}</strong></span>
           </div>
         )}
       </div>
@@ -211,7 +253,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
       <div className="px-3 pb-5 pt-3 border-t border-slate-800 flex flex-col gap-2">
         {!stationLock?.isLocked ? (
           googleUser ? (
-            <div className="flex items-center gap-2 bg-slate-800/80 px-2.5 py-2 rounded-lg border border-slate-700/60">
+            <div className={`flex items-center gap-2 bg-slate-800/80 px-2.5 py-2 rounded-lg border border-slate-700/60 ${collapsed ? 'lg:justify-center' : ''}`}>
               {googleUser.photoURL ? (
                 <img src={googleUser.photoURL} alt="" className="h-6 w-6 rounded-full border border-emerald-500 shrink-0" referrerPolicy="no-referrer" />
               ) : (
@@ -219,7 +261,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                   {googleUser.displayName?.charAt(0) || 'U'}
                 </div>
               )}
-              <div className="min-w-0 flex-1">
+              <div className={`min-w-0 flex-1 ${collapsed ? 'lg:hidden' : ''}`}>
                 <span className="text-[9px] block text-slate-400 uppercase tracking-wider leading-none mb-0.5">Connected drive</span>
                 <span className="font-semibold text-cyan-400 text-[11px] truncate block leading-none">{googleUser.displayName}</span>
               </div>
@@ -234,31 +276,32 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           ) : (
             <button
               onClick={onGoogleSignIn}
-              className="flex items-center gap-2 text-[12px] font-semibold text-slate-300 hover:text-white hover:bg-slate-800 px-2.5 py-2 rounded-lg border border-slate-700 transition-colors cursor-pointer"
+              title={collapsed ? 'Connect Google Drive' : undefined}
+              className={`flex items-center gap-2 text-[12px] font-semibold text-slate-300 hover:text-white hover:bg-slate-800 px-2.5 py-2 rounded-lg border border-slate-700 transition-colors cursor-pointer ${collapsed ? 'lg:justify-center' : ''}`}
             >
               <Cloud className="h-4 w-4 text-cyan-400 shrink-0" />
-              <span>Connect Google Drive</span>
+              <span className={collapsed ? 'lg:hidden' : ''}>Connect Google Drive</span>
             </button>
           )
         ) : (
-          <div className="flex items-center gap-1.5 px-2.5 py-2 bg-slate-800 border border-slate-700 rounded-lg font-mono text-[9px] text-amber-400 uppercase font-bold tracking-wider">
+          <div className={`flex items-center gap-1.5 px-2.5 py-2 bg-slate-800 border border-slate-700 rounded-lg font-mono text-[9px] text-amber-400 uppercase font-bold tracking-wider ${collapsed ? 'lg:justify-center' : ''}`}>
             <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500 animate-pulse"></span>
-            <span>Workstation locked</span>
+            <span className={collapsed ? 'lg:hidden' : ''}>Workstation locked</span>
           </div>
         )}
 
         <button
           onClick={onLogout}
-          className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12px] font-semibold bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-900/40 transition-colors cursor-pointer"
-          title="Sign Out to Security Gate"
+          title={collapsed ? 'Exit Portal' : undefined}
+          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12px] font-semibold bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-900/40 transition-colors cursor-pointer ${collapsed ? 'lg:justify-center' : ''}`}
         >
           <LogOut className="h-3.5 w-3.5 shrink-0" />
-          <span>Exit Portal</span>
+          <span className={collapsed ? 'lg:hidden' : ''}>Exit Portal</span>
         </button>
       </div>
 
       {/* Bottom brand signature */}
-      <div className="flex items-center gap-2.5 px-5 py-4 border-t border-slate-800/80">
+      <div className={`flex items-center gap-2.5 px-5 py-4 border-t border-slate-800/80 ${collapsed ? 'lg:justify-center lg:px-2' : ''}`}>
         <div className="h-8 w-8 shrink-0 rounded-lg bg-white shadow-[0_4px_10px_rgba(0,0,0,0.3)] ring-1 ring-amber-500/25 flex items-center justify-center p-1">
           <img
             src="/logo.png"
@@ -267,7 +310,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
             className="h-full w-full object-contain"
           />
         </div>
-        <div className="min-w-0">
+        <div className={`min-w-0 ${collapsed ? 'lg:hidden' : ''}`}>
           <p className="text-[9.5px] font-semibold tracking-[0.1em] uppercase text-slate-300 truncate">
             MAT Plastic Industries
           </p>
@@ -276,6 +319,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
       </div>
       </div>
     </>
+
   );
 };
 
