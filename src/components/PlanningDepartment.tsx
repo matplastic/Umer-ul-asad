@@ -151,8 +151,20 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   const [newProjNotes, setNewProjNotes] = useState('');
 
   // Selected Monthly Target state for planner form
-  const [targetMonthId, setTargetMonthId] = useState('2026-06');
-  const [targetMonthName, setTargetMonthName] = useState('June 2026');
+  // BUGFIX: previously hardcoded to '2026-06' / 'June 2026', so the scheduler
+  // always opened on June no matter what month it actually was. Now derives
+  // the current month/year dynamically so it always opens on today's month.
+  const getCurrentMonthId = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const getCurrentMonthName = () => {
+    const monthsNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const d = new Date();
+    return `${monthsNames[d.getMonth()]} ${d.getFullYear()}`;
+  };
+  const [targetMonthId, setTargetMonthId] = useState(getCurrentMonthId());
+  const [targetMonthName, setTargetMonthName] = useState(getCurrentMonthName());
   const [targetMainPoolCount, setTargetMainPoolCount] = useState<number>(120);
   const [targetSteelFab, setTargetSteelFab] = useState<number>(140);
   const [targetSteelPrimer, setTargetSteelPrimer] = useState<number>(140);
@@ -1119,6 +1131,34 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       }
     });
 
+    // Also compute progress for orphan live pools (pools built directly on
+    // the shop floor with no PlannedPool record) so their synthetic
+    // `live-...` registry rows show a live stage/progress bar too.
+    const linkedLivePoolIds = new Set(
+      plannedPools.filter(p => p.releasedPoolId).map(p => p.releasedPoolId as string)
+    );
+    pools.forEach(p => {
+      if (linkedLivePoolIds.has(p.id)) return;
+      const isDone = (p.completedAt !== null && p.completedAt !== undefined) || p.currentStageIndex >= STAGES.length;
+      let stageName = 'Dispatched';
+      let progress = 0;
+      if (isDone) {
+        stageName = 'Assembly Complete';
+        progress = 100;
+      } else {
+        const curStage = STAGES[p.currentStageIndex];
+        if (curStage) {
+          stageName = curStage.name;
+          progress = Math.round((p.currentStageIndex / STAGES.length) * 100);
+        }
+      }
+      map[`live-${p.id}`] = {
+        currentStageName: stageName,
+        progressPercent: progress,
+        isCompleted: isDone
+      };
+    });
+
     return map;
   }, [plannedPools, pools]);
 
@@ -1208,9 +1248,42 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
     };
   }, [plannedPools, pools]);
 
+  // BUGFIX: the Inventory Registry previously only ever listed `plannedPools`
+  // (pool codes pre-registered here in Planning). Any pool that was created
+  // directly on the shop floor / Direct Stage Portal — i.e. it exists in the
+  // live `pools` collection but has no PlannedPool record pointing at it via
+  // releasedPoolId — was silently excluded from the registry, even though it
+  // is actively sitting in a shop stage right now. We now detect those
+  // "orphan" live pools and fold them into the registry as synthetic entries
+  // (prefixed id `live-...`) so every pool on the floor is visible here.
+  const orphanLivePools = useMemo(() => {
+    const linkedLivePoolIds = new Set(
+      plannedPools.filter(p => p.releasedPoolId).map(p => p.releasedPoolId as string)
+    );
+    return pools.filter(p => !linkedLivePoolIds.has(p.id));
+  }, [pools, plannedPools]);
+
+  const combinedRegistryPools = useMemo(() => {
+    const synthetic: PlannedPool[] = orphanLivePools.map(p => ({
+      id: `live-${p.id}`,
+      projectName: p.projectName,
+      poolNo: p.poolNo,
+      orientation: p.orientation,
+      dimensions: p.dimensions,
+      shape: p.shape,
+      poolType: p.poolType,
+      drawingUrl: p.drawingUrl,
+      status: p.completedAt ? 'COMPLETED' : 'RELEASED',
+      releasedPoolId: p.id,
+      notes: p.notes,
+      createdAt: p.createdAt,
+    }));
+    return [...plannedPools, ...synthetic];
+  }, [plannedPools, orphanLivePools]);
+
   // Filter and search calculations
   const filteredPlannedPools = useMemo(() => {
-    return plannedPools.filter(p => {
+    return combinedRegistryPools.filter(p => {
       // 1. Search Query Match
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -1239,7 +1312,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 
       return true;
     });
-  }, [plannedPools, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
+  }, [combinedRegistryPools, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
 
   return (
     <div id="planning-department-section" className="space-y-6">
@@ -1298,7 +1371,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 : 'text-slate-600 hover:text-slate-810 hover:bg-slate-200'
             }`}
           >
-            Inventory Registry ({plannedPools.length})
+            Inventory Registry ({combinedRegistryPools.length})
           </button>
           <button
             onClick={() => setActiveTab('quick_launch')}
@@ -1633,7 +1706,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             
             <div className="bg-slate-50/50 p-4 border-b border-slate-100 flex items-center justify-between text-xs">
               <span className="text-slate-500 font-medium">
-                Showing {filteredPlannedPools.length} of {plannedPools.length} pre-planned items
+                Showing {filteredPlannedPools.length} of {combinedRegistryPools.length} items (pre-planned + active shop-floor pools)
               </span>
               {filteredPlannedPools.length === 0 && (
                 <button 
@@ -1710,7 +1783,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                             ) : (
                               <div className="flex items-center gap-1.5 group">
                                 <span>{plan.projectName}</span>
-                                {plan.status === 'PLANNED' && (
+                                {plan.status === 'PLANNED' && !plan.id.startsWith('live-') && (
                                   <button
                                     onClick={() => { setEditProjectId(plan.id); setEditProjectValue(plan.projectName); }}
                                     className="opacity-0 group-hover:opacity-100 text-[9px] text-indigo-400 hover:text-indigo-600 cursor-pointer transition-opacity"
@@ -1785,19 +1858,28 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                   <span>Dispatch Floor</span>
                                 </button>
                               )}
-                              <button
-                                onClick={() => {
-                                  if (window.confirm(`Delete planned pool "${plan.poolNo}" (${plan.projectName}) permanently?\n\nThis removes it from Firestore and all connected PCs in real time.`)) {
-                                    onDeletePlannedPool(plan.id);
-                                  }
-                                }}
-                                data-testid={`delete-planned-${plan.id}`}
-                                title="Delete this planned pool"
-                                className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-bold py-1.5 px-2.5 rounded-xl text-[11px] inline-flex items-center gap-1 border border-rose-200 cursor-pointer"
-                              >
-                                <Trash2 className="h-3 w-3 shrink-0" />
-                                <span>Delete</span>
-                              </button>
+                              {plan.id.startsWith('live-') ? (
+                                <span
+                                  className="text-slate-400 italic text-[10px] px-2"
+                                  title="This pool was created directly on the shop floor and has no pre-planned record here to delete."
+                                >
+                                  Shop-floor record
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Delete planned pool "${plan.poolNo}" (${plan.projectName}) permanently?\n\nThis removes it from Firestore and all connected PCs in real time.`)) {
+                                      onDeletePlannedPool(plan.id);
+                                    }
+                                  }}
+                                  data-testid={`delete-planned-${plan.id}`}
+                                  title="Delete this planned pool"
+                                  className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-bold py-1.5 px-2.5 rounded-xl text-[11px] inline-flex items-center gap-1 border border-rose-200 cursor-pointer"
+                                >
+                                  <Trash2 className="h-3 w-3 shrink-0" />
+                                  <span>Delete</span>
+                                </button>
+                              )}
                             </div>
                           </td>
 
