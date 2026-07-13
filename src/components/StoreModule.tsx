@@ -111,18 +111,34 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(r);
     }
-    return Array.from(map.entries()).map(([key, items]) => ({
-      key,
-      items,
-      // All lines in a batch move together (approved/rejected/printed as
-      // one unit), so the first line's status represents the whole group.
-      status: items[0].status,
-      createdAt: items[0].createdAt,
-    }));
+    return Array.from(map.entries()).map(([key, items]) => {
+      // IMPORTANT: lines in a batch do NOT necessarily share one status.
+      // The manager's email/WhatsApp decision page allows per-item
+      // approve/reject (e.g. approve 9, reject 3 out of 12), so each line
+      // can end up with its own independent status in Firestore. Collapsing
+      // to items[0].status here would silently hide rejections whenever the
+      // first line happened to be approved — compute per-status buckets
+      // instead and let the UI reflect the real mix.
+      const pending = items.filter(it => it.status === 'PENDING');
+      const approved = items.filter(it => it.status === 'APPROVED');
+      const rejected = items.filter(it => it.status === 'REJECTED');
+      const printed = items.filter(it => it.status === 'PRINTED');
+      // "status" is kept only as a rough summary for sorting/legacy use —
+      // prefer pending/approved/rejected/printed below for anything that
+      // needs to be correct.
+      const status = pending.length > 0 ? 'PENDING'
+        : approved.length > 0 ? 'APPROVED'
+        : rejected.length > 0 && printed.length === 0 ? 'REJECTED'
+        : 'PRINTED';
+      return { key, items, pending, approved, rejected, printed, status, createdAt: items[0].createdAt };
+    });
   }, [requests]);
 
-  const pendingPrintCount = requestGroups.filter(g => g.status === 'APPROVED').length;
-  const pendingApprovalCount = requestGroups.filter(g => g.status === 'PENDING').length;
+  // Counts reflect groups that still have at least one line needing that
+  // action — a batch with 9 approved + 3 rejected still needs printing
+  // (for the 9) even though it's not "PENDING" anymore.
+  const pendingPrintCount = requestGroups.filter(g => g.approved.length > 0).length;
+  const pendingApprovalCount = requestGroups.filter(g => g.pending.length > 0).length;
 
   const filteredMaterials = useMemo(() => {
     let list = !sectionFilter ? materials : materials.filter(m => (m.section || '') === sectionFilter);
@@ -589,34 +605,54 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             .sort((a, b) => (a.status === 'PENDING' ? -1 : 1) - (b.status === 'PENDING' ? -1 : 1) || (a.createdAt < b.createdAt ? 1 : -1))
             .map(group => {
               const first = group.items[0];
-              const ids = group.items.map(it => it.id);
+              // Buttons/prints must only ever touch the lines that are
+              // actually still in that state — never "every id in the
+              // group" — otherwise re-approving a mixed batch would also
+              // resubmit lines the manager already rejected (harmless
+              // since the backend re-guards on status !== PENDING, but
+              // printing must never include rejected lines).
+              const pendingIds = group.pending.map(it => it.id);
               return (
                 <div key={group.key} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      {statusPill(group.status)}
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      {/* Show every status actually present in this batch —
+                          never collapse a mixed batch down to one pill. */}
+                      {group.pending.length > 0 && statusPill('PENDING')}
+                      {group.approved.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-400 border border-emerald-800">{group.approved.length} Approved</span>}
+                      {group.rejected.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-950/40 text-rose-400 border border-rose-800">{group.rejected.length} Rejected</span>}
+                      {group.printed.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">{group.printed.length} Printed</span>}
                       <span className="text-xs text-slate-500 font-mono">{new Date(first.createdAt).toLocaleString()}</span>
                       {group.items.length > 1 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-400 border border-indigo-800">{group.items.length} items</span>}
                     </div>
                     <div className="text-xs text-slate-400 mb-1.5">
                       {first.projectName} / {first.poolType}{first.poolNo ? ` / Pool ${first.poolNo}` : ''} · requested by {first.requestedByName} ({first.requestedByRole})
                     </div>
-                    {/* Line items — every material in this request, whether it's 1 or 40 */}
+                    {/* Line items — every material in this request, whether it's 1 or 40.
+                        Each chip shows its OWN decision so mixed batches are never ambiguous. */}
                     <div className="flex flex-wrap gap-1.5 mb-1">
-                      {group.items.map(it => (
-                        <span key={it.id} className="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-200">
-                          {it.materialName}: <span className="font-mono font-bold text-white">{Number(it.qtyRequested)}</span> {it.unit}
-                        </span>
-                      ))}
+                      {group.items.map(it => {
+                        const lineColor = it.status === 'APPROVED' ? 'border-emerald-800 text-emerald-300'
+                          : it.status === 'REJECTED' ? 'border-rose-800 text-rose-300 line-through opacity-70'
+                          : it.status === 'PRINTED' ? 'border-slate-700 text-slate-400'
+                          : 'border-slate-700 text-slate-200';
+                        return (
+                          <span key={it.id} className={`px-2 py-1 rounded-lg bg-slate-800 border text-xs ${lineColor}`} title={it.status}>
+                            {it.materialName}: <span className="font-mono font-bold">{Number(it.qtyRequested)}</span> {it.unit}
+                          </span>
+                        );
+                      })}
                     </div>
                     {first.reason && <div className="text-xs text-slate-500 italic mt-0.5">&ldquo;{first.reason}&rdquo;</div>}
-                    {first.decidedByName && (
-                      <div className="text-[11px] text-slate-500 mt-1">Decided by {first.decidedByName}{first.decisionNotes ? ` — ${first.decisionNotes}` : ''}</div>
+                    {group.items.some(it => it.decidedByName) && (
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        {group.items.filter(it => it.decidedByName).map(it => `${it.materialName}: decided by ${it.decidedByName}${it.decisionNotes ? ` — ${it.decisionNotes}` : ''}`).join(' · ')}
+                      </div>
                     )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    {group.status === 'PENDING' && (
+                    {group.pending.length > 0 && (
                       <>
                         <input
                           type="text"
@@ -625,20 +661,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           onChange={e => setDecisionNotes(prev => ({ ...prev, [group.key]: e.target.value }))}
                           className="hidden md:block w-36 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white"
                         />
-                        <button onClick={() => decideGroup(ids, 'approve', group.key)} data-testid={`req-approve-${group.key}`} className="flex items-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Approve{group.items.length > 1 ? ' All' : ''}
+                        <button onClick={() => decideGroup(pendingIds, 'approve', group.key)} data-testid={`req-approve-${group.key}`} className="flex items-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Approve{pendingIds.length > 1 ? ` (${pendingIds.length})` : ''}
                         </button>
-                        <button onClick={() => decideGroup(ids, 'reject', group.key)} data-testid={`req-reject-${group.key}`} className="flex items-center gap-1 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-                          <XCircle className="h-3.5 w-3.5" /> Reject{group.items.length > 1 ? ' All' : ''}
+                        <button onClick={() => decideGroup(pendingIds, 'reject', group.key)} data-testid={`req-reject-${group.key}`} className="flex items-center gap-1 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                          <XCircle className="h-3.5 w-3.5" /> Reject{pendingIds.length > 1 ? ` (${pendingIds.length})` : ''}
                         </button>
                       </>
                     )}
-                    {group.status === 'APPROVED' && (
-                      <button onClick={() => setPrintBatch(group.items)} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer animate-pulse">
-                        <Printer className="h-3.5 w-3.5" /> Print Issue Slip
+                    {group.approved.length > 0 && (
+                      <button onClick={() => setPrintBatch(group.approved)} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer animate-pulse">
+                        <Printer className="h-3.5 w-3.5" /> Print Issue Slip{group.approved.length > 1 ? ` (${group.approved.length})` : ''}
                       </button>
                     )}
-                    {group.status === 'PRINTED' && (
+                    {group.pending.length === 0 && group.approved.length === 0 && group.printed.length > 0 && (
                       <span className="flex items-center gap-1 text-xs text-slate-500"><Clock className="h-3.5 w-3.5" /> Printed {first.printedAt ? new Date(first.printedAt).toLocaleTimeString() : ''}</span>
                     )}
                   </div>
