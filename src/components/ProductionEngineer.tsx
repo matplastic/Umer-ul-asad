@@ -181,10 +181,13 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
       return;
     }
 
-    // Check duplicate poolNo
-    const exists = pools.some(p => p.poolNo.toLowerCase() === poolNo.toLowerCase().trim());
+    // Check duplicate poolNo within the SAME project only (same pool no. is allowed across different projects)
+    const exists = pools.some(p =>
+      p.poolNo.toLowerCase() === poolNo.toLowerCase().trim() &&
+      p.projectName.toLowerCase() === projectName.toLowerCase().trim()
+    );
     if (exists) {
-      setErrorMsg(`Pool ID "${poolNo}" is already registered. IDs must be unique.`);
+      setErrorMsg(`Pool ID "${poolNo}" is already registered under project "${projectName}". IDs must be unique within a project.`);
       return;
     }
 
@@ -234,10 +237,13 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
     let duplicatesFound = false;
     for (let i = 0; i < batchCount; i++) {
       const targetNo = `${batchPrefix.trim().toUpperCase()}${batchStartRange + i}`;
-      const exists = pools.some(p => p.poolNo.toLowerCase() === targetNo.toLowerCase());
+      const exists = pools.some(p =>
+        p.poolNo.toLowerCase() === targetNo.toLowerCase() &&
+        p.projectName.toLowerCase() === batchProjectName.toLowerCase().trim()
+      );
       if (exists) {
         duplicatesFound = true;
-        setErrorMsg(`Conflict: Pool ID "${targetNo}" is already registered. Change the start index or suffix prefix.`);
+        setErrorMsg(`Conflict: Pool ID "${targetNo}" is already registered under project "${batchProjectName}". Change the start index or suffix prefix.`);
         return;
       }
     }
