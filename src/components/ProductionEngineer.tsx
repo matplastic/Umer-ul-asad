@@ -164,6 +164,16 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
     }
 
     if (selectedPlanId && onReleasePlannedPool) {
+      // Same project-scoped duplicate check applies to pre-planned releases too
+      const preplannedDuplicate = pools.some(p =>
+        p.poolNo.toLowerCase() === poolNo.toLowerCase().trim() &&
+        p.projectName.toLowerCase() === projectName.toLowerCase().trim()
+      );
+      if (preplannedDuplicate) {
+        setErrorMsg(`Pool ID "${poolNo}" is already registered under project "${projectName}". This pre-planned pool may have already been released.`);
+        return;
+      }
+
       const releaseResultId = onReleasePlannedPool(selectedPlanId, selectedEngineer);
       if (releaseResultId) {
         setSuccessMsg(`Pre-planned Pool ${poolNo.toUpperCase()} ("${projectName}") successfully launched onto Steel Fabrication stage!`);
