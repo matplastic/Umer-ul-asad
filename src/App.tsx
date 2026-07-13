@@ -2665,34 +2665,40 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-250 antialiased">
 
-      {/* Always-visible top bar: hamburger opens the portal drawer, logo + name centered */}
+      {/* Always-visible top bar: hamburger (mobile only) opens the portal
+          drawer; logo + name centered on mobile, left-aligned on desktop */}
       <TopBar onMenuClick={() => setNavOpen(true)} />
 
-      {/* Portal drawer — hidden until the hamburger is tapped, then overlays
-          the screen. This replaces the old permanent left sidebar, so every
-          portal now gets the full screen by default. */}
-      <RoleSelector
-        currentRole={currentRole}
-        selectedStageId={selectedStageId}
-        onChangeRole={setCurrentRole}
-        onChangeStage={handleStageChange}
-        workerTeamId={workerTeamId}
-        onChangeWorkerTeam={setWorkerTeamId}
-        allTeams={teams}
-        googleUser={googleUser}
-        onGoogleSignIn={handleGoogleSignIn}
-        onGoogleSignOut={handleGoogleSignOut}
-        stationLock={stationLock}
-        loggedInUser={loggedInUser}
-        onLogout={handleLogout}
-        isOpen={navOpen}
-        onClose={() => setNavOpen(false)}
-      />
+      {/* Below the top bar: sidebar + page content sit side by side on lg+
+          screens (persistent Fiori-style nav rail), and stack as an overlay
+          drawer + full-width content on smaller screens (unchanged mobile
+          behavior). */}
+      <div className="flex-1 flex min-h-0">
 
-      {/* Global Page Up / Page Down floating buttons — visible on all portals */}
-      <ScrollButtons />
+        {/* Portal navigation — overlay drawer on mobile, permanent
+            collapsible sidebar on lg+ (see RoleSelector.tsx). */}
+        <RoleSelector
+          currentRole={currentRole}
+          selectedStageId={selectedStageId}
+          onChangeRole={setCurrentRole}
+          onChangeStage={handleStageChange}
+          workerTeamId={workerTeamId}
+          onChangeWorkerTeam={setWorkerTeamId}
+          allTeams={teams}
+          googleUser={googleUser}
+          onGoogleSignIn={handleGoogleSignIn}
+          onGoogleSignOut={handleGoogleSignOut}
+          stationLock={stationLock}
+          loggedInUser={loggedInUser}
+          onLogout={handleLogout}
+          isOpen={navOpen}
+          onClose={() => setNavOpen(false)}
+        />
 
-      <div className="flex-1 min-w-0 flex flex-col justify-between">
+        {/* Global Page Up / Page Down floating buttons — visible on all portals */}
+        <ScrollButtons />
+
+        <div className="flex-1 min-w-0 flex flex-col justify-between">
 
       {/* Station Lock Overlay Banner */}
       {stationLock.isLocked && (
@@ -3002,6 +3008,8 @@ export default function App() {
           <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Flow Scheduling Engine</p>
         </div>
       </footer>
+
+      </div>
 
       </div>
 
