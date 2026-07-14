@@ -297,6 +297,9 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         <span className="font-mono text-xs font-black text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">
                           {myClaimedPool.poolNo}
                         </span>
+                        <span className="text-[9px] font-bold px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded uppercase ml-1">
+                          {myClaimedPool.poolType || 'Type 3'}
+                        </span>
                         <h4 className="text-sm font-bold text-slate-800 mt-1.5">{myClaimedPool.projectName}</h4>
                       </div>
                       {getStatusBadge(myClaimedPoolHist.status)}
@@ -678,6 +681,9 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
                         <span className="font-mono text-xs font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 border border-emerald-100 rounded">
                           {pool.poolNo}
+                        </span>
+                        <span className="text-[9px] font-bold px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded uppercase shrink-0">
+                          {pool.poolType || 'Type 3'}
                         </span>
                         <span className="font-semibold text-slate-800 truncate mr-1.5">{pool.projectName}</span>
                         <button
