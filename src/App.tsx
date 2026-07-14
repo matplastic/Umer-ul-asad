@@ -250,6 +250,31 @@ export default function App() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannedPoolId, setScannedPoolId] = useState<string | null>(null);
 
+  // Shared shop-floor kiosk: a worker checks in by entering their team's code.
+  // Session-only (not persisted) so the screen resets for the next person.
+  const [workerCheckedIn, setWorkerCheckedIn] = useState(false);
+  const [teamCodeInput, setTeamCodeInput] = useState('');
+  const [teamCodeError, setTeamCodeError] = useState('');
+
+  const handleTeamCodeSubmit = () => {
+    const code = teamCodeInput.trim();
+    if (!code) { setTeamCodeError('Enter your team code.'); return; }
+    const match = teams.find(t => t.code && t.code === code);
+    if (!match) { setTeamCodeError('Code not recognized. Ask your supervisor.'); return; }
+    setWorkerTeamId(match.id);
+    setSelectedStageId(match.stageId);
+    setWorkerCheckedIn(true);
+    setTeamCodeInput('');
+    setTeamCodeError('');
+  };
+
+  const handleWorkerLogout = () => {
+    setWorkerCheckedIn(false);
+    setWorkerTeamId('');
+    setTeamCodeInput('');
+    setTeamCodeError('');
+  };
+
   // Role-Based Access Control State — backed by a real username/password
   // account (see src/lib/authClient.ts), not a shared department PIN.
   const [loggedInUser, setLoggedInUser] = useState<AuthUser | null>(() => getStoredUser());
@@ -2882,22 +2907,56 @@ export default function App() {
         )}
 
         {currentRole === 'stage_worker' && (
-          <StageDashboard
-            stage={currentStageInfo}
-            pools={pools}
-            teams={teams}
-            selectedTeamId={workerTeamId}
-            onClaimPool={handleClaimPool}
-            onStartStage={handleStartStage}
-            onFinishStage={handleFinishStage}
-            googleUser={googleUser}
-            onGoogleSignIn={handleGoogleSignIn}
-            onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
-            onRequestUndoClaim={handleRequestUndoClaim}
-            onRefresh={refreshFromCloud}
-            isSyncing={isSyncing}
-            qcDefects={qcDefects}
-          />
+          (stationLock.isLocked && stationLock.teamId) || workerCheckedIn ? (
+            <StageDashboard
+              stage={currentStageInfo}
+              pools={pools}
+              teams={teams}
+              selectedTeamId={workerTeamId}
+              onClaimPool={handleClaimPool}
+              onStartStage={handleStartStage}
+              onFinishStage={handleFinishStage}
+              googleUser={googleUser}
+              onGoogleSignIn={handleGoogleSignIn}
+              onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
+              onRequestUndoClaim={handleRequestUndoClaim}
+              onRefresh={refreshFromCloud}
+              isSyncing={isSyncing}
+              qcDefects={qcDefects}
+              onWorkerLogout={(stationLock.isLocked && stationLock.teamId) ? undefined : handleWorkerLogout}
+            />
+          ) : (
+            <div className="min-h-[70vh] flex items-center justify-center px-4">
+              <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-100 shadow-sm p-6 text-center">
+                <div className="h-12 w-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto mb-3 font-black text-lg">
+                  #
+                </div>
+                <h3 className="text-sm font-black text-slate-800">Enter Your Team Code</h3>
+                <p className="text-xs text-slate-400 mt-1 mb-5">
+                  Ask your supervisor for your team's login code. You'll only see your own section and your own pool.
+                </p>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={teamCodeInput}
+                  onChange={(e) => { setTeamCodeInput(e.target.value); setTeamCodeError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleTeamCodeSubmit(); }}
+                  autoFocus
+                  placeholder="Team code"
+                  className="w-full text-center text-lg tracking-widest font-mono border border-slate-200 rounded-xl px-3 py-3 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+                {teamCodeError && (
+                  <p className="text-xs font-bold text-rose-500 mt-2">{teamCodeError}</p>
+                )}
+                <button
+                  onClick={handleTeamCodeSubmit}
+                  className="w-full mt-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl cursor-pointer"
+                >
+                  Check In
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {currentRole === 'quality_inspector' && (
