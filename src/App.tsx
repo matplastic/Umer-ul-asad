@@ -1639,6 +1639,12 @@ export default function App() {
     }
   };
 
+  const handleUpdatePool = (poolId: string, updates: Partial<Pool>) => {
+    const updatedPools = pools.map(p => p.id === poolId ? { ...p, ...updates } : p);
+    setPools(updatedPools);
+    saveState(updatedPools, teams, logs);
+  };
+
   const handleDeletePool = async (poolId: string, operatorName: string) => {
     const targetPool = pools.find(p => p.id === poolId);
     if (!targetPool) return;
@@ -2921,6 +2927,7 @@ export default function App() {
             onDeleteProjectSummary={handleDeleteProjectSummary}
             onDeletePlannedPool={handleDeletePlannedPool}
             onDeletePool={handleDeletePool}
+            onUpdatePool={handleUpdatePool}
             onDeleteTrolley={handleDeleteTrolley}
             employeePunches={employeePunches}
             onAddEmployeePunch={handleSaveEmployeePunch}
