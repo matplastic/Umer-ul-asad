@@ -93,6 +93,7 @@ export interface ActivityLog {
   projectName: string;
   stageId: StageId;
   type: 'CREATED' | 'STAGE_STARTED' | 'STAGE_FINISHED' | 'APPROVED' | 'REJECTED';
+  teamId?: string;
   teamName?: string;
   notes?: string;
   operatorName: string;
