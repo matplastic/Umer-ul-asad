@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool } from '../types';
+import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
 import { STAGES } from '../data/mockData';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
@@ -71,6 +71,7 @@ interface ManagementDashboardProps {
   onDeleteProjectSummary?: (id: string) => void;
   onDeletePlannedPool?: (id: string) => void;
   onDeletePool?: (poolId: string, inspectorName?: string) => void;
+  onUpdatePool?: (poolId: string, updates: Partial<Pool>) => void;
   onDeleteTrolley?: (id: string) => void;
   onDeleteMonthlyTarget?: (id: string) => void;
   employeePunches?: any[];
@@ -118,6 +119,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   onDeleteProjectSummary,
   onDeletePlannedPool,
   onDeletePool,
+  onUpdatePool,
   onDeleteTrolley,
   onDeleteMonthlyTarget,
   employeePunches = [],
@@ -1293,6 +1295,55 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [poolsPage, setPoolsPage] = useState(1);
   const poolsPerPage = 7;
 
+  // Pool Details Editor tab
+  const [editorSearchQuery, setEditorSearchQuery] = useState('');
+  const [editorSelectedPoolId, setEditorSelectedPoolId] = useState<string>('');
+  const [editorForm, setEditorForm] = useState<{
+    poolNo: string;
+    projectName: string;
+    poolType: string;
+    dimensions: string;
+    shape: string;
+    orientation: PoolOrientation;
+    notes: string;
+  } | null>(null);
+  const [editorSaveMsg, setEditorSaveMsg] = useState('');
+
+  const editorMatchingPools = pools.filter(p => {
+    if (!editorSearchQuery.trim()) return true;
+    const q = editorSearchQuery.trim().toLowerCase();
+    return p.poolNo.toLowerCase().includes(q) || p.projectName.toLowerCase().includes(q);
+  });
+
+  const loadPoolIntoEditor = (pool: Pool) => {
+    setEditorSelectedPoolId(pool.id);
+    setEditorForm({
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      poolType: pool.poolType || '',
+      dimensions: pool.dimensions || '',
+      shape: pool.shape || '',
+      orientation: pool.orientation || 'Normal',
+      notes: pool.notes || '',
+    });
+    setEditorSaveMsg('');
+  };
+
+  const handleSavePoolEdits = () => {
+    if (!editorSelectedPoolId || !editorForm || !onUpdatePool) return;
+    onUpdatePool(editorSelectedPoolId, {
+      poolNo: editorForm.poolNo.trim(),
+      projectName: editorForm.projectName.trim(),
+      poolType: editorForm.poolType.trim() || 'Type 3',
+      dimensions: editorForm.dimensions.trim(),
+      shape: editorForm.shape.trim(),
+      orientation: editorForm.orientation,
+      notes: editorForm.notes.trim(),
+    });
+    setEditorSaveMsg('Saved!');
+    setTimeout(() => setEditorSaveMsg(''), 2500);
+  };
+
   // Daily Stage-wise Progress: pick any date and see exactly which pools were
   // marked done (QA approved) in each stage on that day, and which team did them.
   const todayStr = (() => {
@@ -1797,6 +1848,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           {
             group: 'Admin',
             tabs: [
+              { id: 'pool_editor', label: 'Pool Details Editor', icon: Edit2, elId: 'tab-mgmt-pool-editor' },
               { id: 'workspace_setup', label: 'Workspace Setup & Names', icon: SlidersHorizontal },
               { id: 'google_drive', label: 'Google Drive Backups', icon: Cloud },
               { id: 'terminal_settings', label: 'Terminal Control', icon: Lock },
@@ -4996,6 +5048,186 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Tab: Pool Details Editor — fix missing/wrong pool type, dimensions, shape etc on existing pools */}
+        {activeTab === 'pool_editor' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
+
+            {/* Left: search + pool list */}
+            <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <Edit2 className="h-4 w-4 text-blue-500" />
+                Pool Details Editor
+              </h3>
+              <p className="text-xs text-slate-400">
+                Search a pool, then edit its type, dimensions, shape, orientation, or notes. Useful for backfilling pool type on pools created before that field existed.
+              </p>
+              <div className="relative">
+                <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={editorSearchQuery}
+                  onChange={(e) => setEditorSearchQuery(e.target.value)}
+                  placeholder="Search by pool no. or project name..."
+                  className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+              </div>
+
+              <div className="space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
+                {editorMatchingPools.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-8">No pools match your search.</p>
+                ) : (
+                  editorMatchingPools.map((pool) => {
+                    const isSelected = editorSelectedPoolId === pool.id;
+                    return (
+                      <button
+                        key={pool.id}
+                        onClick={() => loadPoolIntoEditor(pool)}
+                        className={`w-full text-left p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-2 transition-colors ${
+                          isSelected ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
+                            isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {pool.poolNo}
+                          </span>
+                          <span className="text-xs font-semibold truncate">{pool.projectName}</span>
+                        </span>
+                        <span className={`text-[9px] font-bold px-1 py-0.2 rounded uppercase shrink-0 ${
+                          isSelected ? 'bg-slate-700 text-teal-300' : (pool.poolType ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-600')
+                        }`}>
+                          {pool.poolType || 'No type set'}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Right: edit form */}
+            <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+              {!editorForm ? (
+                <div className="py-24 text-center">
+                  <Edit2 className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                  <span className="text-xs text-slate-400">Select a pool from the list to edit its details</span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h4 className="text-sm font-bold text-slate-800">Editing Pool Details</h4>
+                    {onUpdatePool ? (
+                      editorSaveMsg && (
+                        <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                          <Check className="h-3.5 w-3.5" /> {editorSaveMsg}
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-[10px] font-bold text-rose-500">Save is not wired up yet — ask your developer to connect onUpdatePool.</span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Pool No.</label>
+                      <input
+                        type="text"
+                        value={editorForm.poolNo}
+                        onChange={(e) => setEditorForm({ ...editorForm, poolNo: e.target.value })}
+                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Project Name</label>
+                      <input
+                        type="text"
+                        value={editorForm.projectName}
+                        onChange={(e) => setEditorForm({ ...editorForm, projectName: e.target.value })}
+                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Pool Type</label>
+                      <input
+                        type="text"
+                        list="pool-type-suggestions"
+                        value={editorForm.poolType}
+                        onChange={(e) => setEditorForm({ ...editorForm, poolType: e.target.value })}
+                        placeholder="e.g. Type 1, Type 2, Type 3"
+                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      />
+                      <datalist id="pool-type-suggestions">
+                        {Array.from(new Set(pools.map(p => p.poolType).filter(Boolean) as string[])).map(t => (
+                          <option key={t} value={t} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Orientation</label>
+                      <select
+                        value={editorForm.orientation}
+                        onChange={(e) => setEditorForm({ ...editorForm, orientation: e.target.value as PoolOrientation })}
+                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      >
+                        <option value="Normal">Normal</option>
+                        <option value="Mirror">Mirror</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Dimensions</label>
+                      <input
+                        type="text"
+                        value={editorForm.dimensions}
+                        onChange={(e) => setEditorForm({ ...editorForm, dimensions: e.target.value })}
+                        placeholder="e.g. 12m x 5m"
+                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Shape</label>
+                      <input
+                        type="text"
+                        value={editorForm.shape}
+                        onChange={(e) => setEditorForm({ ...editorForm, shape: e.target.value })}
+                        placeholder="e.g. Classic Rectangle"
+                        className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Notes</label>
+                    <textarea
+                      value={editorForm.notes}
+                      onChange={(e) => setEditorForm({ ...editorForm, notes: e.target.value })}
+                      rows={3}
+                      className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      onClick={() => { setEditorSelectedPoolId(''); setEditorForm(null); }}
+                      className="text-xs font-bold px-4 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSavePoolEdits}
+                      disabled={!onUpdatePool}
+                      className="text-xs font-bold px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      Save Changes
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
