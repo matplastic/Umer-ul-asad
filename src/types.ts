@@ -83,6 +83,7 @@ export interface Team {
   name: string;
   status: 'IDLE' | 'BUSY';
   activePoolId?: string | null;
+  code?: string; // Login PIN so a worker can check in as this team on a shared kiosk screen
 }
 
 export interface ActivityLog {
