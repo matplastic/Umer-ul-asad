@@ -7,6 +7,8 @@ import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getInitialData, createEmptyH
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { LoginScreen } from './components/LoginScreen';
 import { getStoredUser, logout as logoutUser, type AuthUser } from './lib/authClient';
+import { startPresenceHeartbeat, stopPresenceHeartbeat } from './lib/presence';
+import { useIdleTimeout } from './hooks/useIdleTimeout';
 import { ProductionEngineer } from './components/ProductionEngineer';
 import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
@@ -258,12 +260,39 @@ export default function App() {
     if (user.role === 'stage_worker') {
       setSelectedStageId('steel_fabrication');
     }
+    startPresenceHeartbeat(user);
   };
 
   const handleLogout = () => {
     setLoggedInUser(null);
     logoutUser();
+    stopPresenceHeartbeat();
   };
+
+  // Idle auto-logout: 30 minutes of no mouse/keyboard/touch/scroll activity
+  // signs the current user out. Runs only while someone is actually logged
+  // in (`enabled` below), so it never fires against the login screen itself.
+  // Shop Floor logins are exempt — those are shared stage tablets meant to
+  // stay signed in for the whole shift, not a single person's session.
+  const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  const IDLE_EXEMPT_ROLES: ViewRole[] = ['stage_worker'];
+  const [idleLogoutNotice, setIdleLogoutNotice] = useState(false);
+  const idleTimeoutEnabled = !!loggedInUser && !IDLE_EXEMPT_ROLES.includes(loggedInUser.role);
+  useIdleTimeout(idleTimeoutEnabled, IDLE_TIMEOUT_MS, () => {
+    setIdleLogoutNotice(true);
+    handleLogout();
+  });
+
+  // Resume the presence heartbeat on page load/refresh if a session was
+  // already active in localStorage (handleLoginSuccess only fires on a
+  // fresh login, not on a restored session).
+  useEffect(() => {
+    if (loggedInUser) {
+      startPresenceHeartbeat(loggedInUser);
+    }
+    // Only meant to run once on mount against whatever getStoredUser() gave us.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Manual cloud refresh (used by Stage Floor & QA portals) ─────────────────
   const [isSyncing, setIsSyncing] = useState(false);
@@ -2669,7 +2698,7 @@ export default function App() {
   const currentStageInfo = STAGES.find(s => s.id === selectedStageId) || STAGES[0];
 
   if (!loggedInUser) {
-    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+    return <LoginScreen onLoginSuccess={(user) => { setIdleLogoutNotice(false); handleLoginSuccess(user); }} idleLoggedOut={idleLogoutNotice} />;
   }
 
   return (
