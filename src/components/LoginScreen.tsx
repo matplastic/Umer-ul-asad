@@ -5,6 +5,9 @@ import { loginWithPassword, type AuthUser } from '../lib/authClient';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: AuthUser) => void;
+  /** Shows a "you were signed out due to inactivity" notice instead of a
+   *  plain sign-in screen — set when useIdleTimeout triggers a logout. */
+  idleLoggedOut?: boolean;
 }
 
 // Cosmetic copy only — the account's role (decided by HR/Management when the
@@ -25,7 +28,7 @@ const ROLE_LABELS: Record<ViewRole, string> = {
   reports_analytics: 'Reports & Analytics',
 };
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLoggedOut }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -86,6 +89,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               Use the username and password issued to you by HR or Management. Your portal opens automatically based on your assigned role.
             </p>
           </div>
+
+          {idleLoggedOut && (
+            <div className="mb-5 flex items-start gap-2.5 bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs rounded-xl px-3.5 py-3">
+              <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>You were signed out after 30 minutes of inactivity. Sign in again to continue.</span>
+            </div>
+          )}
 
           <form onSubmit={handleLoginSubmit} className="flex flex-col gap-4">
             <div className="space-y-1.5">
