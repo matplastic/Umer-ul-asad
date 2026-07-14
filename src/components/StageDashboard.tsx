@@ -20,6 +20,7 @@ interface StageDashboardProps {
   onRefresh?: () => void;
   isSyncing?: boolean;
   qcDefects?: QCDefect[];
+  onWorkerLogout?: () => void;
 }
 
 export const StageDashboard: React.FC<StageDashboardProps> = ({
@@ -37,6 +38,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   onRefresh,
   isSyncing,
   qcDefects = [],
+  onWorkerLogout,
 }) => {
   const [printPool, setPrintPool] = useState<Pool | null>(null);
   const [viewingDrawingPool, setViewingDrawingPool] = useState<Pool | null>(null);
@@ -248,6 +250,24 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
         </div>
       </div>
 
+      {onWorkerLogout && (
+        <div className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl px-4 py-2.5">
+          <span className="text-xs font-bold text-slate-600">
+            Checked in as <span className="text-slate-900">{activeTeam?.name || 'Unknown Team'}</span>
+          </span>
+          <button
+            onClick={() => {
+              if (window.confirm('Switch worker? You will be logged out and the next person will need to enter their own team code.')) {
+                onWorkerLogout();
+              }
+            }}
+            className="text-[10px] font-bold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-white cursor-pointer"
+          >
+            Not you? Switch Worker
+          </button>
+        </div>
+      )}
+
       {/* Main Grid split */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
@@ -351,7 +371,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             Start time will be recorded automatically
                           </div>
                           <button
-                            onClick={() => onStartStage(myClaimedPool.id, stage.id)}
+                            onClick={() => {
+                              if (window.confirm(`Confirm: start work on Pool [${myClaimedPool.poolNo}] - ${myClaimedPool.projectName} for ${stage.name}?\n\nWorking team: ${activeTeam?.name || 'Unknown Team'}`)) {
+                                onStartStage(myClaimedPool.id, stage.id);
+                              }
+                            }}
                             className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-100"
                           >
                             <Play className="h-3.5 w-3.5 fill-current" />
@@ -371,7 +395,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             Finish time will be recorded automatically
                           </div>
                           <button
-                            onClick={() => onFinishStage(myClaimedPool.id, stage.id)}
+                            onClick={() => {
+                              if (window.confirm(`Confirm: mark Pool [${myClaimedPool.poolNo}] - ${myClaimedPool.projectName} as COMPLETE for ${stage.name}?\n\nWorking team: ${activeTeam?.name || 'Unknown Team'}\n\nDouble-check this is YOUR pool before confirming — this cannot be undone from here.`)) {
+                                onFinishStage(myClaimedPool.id, stage.id);
+                              }
+                            }}
                             className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-blue-150"
                           >
                             <CheckSquare className="h-3.5 w-3.5" />
