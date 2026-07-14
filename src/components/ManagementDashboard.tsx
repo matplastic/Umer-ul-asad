@@ -6,6 +6,7 @@ import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl } from '../lib
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
 import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
+import { OnlineUsersPanel } from './OnlineUsersPanel';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
   CartesianGrid, Tooltip as RechartsTooltip, Legend
@@ -135,7 +136,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'daily_progress' | 'teams' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'daily_progress' | 'teams' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users'>('analytics');
 
   // Interactive Award & Nomination state
   const [activeNominationSubTab, setActiveNominationSubTab] = useState<'section_teams' | 'employee_of_the_year'>('section_teams');
@@ -1879,6 +1880,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'workspace_setup', label: 'Workspace Setup & Names', icon: SlidersHorizontal },
               { id: 'google_drive', label: 'Google Drive Backups', icon: Cloud },
               { id: 'terminal_settings', label: 'Terminal Control', icon: Lock },
+              { id: 'online_users', label: 'Active Sessions', icon: Activity },
             ],
           },
         ] as const).map((section, i) => (
@@ -1912,6 +1914,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
       {/* Panels viewport */}
       <div className="grid grid-cols-1 gap-6">
+
+        {/* Tab: Active Sessions / Who's Online */}
+        {activeTab === 'online_users' && (
+          <OnlineUsersPanel />
+        )}
 
         {/* Tab 1: Analytics/Summary Dashboard */}
         {activeTab === 'analytics' && (
