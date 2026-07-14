@@ -3641,6 +3641,29 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                 </span>
                               </div>
                             )}
+                            <div className="mt-1.5 flex items-center justify-between text-[10px]">
+                              <span className="text-slate-400">
+                                Login code: {team.code ? (
+                                  <strong className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{team.code}</strong>
+                                ) : (
+                                  <span className="text-rose-500 font-bold">Not set</span>
+                                )}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const input = prompt(`Set a login code for "${team.name}" (workers will enter this on the shared shop-floor screen):`, team.code || '');
+                                  if (input === null) return;
+                                  const trimmed = input.trim();
+                                  if (!trimmed) { alert('Code cannot be empty.'); return; }
+                                  const clash = teams.find(t => t.id !== team.id && t.code === trimmed);
+                                  if (clash) { alert(`That code is already used by "${clash.name}". Pick a different one.`); return; }
+                                  onUpdateTeams?.(teams.map(t => t.id === team.id ? { ...t, code: trimmed } : t));
+                                }}
+                                className="text-[9px] font-bold px-1.5 py-0.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                              >
+                                {team.code ? 'Change' : 'Set Code'}
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
