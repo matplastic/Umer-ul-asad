@@ -1357,6 +1357,32 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
+  // Team Performance tab
+  const [perfMode, setPerfMode] = useState<'daily' | 'monthly'>('daily');
+  const [perfDate, setPerfDate] = useState<string>(todayStr);
+  const [perfMonth, setPerfMonth] = useState<string>(todayStr.slice(0, 7));
+
+  const perfLogs = logs.filter(l => {
+    if (l.type !== 'APPROVED' && l.type !== 'REJECTED') return false;
+    if (perfMode === 'daily') return toLocalDateStr(l.timestamp) === perfDate;
+    return l.timestamp.slice(0, 7) === perfMonth;
+  });
+
+  const perfByTeam = teams.map(team => {
+    const teamLogs = perfLogs.filter(l => (l.teamId ? l.teamId === team.id : l.teamName === team.name));
+    const passCount = teamLogs.filter(l => l.type === 'APPROVED').length;
+    const rejectCount = teamLogs.filter(l => l.type === 'REJECTED').length;
+    const stage = STAGES.find(s => s.id === team.stageId);
+    return { team, stage, passCount, rejectCount, total: passCount + rejectCount };
+  }).filter(row => row.total > 0)
+    .sort((a, b) => b.total - a.total);
+
+  const unattributedPerfLogs = perfLogs.filter(l => !teams.some(t => (l.teamId ? l.teamId === t.id : l.teamName === t.name)));
+  const perfTotals = {
+    pass: perfLogs.filter(l => l.type === 'APPROVED').length,
+    reject: perfLogs.filter(l => l.type === 'REJECTED').length,
+  };
+
   const stageDailyProgress = STAGES.map((stage) => {
     const donePools = pools
       .filter((p) => {
@@ -1841,6 +1867,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             group: 'Operations',
             tabs: [
               { id: 'teams', label: 'Teams Allocation', icon: Users },
+              { id: 'team_performance', label: 'Team Performance', icon: TrendingUp, elId: 'tab-mgmt-team-performance' },
               { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
               { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
             ],
@@ -3615,6 +3642,143 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Team Performance: date-wise and month-wise pass/reject counts per team */}
+        {activeTab === 'team_performance' && (
+          <div className="space-y-6 animate-fadeIn">
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <TrendingUp className="h-4 w-4 text-blue-500" />
+                  Team Performance
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  See how many pools each section team passed vs rejected, either for one day or for a full month.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex bg-slate-100 rounded-xl p-1">
+                  <button
+                    onClick={() => setPerfMode('daily')}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                      perfMode === 'daily' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                    }`}
+                  >
+                    Day-wise
+                  </button>
+                  <button
+                    onClick={() => setPerfMode('monthly')}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                      perfMode === 'monthly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                    }`}
+                  >
+                    Month-wise
+                  </button>
+                </div>
+                {perfMode === 'daily' ? (
+                  <>
+                    <input
+                      type="date"
+                      value={perfDate}
+                      onChange={(e) => setPerfDate(e.target.value)}
+                      className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <button
+                      onClick={() => setPerfDate(todayStr)}
+                      className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                    >
+                      Today
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="month"
+                      value={perfMonth}
+                      onChange={(e) => setPerfMonth(e.target.value)}
+                      className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <button
+                      onClick={() => setPerfMonth(todayStr.slice(0, 7))}
+                      className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                    >
+                      This Month
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Summary strip */}
+            <div className="bg-slate-900 text-white rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                  {perfMode === 'daily'
+                    ? new Date(perfDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+                    : new Date(perfMonth + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
+                </p>
+                <p className="text-2xl font-extrabold mt-1">{perfTotals.pass + perfTotals.reject} total QC sign-offs</p>
+              </div>
+              <div className="flex gap-6">
+                <div className="text-center px-3">
+                  <span className="block text-xl font-bold text-emerald-400">{perfTotals.pass}</span>
+                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Passed</span>
+                </div>
+                <div className="text-center px-3">
+                  <span className="block text-xl font-bold text-rose-400">{perfTotals.reject}</span>
+                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Rejected</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Per-team breakdown */}
+            {perfByTeam.length === 0 ? (
+              <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl">
+                <TrendingUp className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-bold text-slate-500">No QC sign-offs recorded for this {perfMode === 'daily' ? 'date' : 'month'}.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-slate-400 font-bold bg-slate-50/60">
+                      <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px]">Team</th>
+                      <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px]">Stage</th>
+                      <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px] text-right">Passed</th>
+                      <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px] text-right">Rejected</th>
+                      <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px] text-right">Total</th>
+                      <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px] text-right">Pass Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {perfByTeam.map(({ team, stage, passCount, rejectCount, total }) => (
+                      <tr key={team.id} className="hover:bg-slate-50/55 transition-colors">
+                        <td className="py-3 px-4 font-bold text-slate-800">{team.name}</td>
+                        <td className="py-3 px-4">
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: stage?.color || '#94a3b8' }}>
+                            {stage?.name || team.stageId}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-bold text-emerald-600">{passCount}</td>
+                        <td className="py-3 px-4 text-right font-bold text-rose-600">{rejectCount}</td>
+                        <td className="py-3 px-4 text-right font-bold text-slate-700">{total}</td>
+                        <td className="py-3 px-4 text-right font-bold text-slate-500">{total > 0 ? Math.round((passCount / total) * 100) : 0}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {unattributedPerfLogs.length > 0 && (
+              <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-xs text-amber-700">
+                <strong>{unattributedPerfLogs.length}</strong> sign-off{unattributedPerfLogs.length === 1 ? '' : 's'} in this {perfMode === 'daily' ? 'date' : 'month'} couldn't be matched to a team (older records made before team tracking was added to the log). These are included in the totals above but not in the per-team table.
+              </div>
+            )}
+
           </div>
         )}
 
