@@ -2442,6 +2442,8 @@ export default function App() {
       projectName: pool.projectName,
       stageId,
       type: 'APPROVED',
+      teamId: originalWorkspecTeamId,
+      teamName: teams.find(t => t.id === originalWorkspecTeamId)?.name,
       operatorName: inspectorId,
       notes: `QC APPROVED: ${notes}.${advanced ? ` Unlocked stage: ${unlockedStageName}` : ' Stage signed off.'}${dualWaitingNote}`,
       inspectorPicture
@@ -2498,6 +2500,8 @@ export default function App() {
       projectName: pool.projectName,
       stageId,
       type: 'REJECTED',
+      teamId: originalWorkspecTeamId,
+      teamName: teams.find(t => t.id === originalWorkspecTeamId)?.name,
       operatorName: inspectorId,
       notes: `QC REJECTED: ${notes}. Returned to Available stage queue for re-finishing.`,
       inspectorPicture
