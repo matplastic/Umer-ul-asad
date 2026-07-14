@@ -1320,6 +1320,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           poolId: p.id,
           poolNo: p.poolNo,
           projectName: p.projectName,
+          poolType: p.poolType || 'Type 3',
           teamName,
           inspectorId: hist.inspectorId || '—',
           time: hist.inspectionTime ? new Date(hist.inspectionTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '',
@@ -1724,8 +1725,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     return (
                       <div key={p.id} className="text-xs p-1.5 bg-amber-50/40 border border-amber-100/50 rounded-lg flex flex-col space-y-0.5">
                         <div className="flex justify-between items-center">
-                          <span className="font-bold text-slate-700 font-mono text-[10px] bg-white border px-1 rounded">
-                            {p.poolNo}
+                          <span className="flex items-center gap-1">
+                            <span className="font-bold text-slate-700 font-mono text-[10px] bg-white border px-1 rounded">
+                              {p.poolNo}
+                            </span>
+                            <span className="text-[9px] font-bold px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded uppercase">
+                              {p.poolType || 'Type 3'}
+                            </span>
                           </span>
                           <span className="text-[9px] font-bold px-1.5 py-0.2 rounded text-white" style={{ backgroundColor: currentStageColor }}>
                             {currentStageName}
@@ -2475,8 +2481,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                                   <div className="flex-1 space-y-1">
                                     <div className="flex items-center justify-between gap-2">
-                                      <span className="font-bold text-slate-800 font-mono text-[11px] inline-block bg-white border border-slate-200/80 px-1.5 py-0.2 rounded shrink-0">
-                                        {l.poolNo}
+                                      <span className="flex items-center gap-1 shrink-0">
+                                        <span className="font-bold text-slate-800 font-mono text-[11px] inline-block bg-white border border-slate-200/80 px-1.5 py-0.2 rounded">
+                                          {l.poolNo}
+                                        </span>
+                                        <span className="text-[9px] font-bold px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded uppercase">
+                                          {pools.find(pp => pp.id === l.poolId)?.poolType || 'Type 3'}
+                                        </span>
                                       </span>
                                       <span className="text-[10px] text-slate-400 truncate block font-medium">
                                         Project: {l.projectName}
@@ -3189,10 +3200,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           }`}
                         >
                           <div className="flex justify-between items-center text-[11px]">
-                            <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded ${
-                              isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
-                            }`}>
-                              {pool.poolNo}
+                            <span className="flex items-center gap-1">
+                              <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded ${
+                                isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
+                              }`}>
+                                {pool.poolNo}
+                              </span>
+                              <span className={`text-[9px] font-bold px-1 py-0.2 rounded uppercase ${
+                                isSelected ? 'bg-slate-700 text-teal-300' : 'bg-indigo-50 text-indigo-700'
+                              }`}>
+                                {pool.poolType || 'Type 3'}
+                              </span>
                             </span>
                             <span className={`text-[9.5px] font-bold ${
                               isSelected ? 'text-slate-300' : 'text-slate-500'
@@ -3473,7 +3491,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         {donePools.map((dp) => (
                           <div key={dp.poolId} className="px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50">
                             <div className="min-w-0">
-                              <p className="font-black text-slate-800 truncate">{dp.poolNo}</p>
+                              <div className="flex items-center gap-1">
+                                <p className="font-black text-slate-800 truncate">{dp.poolNo}</p>
+                                <span className="text-[9px] px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded font-bold uppercase shrink-0">{dp.poolType}</span>
+                              </div>
                               <p className="text-slate-400 truncate">{dp.projectName}</p>
                             </div>
                             <div className="text-right flex-shrink-0 ml-2">
@@ -3526,7 +3547,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             {busyPool && (
                               <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400 font-mono">
                                 <span className="truncate max-w-[100px]">Pool: {busyPool.projectName}</span>
-                                <span>No: {busyPool.poolNo}</span>
+                                <span className="flex items-center gap-1">
+                                  No: {busyPool.poolNo}
+                                  <span className="text-[9px] font-bold px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded uppercase">
+                                    {busyPool.poolType || 'Type 3'}
+                                  </span>
+                                </span>
                               </div>
                             )}
                           </div>
@@ -5411,6 +5437,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   <tr className="border-b border-slate-10 border-slate-100 text-slate-400 font-bold">
                     <th className="py-3 px-2 font-mono uppercase tracking-widest text-[10px]">TIME</th>
                     <th className="py-3 px-2 font-mono uppercase tracking-widest text-[10px]">POOL</th>
+                    <th className="py-3 px-2 font-mono uppercase tracking-widest text-[10px]">TYPE</th>
                     <th className="py-3 px-2 font-mono uppercase tracking-widest text-[10px]">LINE STEP</th>
                     <th className="py-3 px-2 font-mono uppercase tracking-widest text-[10px]">DISPATCH EVENT</th>
                     <th className="py-3 px-2 font-mono uppercase tracking-widest text-[10px]">OPERATOR</th>
@@ -5457,6 +5484,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         </td>
                         <td className="py-3 px-2 font-bold text-slate-800">
                           {log.projectName} <span className="font-mono text-slate-400 font-bold ml-1">({log.poolNo})</span>
+                        </td>
+                        <td className="py-3 px-2">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded uppercase">
+                            {pools.find(pp => pp.id === log.poolId)?.poolType || 'Type 3'}
+                          </span>
                         </td>
                         <td className="py-3 px-2">
                           <span className="font-semibold">{STAGES.find(s => s.id === log.stageId)?.name || log.stageId}</span>
