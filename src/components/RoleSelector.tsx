@@ -36,16 +36,24 @@ interface RoleSelectorProps {
 // below), so the hamburger has nothing to toggle there and is hidden.
 // Rendered by App.tsx above the main content, same as before.
 // ─────────────────────────────────────────────────────────────────────────────
-export const TopBar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => (
+export const TopBar: React.FC<{
+  onMenuClick: () => void;
+  showMenuButton?: boolean;
+  workerExit?: { teamName: string; onExit: () => void };
+}> = ({ onMenuClick, showMenuButton = true, workerExit }) => (
   <header className="sticky top-0 z-30 h-16 shrink-0 w-full bg-slate-900 border-b border-slate-800 flex items-center px-3 sm:px-4">
-    <button
-      onClick={onMenuClick}
-      aria-label="Open portal menu"
-      title="Open portal menu"
-      className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white active:scale-95 transition-all cursor-pointer lg:hidden"
-    >
-      <Menu className="h-6 w-6" />
-    </button>
+    {showMenuButton ? (
+      <button
+        onClick={onMenuClick}
+        aria-label="Open portal menu"
+        title="Open portal menu"
+        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white active:scale-95 transition-all cursor-pointer lg:hidden"
+      >
+        <Menu className="h-6 w-6" />
+      </button>
+    ) : (
+      <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
+    )}
 
     {/* Logo + name — centered in the bar regardless of hamburger width */}
     <div className="flex-1 flex items-center justify-center lg:justify-start gap-3 min-w-0 px-2">
@@ -66,7 +74,20 @@ export const TopBar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) =
         block above stays visually centered in the bar on mobile instead of
         drifting right. Hidden on lg+ since the hamburger itself is hidden
         there too (brand is left-aligned instead of centered on desktop). */}
-    <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
+    {/* Red Exit button — only shown when a worker checked in via team code,
+        so they can hand the shared kiosk screen back to the next person. */}
+    {workerExit ? (
+      <button
+        onClick={workerExit.onExit}
+        className="shrink-0 flex items-center gap-1.5 h-9 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer active:scale-95 transition-all"
+      >
+        <LogOut className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Exit ({workerExit.teamName})</span>
+        <span className="sm:hidden">Exit</span>
+      </button>
+    ) : (
+      <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
+    )}
   </header>
 );
 
