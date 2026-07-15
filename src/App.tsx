@@ -2877,7 +2877,7 @@ export default function App() {
           workerTeamId={workerTeamId}
           onChangeWorkerTeam={setWorkerTeamId}
           allTeams={teams}
-          stationLock={stationLock}
+          stationLock={isCodeCheckedInWorker ? { isLocked: true, stageId: selectedStageId, teamId: workerTeamId } : stationLock}
         />
         {currentRole === 'planning_department' && (
           <PlanningDepartment
