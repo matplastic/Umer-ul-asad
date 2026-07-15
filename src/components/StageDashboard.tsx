@@ -250,24 +250,6 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
         </div>
       </div>
 
-      {onWorkerLogout && (
-        <div className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl px-4 py-2.5">
-          <span className="text-xs font-bold text-slate-600">
-            Checked in as <span className="text-slate-900">{activeTeam?.name || 'Unknown Team'}</span>
-          </span>
-          <button
-            onClick={() => {
-              if (window.confirm('Switch worker? You will be logged out and the next person will need to enter their own team code.')) {
-                onWorkerLogout();
-              }
-            }}
-            className="text-[10px] font-bold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-white cursor-pointer"
-          >
-            Not you? Switch Worker
-          </button>
-        </div>
-      )}
-
       {/* Main Grid split */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
