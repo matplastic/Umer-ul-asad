@@ -275,6 +275,11 @@ export default function App() {
     setTeamCodeError('');
   };
 
+  // True only when the current screen is a worker who checked in with a team
+  // code (not a permanently PIN-locked station) — used to hide all nav/portal
+  // switching and the team dropdown, and to show the red Exit button instead.
+  const isCodeCheckedInWorker = currentRole === 'stage_worker' && workerCheckedIn && !(stationLock.isLocked && stationLock.teamId);
+
   // Role-Based Access Control State — backed by a real username/password
   // account (see src/lib/authClient.ts), not a shared department PIN.
   const [loggedInUser, setLoggedInUser] = useState<AuthUser | null>(() => getStoredUser());
@@ -2731,7 +2736,11 @@ export default function App() {
 
       {/* Always-visible top bar: hamburger (mobile only) opens the portal
           drawer; logo + name centered on mobile, left-aligned on desktop */}
-      <TopBar onMenuClick={() => setNavOpen(true)} />
+      <TopBar
+        onMenuClick={() => setNavOpen(true)}
+        showMenuButton={!isCodeCheckedInWorker}
+        workerExit={isCodeCheckedInWorker ? { teamName: teams.find(t => t.id === workerTeamId)?.name || 'Team', onExit: handleWorkerLogout } : undefined}
+      />
 
       {/* Below the top bar: sidebar + page content sit side by side on lg+
           screens (persistent Fiori-style nav rail), and stack as an overlay
@@ -2740,7 +2749,10 @@ export default function App() {
       <div className="flex-1 flex min-h-0">
 
         {/* Portal navigation — overlay drawer on mobile, permanent
-            collapsible sidebar on lg+ (see RoleSelector.tsx). */}
+            collapsible sidebar on lg+ (see RoleSelector.tsx). Hidden entirely
+            once a worker has checked in via their team code: they should
+            only ever see their own stage screen until they hit Exit. */}
+        {!isCodeCheckedInWorker && (
         <RoleSelector
           currentRole={currentRole}
           selectedStageId={selectedStageId}
@@ -2758,7 +2770,7 @@ export default function App() {
           isOpen={navOpen}
           onClose={() => setNavOpen(false)}
         />
-
+        )}
         {/* Global Page Up / Page Down floating buttons — visible on all portals */}
         <ScrollButtons />
 
