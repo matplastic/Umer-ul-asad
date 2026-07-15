@@ -7,6 +7,7 @@ import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoo
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
 import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { OnlineUsersPanel } from './OnlineUsersPanel';
+import { StageDashboard } from './StageDashboard';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
   CartesianGrid, Tooltip as RechartsTooltip, Legend
@@ -18,7 +19,7 @@ import {
   Edit2, Plus, Trash2, UserPlus, Check, X, Briefcase, FolderPlus,
   ShieldCheck, ShieldAlert, Activity, Cloud, Loader2, CheckCircle2, HardDrive,
   Lock, Unlock, Info, Calendar, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes,
-  UploadCloud, AlertTriangle, KeyRound, RefreshCw
+  UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat
 } from 'lucide-react';
 
 interface ManagementDashboardProps {
@@ -73,6 +74,15 @@ interface ManagementDashboardProps {
   onDeletePlannedPool?: (id: string) => void;
   onDeletePool?: (poolId: string, inspectorName?: string) => void;
   onUpdatePool?: (poolId: string, updates: Partial<Pool>) => void;
+  // Shop Floor Monitor tab — lets management act as any team, no code/PIN needed
+  onClaimPool?: (poolId: string, teamId: string, stageId: StageId) => void;
+  onStartStage?: (poolId: string, stageId: StageId) => void;
+  onFinishStage?: (poolId: string, stageId: StageId) => void;
+  onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
+  onRequestUndoClaim?: (poolId: string, stageId: StageId, teamName: string, reason: string) => void;
+  onRefresh?: () => void;
+  isSyncing?: boolean;
+  qcDefects?: any[];
   onDeleteTrolley?: (id: string) => void;
   onDeleteMonthlyTarget?: (id: string) => void;
   employeePunches?: any[];
@@ -121,6 +131,14 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   onDeletePlannedPool,
   onDeletePool,
   onUpdatePool,
+  onClaimPool,
+  onStartStage,
+  onFinishStage,
+  onSkipOrCarryOnSite,
+  onRequestUndoClaim,
+  onRefresh,
+  isSyncing,
+  qcDefects,
   onDeleteTrolley,
   onDeleteMonthlyTarget,
   employeePunches = [],
@@ -136,7 +154,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'daily_progress' | 'teams' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'daily_progress' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor'>('analytics');
 
   // Interactive Award & Nomination state
   const [activeNominationSubTab, setActiveNominationSubTab] = useState<'section_teams' | 'employee_of_the_year'>('section_teams');
@@ -1296,6 +1314,21 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [poolsPage, setPoolsPage] = useState(1);
   const poolsPerPage = 7;
 
+  // Shop Floor Monitor tab — same StageDashboard the workers use, but for
+  // management: no team-code login, free to switch stage/team to check on
+  // anyone at any time.
+  const [monitorStageId, setMonitorStageId] = useState<StageId>(STAGES[0].id);
+  const [monitorTeamId, setMonitorTeamId] = useState<string>('');
+  const monitorStageTeams = teams.filter(t => t.stageId === monitorStageId);
+  const monitorStageInfo = STAGES.find(s => s.id === monitorStageId) || STAGES[0];
+
+  useEffect(() => {
+    if (!monitorStageTeams.some(t => t.id === monitorTeamId)) {
+      setMonitorTeamId(monitorStageTeams[0]?.id || '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monitorStageId, teams]);
+
   // Pool Details Editor tab
   const [editorSearchQuery, setEditorSearchQuery] = useState('');
   const [editorSelectedPoolId, setEditorSelectedPoolId] = useState<string>('');
@@ -1869,6 +1902,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             tabs: [
               { id: 'teams', label: 'Teams Allocation', icon: Users },
               { id: 'team_performance', label: 'Team Performance', icon: TrendingUp, elId: 'tab-mgmt-team-performance' },
+              { id: 'shop_floor', label: 'Shop Floor Monitor', icon: HardHat, elId: 'tab-mgmt-shop-floor' },
               { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
               { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
             ],
@@ -5246,6 +5280,66 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         )}
 
         {/* Tab: Pool Details Editor — fix missing/wrong pool type, dimensions, shape etc on existing pools */}
+        {/* Shop Floor Monitor — full StageDashboard, any stage/team, no code login required */}
+        {activeTab === 'shop_floor' && (
+          <div className="space-y-4 animate-fadeIn">
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Section:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {STAGES.map(stage => (
+                    <button
+                      key={stage.id}
+                      onClick={() => setMonitorStageId(stage.id)}
+                      className={`px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+                        monitorStageId === stage.id ? 'text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-500'
+                      }`}
+                      style={{ backgroundColor: monitorStageId === stage.id ? stage.color : undefined }}
+                    >
+                      {stage.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 ml-auto">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Viewing as team:</span>
+                <select
+                  value={monitorTeamId}
+                  onChange={(e) => setMonitorTeamId(e.target.value)}
+                  className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                >
+                  {monitorStageTeams.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {monitorTeamId ? (
+              <StageDashboard
+                stage={monitorStageInfo}
+                pools={pools}
+                teams={teams}
+                selectedTeamId={monitorTeamId}
+                onClaimPool={onClaimPool || (() => {})}
+                onStartStage={onStartStage || (() => {})}
+                onFinishStage={onFinishStage || (() => {})}
+                googleUser={googleUser}
+                onGoogleSignIn={onGoogleSignIn || (() => {})}
+                onSkipOrCarryOnSite={onSkipOrCarryOnSite}
+                onRequestUndoClaim={onRequestUndoClaim}
+                onRefresh={onRefresh}
+                isSyncing={isSyncing}
+                qcDefects={qcDefects}
+              />
+            ) : (
+              <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl">
+                <p className="text-sm font-bold text-slate-500">No teams set up for this section yet.</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'pool_editor' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
 
