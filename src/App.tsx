@@ -3043,6 +3043,14 @@ export default function App() {
             onRefreshAll={refreshAllFromCloud}
             isFullSyncing={isFullSyncing}
             lastSyncTime={lastSyncTime}
+            onClaimPool={handleClaimPool}
+            onStartStage={handleStartStage}
+            onFinishStage={handleFinishStage}
+            onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
+            onRequestUndoClaim={handleRequestUndoClaim}
+            onRefresh={refreshFromCloud}
+            isSyncing={isSyncing}
+            qcDefects={qcDefects}
           />
         )}
 
