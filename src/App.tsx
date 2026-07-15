@@ -2436,9 +2436,12 @@ export default function App() {
 
     const originalWorkspecTeamId = stageHist.teamId;
 
-    // Release the assigned team from BUSY state
+    // Release the assigned team from BUSY state.
+    // Defensive fallback: if stageHist.teamId is missing/stale (e.g. the claim
+    // write never landed), also release any team whose activePoolId still
+    // points at this pool, so a team can never get stuck BUSY forever.
     const updatedTeams = teams.map(t => {
-      if (t.id === originalWorkspecTeamId) {
+      if (t.id === originalWorkspecTeamId || t.activePoolId === poolId) {
         return { ...t, status: 'IDLE' as const, activePoolId: null };
       }
       return t;
