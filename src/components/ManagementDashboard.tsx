@@ -154,7 +154,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'daily_progress' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor'>('analytics');
+  const [releaseLogSearch, setReleaseLogSearch] = useState('');
+  const [releaseLogFrom, setReleaseLogFrom] = useState('');
+  const [releaseLogTo, setReleaseLogTo] = useState('');
 
   // Interactive Award & Nomination state
   const [activeNominationSubTab, setActiveNominationSubTab] = useState<'section_teams' | 'employee_of_the_year'>('section_teams');
@@ -1894,6 +1897,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'analytics', label: 'Analytics / Bottlenecks', icon: BarChart2 },
               { id: 'projects_portal', label: 'All Projects Portal', icon: Briefcase, elId: 'tab-mgmt-projects-portal' },
               { id: 'pools', label: 'Pools Register Tracking', icon: Layers },
+              { id: 'release_log', label: 'Pool Release Log', icon: Calendar, elId: 'tab-mgmt-release-log' },
               { id: 'daily_progress', label: 'Daily Stage Progress', icon: Calendar, elId: 'tab-mgmt-daily-progress' },
             ],
           },
@@ -3532,6 +3536,126 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               )}
             </div>
 
+          </div>
+        )}
+
+        {/* Tab: Pool Release Log — when each pool was released to the Steel section, date-wise */}
+        {activeTab === 'release_log' && (
+          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Pool Release Log</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Date-wise record of when each pool was released to the Steel section from Planning.
+                </p>
+              </div>
+              <Calendar className="h-4 w-4 text-slate-400" />
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute top-2.5 left-3 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search pool no or project name..."
+                  value={releaseLogSearch}
+                  onChange={(e) => setReleaseLogSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-[11px] text-slate-500 font-medium">From</label>
+                <input
+                  type="date"
+                  value={releaseLogFrom}
+                  onChange={(e) => setReleaseLogFrom(e.target.value)}
+                  className="text-xs border border-slate-200 rounded-xl px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-[11px] text-slate-500 font-medium">To</label>
+                <input
+                  type="date"
+                  value={releaseLogTo}
+                  onChange={(e) => setReleaseLogTo(e.target.value)}
+                  className="text-xs border border-slate-200 rounded-xl px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+              </div>
+              {(releaseLogSearch || releaseLogFrom || releaseLogTo) && (
+                <button
+                  onClick={() => { setReleaseLogSearch(''); setReleaseLogFrom(''); setReleaseLogTo(''); }}
+                  className="text-[11px] text-slate-500 hover:text-slate-700 underline px-1"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto border border-slate-100 rounded-xl">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 text-[10.5px] uppercase tracking-wide">
+                    <th className="text-left px-3 py-2 font-semibold">Release Date</th>
+                    <th className="text-left px-3 py-2 font-semibold">Pool No</th>
+                    <th className="text-left px-3 py-2 font-semibold">Project Name</th>
+                    <th className="text-left px-3 py-2 font-semibold">Type</th>
+                    <th className="text-left px-3 py-2 font-semibold">Orientation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const fromTs = releaseLogFrom ? new Date(releaseLogFrom + 'T00:00:00').getTime() : null;
+                    const toTs = releaseLogTo ? new Date(releaseLogTo + 'T23:59:59').getTime() : null;
+                    const searchLower = releaseLogSearch.trim().toLowerCase();
+
+                    const filtered = pools
+                      .filter(p => {
+                        if (!p.createdAt) return false;
+                        const ts = new Date(p.createdAt).getTime();
+                        if (fromTs !== null && ts < fromTs) return false;
+                        if (toTs !== null && ts > toTs) return false;
+                        if (searchLower) {
+                          const hay = `${p.poolNo} ${p.projectName}`.toLowerCase();
+                          if (!hay.includes(searchLower)) return false;
+                        }
+                        return true;
+                      })
+                      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={5} className="text-center py-10 text-slate-400 text-xs">
+                            No pool releases match these filters.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filtered.map((p) => (
+                      <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-3 py-2 text-slate-600">
+                          {new Date(p.createdAt).toLocaleDateString()}{' '}
+                          <span className="text-slate-400">
+                            {new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-mono font-bold text-slate-800">{p.poolNo}</td>
+                        <td className="px-3 py-2 text-slate-700">{p.projectName}</td>
+                        <td className="px-3 py-2">
+                          <span className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                            {p.poolType || 'Type 3'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">{p.orientation}</td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
