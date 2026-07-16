@@ -2743,6 +2743,7 @@ export default function App() {
         onMenuClick={() => setNavOpen(true)}
         showMenuButton={!isCodeCheckedInWorker}
         workerExit={isCodeCheckedInWorker ? { teamName: teams.find(t => t.id === workerTeamId)?.name || 'Team', onExit: handleWorkerLogout } : undefined}
+        onExitPortal={!isCodeCheckedInWorker ? handleLogout : undefined}
       />
 
       {/* Below the top bar: sidebar + page content sit side by side on lg+
