@@ -167,8 +167,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
   // Daily Production Record state
   const [selectedProductionDate, setSelectedProductionDate] = useState<string>(() => {
-    // Default to the current system date 2026-06-18 as per metadata, or dynamic fallback
-    return '2026-06-18';
+    // Always default to today's real date
+    return new Date().toISOString().split('T')[0];
   });
 
   // Employee directory states
@@ -180,8 +180,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // Employee punching & check-in/out states
   const [employeePortalSubTab, setEmployeePortalSubTab] = useState<'roster' | 'punches'>('roster');
   const [selectedPunchDate, setSelectedPunchDate] = useState<string>(() => {
-    // Current date YYYY-MM-DD format
-    return '2026-06-20';
+    // Always default to today's real date, YYYY-MM-DD format
+    return new Date().toISOString().split('T')[0];
   });
   const [punchFormEmployeeId, setPunchFormEmployeeId] = useState<string>('');
   const [punchFormType, setPunchFormType] = useState<'IN' | 'OUT'>('IN');
@@ -382,9 +382,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // 30-Day Attendance Consistency Trend Data & Statistics Computation
   const computedAttendanceTrend = React.useMemo(() => {
     const totalEmployees = employees.length || 15; // default limit if empty
-    const anchorDateStr = selectedPunchDate || '2026-06-20';
+    const anchorDateStr = selectedPunchDate || new Date().toISOString().split('T')[0];
     const anchorDate = new Date(anchorDateStr);
-    const baseDate = isNaN(anchorDate.getTime()) ? new Date('2026-06-20') : anchorDate;
+    const baseDate = isNaN(anchorDate.getTime()) ? new Date() : anchorDate;
     
     const dataset = [];
     
@@ -1004,12 +1004,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [summarySearchQuery, setSummarySearchQuery] = useState<string>('');
 
   // Selected Month Target dashboard dropdown state
-  const [selectedTargetMonthId, setSelectedTargetMonthId] = useState<string>(
-    monthlyTargets.length > 0 ? monthlyTargets[0].id : '2026-06'
-  );
+  const [selectedTargetMonthId, setSelectedTargetMonthId] = useState<string>(() => {
+    const currentMonthId = new Date().toISOString().slice(0, 7);
+    if (monthlyTargets.some(t => t.id === currentMonthId)) return currentMonthId;
+    return monthlyTargets.length > 0 ? monthlyTargets[0].id : currentMonthId;
+  });
 
-  // Sync state if monthlyTargets changes
+  // Sync state if monthlyTargets changes (but don't clobber a valid current-month selection
+  // just because no target record has been declared for it yet)
   useEffect(() => {
+    const currentMonthId = new Date().toISOString().slice(0, 7);
+    if (selectedTargetMonthId === currentMonthId) return;
     if (monthlyTargets.length > 0 && !monthlyTargets.some(t => t.id === selectedTargetMonthId)) {
       setSelectedTargetMonthId(monthlyTargets[0].id);
     }
@@ -2078,20 +2083,33 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     onChange={(e) => setSelectedTargetMonthId(e.target.value)}
                     className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
                   >
-                    {monthlyTargets.map(t => (
-                      <option key={t.id} value={t.id}>{t.monthName}</option>
-                    ))}
-                    {monthlyTargets.length === 0 && (
-                      <option value="2026-06">June 2026</option>
-                    )}
+                    {(() => {
+                      const currentMonthId = new Date().toISOString().slice(0, 7);
+                      const hasCurrentMonth = monthlyTargets.some(t => t.id === currentMonthId);
+                      const currentMonthName = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                      return (
+                        <>
+                          {!hasCurrentMonth && (
+                            <option value={currentMonthId}>{currentMonthName} (no target set)</option>
+                          )}
+                          {monthlyTargets.map(t => (
+                            <option key={t.id} value={t.id}>{t.monthName}</option>
+                          ))}
+                        </>
+                      );
+                    })()}
                   </select>
                 </div>
               </div>
 
               {(() => {
                 const activeTarget = monthlyTargets.find(t => t.id === selectedTargetMonthId) || {
-                  id: '2026-06',
-                  monthName: 'June 2026',
+                  id: selectedTargetMonthId,
+                  monthName: (() => {
+                    const [y, m] = selectedTargetMonthId.split('-').map(Number);
+                    const d = new Date(y, (m || 1) - 1, 1);
+                    return isNaN(d.getTime()) ? selectedTargetMonthId : d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                  })(),
                   mainTarget: 100,
                   steelFabricationTarget: 120,
                   steelPrimerTarget: 120,
@@ -2259,27 +2277,29 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart
                             data={(() => {
-                              // Standard trend list covering Jan to Jun 2026
-                              const standardMonths = [
-                                { id: '2026-01', monthName: 'Jan 2026', defaultTarget: 78, defaultActual: 79.5 },
-                                { id: '2026-02', monthName: 'Feb 2026', defaultTarget: 78, defaultActual: 81.2 },
-                                { id: '2026-03', monthName: 'Mar 2026', defaultTarget: 80, defaultActual: 82.0 },
-                                { id: '2026-04', monthName: 'Apr 2026', defaultTarget: 80, defaultActual: 78.4 },
-                                { id: '2026-05', monthName: 'May 2026', defaultTarget: 82, defaultActual: 83.1 },
-                                { id: '2026-06', monthName: 'Jun 2026', defaultTarget: 82, defaultActual: actualOeeVal }
-                              ];
+                              // Rolling 6-month window ending at the real current month
+                              const now = new Date();
+                              const currentMonthId = now.toISOString().slice(0, 7);
+                              const rollingMonths = Array.from({ length: 6 }, (_, i) => {
+                                const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+                                return {
+                                  id: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+                                  monthName: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                                };
+                              });
 
-                              return standardMonths.map(m => {
+                              return rollingMonths.map(m => {
                                 // Dynamic lookup to configured target list
                                 const customTarget = monthlyTargets.find(t => t.id === m.id);
-                                const tOee = customTarget ? (customTarget.targetOee || m.defaultTarget) : m.defaultTarget;
+                                const tOee = customTarget ? (customTarget.targetOee || 80) : 80;
 
-                                // If user selected target is active here, show live calculated actual OEE
-                                let aOee = m.defaultActual;
-                                if (m.id === '2026-06') {
+                                // Live OEE for the current month; otherwise only show an
+                                // actual if there's a recorded custom target for that month.
+                                let aOee: number | null = null;
+                                if (m.id === currentMonthId) {
                                   aOee = actualOeeVal;
-                                } else if (m.id === selectedTargetMonthId) {
-                                  aOee = actualOeeVal;
+                                } else if (customTarget) {
+                                  aOee = tOee;
                                 }
 
                                 return {
@@ -2420,7 +2440,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     <ChevronRight className="h-4 w-4" />
                   </button>
                   <button
-                    onClick={() => setSelectedProductionDate('2026-06-18')}
+                    onClick={() => setSelectedProductionDate(new Date().toISOString().split('T')[0])}
                     className="px-2.5 py-2 text-xs font-bold bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-600 transition-all"
                   >
                     Today
