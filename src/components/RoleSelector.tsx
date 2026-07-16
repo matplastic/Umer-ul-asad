@@ -40,7 +40,8 @@ export const TopBar: React.FC<{
   onMenuClick: () => void;
   showMenuButton?: boolean;
   workerExit?: { teamName: string; onExit: () => void };
-}> = ({ onMenuClick, showMenuButton = true, workerExit }) => (
+  onExitPortal?: () => void;
+}> = ({ onMenuClick, showMenuButton = true, workerExit, onExitPortal }) => (
   <header className="sticky top-0 z-30 h-16 shrink-0 w-full bg-slate-900 border-b border-slate-800 flex items-center px-3 sm:px-4">
     {showMenuButton ? (
       <button
@@ -55,12 +56,12 @@ export const TopBar: React.FC<{
       <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
     )}
 
-    {/* Logo + name — centered in the bar regardless of hamburger width */}
-    <div className="flex-1 flex items-center justify-center lg:justify-start gap-3 min-w-0 px-2">
+    {/* Logo + name — always centered in the bar, on every breakpoint */}
+    <div className="flex-1 flex items-center justify-center gap-3 min-w-0 px-2">
       <div className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 flex items-center justify-center">
         <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-full w-full object-contain drop-shadow-[0_4px_10px_rgba(0,0,0,0.35)]" />
       </div>
-      <div className="min-w-0 text-center lg:text-left leading-tight">
+      <div className="min-w-0 text-center leading-tight">
         <h1 className="text-[15px] sm:text-[17px] font-bold tracking-[0.12em] uppercase text-white truncate">
           MAT Plastic Industries
         </h1>
@@ -70,12 +71,10 @@ export const TopBar: React.FC<{
       </div>
     </div>
 
-    {/* Invisible spacer matching the hamburger button width, so the brand
-        block above stays visually centered in the bar on mobile instead of
-        drifting right. Hidden on lg+ since the hamburger itself is hidden
-        there too (brand is left-aligned instead of centered on desktop). */}
-    {/* Red Exit button — only shown when a worker checked in via team code,
-        so they can hand the shared kiosk screen back to the next person. */}
+    {/* Right side — Exit Portal (logged-in management/office users) takes
+        priority; falls back to the kiosk worker Exit button; otherwise an
+        invisible spacer keeps the centered brand block from drifting on
+        mobile where the hamburger occupies the left slot. */}
     {workerExit ? (
       <button
         onClick={workerExit.onExit}
@@ -84,6 +83,15 @@ export const TopBar: React.FC<{
         <LogOut className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">Exit ({workerExit.teamName})</span>
         <span className="sm:hidden">Exit</span>
+      </button>
+    ) : onExitPortal ? (
+      <button
+        onClick={onExitPortal}
+        title="Exit Portal"
+        className="shrink-0 flex items-center gap-1.5 h-9 px-3 rounded-lg bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 hover:text-rose-100 border border-rose-900/50 text-xs font-bold cursor-pointer active:scale-95 transition-all"
+      >
+        <LogOut className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Exit Portal</span>
       </button>
     ) : (
       <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
@@ -189,7 +197,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
         aria-hidden={!isOpen}
         className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] h-screen bg-slate-900 text-slate-100 border-r border-slate-800 flex flex-col overflow-y-auto shadow-2xl transform transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'}
-          lg:static lg:translate-x-0 lg:pointer-events-auto lg:shadow-none lg:shrink-0 lg:h-auto lg:transition-[width] lg:duration-200
+          lg:sticky lg:top-16 lg:left-auto lg:inset-y-auto lg:translate-x-0 lg:pointer-events-auto lg:shadow-none lg:shrink-0 lg:h-[calc(100vh-4rem)] lg:transition-[width] lg:duration-200
           ${collapsed ? 'lg:w-[4.5rem] lg:max-w-none' : 'lg:w-64 lg:max-w-none'}
         `}
       >
@@ -310,15 +318,6 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
             <span className={collapsed ? 'lg:hidden' : ''}>Workstation locked</span>
           </div>
         )}
-
-        <button
-          onClick={onLogout}
-          title={collapsed ? 'Exit Portal' : undefined}
-          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12px] font-semibold bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-900/40 transition-colors cursor-pointer ${collapsed ? 'lg:justify-center' : ''}`}
-        >
-          <LogOut className="h-3.5 w-3.5 shrink-0" />
-          <span className={collapsed ? 'lg:hidden' : ''}>Exit Portal</span>
-        </button>
       </div>
 
       {/* Bottom brand signature */}
