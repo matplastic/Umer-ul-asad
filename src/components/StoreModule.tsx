@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
-  Truck, BarChart3, FileSpreadsheet, Star,
+  Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -64,6 +64,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // Inventory tab search — matches name, ERP code, supplier, brand,
   // storage location, HS code, or category.
   const [inventorySearch, setInventorySearch] = useState('');
+  // Floor Stock tab search — matches material name or section.
+  const [floorSearch, setFloorSearch] = useState('');
+  // Consumption Log search — matches material, section, or logged-by name.
+  const [logSearch, setLogSearch] = useState('');
   const [importMode, setImportMode] = useState<'add' | 'update' | 'both'>('both');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -163,6 +167,15 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return true;
   }, [fromDate, toDate]);
 
+  const filteredFloorStock = useMemo(() => {
+    const q = floorSearch.trim().toLowerCase();
+    if (!q) return floorStock;
+    return floorStock.filter(f => {
+      const haystack = [f.materialName, f.sectionName, f.sectionId].filter(Boolean).join(' | ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [floorStock, floorSearch]);
+
   const filteredIncoming = useMemo(() => {
     if (!fromDate && !toDate) return incoming;
     return incoming.filter(i => inDateRange(i.receivedAt));
@@ -172,6 +185,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     if (!fromDate && !toDate) return consumptionLogs;
     return consumptionLogs.filter(c => inDateRange(c.date));
   }, [consumptionLogs, fromDate, toDate, inDateRange]);
+
+  // Raw consumption log rows for the Reports tab table — same date range as
+  // the rest of Reports, plus a free-text search over material/section/logger.
+  const searchedConsumptionLogs = useMemo(() => {
+    const q = logSearch.trim().toLowerCase();
+    let list = filteredConsumptionLogs;
+    if (q) {
+      list = list.filter(c => {
+        const haystack = [c.materialName, c.sectionName, c.sectionId, c.loggedByName, c.notes].filter(Boolean).join(' | ').toLowerCase();
+        return haystack.includes(q);
+      });
+    }
+    return list.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (a.createdAt < b.createdAt ? 1 : -1)));
+  }, [filteredConsumptionLogs, logSearch]);
 
   // Recompute the same shape as dbFetchConsumptionAnalytics(), but scoped to
   // the selected date range, using the raw incoming/consumption logs already
@@ -251,6 +278,55 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     if (sec === null) return;
     await dbSaveMaterial({ ...mat, section: sec.trim() || null } as any);
     loadAll(true);
+  };
+
+  // --- Consumption / Inventory report export (Excel) ---
+  // Daily: one row per consumption-log entry in the selected date range
+  // (or all logs, if no range is set), plus an inventory snapshot sheet.
+  const exportDailyReport = () => {
+    const rows = searchedConsumptionLogs.map(c => ({
+      Date: c.date,
+      Section: c.sectionName || c.sectionId,
+      Material: c.materialName,
+      Qty: c.qty,
+      Unit: c.unit,
+      'Logged By': c.loggedByName,
+      Notes: c.notes || '',
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Date: '', Section: '', Material: '', Qty: '', Unit: '', 'Logged By': '', Notes: '' }]), 'Daily Consumption');
+    const invRows = (displayedAnalytics?.inventoryReport || []).map((r: any) => ({
+      Material: r.materialName,
+      Section: r.section ? (SECTION_DEFINITIONS.find(s => s.id === r.section)?.name || r.section) : '',
+      'Total Incoming': r.totalIncoming,
+      'Total Consumed': r.totalConsumed,
+      'Current Stock': r.currentStock,
+      Unit: r.unit,
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(invRows), 'Inventory Snapshot');
+    const label = fromDate || toDate ? `${fromDate || 'start'}_to_${toDate || 'today'}` : new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `daily_consumption_report_${label}.xlsx`);
+  };
+
+  // Monthly: consumption logs (within the selected range, or all-time)
+  // rolled up by calendar month + material + section.
+  const exportMonthlyReport = () => {
+    const map = new Map<string, { month: string; section: string; material: string; unit: string; qty: number }>();
+    for (const c of searchedConsumptionLogs) {
+      const month = (c.date || '').slice(0, 7); // YYYY-MM
+      const key = `${month}__${c.sectionId}__${c.materialId}`;
+      if (!map.has(key)) {
+        map.set(key, { month, section: c.sectionName || c.sectionId, material: c.materialName, unit: c.unit, qty: 0 });
+      }
+      map.get(key)!.qty += Number(c.qty || 0);
+    }
+    const rows = Array.from(map.values())
+      .sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : a.material.localeCompare(b.material)))
+      .map(r => ({ Month: r.month, Section: r.section, Material: r.material, 'Total Consumed': Number(r.qty.toFixed(2)), Unit: r.unit }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Month: '', Section: '', Material: '', 'Total Consumed': '', Unit: '' }]), 'Monthly Consumption');
+    const label = fromDate || toDate ? `${fromDate || 'start'}_to_${toDate || 'today'}` : new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `monthly_consumption_report_${label}.xlsx`);
   };
 
   // --- Excel Import/Export ---
@@ -687,10 +763,21 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- FLOOR STOCK TAB ---------- */}
       {tab === 'floor' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-          <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
+          <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
             <Boxes className="h-4 w-4 text-orange-400" />
             <div className="text-sm font-bold text-white">Material Currently on the Floor</div>
             <div className="text-xs text-slate-500">Issued out of Store on approval, not yet consumed</div>
+            <div className="ml-auto relative">
+              <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search material or section…"
+                value={floorSearch}
+                onChange={e => setFloorSearch(e.target.value)}
+                data-testid="floor-search"
+                className="bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-2 py-1.5 text-xs text-white w-64"
+              />
+            </div>
           </div>
           <table className="w-full min-w-[700px] text-xs">
             <thead>
@@ -702,7 +789,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               </tr>
             </thead>
             <tbody>
-              {floorStock
+              {filteredFloorStock
                 .slice()
                 .sort((a, b) => (a.sectionName || a.sectionId).localeCompare(b.sectionName || b.sectionId) || a.materialName.localeCompare(b.materialName))
                 .map(f => {
@@ -718,8 +805,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     </tr>
                   );
                 })}
-              {floorStock.length === 0 && (
-                <tr><td colSpan={4} className="text-center text-slate-500 py-10">Nothing issued to the floor yet. Approve a request to move material out of the Store.</td></tr>
+              {filteredFloorStock.length === 0 && (
+                <tr><td colSpan={4} className="text-center text-slate-500 py-10">
+                  {floorSearch ? `No floor stock matches "${floorSearch}".` : 'Nothing issued to the floor yet. Approve a request to move material out of the Store.'}
+                </td></tr>
               )}
             </tbody>
           </table>
@@ -782,7 +871,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* ---------- REPORTS TAB ---------- */}
       {tab === 'reports' && displayedAnalytics && (
-        <ConsumptionReports analytics={displayedAnalytics} />
+        <ConsumptionReports
+          analytics={displayedAnalytics}
+          logs={searchedConsumptionLogs}
+          logSearch={logSearch}
+          onLogSearch={setLogSearch}
+          onExportDaily={exportDailyReport}
+          onExportMonthly={exportMonthlyReport}
+        />
       )}
 
       {/* ---------- PRINT SLIP MODAL ---------- */}
@@ -955,26 +1051,98 @@ const KeyMaterialsDashboard: React.FC<{ materials: Material[]; analytics: any; o
   );
 };
 
-const ConsumptionReports: React.FC<{ analytics: any }> = ({ analytics }) => {
-  const { inventoryReport = [], consumptionByMaterial = [], incomingByMaterial = [], dailyBySection = {}, perProject = {}, perPoolType = [] } = analytics || {};
+const ConsumptionReports: React.FC<{
+  analytics: any;
+  logs: ConsumptionLog[];
+  logSearch: string;
+  onLogSearch: (v: string) => void;
+  onExportDaily: () => void;
+  onExportMonthly: () => void;
+}> = ({ analytics, logs, logSearch, onLogSearch, onExportDaily, onExportMonthly }) => {
+  const { inventoryReport = [], perProject = {}, perPoolType = [] } = analytics || {};
 
-  // Daily consumption chart: sum across all sections/materials per date
+  // Daily consumption chart: sum qty per calendar date, computed directly
+  // from the raw consumption log rows (each row already has a `date` field).
+  // NOTE: this used to try to read a nested date→section→material shape out
+  // of dailyBySection, but that field is actually a flat sectionId→qty map
+  // (see dbFetchConsumptionAnalytics), so the chart was silently always
+  // empty. Building it straight from `logs` avoids depending on that shape.
   const dailyTotals = useMemo(() => {
-    const list: { date: string; qty: number }[] = [];
-    for (const date of Object.keys(dailyBySection)) {
-      let qty = 0;
-      for (const secKey of Object.keys(dailyBySection[date] || {})) {
-        for (const matKey of Object.keys(dailyBySection[date][secKey] || {})) {
-          qty += Number(dailyBySection[date][secKey][matKey].qty || 0);
-        }
-      }
-      list.push({ date, qty });
+    const map = new Map<string, number>();
+    for (const row of logs) {
+      const d = (row.date || '').slice(0, 10);
+      if (!d) continue;
+      map.set(d, (map.get(d) || 0) + Number(row.qty || 0));
     }
-    return list.sort((a, b) => (a.date < b.date ? -1 : 1));
-  }, [dailyBySection]);
+    return Array.from(map.entries()).map(([date, qty]) => ({ date, qty })).sort((a, b) => (a.date < b.date ? -1 : 1));
+  }, [logs]);
 
   return (
     <div className="space-y-6" data-testid="consumption-reports">
+      {/* Report export toolbar */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center gap-2">
+        <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export:</div>
+        <button onClick={onExportDaily} data-testid="export-daily-report" className="flex items-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+          <Download className="h-3.5 w-3.5" /> Daily Report (Excel)
+        </button>
+        <button onClick={onExportMonthly} data-testid="export-monthly-report" className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold cursor-pointer">
+          <Download className="h-3.5 w-3.5" /> Monthly Report (Excel)
+        </button>
+        <div className="text-[10px] text-slate-500 ml-1">Uses the date range set above (or all-time if no range is selected).</div>
+      </div>
+
+      {/* Raw consumption log — one row per entry logged by a supervisor */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+        <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
+          <ListChecks className="h-4 w-4 text-orange-400" />
+          <div className="text-sm font-bold text-white">Consumption Log</div>
+          <div className="text-xs text-slate-500">Every consumption entry, most recent first</div>
+          <div className="ml-auto relative">
+            <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search material, section, logged by…"
+              value={logSearch}
+              onChange={e => onLogSearch(e.target.value)}
+              data-testid="consumption-log-search"
+              className="bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-2 py-1.5 text-xs text-white w-72"
+            />
+          </div>
+        </div>
+        <table className="w-full min-w-[800px] text-xs">
+          <thead>
+            <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+              <th className="text-left px-4 py-2">Date</th>
+              <th className="text-left px-4 py-2">Section</th>
+              <th className="text-left px-4 py-2">Material</th>
+              <th className="text-right px-4 py-2">Qty</th>
+              <th className="text-left px-4 py-2">Logged By</th>
+              <th className="text-left px-4 py-2">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.slice(0, 500).map(c => (
+              <tr key={c.id} className="border-t border-slate-800">
+                <td className="px-4 py-2 text-slate-400 font-mono">{c.date}</td>
+                <td className="px-4 py-2 text-slate-300">{c.sectionName || c.sectionId}</td>
+                <td className="px-4 py-2 text-slate-200 font-semibold">{c.materialName}</td>
+                <td className="px-4 py-2 text-right text-rose-400 font-mono">−{Number(c.qty).toFixed(2)} {c.unit}</td>
+                <td className="px-4 py-2 text-slate-400">{c.loggedByName}</td>
+                <td className="px-4 py-2 text-slate-500">{c.notes || '—'}</td>
+              </tr>
+            ))}
+            {logs.length === 0 && (
+              <tr><td colSpan={6} className="text-center text-slate-500 py-8">
+                {logSearch ? `No consumption entries match "${logSearch}".` : 'No consumption logged for this date range yet.'}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+        {logs.length > 500 && (
+          <div className="px-4 py-2 text-[10px] text-slate-500 border-t border-slate-800">Showing first 500 of {logs.length} matching entries — narrow the date range or search to see more precisely.</div>
+        )}
+      </div>
+
       {/* Overall inventory summary */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
         <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
