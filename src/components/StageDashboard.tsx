@@ -157,15 +157,6 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
     }
   );
 
-  // Pool claimed by the CURRENT active team (if any selected)
-  const myClaimedPool = activeTeam && activeTeam.activePoolId 
-    ? pools.find((p) => p.id === activeTeam.activePoolId)
-    : null;
-
-  const myClaimedPoolHist = myClaimedPool
-    ? (myClaimedPool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 })
-    : null;
-
   // Pools in this stage currently being worked on by other teams (or this team, but we'll show all occupied)
   const inProgressPools = currentStagePools.filter((p) => {
     const hist = p.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
@@ -181,6 +172,21 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
       .map((p) => (p.stageHistory[stage.id] || {}).teamId)
       .filter((id): id is string => Boolean(id))
   );
+
+  // Pool claimed by the CURRENT active team (if any selected).
+  // Primary source: activeTeam.activePoolId. Fallback: if that field is stale/missing
+  // (same class of write-drop as above), fall back to whichever in-progress pool in
+  // this stage actually lists this team as its stageHistory.teamId, so the workstation
+  // card can't show "Ready for New Work" while the team is clearly mid-task elsewhere.
+  const myClaimedPool = activeTeam && activeTeam.activePoolId
+    ? pools.find((p) => p.id === activeTeam.activePoolId)
+    : (activeTeam
+        ? inProgressPools.find((p) => (p.stageHistory[stage.id] || {}).teamId === activeTeam.id)
+        : null);
+
+  const myClaimedPoolHist = myClaimedPool
+    ? (myClaimedPool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 })
+    : null;
 
   // Pools recently approved in this stage (completed historical items)
   const approvedPools = pools.filter((p) => {
