@@ -172,6 +172,16 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
     return hist.status === 'IN_PROGRESS' || hist.status === 'PENDING_INSPECTION' || (hist.teamId && hist.status === 'REJECTED');
   });
 
+  // Source-of-truth set of team IDs genuinely occupied in this stage right now, derived
+  // directly from pool.stageHistory rather than the team doc's own status/activePoolId
+  // fields. The two are normally kept in sync, but if that write ever drops, this keeps
+  // the "Department Teams Load" panel honest instead of showing a stale "Idle".
+  const teamIdsBusyInStage = new Set(
+    inProgressPools
+      .map((p) => (p.stageHistory[stage.id] || {}).teamId)
+      .filter((id): id is string => Boolean(id))
+  );
+
   // Pools recently approved in this stage (completed historical items)
   const approvedPools = pools.filter((p) => {
     const hist = p.stageHistory[stage.id];
@@ -440,7 +450,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                 <div key={team.id} className="flex justify-between items-center text-xs p-2 rounded-lg border border-slate-50 hover:bg-slate-50/30">
                   <span className="font-medium text-slate-700">{team.name}</span>
                   <div>
-                    {team.status === 'IDLE' ? (
+                    {team.status === 'IDLE' && !teamIdsBusyInStage.has(team.id) ? (
                       <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 rounded-full">
                         Idle
                       </span>
