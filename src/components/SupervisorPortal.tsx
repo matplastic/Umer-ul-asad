@@ -206,25 +206,38 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     if (!cMaterialId || !cQty) { setFlash('Select a material and quantity'); return; }
     const mat = materials.find(m => m.id === cMaterialId);
     if (!mat) return;
+    // Check Floor Stock BEFORE logging — you can only consume what Store has
+    // actually issued to this section. If nothing (or not enough) is on the
+    // floor, block the submission with a clear error instead of logging it
+    // anyway; the write itself is also guarded server-side against this.
     const available = sectionFloorStock[cMaterialId] || 0;
-    const overBy = Number(cQty) > available;
-    await dbCreateConsumptionLog({
-      date: cDate,
-      sectionId: section,
-      sectionName,
-      materialId: mat.id,
-      materialName: mat.name,
-      unit: mat.unit,
-      qty: Number(cQty),
-      notes: cNotes || null,
-      loggedByName: currentUserName,
-    });
-    setCMaterialId(''); setCQty(''); setCNotes('');
-    setFlash(overBy
-      ? `Logged — but that's more than the ${available} ${mat.unit} of ${mat.name} issued to ${sectionName}. Ask Store to check the issue slip.`
-      : 'Consumption logged. Floor stock updated.');
-    setTimeout(() => setFlash(null), overBy ? 6000 : 2500);
-    loadAll(true);
+    if (Number(cQty) > available) {
+      setFlash(available <= 0
+        ? `No ${mat.name} on the floor for ${sectionName} — Store hasn't issued any yet. Ask Store to approve/issue it first.`
+        : `Only ${available} ${mat.unit} of ${mat.name} is on the floor for ${sectionName} — you can't log more than that.`);
+      setTimeout(() => setFlash(null), 6000);
+      return;
+    }
+    try {
+      await dbCreateConsumptionLog({
+        date: cDate,
+        sectionId: section,
+        sectionName,
+        materialId: mat.id,
+        materialName: mat.name,
+        unit: mat.unit,
+        qty: Number(cQty),
+        notes: cNotes || null,
+        loggedByName: currentUserName,
+      });
+      setCMaterialId(''); setCQty(''); setCNotes('');
+      setFlash('Consumption logged. Floor stock updated.');
+      setTimeout(() => setFlash(null), 2500);
+      loadAll(true);
+    } catch (e: any) {
+      setFlash(e?.message || 'Could not log consumption — floor stock may have changed. Refresh and try again.');
+      setTimeout(() => setFlash(null), 6000);
+    }
   };
 
   const submitProduction = async () => {
