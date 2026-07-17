@@ -896,7 +896,7 @@ app.post('/api/firebase-config/restore', async (req, res) => {
 // API Endpoints: state loaders and updates
 
 // 1. Get entire state from PostgreSQL
-app.get('/api/state', async (req, res) => {
+app.get('/api/state', requireAuth, async (req, res) => {
   try {
     await restoreDbIfEmpty();
     const [poolsData, plannedData, teamsData, logsData, inspectorsData, engineersData, projectsSummaryData, monthlyTargetsData, employeesData, trolleysData, recycleBinData, punchesData, materialsData, bomItemsData, materialRequestsData, incomingData, consumptionData, productionData] = await Promise.all([
@@ -947,7 +947,7 @@ app.get('/api/state', async (req, res) => {
 });
 
 // 2. Full deep reset/seeding of database
-app.post('/api/state/reset', async (req, res) => {
+app.post('/api/state/reset',requireRole('management'), async (req, res) => {
   try {
     const body = req.body || {};
     const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
