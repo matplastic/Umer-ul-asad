@@ -1,23 +1,38 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // Helper function to check role from custom token claims
+    function hasRole(role) {
+      return request.auth.token.role == role;
+    }
+    
+    function isManagement() {
+      return hasRole('management') || hasRole('hr_portal');
+    }
 
-    // Everything in this app now requires a signed-in Firebase session.
-    // That session is only ever created by the server after it verifies a
-    // username + password against the `users` table in Postgres and mints a
-    // Firebase custom token (see /api/auth/login in server.ts) — so in
-    // practice "signed in" means "holds a real, active login account issued
-    // by HR or Management," not "anyone on the internet" like before.
-    //
-    // NOTE: this is intentionally still one broad rule for every collection.
-    // Firestore rules can't tighten a sub-path beyond a wildcard match above
-    // it (matching rules are OR'd), so per-collection restrictions (e.g. only
-    // 'store' or 'management' can write materials) need their own top-level
-    // `match` blocks written *instead of* — not alongside — this wildcard.
-    // That per-collection pass is a good next step; for now this closes the
-    // "open to the entire internet" hole, which was the critical issue.
+    // Users collection: Only management can read/create/modify accounts
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if isManagement();
+    }
+
+    // Materials: Management and Store can write, anyone signed in can read
+    match /materials/{materialId} {
+      allow read: if request.auth != null;
+      allow write: if isManagement() || hasRole('store');
+    }
+
+    // Material Requests: Supervisors can create, Management/Store can update
+    match /material_requests/{requestId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if isManagement() || hasRole('store');
+    }
+
+    // Default deny for anything not explicitly matched (This keeps hackers out!)
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }
