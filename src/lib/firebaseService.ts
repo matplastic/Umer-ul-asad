@@ -1,6 +1,6 @@
 import { auth, app } from './googleDrive.ts';
 import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 
 const clientDb = getFirestore(app);
 
@@ -1240,12 +1240,14 @@ export async function dbDecideMaterialRequestBatch(
       // 2) Arrives on the requesting section's Floor Stock, one row per material.
       for (const d of decidedItems) {
         const sectionId = (d.stageId as string) || 'unassigned';
-        // BUG FIX: this used to pass sectionId in for sectionName too, so
-        // every Floor Stock row created straight from an approval showed the
-        // raw id (e.g. "hull_lamination") instead of a proper label until a
-        // later consumption log happened to overwrite it. Look the real name
-        // up from SECTION_DEFINITIONS instead.
-        const sectionName = SECTION_DEFINITIONS.find((s) => s.id === sectionId)?.name || sectionId;
+        // Material requests are always filed against SUPERVISOR_SECTIONS
+        // ('mep_material' / 'civil_material') — SECTION_DEFINITIONS is the
+        // separate list of production stages used elsewhere (Production Log).
+        // Using the wrong list here made every Floor Stock row created from
+        // an approval show the raw id until something else overwrote it.
+        const sectionName = SUPERVISOR_SECTIONS.find((s) => s.id === sectionId)?.name
+          || SECTION_DEFINITIONS.find((s) => s.id === sectionId)?.name
+          || sectionId;
         await adjustFloorStock(sectionId, sectionName, d.materialId, d.materialName, d.unit, Number(d.qtyRequested));
       }
     }
