@@ -384,6 +384,25 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // --- Requests --- decide/print act on the WHOLE group (every material
   // line the supervisor sent together) in one call, not line by line.
   const decideGroup = async (ids: string[], action: 'approve' | 'reject', noteKey: string) => {
+    if (action === 'approve') {
+      // Same gap that consumption had: approving used to just subtract from
+      // currentStock with no check, so Store could go negative if someone
+      // approved more than what's actually on the shelf. This doesn't block
+      // it outright (a store keeper may need to approve anyway and true up
+      // stock later), but it does warn before doing something irreversible.
+      const group = requests.filter(r => ids.includes(r.id));
+      const shortfalls = group
+        .map(r => {
+          const mat = materials.find(m => m.id === r.materialId);
+          const short = mat ? Number(mat.currentStock || 0) - Number(r.qtyRequested) : null;
+          return short !== null && short < 0 ? { name: r.materialName, short: -short, unit: r.unit } : null;
+        })
+        .filter(Boolean) as { name: string; short: number; unit: string }[];
+      if (shortfalls.length > 0) {
+        const msg = shortfalls.map(s => `${s.name}: short by ${s.short} ${s.unit}`).join('\n');
+        if (!window.confirm(`This will take Store stock negative for:\n\n${msg}\n\nApprove anyway?`)) return;
+      }
+    }
     await dbDecideMaterialRequestBatch(ids, action, currentUserName, decisionNotes[noteKey] || undefined);
     loadAll(true);
   };
