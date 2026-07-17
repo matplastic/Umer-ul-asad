@@ -1,6 +1,6 @@
 import { auth, app } from './googleDrive.ts';
 import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS } from '../types';
 
 const clientDb = getFirestore(app);
 
@@ -1240,7 +1240,13 @@ export async function dbDecideMaterialRequestBatch(
       // 2) Arrives on the requesting section's Floor Stock, one row per material.
       for (const d of decidedItems) {
         const sectionId = (d.stageId as string) || 'unassigned';
-        await adjustFloorStock(sectionId, sectionId, d.materialId, d.materialName, d.unit, Number(d.qtyRequested));
+        // BUG FIX: this used to pass sectionId in for sectionName too, so
+        // every Floor Stock row created straight from an approval showed the
+        // raw id (e.g. "hull_lamination") instead of a proper label until a
+        // later consumption log happened to overwrite it. Look the real name
+        // up from SECTION_DEFINITIONS instead.
+        const sectionName = SECTION_DEFINITIONS.find((s) => s.id === sectionId)?.name || sectionId;
+        await adjustFloorStock(sectionId, sectionName, d.materialId, d.materialName, d.unit, Number(d.qtyRequested));
       }
     }
     return { success: true, items: decidedItems };
@@ -1648,11 +1654,37 @@ export async function dbFetchConsumptionLogs(): Promise<ConsumptionLog[]> {
 // Store's currentStock is intentionally NOT touched here anymore; touching
 // it here as well as at approval time used to double-deduct the same
 // material from the same number.
+//
+// Consumption can never exceed what's actually on the floor for that
+// section — the whole point of Floor Stock is that it's the physical
+// quantity issued but not yet used. If it's zero (nothing issued) or less
+// than the qty being logged, this throws instead of writing the log, so a
+// supervisor can't silently push Floor Stock negative. The caller (see
+// SupervisorPortal.submitConsumption) surfaces this as a hard error.
+export class InsufficientFloorStockError extends Error {
+  constructor(public available: number, public unit: string, public materialName: string) {
+    super(
+      available <= 0
+        ? `No ${materialName} on the floor for this section — Store hasn't issued any yet. Ask Store to approve/issue it first.`
+        : `Only ${available} ${unit} of ${materialName} is on the floor for this section — cannot log more than that.`
+    );
+    this.name = 'InsufficientFloorStockError';
+  }
+}
+
 export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' | 'createdAt'>) {
   const full: ConsumptionLog = { ...payload, id: newId('cons'), createdAt: new Date().toISOString() } as ConsumptionLog;
   if (!apiBase()) {
+    const rowId = `${payload.sectionId}__${payload.materialId}`;
+    const floor = await getFirestoreDocArray('floorStock');
+    const row = floor.find((f) => f.id === rowId);
+    const available = Number(row?.qty || 0);
+    const requested = Number(payload.qty || 0);
+    if (requested > available) {
+      throw new InsufficientFloorStockError(available, payload.unit, payload.materialName);
+    }
     await updateFirestoreDocArray('consumptionLogs', (arr) => { arr.push(full); return arr; });
-    await adjustFloorStock(payload.sectionId, payload.sectionName, payload.materialId, payload.materialName, payload.unit, -Number(payload.qty || 0));
+    await adjustFloorStock(payload.sectionId, payload.sectionName, payload.materialId, payload.materialName, payload.unit, -requested);
     return { success: true, item: full };
   }
   const headers = await getHeaders();
@@ -1661,6 +1693,10 @@ export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' 
     headers,
     body: JSON.stringify(payload),
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to log consumption.');
+  }
   return res.json();
 }
 
