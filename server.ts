@@ -1356,7 +1356,7 @@ app.post('/api/employee-punches/delete-by-date', async (req, res) => {
 });
 
 // Clear all attendance punches completely
-app.post('/api/employee-punches/clear-all', async (req, res) => {
+app.post('/api/employee-punches/clear-all', requireRole('management'), async (req, res) => {
   try {
     await db.delete(employeePunches);
     res.json({ status: 'ok', msg: 'All employee attendance logs successfully wiped' });
