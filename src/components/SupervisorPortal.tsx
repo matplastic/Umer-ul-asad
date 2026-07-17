@@ -65,6 +65,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   // inventory (every section, not just this one) by name, ERP code,
   // supplier, brand, storage location, HS code, or category.
   const [rSearch, setRSearch] = useState('');
+  // Same MEP / Civil / Other portal split as Store — narrows which
+  // materials show up in the request search.
+  const [rGroup, setRGroup] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
+  const materialGroup = (m: Material): 'mep' | 'civil' | 'other' => ((m as any).inventoryGroup) || 'other';
   const [rDropdownOpen, setRDropdownOpen] = useState(false);
 
   const loadAll = useCallback(async (silent = false) => {
@@ -117,7 +121,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   //     zero-stock lines to find something requestable.
   const requestSearchResults = useMemo(() => {
     const q = rSearch.trim().toLowerCase();
-    const available = materials.filter(m => Number(m.currentStock || 0) > 0);
+    const available = materials.filter(m => Number(m.currentStock || 0) > 0 && (rGroup === 'all' || materialGroup(m) === rGroup));
     const matches = !q ? available : available.filter(m => {
       const haystack = [m.name, m.erpCode, m.supplierName, m.brand, m.location, m.hsCode, m.category]
         .filter(Boolean).join(' | ').toLowerCase();
@@ -130,7 +134,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
         return aTag - bTag || a.name.localeCompare(b.name);
       })
       .slice(0, 50);
-  }, [materials, rSearch, section]);
+  }, [materials, rSearch, section, rGroup]);
 
   // How much of each material has actually been issued to THIS section and
   // is sitting on the floor, not yet consumed. This is what a supervisor can
@@ -453,13 +457,13 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </button>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
               My recent consumption ({sectionName})
             </div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Qty</th>
@@ -511,13 +515,13 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </button>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
               My recent production ({SECTION_DEFINITIONS.find(s => s.id === pStage)?.name || pStage})
             </div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Project</th>
                   <th className="text-left px-4 py-2">Pool Type</th>
@@ -559,6 +563,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             <select value={rPoolType} onChange={e => setRPoolType(e.target.value)} disabled={!rProject} data-testid="req-pool-type" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
               <option value="">Pool type…</option>
               {(poolTypesByProject[rProject] || []).map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={rGroup} onChange={e => setRGroup(e.target.value as any)} data-testid="req-material-group" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+              <option value="all">All Portals</option>
+              <option value="mep">MEP Materials</option>
+              <option value="civil">Civil Materials</option>
+              <option value="other">Other Materials</option>
             </select>
             <div className="relative md:col-span-2">
               <input
@@ -637,13 +647,13 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
               My recent requests
             </div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Project / Type</th>
                   <th className="text-left px-4 py-2">Materials</th>
@@ -676,7 +686,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* HISTORY / TODAY COMPARISON TAB */}
       {tab === 'history' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-emerald-400" />
               <div className="text-sm font-bold text-white">Today: planned vs actual</div>
@@ -684,7 +694,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Planned (BOM)</th>
                   <th className="text-right px-4 py-2">Actual</th>
