@@ -1277,7 +1277,7 @@ app.post('/api/recycle-bin/restore/:id', async (req, res) => {
 });
 
 // Endpoint to delete all pool-related data specifically but keep teams and employees
-app.post('/api/state/purge-pools', async (req, res) => {
+app.post('/api/state/purge-pools', requireRole('management'), async (req, res) => {
   try {
     const { backupId } = req.body;
 
