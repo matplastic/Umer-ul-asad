@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
 import { sendMaterialRequestApprovalEmail, sendMaterialRequestDecisionEmail } from './src/lib/emailService.ts';
 import { hashPassword, verifyPassword, generateTempPassword, normalizeUsername, validatePasswordStrength } from './src/lib/authUtils.ts';
+import { requireAuth, requireRole } from './src/middleware/auth';
 
 // ----------------------------------------------------
 // FIREBASE CONFIG — now sourced entirely from environment variables.
