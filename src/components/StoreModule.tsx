@@ -239,6 +239,40 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     };
   }, [analytics, materials, filteredIncoming, filteredConsumptionLogs, fromDate, toDate]);
 
+  // Store-level stock ledger: Previous Stock → Issued to Floor → Consumed
+  // (by supervisors) → Balance Stock, per material, for the selected date
+  // range (or all-time if no range is set).
+  //
+  // currentStock only moves when material is received (Incoming, +) or a
+  // request is approved (issued out to Floor, −); logging consumption never
+  // touches it (that's tracked separately in FloorStock/ConsumptionLog — see
+  // Floor Stock tab). So:
+  //   Previous Stock = currentStock − totalIncoming(period) + totalIssued(period)
+  //   Balance Stock  = currentStock (today's real Store shelf balance)
+  // "Consumed" is shown for context (what supervisors logged off the floor
+  // in that period) — it does not change Balance Stock, since that material
+  // already left Store the moment it was issued, not the moment it's used.
+  const stockLedger = useMemo(() => {
+    const approvedInRange = requests.filter(r => r.status === 'APPROVED' && (!fromDate && !toDate ? true : inDateRange((r.decidedAt || '').slice(0, 10))));
+    const issuedByMaterial: Record<string, number> = {};
+    for (const r of approvedInRange) issuedByMaterial[r.materialId] = (issuedByMaterial[r.materialId] || 0) + Number(r.qtyRequested || 0);
+
+    const incomingByMaterial: Record<string, number> = {};
+    for (const i of filteredIncoming) incomingByMaterial[i.materialId] = (incomingByMaterial[i.materialId] || 0) + Number(i.qty || 0);
+
+    const consumedByMaterial: Record<string, number> = {};
+    for (const c of filteredConsumptionLogs) consumedByMaterial[c.materialId] = (consumedByMaterial[c.materialId] || 0) + Number(c.qty || 0);
+
+    return materials.map(m => {
+      const issued = issuedByMaterial[m.id] || 0;
+      const incoming = incomingByMaterial[m.id] || 0;
+      const consumed = consumedByMaterial[m.id] || 0;
+      const balance = m.currentStock || 0;
+      const previous = balance - incoming + issued;
+      return { materialId: m.id, materialName: m.name, unit: m.unit, previous, issued, incoming, consumed, balance };
+    });
+  }, [materials, requests, filteredIncoming, filteredConsumptionLogs, fromDate, toDate, inDateRange]);
+
   // --- Materials ---
   const saveMaterial = async () => {
     if (!newMaterial.name || !newMaterial.unit) return;
@@ -295,6 +329,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Date: '', Section: '', Material: '', Qty: '', Unit: '', 'Logged By': '', Notes: '' }]), 'Daily Consumption');
+    const ledgerRows = stockLedger
+      .filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0)
+      .map(r => ({ Material: r.materialName, 'Previous Stock': r.previous, 'Issued to Floor': r.issued, Consumed: r.consumed, 'Balance Stock': r.balance, Unit: r.unit }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ledgerRows.length ? ledgerRows : [{ Material: '', 'Previous Stock': '', 'Issued to Floor': '', Consumed: '', 'Balance Stock': '', Unit: '' }]), 'Stock Ledger');
     const invRows = (displayedAnalytics?.inventoryReport || []).map((r: any) => ({
       Material: r.materialName,
       Section: r.section ? (SECTION_DEFINITIONS.find(s => s.id === r.section)?.name || r.section) : '',
@@ -897,6 +935,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           onLogSearch={setLogSearch}
           onExportDaily={exportDailyReport}
           onExportMonthly={exportMonthlyReport}
+          stockLedger={stockLedger}
         />
       )}
 
@@ -1077,7 +1116,8 @@ const ConsumptionReports: React.FC<{
   onLogSearch: (v: string) => void;
   onExportDaily: () => void;
   onExportMonthly: () => void;
-}> = ({ analytics, logs, logSearch, onLogSearch, onExportDaily, onExportMonthly }) => {
+  stockLedger: { materialId: string; materialName: string; unit: string; previous: number; issued: number; incoming: number; consumed: number; balance: number }[];
+}> = ({ analytics, logs, logSearch, onLogSearch, onExportDaily, onExportMonthly, stockLedger }) => {
   const { inventoryReport = [], perProject = {}, perPoolType = [] } = analytics || {};
 
   // Daily consumption chart: sum qty per calendar date, computed directly
@@ -1160,6 +1200,47 @@ const ConsumptionReports: React.FC<{
         {logs.length > 500 && (
           <div className="px-4 py-2 text-[10px] text-slate-500 border-t border-slate-800">Showing first 500 of {logs.length} matching entries — narrow the date range or search to see more precisely.</div>
         )}
+      </div>
+
+      {/* Store-level stock ledger */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+        <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-orange-400" />
+          <div className="text-sm font-bold text-white">Stock Ledger</div>
+          <div className="text-xs text-slate-500">Previous stock → issued to floor → consumed → balance, for the date range above</div>
+        </div>
+        <table className="w-full min-w-[760px] text-xs">
+          <thead>
+            <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+              <th className="text-left px-4 py-2">Material</th>
+              <th className="text-right px-4 py-2">Previous Stock</th>
+              <th className="text-right px-4 py-2">Issued to Floor</th>
+              <th className="text-right px-4 py-2">Consumed</th>
+              <th className="text-right px-4 py-2">Balance Stock</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stockLedger
+              .filter(r => !logSearch.trim() || r.materialName.toLowerCase().includes(logSearch.trim().toLowerCase()))
+              .filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0)
+              .sort((a, b) => a.materialName.localeCompare(b.materialName))
+              .map(r => (
+                <tr key={r.materialId} className="border-t border-slate-800">
+                  <td className="px-4 py-2 text-slate-200 font-semibold">{r.materialName}</td>
+                  <td className="px-4 py-2 text-right text-slate-300 font-mono">{r.previous.toFixed(2)} {r.unit}</td>
+                  <td className="px-4 py-2 text-right text-sky-400 font-mono">{r.issued ? `+${r.issued.toFixed(2)}` : '0'} {r.unit}</td>
+                  <td className="px-4 py-2 text-right text-rose-400 font-mono">{r.consumed ? `−${r.consumed.toFixed(2)}` : '0'} {r.unit}</td>
+                  <td className="px-4 py-2 text-right text-white font-mono font-bold">{r.balance.toFixed(2)} {r.unit}</td>
+                </tr>
+              ))}
+            {stockLedger.filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0).length === 0 && (
+              <tr><td colSpan={5} className="text-center text-slate-500 py-8">No stock movement for this period.</td></tr>
+            )}
+          </tbody>
+        </table>
+        <div className="px-4 py-2 text-[10px] text-slate-500 border-t border-slate-800">
+          "Consumed" is what supervisors logged off the floor — it doesn't change Balance Stock, since material leaves Store the moment it's issued, not the moment it's used. Check the Floor Stock tab for what's still sitting unused per section.
+        </div>
       </div>
 
       {/* Overall inventory summary */}
