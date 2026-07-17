@@ -1,4 +1,6 @@
 import express from 'express';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
@@ -77,6 +79,16 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
+// Security: Helmet hides technical details from hackers
+app.use(helmet());
+// Security: Rate limiter stops hackers from spamming the server
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', apiLimiter);
 
 // Middleware to verify Firebase token if present
 const optionalAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
