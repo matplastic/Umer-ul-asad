@@ -22,7 +22,7 @@ interface StoreModuleProps {
   poolTypesByProject: Record<string, string[]>;
 }
 
-const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '', isCritical: null as boolean | null };
+const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '', isCritical: null as boolean | null, inventoryGroup: 'other' as 'mep' | 'civil' | 'other' };
 
 // Keywords used to auto-detect "critical" bulk raw materials (steel, resin, fiber, mosaic, etc.)
 // Matched against both the material's name and category, case-insensitively.
@@ -64,6 +64,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // Inventory tab search — matches name, ERP code, supplier, brand,
   // storage location, HS code, or category.
   const [inventorySearch, setInventorySearch] = useState('');
+  // Which of the 3 inventory portals is showing: MEP / Civil / Other / All.
+  const [invGroupTab, setInvGroupTab] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
+  // Same MEP / Civil / Other split, applied to the Reports tab (Consumption
+  // Log + Stock Ledger) so Store can look at each portal's consumption
+  // separately too.
+  const [reportsGroupTab, setReportsGroupTab] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
   // Floor Stock tab search — matches material name or section.
   const [floorSearch, setFloorSearch] = useState('');
   // Consumption Log search — matches material, section, or logged-by name.
@@ -484,6 +490,18 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return SECTION_DEFINITIONS.find(s => s.id === id)?.name || id;
   };
 
+  const GROUP_LABELS: Record<'mep' | 'civil' | 'other', string> = { mep: 'MEP Materials', civil: 'Civil Materials', other: 'Other Materials' };
+  const GROUP_BADGE: Record<'mep' | 'civil' | 'other', string> = {
+    mep: 'bg-sky-950/40 text-sky-400 border-sky-800',
+    civil: 'bg-amber-950/40 text-amber-400 border-amber-800',
+    other: 'bg-slate-800 text-slate-400 border-slate-700',
+  };
+  const materialGroup = (m: Material): 'mep' | 'civil' | 'other' => (m.inventoryGroup as any) || 'other';
+  const setMaterialGroup = async (m: Material, group: 'mep' | 'civil' | 'other') => {
+    await dbSaveMaterial({ ...m, inventoryGroup: group } as any);
+    loadAll(true);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" data-testid="store-module">
       {/* Header */}
@@ -597,6 +615,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <option value="">Section…</option>
               {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
             </select>
+            <select value={newMaterial.inventoryGroup} onChange={e => setNewMaterial((p: any) => ({ ...p, inventoryGroup: e.target.value }))} data-testid="new-mat-group" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+              <option value="mep">MEP Material</option>
+              <option value="civil">Civil Material</option>
+              <option value="other">Other Material</option>
+            </select>
             <input placeholder="Category" value={newMaterial.category} onChange={e => setNewMaterial((p: any) => ({ ...p, category: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Unit (kg/ltr/pcs)" data-testid="new-mat-unit" value={newMaterial.unit} onChange={e => setNewMaterial((p: any) => ({ ...p, unit: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input type="number" placeholder="Opening stock" data-testid="new-mat-stock" value={newMaterial.currentStock} onChange={e => setNewMaterial((p: any) => ({ ...p, currentStock: Number(e.target.value) }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
@@ -612,14 +635,32 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
           </div>
 
+          {/* Inventory portal switch: MEP / Civil / Other run as separate views */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            {(['all', 'mep', 'civil', 'other'] as const).map(g => {
+              const count = g === 'all' ? materials.length : materials.filter(m => materialGroup(m) === g).length;
+              return (
+                <button
+                  key={g}
+                  onClick={() => setInvGroupTab(g)}
+                  data-testid={`inv-group-${g}`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${invGroupTab === g ? 'bg-orange-600 border-orange-600 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
+                >
+                  {g === 'all' ? 'All Materials' : GROUP_LABELS[g]} <span className="opacity-70">({count})</span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Inventory table with incoming + consumed columns */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
                   <th className="px-2 py-2" title="Key material"></th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-left px-4 py-2">ERP Code</th>
+                  <th className="text-left px-4 py-2">Portal</th>
                   <th className="text-left px-4 py-2">Section</th>
                   <th className="text-left px-4 py-2">Category</th>
                   <th className="text-left px-4 py-2">Brand</th>
@@ -635,8 +676,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <tbody>
                 {filteredMaterials
                   .filter(m => sectionFilter === '__blank__' ? !m.section : true)
+                  .filter(m => invGroupTab === 'all' ? true : materialGroup(m) === invGroupTab)
                   .map(m => {
                     const inv = analytics?.inventoryReport?.find((r: any) => r.materialId === m.id);
+                    const grp = materialGroup(m);
                     return (
                       <tr key={m.id} className="border-t border-slate-800">
                         <td className="px-2 py-2 text-center">
@@ -646,6 +689,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         </td>
                         <td className="px-4 py-2 text-slate-200 font-semibold">{m.name}</td>
                         <td className="px-4 py-2 text-slate-400 font-mono">{(m as any).erpCode || '—'}</td>
+                        <td className="px-4 py-2">
+                          <select value={grp} onChange={e => setMaterialGroup(m, e.target.value as any)} data-testid={`mat-group-${m.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase border cursor-pointer bg-transparent ${GROUP_BADGE[grp]}`}>
+                            <option className="bg-slate-900" value="mep">MEP</option>
+                            <option className="bg-slate-900" value="civil">Civil</option>
+                            <option className="bg-slate-900" value="other">Other</option>
+                          </select>
+                        </td>
                         <td className="px-4 py-2 text-slate-400"><button onClick={() => editSection(m)} className="hover:text-orange-400 cursor-pointer">{sectionLabel(m.section)}</button></td>
                         <td className="px-4 py-2 text-slate-400">{m.category || '—'}</td>
                         <td className="px-4 py-2 text-slate-400">{(m as any).brand || '—'}</td>
@@ -666,9 +716,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   })}
               </tbody>
             </table>
-            {filteredMaterials.length === 0 && (
+            {filteredMaterials.filter(m => invGroupTab === 'all' ? true : materialGroup(m) === invGroupTab).length === 0 && (
               <div className="text-center text-slate-500 text-sm py-10">
-                {inventorySearch ? `No materials match "${inventorySearch}".` : 'No materials found. Add materials above or upload Excel.'}
+                {inventorySearch ? `No materials match "${inventorySearch}".` : `No ${invGroupTab === 'all' ? '' : GROUP_LABELS[invGroupTab] + ' '}materials found. Add materials above or upload Excel.`}
               </div>
             )}
           </div>
@@ -694,11 +744,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Log Incoming</button>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">Recent GRN (Goods Received)</div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Qty</th>
@@ -819,7 +869,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* ---------- FLOOR STOCK TAB ---------- */}
       {tab === 'floor' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
           <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
             <Boxes className="h-4 w-4 text-orange-400" />
             <div className="text-sm font-bold text-white">Material Currently on the Floor</div>
@@ -838,7 +888,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           </div>
           <table className="w-full min-w-[700px] text-xs">
             <thead>
-              <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+              <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
                 <th className="text-left px-4 py-2">Section</th>
                 <th className="text-left px-4 py-2">Material</th>
                 <th className="text-right px-4 py-2">On Floor</th>
@@ -928,15 +978,30 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* ---------- REPORTS TAB ---------- */}
       {tab === 'reports' && displayedAnalytics && (
-        <ConsumptionReports
-          analytics={displayedAnalytics}
-          logs={searchedConsumptionLogs}
-          logSearch={logSearch}
-          onLogSearch={setLogSearch}
-          onExportDaily={exportDailyReport}
-          onExportMonthly={exportMonthlyReport}
-          stockLedger={stockLedger}
-        />
+        <div>
+          {/* Same MEP / Civil / Other portal split as Inventory */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            {(['all', 'mep', 'civil', 'other'] as const).map(g => (
+              <button
+                key={g}
+                onClick={() => setReportsGroupTab(g)}
+                data-testid={`reports-group-${g}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${reportsGroupTab === g ? 'bg-orange-600 border-orange-600 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
+              >
+                {g === 'all' ? 'All Materials' : GROUP_LABELS[g]}
+              </button>
+            ))}
+          </div>
+          <ConsumptionReports
+            analytics={displayedAnalytics}
+            logs={reportsGroupTab === 'all' ? searchedConsumptionLogs : searchedConsumptionLogs.filter(c => materialGroup(materials.find(m => m.id === c.materialId) || ({} as Material)) === reportsGroupTab)}
+            logSearch={logSearch}
+            onLogSearch={setLogSearch}
+            onExportDaily={exportDailyReport}
+            onExportMonthly={exportMonthlyReport}
+            stockLedger={reportsGroupTab === 'all' ? stockLedger : stockLedger.filter(r => materialGroup(materials.find(m => m.id === r.materialId) || ({} as Material)) === reportsGroupTab)}
+          />
+        </div>
       )}
 
       {/* ---------- PRINT SLIP MODAL ---------- */}
@@ -1151,7 +1216,7 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Raw consumption log — one row per entry logged by a supervisor */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
         <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
           <ListChecks className="h-4 w-4 text-orange-400" />
           <div className="text-sm font-bold text-white">Consumption Log</div>
@@ -1170,7 +1235,7 @@ const ConsumptionReports: React.FC<{
         </div>
         <table className="w-full min-w-[800px] text-xs">
           <thead>
-            <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+            <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Date</th>
               <th className="text-left px-4 py-2">Section</th>
               <th className="text-left px-4 py-2">Material</th>
@@ -1203,7 +1268,7 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Store-level stock ledger */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
         <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
           <BarChart3 className="h-4 w-4 text-orange-400" />
           <div className="text-sm font-bold text-white">Stock Ledger</div>
@@ -1211,7 +1276,7 @@ const ConsumptionReports: React.FC<{
         </div>
         <table className="w-full min-w-[760px] text-xs">
           <thead>
-            <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+            <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Material</th>
               <th className="text-right px-4 py-2">Previous Stock</th>
               <th className="text-right px-4 py-2">Issued to Floor</th>
@@ -1244,14 +1309,14 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Overall inventory summary */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
         <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
           <Package className="h-4 w-4 text-orange-400" />
           <div className="text-sm font-bold text-white">Inventory Overview (current + incoming + consumption)</div>
         </div>
         <table className="w-full min-w-[700px] text-xs">
           <thead>
-            <tr className="bg-slate-800/60 text-slate-400 uppercase text-[10px]">
+            <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Material</th>
               <th className="text-left px-4 py-2">Section</th>
               <th className="text-right px-4 py-2">Total Incoming</th>
@@ -1275,7 +1340,7 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Daily consumption sparkline */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
         <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-emerald-400" />
           <div className="text-sm font-bold text-white">Daily Consumption (all sections, all materials)</div>
@@ -1302,7 +1367,7 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Per project consumption */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
         <div className="px-4 py-3 border-b border-slate-800 text-sm font-bold text-white">Per-Project Material Consumption</div>
         {Object.keys(perProject).length === 0 ? (
           <div className="text-center text-slate-500 py-8 text-sm">No project consumption data yet.</div>
@@ -1324,7 +1389,7 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Per pool type: planned vs actual */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
         <div className="px-4 py-3 border-b border-slate-800 text-sm font-bold text-white">Per-Pool-Type: Planned (BOM) vs Actual (attributed)</div>
         {perPoolType.length === 0 ? (
           <div className="text-center text-slate-500 py-8 text-sm">Log production and consumption to see this comparison.</div>
@@ -1338,7 +1403,7 @@ const ConsumptionReports: React.FC<{
               </div>
               <table className="w-full min-w-[700px] text-xs">
                 <thead>
-                  <tr className="text-slate-400 uppercase text-[10px]">
+                  <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                     <th className="text-left px-4 py-2">Material</th>
                     <th className="text-right px-4 py-2">Planned</th>
                     <th className="text-right px-4 py-2">Actual</th>
