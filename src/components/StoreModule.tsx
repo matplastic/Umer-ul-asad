@@ -2,9 +2,11 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
-  Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown,
+  Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
@@ -56,6 +58,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [printBatch, setPrintBatch] = useState<MaterialRequest[] | null>(null);
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
+  // Quick period presets for the date-range bar (Daily / Weekly / Monthly).
+  // Picking a preset sets fromDate/toDate for you; editing either date input
+  // by hand drops back to 'custom' so the preset buttons never show a stale
+  // highlight next to a range the user actually typed themselves.
+  const [quickPeriod, setQuickPeriod] = useState<'today' | 'week' | 'month' | 'custom'>('custom');
 
   const [newMaterial, setNewMaterial] = useState<any>(emptyMaterial);
   const [newBom, setNewBom] = useState<any>(emptyBom);
@@ -176,14 +183,34 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return true;
   }, [fromDate, toDate]);
 
+  // Sets fromDate/toDate for the chosen quick period. 'today' = just today,
+  // 'week' = Sunday through today, 'month' = the 1st through today. Picking
+  // 'custom' leaves whatever fromDate/toDate are already set — it's what the
+  // date inputs fall back to the moment the person edits them by hand.
+  const applyQuickPeriod = useCallback((p: 'today' | 'week' | 'month' | 'custom') => {
+    setQuickPeriod(p);
+    if (p === 'custom') return;
+    const now = new Date();
+    const from = new Date(now);
+    if (p === 'week') from.setDate(now.getDate() - now.getDay());
+    else if (p === 'month') from.setDate(1);
+    setFromDate(from.toISOString().slice(0, 10));
+    setToDate(now.toISOString().slice(0, 10));
+  }, []);
+
   const filteredFloorStock = useMemo(() => {
+    let list = floorStock;
+    // Floor Stock is a running balance, not a dated log — "period" here means
+    // "rows whose last movement falls in this range", so exporting a
+    // Daily/Weekly/Monthly floor report shows only what actually moved then.
+    if (fromDate || toDate) list = list.filter(f => inDateRange((f.updatedAt || '').slice(0, 10)));
     const q = floorSearch.trim().toLowerCase();
-    if (!q) return floorStock;
-    return floorStock.filter(f => {
+    if (!q) return list;
+    return list.filter(f => {
       const haystack = [f.materialName, f.sectionName, f.sectionId].filter(Boolean).join(' | ').toLowerCase();
       return haystack.includes(q);
     });
-  }, [floorStock, floorSearch]);
+  }, [floorStock, floorSearch, fromDate, toDate, inDateRange]);
 
   const filteredIncoming = useMemo(() => {
     if (!fromDate && !toDate) return incoming;
@@ -356,8 +383,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   };
 
   // Monthly: consumption logs (within the selected range, or all-time)
-  // rolled up by calendar month + material + section.
-  const exportMonthlyReport = () => {
+  // rolled up by calendar month + material + section. Shared by both the
+  // Excel and PDF monthly exports so the two never drift apart.
+  const monthlyRollupRows = useCallback(() => {
     const map = new Map<string, { month: string; section: string; material: string; unit: string; qty: number }>();
     for (const c of searchedConsumptionLogs) {
       const month = (c.date || '').slice(0, 7); // YYYY-MM
@@ -367,13 +395,158 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       }
       map.get(key)!.qty += Number(c.qty || 0);
     }
-    const rows = Array.from(map.values())
-      .sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : a.material.localeCompare(b.material)))
-      .map(r => ({ Month: r.month, Section: r.section, Material: r.material, 'Total Consumed': Number(r.qty.toFixed(2)), Unit: r.unit }));
+    return Array.from(map.values())
+      .sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : a.material.localeCompare(b.material)));
+  }, [searchedConsumptionLogs]);
+
+  const exportMonthlyReport = () => {
+    const rows = monthlyRollupRows().map(r => ({ Month: r.month, Section: r.section, Material: r.material, 'Total Consumed': Number(r.qty.toFixed(2)), Unit: r.unit }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Month: '', Section: '', Material: '', 'Total Consumed': '', Unit: '' }]), 'Monthly Consumption');
     const label = fromDate || toDate ? `${fromDate || 'start'}_to_${toDate || 'today'}` : new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `monthly_consumption_report_${label}.xlsx`);
+  };
+
+  // --- PDF export plumbing ---
+  // Human-readable period text shown under the title on every PDF, and the
+  // filename-safe version of the same range used by every export (Excel and
+  // PDF alike) so files from the same period always sort/name together.
+  const periodLabel = () => {
+    if (quickPeriod === 'today') return 'Daily';
+    if (quickPeriod === 'week') return 'Weekly';
+    if (quickPeriod === 'month') return 'Monthly';
+    return fromDate || toDate ? `${fromDate || 'start'} to ${toDate || 'today'}` : 'All-time';
+  };
+  const fileLabel = () => (fromDate || toDate ? `${fromDate || 'start'}_to_${toDate || 'today'}` : new Date().toISOString().slice(0, 10));
+
+  // Generic single-table PDF builder shared by every report below — title +
+  // period line up top, one autoTable body, landscape once there are enough
+  // columns that portrait would get cramped.
+  const pdfFromTable = (title: string, head: string[], rows: (string | number)[][], filenamePrefix: string) => {
+    const doc = new jsPDF({ orientation: head.length > 5 ? 'landscape' : 'portrait' });
+    doc.setFontSize(14);
+    doc.text(title, 14, 15);
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Period: ${periodLabel()}  ·  Generated ${new Date().toLocaleString()}`, 14, 21);
+    autoTable(doc, {
+      startY: 26,
+      head: [head],
+      body: rows,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [234, 88, 12] }, // matches the orange-600 brand accent used across Store
+    });
+    doc.save(`${filenamePrefix}_${fileLabel()}.pdf`);
+  };
+
+  // Consumption Report (PDF) — same two tables as the Excel export's first
+  // two sheets (raw log + stock ledger), one per page since jsPDF autotable
+  // only draws one table per call cleanly.
+  const exportDailyReportPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(14);
+    doc.text('Consumption Report', 14, 15);
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Period: ${periodLabel()}  ·  Generated ${new Date().toLocaleString()}`, 14, 21);
+    autoTable(doc, {
+      startY: 26,
+      head: [['Date', 'Section', 'Material', 'Qty', 'Unit', 'Logged By', 'Notes']],
+      body: searchedConsumptionLogs.map(c => [c.date, c.sectionName || c.sectionId, c.materialName, Number(c.qty).toFixed(2), c.unit, c.loggedByName, c.notes || '']),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [234, 88, 12] },
+    });
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.text('Stock Ledger', 14, 15);
+    autoTable(doc, {
+      startY: 22,
+      head: [['Material', 'Previous Stock', 'Issued to Floor', 'Consumed', 'Balance Stock', 'Unit']],
+      body: stockLedger
+        .filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0)
+        .map(r => [r.materialName, r.previous.toFixed(2), r.issued.toFixed(2), r.consumed.toFixed(2), r.balance.toFixed(2), r.unit]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [234, 88, 12] },
+    });
+    doc.save(`consumption_report_${fileLabel()}.pdf`);
+  };
+
+  const exportMonthlyReportPDF = () => {
+    const rows = monthlyRollupRows().map(r => [r.month, r.section, r.material, r.qty.toFixed(2), r.unit]);
+    pdfFromTable('Monthly Consumption Report', ['Month', 'Section', 'Material', 'Total Consumed', 'Unit'], rows, 'monthly_consumption_report');
+  };
+
+  // --- New Incoming Material report (Excel + PDF) ---
+  const exportIncomingExcel = () => {
+    const rows = filteredIncoming.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1)).map(inc => ({
+      Date: (inc.receivedAt || '').slice(0, 10),
+      Material: inc.materialName,
+      Qty: inc.qty,
+      Unit: inc.unit,
+      Supplier: inc.supplier || '',
+      Invoice: inc.invoiceNo || '',
+      'Received By': inc.receivedByName,
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Date: '', Material: '', Qty: '', Unit: '', Supplier: '', Invoice: '', 'Received By': '' }]), 'Incoming Materials');
+    XLSX.writeFile(wb, `incoming_material_report_${fileLabel()}.xlsx`);
+  };
+
+  const exportIncomingPDF = () => {
+    const rows = filteredIncoming.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1))
+      .map(inc => [(inc.receivedAt || '').slice(0, 10), inc.materialName, Number(inc.qty).toFixed(2), inc.unit, inc.supplier || '—', inc.invoiceNo || '—', inc.receivedByName]);
+    pdfFromTable('New Incoming Material Report', ['Date', 'Material', 'Qty', 'Unit', 'Supplier', 'Invoice', 'Received By'], rows, 'incoming_material_report');
+  };
+
+  // --- Inventory report (Excel + PDF) — Total Incoming/Consumed are scoped
+  // to the selected period via displayedAnalytics; Current Stock is always
+  // the live shelf balance, same convention the Reports tab already uses. ---
+  const exportInventoryExcel = () => {
+    const rows = (displayedAnalytics?.inventoryReport || []).map((r: any) => ({
+      Material: r.materialName,
+      'ERP Code': materials.find(m => m.id === r.materialId)?.erpCode || '',
+      'Total Incoming': Number(r.totalIncoming.toFixed(2)),
+      'Total Consumed': Number(r.totalConsumed.toFixed(2)),
+      'Current Stock': r.currentStock,
+      Unit: r.unit,
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Material: '', 'ERP Code': '', 'Total Incoming': '', 'Total Consumed': '', 'Current Stock': '', Unit: '' }]), 'Inventory Report');
+    XLSX.writeFile(wb, `inventory_report_${fileLabel()}.xlsx`);
+  };
+
+  const exportInventoryPDF = () => {
+    const rows = (displayedAnalytics?.inventoryReport || []).map((r: any) => [
+      r.materialName,
+      materials.find(m => m.id === r.materialId)?.erpCode || '—',
+      r.totalIncoming.toFixed(2),
+      r.totalConsumed.toFixed(2),
+      `${r.currentStock} ${r.unit}`,
+    ]);
+    pdfFromTable('Inventory Report', ['Material', 'ERP Code', 'Total Incoming', 'Total Consumed', 'Current Stock'], rows, 'inventory_report');
+  };
+
+  // --- Floor Stock report (Excel + PDF) — filteredFloorStock already scopes
+  // rows to the selected period by last-movement date (see its useMemo). ---
+  const floorLabel = (f: FloorStock) => SUPERVISOR_SECTIONS.find(s => s.id === f.sectionId)?.name || SECTION_DEFINITIONS.find(s => s.id === f.sectionId)?.name || f.sectionName || f.sectionId;
+  const sortedFloorForExport = () => filteredFloorStock.slice().sort((a, b) => floorLabel(a).localeCompare(floorLabel(b)) || a.materialName.localeCompare(b.materialName));
+
+  const exportFloorExcel = () => {
+    const rows = sortedFloorForExport().map(f => ({
+      Section: floorLabel(f),
+      Material: f.materialName,
+      'On Floor': f.qty,
+      Unit: f.unit,
+      'Last Movement': f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '',
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Section: '', Material: '', 'On Floor': '', Unit: '', 'Last Movement': '' }]), 'Floor Stock');
+    XLSX.writeFile(wb, `floor_stock_report_${fileLabel()}.xlsx`);
+  };
+
+  const exportFloorPDF = () => {
+    const rows = sortedFloorForExport().map(f => [floorLabel(f), f.materialName, `${f.qty} ${f.unit}`, f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '—']);
+    pdfFromTable('Floor Stock Report', ['Section', 'Material', 'On Floor', 'Last Movement'], rows, 'floor_stock_report');
   };
 
   // --- Excel Import/Export ---
@@ -535,15 +708,25 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
-      {(tab === 'incoming' || tab === 'reports') && (
+      {(tab === 'incoming' || tab === 'reports' || tab === 'inventory' || tab === 'floor') && (
         <div className="mb-4 flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl p-3">
           <Clock className="h-3.5 w-3.5 text-slate-500" />
-          <span className="text-xs font-bold uppercase text-slate-400">Date range:</span>
-          <input type="date" data-testid="date-filter-from" value={fromDate} onChange={e => setFromDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white" />
+          <span className="text-xs font-bold uppercase text-slate-400">Period:</span>
+          {(['today', 'week', 'month', 'custom'] as const).map(p => (
+            <button
+              key={p}
+              onClick={() => applyQuickPeriod(p)}
+              data-testid={`period-${p}`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer border transition-all ${quickPeriod === p ? 'bg-orange-600 border-orange-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'}`}
+            >
+              {p === 'today' ? 'Daily' : p === 'week' ? 'Weekly' : p === 'month' ? 'Monthly' : 'Custom'}
+            </button>
+          ))}
+          <input type="date" data-testid="date-filter-from" value={fromDate} onChange={e => { setFromDate(e.target.value); setQuickPeriod('custom'); }} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white" />
           <span className="text-slate-500 text-xs">to</span>
-          <input type="date" data-testid="date-filter-to" value={toDate} onChange={e => setToDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white" />
+          <input type="date" data-testid="date-filter-to" value={toDate} onChange={e => { setToDate(e.target.value); setQuickPeriod('custom'); }} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white" />
           {(fromDate || toDate) && (
-            <button onClick={() => { setFromDate(''); setToDate(''); }} className="text-xs text-orange-400 hover:text-orange-300 cursor-pointer font-semibold">Clear</button>
+            <button onClick={() => { setFromDate(''); setToDate(''); setQuickPeriod('custom'); }} className="text-xs text-orange-400 hover:text-orange-300 cursor-pointer font-semibold">Clear</button>
           )}
         </div>
       )}
@@ -655,6 +838,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             })}
           </div>
 
+          {/* Inventory report export — Total Incoming/Consumed follow the period bar above; Current Stock is always the live shelf balance */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
+            <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export Inventory Report:</div>
+            <button onClick={exportInventoryExcel} data-testid="export-inventory-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <Download className="h-3.5 w-3.5" /> Excel
+            </button>
+            <button onClick={exportInventoryPDF} data-testid="export-inventory-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <FileText className="h-3.5 w-3.5" /> PDF
+            </button>
+          </div>
+
           {/* Inventory table with incoming + consumed columns */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <table className="w-full min-w-[700px] text-xs">
@@ -745,6 +939,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input placeholder="Supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Log Incoming</button>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
+            <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export:</div>
+            <button onClick={exportIncomingExcel} data-testid="export-incoming-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <Download className="h-3.5 w-3.5" /> Excel
+            </button>
+            <button onClick={exportIncomingPDF} data-testid="export-incoming-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <FileText className="h-3.5 w-3.5" /> PDF
+            </button>
+            <div className="text-[10px] text-slate-500 ml-1">Uses the period set above (or all-time if none selected).</div>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
@@ -871,6 +1076,19 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       )}
 
       {/* ---------- FLOOR STOCK TAB ---------- */}
+      {tab === 'floor' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
+          <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export Floor Stock Report:</div>
+          <button onClick={exportFloorExcel} data-testid="export-floor-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+            <Download className="h-3.5 w-3.5" /> Excel
+          </button>
+          <button onClick={exportFloorPDF} data-testid="export-floor-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+            <FileText className="h-3.5 w-3.5" /> PDF
+          </button>
+          <div className="text-[10px] text-slate-500 ml-1">Filtered to the period above by last movement date (or all current floor stock if none selected).</div>
+        </div>
+      )}
+
       {tab === 'floor' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
           <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
@@ -1042,7 +1260,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             logSearch={logSearch}
             onLogSearch={setLogSearch}
             onExportDaily={exportDailyReport}
+            onExportDailyPDF={exportDailyReportPDF}
             onExportMonthly={exportMonthlyReport}
+            onExportMonthlyPDF={exportMonthlyReportPDF}
             stockLedger={reportsGroupTab === 'all' ? stockLedger : stockLedger.filter(r => materialGroup(materials.find(m => m.id === r.materialId) || ({} as Material)) === reportsGroupTab)}
           />
         </div>
@@ -1224,9 +1444,11 @@ const ConsumptionReports: React.FC<{
   logSearch: string;
   onLogSearch: (v: string) => void;
   onExportDaily: () => void;
+  onExportDailyPDF: () => void;
   onExportMonthly: () => void;
+  onExportMonthlyPDF: () => void;
   stockLedger: { materialId: string; materialName: string; unit: string; previous: number; issued: number; incoming: number; consumed: number; balance: number }[];
-}> = ({ analytics, logs, logSearch, onLogSearch, onExportDaily, onExportMonthly, stockLedger }) => {
+}> = ({ analytics, logs, logSearch, onLogSearch, onExportDaily, onExportDailyPDF, onExportMonthly, onExportMonthlyPDF, stockLedger }) => {
   const { inventoryReport = [], perProject = {}, perPoolType = [] } = analytics || {};
 
   // Daily consumption chart: sum qty per calendar date, computed directly
@@ -1253,10 +1475,16 @@ const ConsumptionReports: React.FC<{
         <button onClick={onExportDaily} data-testid="export-daily-report" className="flex items-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer">
           <Download className="h-3.5 w-3.5" /> Daily Report (Excel)
         </button>
+        <button onClick={onExportDailyPDF} data-testid="export-daily-report-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+          <FileText className="h-3.5 w-3.5" /> Daily Report (PDF)
+        </button>
         <button onClick={onExportMonthly} data-testid="export-monthly-report" className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold cursor-pointer">
           <Download className="h-3.5 w-3.5" /> Monthly Report (Excel)
         </button>
-        <div className="text-[10px] text-slate-500 ml-1">Uses the date range set above (or all-time if no range is selected).</div>
+        <button onClick={onExportMonthlyPDF} data-testid="export-monthly-report-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold cursor-pointer">
+          <FileText className="h-3.5 w-3.5" /> Monthly Report (PDF)
+        </button>
+        <div className="text-[10px] text-slate-500 ml-1">Uses the period set above (or all-time if none selected).</div>
       </div>
 
       {/* Raw consumption log — one row per entry logged by a supervisor */}
