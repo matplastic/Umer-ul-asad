@@ -35,6 +35,7 @@ import {
   dbDeleteMonthlyTarget,
   dbSaveEmployee,
   dbDeleteEmployee,
+  dbDeleteTeam,
   dbSaveTrolley,
   dbDeleteTrolley,
   dbAddRecycleBin,
@@ -1077,8 +1078,17 @@ export default function App() {
   };
 
   const handleUpdateTeams = (updatedTeams: Team[]) => {
+    // DATA-LOSS FIX: saveState's Firestore write now MERGES by id instead of
+    // blindly overwriting (to stop stale tabs from wiping teams). That means
+    // a team simply missing from `updatedTeams` would otherwise get silently
+    // restored. Detect any ids present in the old `teams` but absent from
+    // `updatedTeams` — those are real, intentional deletions — and remove
+    // them directly via the transactional dbDeleteTeam so they stay deleted.
+    const updatedIds = new Set(updatedTeams.map(t => t.id));
+    const removedIds = teams.filter(t => !updatedIds.has(t.id)).map(t => t.id);
     setTeams(updatedTeams);
     saveState(pools, updatedTeams, logs, inspectors, engineers);
+    removedIds.forEach(id => { dbDeleteTeam(id).catch(console.error); });
   };
 
   const handleUpdateInspectors = (updatedInspectors: { id: string; name: string; title: string }[]) => {
