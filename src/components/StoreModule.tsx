@@ -10,9 +10,9 @@ import {
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
   dbFetchMaterialRequests, dbDecideMaterialRequestBatch, dbMarkMaterialRequestBatchPrinted,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
-  dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock,
+  dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 
 type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'reports' | 'key';
 
@@ -48,6 +48,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [incoming, setIncoming] = useState<IncomingMaterial[]>([]);
   const [consumptionLogs, setConsumptionLogs] = useState<ConsumptionLog[]>([]);
   const [floorStock, setFloorStock] = useState<FloorStock[]>([]);
+  const [materialReturns, setMaterialReturns] = useState<MaterialReturn[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +81,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, inc, an, cons, fs] = await Promise.all([
+      const [m, b, r, inc, an, cons, fs, rets] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
@@ -88,6 +89,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         dbFetchConsumptionAnalytics(),
         dbFetchConsumptionLogs(),
         dbFetchFloorStock(),
+        dbFetchMaterialReturns(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
       setBom(Array.isArray(b) ? b : []);
@@ -95,6 +97,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       setIncoming(Array.isArray(inc) ? inc.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setConsumptionLogs(Array.isArray(cons) ? cons.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setFloorStock(Array.isArray(fs) ? fs.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
+      setMaterialReturns(Array.isArray(rets) ? rets.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setAnalytics(an);
       setError(null);
     } catch (e: any) {
@@ -916,6 +919,47 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 <tr><td colSpan={4} className="text-center text-slate-500 py-10">
                   {floorSearch ? `No floor stock matches "${floorSearch}".` : 'Nothing issued to the floor yet. Approve a request to move material out of the Store.'}
                 </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'floor' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[50vh] mt-4">
+          <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-amber-400" />
+            <div className="text-sm font-bold text-white">Returns to Store</div>
+            <div className="text-xs text-slate-500">Unused floor stock sent back — Store's stock and this section's floor balance were both updated</div>
+          </div>
+          <table className="w-full min-w-[700px] text-xs">
+            <thead>
+              <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
+                <th className="text-left px-4 py-2">Date</th>
+                <th className="text-left px-4 py-2">Section</th>
+                <th className="text-left px-4 py-2">Material</th>
+                <th className="text-right px-4 py-2">Qty Returned</th>
+                <th className="text-left px-4 py-2">Returned By</th>
+                <th className="text-left px-4 py-2">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {materialReturns
+                .slice()
+                .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                .slice(0, 200)
+                .map(ret => (
+                  <tr key={ret.id} className="border-t border-slate-800">
+                    <td className="px-4 py-2 text-slate-400 font-mono">{ret.date}</td>
+                    <td className="px-4 py-2 text-slate-300">{ret.sectionName || ret.sectionId}</td>
+                    <td className="px-4 py-2 text-slate-200 font-semibold">{ret.materialName}</td>
+                    <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{Number(ret.qty).toFixed(2)} {ret.unit}</td>
+                    <td className="px-4 py-2 text-slate-400">{ret.returnedByName}</td>
+                    <td className="px-4 py-2 text-slate-500">{ret.reason || '—'}</td>
+                  </tr>
+                ))}
+              {materialReturns.length === 0 && (
+                <tr><td colSpan={6} className="text-center text-slate-500 py-8">No returns logged yet.</td></tr>
               )}
             </tbody>
           </table>
