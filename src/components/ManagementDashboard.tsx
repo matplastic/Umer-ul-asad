@@ -1200,6 +1200,76 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // TEAMS-ONLY BACKUP/RESTORE
+  // The full-database backup above requires pools+teams+logs+inspectors+
+  // engineers all present in the file. That's overkill when all you want to
+  // protect is the Teams Allocation list, and it means re-uploading a backup
+  // touches (and can overwrite) other collections too. These two handlers
+  // export/import ONLY the teams array, reusing the same safe restore path
+  // (onRestoreState only overwrites keys explicitly present in the object —
+  // see handleRestoreState in App.tsx — so nothing else is touched).
+  // ─────────────────────────────────────────────────────────────────────────
+  const [teamsRestoreStatus, setTeamsRestoreStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [teamsRestoreMessage, setTeamsRestoreMessage] = useState('');
+
+  const handleDownloadTeamsBackup = () => {
+    const payload = {
+      teams,
+      exportedAt: new Date().toISOString(),
+      version: "teams-only-1.0"
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Teams_Allocation_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUploadTeamsBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (!Array.isArray(data.teams)) {
+          alert("Invalid Teams backup file: no 'teams' array found.");
+          return;
+        }
+        const confirmed = window.confirm(
+          `Restore Teams Allocation from this backup?\n\nTeams in file: ${data.teams.length}\nBacked up: ${data.exportedAt || 'unknown date'}\n\nThis replaces ONLY the Teams Allocation list. Pools, employees, logs and everything else stay exactly as they are. Continue?`
+        );
+        if (!confirmed) return;
+
+        if (onRestoreState) {
+          onRestoreState({ teams: data.teams });
+        }
+        setTeamsRestoreStatus('success');
+        setTeamsRestoreMessage(`Restored ${data.teams.length} teams from backup.`);
+        setTimeout(() => {
+          setTeamsRestoreStatus('idle');
+          setTeamsRestoreMessage('');
+        }, 4000);
+      } catch (err: any) {
+        console.error(err);
+        setTeamsRestoreStatus('error');
+        setTeamsRestoreMessage(err.message || 'Failed to parse JSON backup file.');
+        setTimeout(() => {
+          setTeamsRestoreStatus('idle');
+          setTeamsRestoreMessage('');
+        }, 5000);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   const handleDeleteBackup = async (fileId: string, fileName: string) => {
     if (!window.confirm(`Are you absolutely sure you want to delete "${fileName}" permanently from your Google Drive folder?`)) {
       return;
@@ -3997,6 +4067,51 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
         {/* Tab 3: Teams Status Allocation */}
         {activeTab === 'teams' && (
+          <div className="space-y-4">
+            {/* Manual backup/restore for Teams Allocation only — download a small
+                JSON snapshot any time, and if data ever gets wiped again, restore
+                from JUST this file instead of a full-database backup. */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5 uppercase">
+                  <HardDrive className="h-3.5 w-3.5 text-blue-500" />
+                  Teams Allocation Backup
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Download a snapshot of just this Teams list. If it ever disappears, restore it here — nothing else gets touched.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={handleDownloadTeamsBackup}
+                  className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Download Backup
+                </button>
+                <label className="text-xs font-bold px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-1.5 cursor-pointer">
+                  <UploadCloud className="h-3.5 w-3.5" />
+                  Restore Backup
+                  <input
+                    type="file"
+                    accept="application/json"
+                    onChange={handleUploadTeamsBackup}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {teamsRestoreStatus !== 'idle' && (
+              <div className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                teamsRestoreStatus === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'
+              }`}>
+                {teamsRestoreStatus === 'success' && <CheckCircle2 className="h-4 w-4" />}
+                {teamsRestoreStatus === 'error' && <AlertTriangle className="h-4 w-4" />}
+                {teamsRestoreMessage}
+              </div>
+            )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {STAGES.map((stage) => {
               const stageTeams = teams.filter(t => t.stageId === stage.id);
@@ -4068,6 +4183,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </div>
               );
             })}
+          </div>
           </div>
         )}
 
