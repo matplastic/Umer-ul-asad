@@ -7,7 +7,7 @@ import {
   dbFetchMaterials, dbFetchBomItems, dbSubmitMaterialRequestBatch, dbFetchMaterialRequests,
   dbFetchConsumptionLogs, dbCreateConsumptionLog, dbDeleteConsumptionLog,
   dbFetchProductionLogs, dbCreateProductionLog, dbDeleteProductionLog,
-  dbFetchFloorStock,
+  dbFetchFloorStock, dbCreateMaterialReturn,
 } from '../lib/firebaseService';
 import {
   Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog, FloorStock,
@@ -42,6 +42,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const [cMaterialId, setCMaterialId] = useState('');
   const [cQty, setCQty] = useState('');
   const [cNotes, setCNotes] = useState('');
+  // Return-to-Store form — sends unused floor stock back, undoing exactly
+  // what an approval did (Floor down, Store's currentStock up).
+  const [showReturnForm, setShowReturnForm] = useState(false);
+  const [retMaterialId, setRetMaterialId] = useState('');
+  const [retQty, setRetQty] = useState('');
+  const [retReason, setRetReason] = useState('');
 
   // Production form
   const [pDate, setPDate] = useState(todayStr());
@@ -244,6 +250,38 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     }
   };
 
+  const submitReturn = async () => {
+    if (!retMaterialId || !retQty) { setFlash('Select a material and quantity to return'); return; }
+    const mat = materials.find(m => m.id === retMaterialId);
+    if (!mat) return;
+    const available = sectionFloorStock[retMaterialId] || 0;
+    if (Number(retQty) > available) {
+      setFlash(`Only ${available} ${mat.unit} of ${mat.name} is on the floor for ${sectionName} — you can't return more than that.`);
+      setTimeout(() => setFlash(null), 6000);
+      return;
+    }
+    try {
+      await dbCreateMaterialReturn({
+        date: todayStr(),
+        sectionId: section,
+        sectionName,
+        materialId: mat.id,
+        materialName: mat.name,
+        unit: mat.unit,
+        qty: Number(retQty),
+        reason: retReason || null,
+        returnedByName: currentUserName,
+      });
+      setRetMaterialId(''); setRetQty(''); setRetReason(''); setShowReturnForm(false);
+      setFlash('Returned to Store. Floor stock and Store stock both updated.');
+      setTimeout(() => setFlash(null), 3000);
+      loadAll(true);
+    } catch (e: any) {
+      setFlash(e?.message || 'Could not process the return — floor stock may have changed. Refresh and try again.');
+      setTimeout(() => setFlash(null), 6000);
+    }
+  };
+
   const submitProduction = async () => {
     if (!pProject || !pPoolType || !pQty) { setFlash('Fill project, pool type and quantity'); return; }
     const stageName = SECTION_DEFINITIONS.find(s => s.id === pStage)?.name || pStage;
@@ -425,7 +463,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {tab === 'consumption' && (
         <div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5">
-            <div className="text-[10px] uppercase font-bold text-slate-500 mb-2">Currently on the floor — {sectionName} (issued by Store, not yet consumed)</div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] uppercase font-bold text-slate-500">Currently on the floor — {sectionName} (issued by Store, not yet consumed)</div>
+              <button onClick={() => setShowReturnForm(v => !v)} data-testid="toggle-return-form" className="text-[11px] font-bold text-amber-400 hover:text-amber-300 cursor-pointer">
+                {showReturnForm ? 'Cancel Return' : '↩ Return to Store'}
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2">
               {Object.keys(sectionFloorStock).length === 0 && (
                 <span className="text-xs text-slate-600">Nothing issued to this section yet — request material first.</span>
@@ -439,6 +482,22 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                 );
               })}
             </div>
+            {showReturnForm && (
+              <div className="mt-3 pt-3 border-t border-slate-800 grid grid-cols-1 md:grid-cols-4 gap-2">
+                <select value={retMaterialId} onChange={e => setRetMaterialId(e.target.value)} data-testid="return-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
+                  <option value="">Material to return…</option>
+                  {Object.entries(sectionFloorStock).filter(([, qty]) => Number(qty) > 0).map(([matId, qty]) => {
+                    const mat = materials.find(m => m.id === matId);
+                    return <option key={matId} value={matId}>{mat?.name || matId} — on floor: {qty} {mat?.unit || ''}</option>;
+                  })}
+                </select>
+                <input type="number" step="any" placeholder="Qty to return" value={retQty} onChange={e => setRetQty(e.target.value)} data-testid="return-qty" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+                <input placeholder="Reason (optional)" value={retReason} onChange={e => setRetReason(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+                <button onClick={submitReturn} data-testid="return-submit" className="md:col-span-4 flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                  Confirm Return to Store
+                </button>
+              </div>
+            )}
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
             <input type="date" data-testid="cons-date" value={cDate} onChange={e => setCDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
