@@ -267,6 +267,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
         <DailyDefectReport
           logs={logs}
           qcDefects={qcDefects}
+          pools={pools}
         />
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
