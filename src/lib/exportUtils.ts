@@ -7,6 +7,110 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared PDF letterhead — logo + company name + orange accent bar, repeated
+// identically on every page of every report this file exports, so a
+// multi-page report (e.g. 182 absentees) never loses its header/footer or
+// bleeds into the next page's content. Coordinates are in points (jsPDF's
+// 'pt' unit), matching the a4/pt documents built below.
+// ─────────────────────────────────────────────────────────────────────────────
+const COMPANY_NAME = 'MAT PLASTIC INDUSTRIES LLC';
+const BRAND_ORANGE: [number, number, number] = [234, 88, 12];
+
+let logoCache: Promise<{ dataUrl: string; ratio: number } | null> | null = null;
+function loadLogo(): Promise<{ dataUrl: string; ratio: number } | null> {
+  if (!logoCache) {
+    logoCache = (async () => {
+      try {
+        const res = await fetch('/logo.png');
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const ratio = await new Promise<number>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve((img.naturalWidth || 1) / (img.naturalHeight || 1));
+          img.onerror = () => resolve(1);
+          img.src = dataUrl;
+        });
+        return { dataUrl, ratio };
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return logoCache;
+}
+
+/**
+ * Draws logo + company name + report title/subtitle at the top of whichever
+ * page the doc is currently on. Meant to be called from autoTable's
+ * `didDrawPage` so it repeats on every page of a multi-page report — this is
+ * what actually fixes overlap: the header is only ever drawn in the fixed
+ * band above `margin.top`, autoTable never lets table rows draw above that
+ * band, and each new page gets its own fresh copy instead of the first
+ * page's header bleeding into page 2's row content.
+ */
+function drawPdfHeader(doc: jsPDF, logo: { dataUrl: string; ratio: number } | null, deptLine: string, title: string, subtitle?: string): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const logoH = 34;
+  const logoW = logo ? logoH * logo.ratio : 0;
+  if (logo) {
+    try { doc.addImage(logo.dataUrl, 'PNG', 32, 12, logoW, logoH); } catch { /* unreadable logo — skip, rest of header still renders */ }
+  }
+  const textX = logo ? 32 + logoW + 10 : 32;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(20, 20, 20);
+  doc.text(COMPANY_NAME, textX, 26);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  doc.text(deptLine, textX, 37);
+  doc.setFontSize(7.5);
+  doc.text(`Generated: ${new Date().toLocaleString('en-GB')}`, pageWidth - 32, 18, { align: 'right' });
+
+  doc.setDrawColor(...BRAND_ORANGE);
+  doc.setLineWidth(1.1);
+  doc.line(32, 50, pageWidth - 32, 50);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12.5);
+  doc.setTextColor(20, 20, 20);
+  doc.text(title, 32, 64);
+  let y = 74;
+  if (subtitle) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(subtitle, 32, y);
+    y += 10;
+  }
+  return y + 12; // table startY
+}
+
+/** Thin rule + "Page X of Y" footer stamped on every page already in the doc. */
+function drawPdfFooter(doc: jsPDF, footerLabel: string) {
+  const pageCount = doc.getNumberOfPages();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.5);
+    doc.line(32, pageHeight - 28, pageWidth - 32, pageHeight - 28);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(footerLabel, 32, pageHeight - 16);
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth - 32, pageHeight - 16, { align: 'right' });
+  }
+}
+
 /**
  * Export any array of records to an .xlsx file the user can download.
  * - rows: array of plain JS objects (column = key, value = cell)
@@ -40,71 +144,54 @@ export function exportToExcel(
 }
 
 /**
- * Generic table-style PDF — branded header, auto-paged, color-banded.
+ * Generic table-style PDF — branded letterhead, auto-paged, color-banded.
+ * Same call signature as before (title/subtitle/columns/rows/filename/
+ * orientation) — no changes needed at any call site.
  */
-export function exportTablePdf(opts: {
+export async function exportTablePdf(opts: {
   title: string;
   subtitle?: string;
   columns: { header: string; dataKey: string }[];
   rows: Record<string, any>[];
   filename: string;
   orientation?: 'portrait' | 'landscape';
+  /** Shown under the company name in the header, e.g. "HR Department — ERP System". Defaults to a generic ERP line. */
+  deptLine?: string;
 }) {
+  const logo = await loadLogo();
   const doc = new jsPDF({
     orientation: opts.orientation || 'landscape',
     unit: 'pt',
     format: 'a4',
   });
-
-  // Brand header band
-  doc.setFillColor(79, 70, 229); // indigo-600
-  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 54, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(16);
-  doc.setFont('helvetica', 'bold');
-  doc.text('MAT-ERP', 32, 28);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(opts.title, 32, 44);
-
-  // Generated timestamp (right-aligned)
-  const ts = new Date().toLocaleString('en-GB');
-  doc.setFontSize(8);
-  doc.text(`Generated: ${ts}`, doc.internal.pageSize.getWidth() - 32, 28, {
-    align: 'right',
-  });
-
-  if (opts.subtitle) {
-    doc.setTextColor(100, 116, 139);
-    doc.setFontSize(9);
-    doc.text(opts.subtitle, 32, 72);
-  }
+  const deptLine = opts.deptLine || 'Store & Production ERP';
 
   autoTable(doc, {
-    startY: opts.subtitle ? 88 : 70,
+    startY: 96,
     head: [opts.columns.map((c) => c.header)],
     body: opts.rows.map((r) => opts.columns.map((c) => r[c.dataKey] ?? '')),
     styles: { fontSize: 8, cellPadding: 4, textColor: [30, 41, 59] },
     headStyles: {
-      fillColor: [79, 70, 229],
+      fillColor: BRAND_ORANGE,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
     },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    margin: { top: 86, left: 24, right: 24 },
-    didDrawPage: (data) => {
-      // Page footer
-      const pageCount = (doc as any).internal.getNumberOfPages();
-      doc.setFontSize(7);
-      doc.setTextColor(148, 163, 184);
-      doc.text(
-        `Page ${data.pageNumber} of ${pageCount}  •  MAT-ERP Production Ledger`,
-        doc.internal.pageSize.getWidth() / 2,
-        doc.internal.pageSize.getHeight() - 12,
-        { align: 'center' }
-      );
-    },
+    // page-break rules keep a row from being sliced in half at a page
+    // boundary, and the top margin leaves the exact space the header needs
+    // — so the header never overlaps row content, on page 1 or any page after.
+    margin: { top: 96, left: 32, right: 32, bottom: 44 },
+    rowPageBreak: 'avoid',
+    didDrawPage: () => { drawPdfHeader(doc, logo, deptLine, opts.title, opts.subtitle); },
   });
+
+  const finalY = (doc as any).lastAutoTable?.finalY || 96;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`${opts.rows.length} record${opts.rows.length === 1 ? '' : 's'}`, 32, finalY + 14);
+
+  drawPdfFooter(doc, `${COMPANY_NAME} — ERP System`);
 
   const stamp = new Date().toISOString().slice(0, 10);
   doc.save(`${opts.filename}_${stamp}.pdf`);
