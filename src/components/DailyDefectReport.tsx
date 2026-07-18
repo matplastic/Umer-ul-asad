@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityLog } from '../types';
+import { ActivityLog, Pool } from '../types';
 import { QCDefect, WORKSHOP_DEFECT_CATALOG, WORKSHOP_TITLES } from './QCDefectPanel';
 import {
   ClipboardList, Calendar, Building2, Printer, CheckCircle2, AlertTriangle,
@@ -12,6 +12,7 @@ const WORKSHOP_ORDER = ['steel_fabrication', 'steel_primer', 'cladding', 'lamina
 interface DailyDefectReportProps {
   logs: ActivityLog[];
   qcDefects: QCDefect[];
+  pools: Pool[];
 }
 
 /**
@@ -23,13 +24,21 @@ interface DailyDefectReportProps {
  * like the paper "Quality Control Report" sheet, but with a single shift
  * (matches the shop floor's actual one-shift operation).
  */
-export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({ logs, qcDefects }) => {
+export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({ logs, qcDefects, pools }) => {
   const [stageId, setStageId] = useState(WORKSHOP_ORDER[0]);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [projectFilter, setProjectFilter] = useState<string>('all');
 
   const catalog = WORKSHOP_DEFECT_CATALOG[stageId] || [];
   const workshopTitle = WORKSHOP_TITLES[stageId] || stageId;
+
+  // Quick poolId -> Pool lookup so we can attach orientation & pool type to
+  // every defect occurrence and every produced-pool row.
+  const poolById = useMemo(() => {
+    const map = new Map<string, Pool>();
+    pools.forEach(p => map.set(p.id, p));
+    return map;
+  }, [pools]);
 
   // All pools APPROVED at this stage, on this date (dedup by poolId in case
   // of duplicate log entries).
@@ -68,13 +77,41 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({ logs, qcDe
 
   // Per-pool defect list, so every produced pool shows OK or its defects —
   // matches the paper sheet's "Description (Pool number)" column, just
-  // without the shift split.
+  // without the shift split. Each row also carries orientation/poolType,
+  // looked up from the Pool record, for use in the PDF.
   const perPoolRows = useMemo(() => {
-    return filteredPools.map(p => ({
-      ...p,
-      defects: defectsToday.filter(d => d.poolNo === p.poolNo).map(d => d.defectType),
-    }));
-  }, [filteredPools, defectsToday]);
+    return filteredPools.map(p => {
+      const pool = poolById.get(p.poolId);
+      return {
+        ...p,
+        orientation: pool?.orientation || '',
+        poolType: pool?.poolType || '',
+        defects: defectsToday.filter(d => d.poolNo === p.poolNo).map(d => d.defectType),
+      };
+    });
+  }, [filteredPools, defectsToday, poolById]);
+
+  // Full-catalog defect table for the PDF — every defect type for this
+  // workshop is listed, even ones with zero occurrences (so the printed
+  // sheet always shows the same rows as the paper form). Each occurrence
+  // carries pool no. + project name + orientation + pool type, e.g.
+  // "1301 — Skyrous SK814CN — Normal — Type 3".
+  const fullCatalogRows = useMemo(() => {
+    return catalog.map(defect => {
+      const occurrences = defectsToday
+        .filter(d => d.defectType === defect)
+        .map(d => {
+          const pool = poolById.get(d.poolId);
+          return {
+            poolNo: d.poolNo,
+            projectName: d.projectName,
+            orientation: pool?.orientation || '',
+            poolType: pool?.poolType || '',
+          };
+        });
+      return { defect, qty: occurrences.length, occurrences };
+    });
+  }, [catalog, defectsToday, poolById]);
 
   const handlePdf = () => {
     exportDailyDefectReportPdf({
@@ -83,7 +120,14 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({ logs, qcDe
       projectName: projectFilter === 'all' ? 'All Projects' : projectFilter,
       controller: 'QC Department',
       totalProduction: filteredPools.length,
-      pools: perPoolRows.map(p => ({ poolNo: p.poolNo, defects: p.defects })),
+      catalogRows: fullCatalogRows,
+      pools: perPoolRows.map(p => ({
+        poolNo: p.poolNo,
+        projectName: p.projectName,
+        orientation: p.orientation,
+        poolType: p.poolType,
+        defects: p.defects,
+      })),
     });
   };
 
