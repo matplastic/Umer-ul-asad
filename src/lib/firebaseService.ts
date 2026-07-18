@@ -1,6 +1,6 @@
 import { auth, app } from './googleDrive.ts';
 import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn } from '../types';
 
 const clientDb = getFirestore(app);
 
@@ -156,6 +156,55 @@ async function setFirestoreDocArray(docName: string, data: any[], allowEmpty: bo
 // Firestore transactions auto-retry up to 5 times on conflict.
 // Zero data loss, zero manual merging needed.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Atomic multi-document version of updateFirestoreDocArray above. Each
+// "collection" here is really one JSON-array document under system_state/*,
+// so a single Firestore transaction touching several of those documents at
+// once IS a real multi-collection transaction — all reads happen first, all
+// writes commit together or none do, and Firestore auto-retries on conflict
+// exactly like the single-doc version.
+//
+// This replaces call sites that used to do two or three separate
+// updateFirestoreDocArray calls in a row for one logical action (e.g.
+// "approve a request" = touch materials AND floorStock AND materialRequests).
+// Doing those as separate calls left a real gap: if the app crashed or lost
+// connection between call 1 and call 2, the data would end up half-updated
+// (e.g. stock left the shelf but never arrived on the floor) with no way to
+// tell from the data alone that anything was wrong. One transaction makes
+// that gap impossible — either the whole action happened, or none of it did.
+async function updateFirestoreDocArrays(
+  updates: Record<string, (arr: any[]) => any[]>,
+  allowEmpty: Record<string, boolean> = {},
+): Promise<Record<string, any[]>> {
+  const docNames = Object.keys(updates);
+  const docRefs = docNames.map((name) => doc(clientDb, 'system_state', name));
+  const results: Record<string, any[]> = {};
+
+  await runTransaction(clientDb, async (transaction) => {
+    // All reads first (Firestore transaction rule: reads before writes).
+    const currents: Record<string, any[]> = {};
+    for (let i = 0; i < docNames.length; i++) {
+      const snap = await transaction.get(docRefs[i]);
+      currents[docNames[i]] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
+    }
+    // Then apply every update function and write every doc.
+    for (let i = 0; i < docNames.length; i++) {
+      const name = docNames[i];
+      const current = currents[name];
+      const updated = updates[name]([...current]);
+      if (!allowEmpty[name] && updated.length === 0 && current.length > 0) {
+        console.warn(`[updateFirestoreDocArrays] Refusing to write empty array to '${name}' (current has ${current.length} items). Skipping this doc's write.`);
+        results[name] = current;
+        continue;
+      }
+      results[name] = updated;
+      transaction.set(docRefs[i], { data: removeUndefined(updated) });
+    }
+  });
+
+  return results;
+}
+
 async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) => any[], allowEmpty: boolean = false): Promise<any[]> {
   const docRef = doc(clientDb, 'system_state', docName);
   let updatedArr: any[] = [];
@@ -1211,12 +1260,80 @@ export async function dbDecideMaterialRequestBatch(
 
   if (!apiBase()) {
     const decidedItems: MaterialRequest[] = [];
+
+    if (action === 'approve') {
+      // Everything approval touches — the request status, Store's stock,
+      // and Floor Stock — now happens in ONE atomic transaction. Previously
+      // these were 2-3 separate writes; if the app dropped connection
+      // between them, a request could show APPROVED while stock never
+      // actually moved, or vice versa. That gap is now closed.
+      const result = await updateFirestoreDocArrays({
+        materialRequests: (arr) => arr.map((r) => {
+          if (!ids.includes(r.id) || r.status !== 'PENDING') return r;
+          const decided: MaterialRequest = {
+            ...r,
+            status: 'APPROVED',
+            decidedByName,
+            decisionNotes: decisionNotes || null,
+            decidedAt: new Date().toISOString(),
+          };
+          decidedItems.push(decided);
+          return decided;
+        }),
+        materials: (arr) => {
+          if (decidedItems.length === 0) return arr;
+          const stockDeltas: Record<string, number> = {};
+          for (const d of decidedItems) stockDeltas[d.materialId] = (stockDeltas[d.materialId] || 0) + Number(d.qtyRequested);
+          return arr.map((m) => (stockDeltas[m.id] ? { ...m, currentStock: (m.currentStock || 0) - stockDeltas[m.id] } : m));
+        },
+        floorStock: (arr) => {
+          if (decidedItems.length === 0) return arr;
+          for (const d of decidedItems) {
+            const sectionId = (d.stageId as string) || 'unassigned';
+            // Material requests are always filed against SUPERVISOR_SECTIONS
+            // ('mep_material' / 'civil_material') — SECTION_DEFINITIONS is
+            // the separate list of production stages used elsewhere
+            // (Production Log). Using the wrong list here made every Floor
+            // Stock row created from an approval show the raw id until
+            // something else happened to overwrite it.
+            const sectionName = SUPERVISOR_SECTIONS.find((s) => s.id === sectionId)?.name
+              || SECTION_DEFINITIONS.find((s) => s.id === sectionId)?.name
+              || sectionId;
+            const rowId = `${sectionId}__${d.materialId}`;
+            const idx = arr.findIndex((f) => f.id === rowId);
+            if (idx !== -1) {
+              arr[idx] = {
+                ...arr[idx],
+                sectionName: sectionName || arr[idx].sectionName,
+                materialName: d.materialName || arr[idx].materialName,
+                unit: d.unit || arr[idx].unit,
+                qty: Number(arr[idx].qty || 0) + Number(d.qtyRequested),
+                // Document trail: remember every approval that ever fed this
+                // floor-stock row, so a supervisor's consumption entry can be
+                // traced back to the request(s) that put the material there.
+                sourceRequestIds: Array.from(new Set([...(arr[idx].sourceRequestIds || []), d.id])),
+                updatedAt: new Date().toISOString(),
+              };
+            } else {
+              arr.push({
+                id: rowId, sectionId, sectionName, materialId: d.materialId, materialName: d.materialName, unit: d.unit,
+                qty: Number(d.qtyRequested), sourceRequestIds: [d.id], updatedAt: new Date().toISOString(),
+              });
+            }
+          }
+          return arr;
+        },
+      });
+      return { success: true, items: (result.materialRequests || []).filter((r: MaterialRequest) => decidedItems.some(d => d.id === r.id)) };
+    }
+
+    // Reject: only the request status changes — nothing to keep atomic with.
     await updateFirestoreDocArray('materialRequests', (arr) =>
       arr.map((r) => {
         if (!ids.includes(r.id) || r.status !== 'PENDING') return r;
         const decided: MaterialRequest = {
           ...r,
-          status: action === 'approve' ? 'APPROVED' : 'REJECTED',
+          status: 'REJECTED',
           decidedByName,
           decisionNotes: decisionNotes || null,
           decidedAt: new Date().toISOString(),
@@ -1225,32 +1342,6 @@ export async function dbDecideMaterialRequestBatch(
         return decided;
       })
     );
-
-    if (action === 'approve' && decidedItems.length > 0) {
-      // 1) Leaves the Store — aggregate per material first, so a batch with
-      // two lines of the same material only touches currentStock once.
-      const stockDeltas: Record<string, number> = {};
-      for (const d of decidedItems) {
-        stockDeltas[d.materialId] = (stockDeltas[d.materialId] || 0) + Number(d.qtyRequested);
-      }
-      await updateFirestoreDocArray('materials', (arr) =>
-        arr.map((m) => (stockDeltas[m.id] ? { ...m, currentStock: (m.currentStock || 0) - stockDeltas[m.id] } : m))
-      );
-
-      // 2) Arrives on the requesting section's Floor Stock, one row per material.
-      for (const d of decidedItems) {
-        const sectionId = (d.stageId as string) || 'unassigned';
-        // Material requests are always filed against SUPERVISOR_SECTIONS
-        // ('mep_material' / 'civil_material') — SECTION_DEFINITIONS is the
-        // separate list of production stages used elsewhere (Production Log).
-        // Using the wrong list here made every Floor Stock row created from
-        // an approval show the raw id until something else overwrote it.
-        const sectionName = SUPERVISOR_SECTIONS.find((s) => s.id === sectionId)?.name
-          || SECTION_DEFINITIONS.find((s) => s.id === sectionId)?.name
-          || sectionId;
-        await adjustFloorStock(sectionId, sectionName, d.materialId, d.materialName, d.unit, Number(d.qtyRequested));
-      }
-    }
     return { success: true, items: decidedItems };
   }
 
@@ -1678,15 +1769,36 @@ export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' 
   const full: ConsumptionLog = { ...payload, id: newId('cons'), createdAt: new Date().toISOString() } as ConsumptionLog;
   if (!apiBase()) {
     const rowId = `${payload.sectionId}__${payload.materialId}`;
-    const floor = await getFirestoreDocArray('floorStock');
-    const row = floor.find((f) => f.id === rowId);
-    const available = Number(row?.qty || 0);
     const requested = Number(payload.qty || 0);
-    if (requested > available) {
-      throw new InsufficientFloorStockError(available, payload.unit, payload.materialName);
-    }
-    await updateFirestoreDocArray('consumptionLogs', (arr) => { arr.push(full); return arr; });
-    await adjustFloorStock(payload.sectionId, payload.sectionName, payload.materialId, payload.materialName, payload.unit, -requested);
+    let insufficientError: InsufficientFloorStockError | null = null;
+
+    // Floor-stock check + decrement + log write all happen in ONE
+    // transaction now (previously the check read floorStock, then two
+    // separate writes followed) — so two supervisors logging consumption
+    // for the same section/material at the same instant can no longer both
+    // pass the check and together push the floor balance negative. Firestore
+    // serializes/retries the transaction instead.
+    await updateFirestoreDocArrays({
+      floorStock: (arr) => {
+        const idx = arr.findIndex((f) => f.id === rowId);
+        const available = Number(arr[idx]?.qty || 0);
+        if (requested > available) {
+          insufficientError = new InsufficientFloorStockError(available, payload.unit, payload.materialName);
+          return arr; // abort this doc's change; log write below is skipped too once we throw after the transaction
+        }
+        if (idx !== -1) {
+          arr[idx] = { ...arr[idx], qty: available - requested, updatedAt: new Date().toISOString() };
+        }
+        return arr;
+      },
+      consumptionLogs: (arr) => {
+        if (insufficientError) return arr; // don't log if the floor check above failed
+        arr.push({ ...full, sectionRequestIds: null });
+        return arr;
+      },
+    });
+
+    if (insufficientError) throw insufficientError;
     return { success: true, item: full };
   }
   const headers = await getHeaders();
@@ -1719,6 +1831,63 @@ export async function dbDeleteConsumptionLog(id: string) {
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/consumption-logs/${id}`), { method: 'DELETE', headers });
   return res.json();
+}
+
+// --- Material Returns (Floor → back to Store) ---
+// The reversal half of Store ↔ Floor that was missing before: material that
+// was issued to a section but never used can be sent back. Undoes exactly
+// what an approval did — Floor Stock down, Store's currentStock up — in one
+// atomic transaction. This does NOT touch consumption logs; it's only for
+// floor stock that's still sitting there unused.
+export async function dbFetchMaterialReturns(): Promise<MaterialReturn[]> {
+  if (!apiBase()) return getFirestoreDocArray('materialReturns');
+  return [];
+}
+
+export class InsufficientFloorStockForReturnError extends Error {
+  constructor(public available: number, public unit: string, public materialName: string) {
+    super(available <= 0
+      ? `No ${materialName} on the floor for this section to return.`
+      : `Only ${available} ${unit} of ${materialName} is on the floor — cannot return more than that.`);
+    this.name = 'InsufficientFloorStockForReturnError';
+  }
+}
+
+export async function dbCreateMaterialReturn(payload: Omit<MaterialReturn, 'id' | 'createdAt'>) {
+  const full: MaterialReturn = { ...payload, id: newId('ret'), createdAt: new Date().toISOString() } as MaterialReturn;
+  if (!apiBase()) {
+    const rowId = `${payload.sectionId}__${payload.materialId}`;
+    const requested = Number(payload.qty || 0);
+    let insufficientError: InsufficientFloorStockForReturnError | null = null;
+    let sourceRequestIds: string[] = [];
+
+    await updateFirestoreDocArrays({
+      floorStock: (arr) => {
+        const idx = arr.findIndex((f) => f.id === rowId);
+        const available = Number(arr[idx]?.qty || 0);
+        if (requested > available) {
+          insufficientError = new InsufficientFloorStockForReturnError(available, payload.unit, payload.materialName);
+          return arr;
+        }
+        sourceRequestIds = arr[idx]?.sourceRequestIds || [];
+        arr[idx] = { ...arr[idx], qty: available - requested, updatedAt: new Date().toISOString() };
+        return arr;
+      },
+      materials: (arr) => {
+        if (insufficientError) return arr;
+        return arr.map((m) => (m.id === payload.materialId ? { ...m, currentStock: (m.currentStock || 0) + requested } : m));
+      },
+      materialReturns: (arr) => {
+        if (insufficientError) return arr;
+        arr.push({ ...full, sourceRequestIds });
+        return arr;
+      },
+    }, { materialReturns: true });
+
+    if (insufficientError) throw insufficientError;
+    return { success: true, item: full };
+  }
+  throw new Error('Material returns are only available in the Firestore-backed deployment.');
 }
 
 export async function dbFetchProductionLogs(): Promise<ProductionLog[]> {
