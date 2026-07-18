@@ -18,6 +18,104 @@ import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, F
 
 type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'reports' | 'key';
 
+// ==========================================================
+// PDF letterhead helpers — logo + company header + footer used by every
+// exported report below, so all four (Consumption, Incoming, Inventory,
+// Floor) look like the same ERP system produced them, not four one-off
+// exports. Logo is fetched once and cached at module scope since it never
+// changes between exports/reloads within a session.
+// ==========================================================
+const COMPANY_NAME = 'MAT PLASTIC INDUSTRIES LLC';
+const BRAND_ORANGE: [number, number, number] = [234, 88, 12];
+
+let logoCache: Promise<{ dataUrl: string; ratio: number } | null> | null = null;
+const loadLogo = (): Promise<{ dataUrl: string; ratio: number } | null> => {
+  if (!logoCache) {
+    logoCache = (async () => {
+      try {
+        const res = await fetch('/logo.png');
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const ratio = await new Promise<number>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve((img.naturalWidth || 1) / (img.naturalHeight || 1));
+          img.onerror = () => resolve(1);
+          img.src = dataUrl;
+        });
+        return { dataUrl, ratio };
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return logoCache;
+};
+
+// Draws the logo + company name + report title/subtitle block at the top of
+// whichever page jsPDF is currently on, and returns the Y position the table
+// body should start at. Passed into autoTable's `didDrawPage` so it repeats
+// identically on every page of a multi-page report, not just the first.
+const drawPdfHeader = (doc: jsPDF, logo: { dataUrl: string; ratio: number } | null, title: string, subtitle: string): number => {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const logoH = 13;
+  const logoW = logo ? logoH * logo.ratio : 0;
+  if (logo) {
+    try { doc.addImage(logo.dataUrl, 'PNG', 14, 9, logoW, logoH); } catch { /* corrupt/unreadable logo — skip it, rest of header still renders */ }
+  }
+  const textX = logo ? 14 + logoW + 4 : 14;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12.5);
+  doc.setTextColor(20, 20, 20);
+  doc.text(COMPANY_NAME, textX, 14);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  doc.text('Store Department — ERP System', textX, 19);
+  doc.setFontSize(7.5);
+  doc.text(`Generated ${new Date().toLocaleString()}`, pageWidth - 14, 12, { align: 'right' });
+
+  doc.setDrawColor(...BRAND_ORANGE);
+  doc.setLineWidth(0.9);
+  doc.line(14, 25, pageWidth - 14, 25);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(20, 20, 20);
+  doc.text(title, 14, 33);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(110, 110, 110);
+  doc.text(subtitle, 14, 39);
+
+  return 45;
+};
+
+// Thin rule + "Page X of Y" footer, stamped onto every page already in the
+// document — call this once, after all tables are drawn, so the total page
+// count is correct.
+const drawPdfFooter = (doc: jsPDF) => {
+  const pageCount = doc.getNumberOfPages();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.3);
+    doc.line(14, pageHeight - 14, pageWidth - 14, pageHeight - 14);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(140, 140, 140);
+    doc.text(`${COMPANY_NAME} — Store Department ERP`, 14, pageHeight - 9);
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, pageHeight - 9, { align: 'right' });
+  }
+};
+
 interface StoreModuleProps {
   currentUserName: string;
   projectNames: string[];
@@ -419,55 +517,59 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   };
   const fileLabel = () => (fromDate || toDate ? `${fromDate || 'start'}_to_${toDate || 'today'}` : new Date().toISOString().slice(0, 10));
 
-  // Generic single-table PDF builder shared by every report below — title +
-  // period line up top, one autoTable body, landscape once there are enough
+  // Generic single-table PDF builder shared by every report below — logo +
+  // company letterhead + title/period on every page (via autoTable's
+  // didDrawPage), one autoTable body, landscape once there are enough
   // columns that portrait would get cramped.
-  const pdfFromTable = (title: string, head: string[], rows: (string | number)[][], filenamePrefix: string) => {
+  const pdfFromTable = async (title: string, head: string[], rows: (string | number)[][], filenamePrefix: string) => {
+    const logo = await loadLogo();
     const doc = new jsPDF({ orientation: head.length > 5 ? 'landscape' : 'portrait' });
-    doc.setFontSize(14);
-    doc.text(title, 14, 15);
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text(`Period: ${periodLabel()}  ·  Generated ${new Date().toLocaleString()}`, 14, 21);
     autoTable(doc, {
-      startY: 26,
+      startY: 45,
       head: [head],
       body: rows,
       styles: { fontSize: 8 },
-      headStyles: { fillColor: [234, 88, 12] }, // matches the orange-600 brand accent used across Store
+      headStyles: { fillColor: BRAND_ORANGE, textColor: 255 },
+      margin: { top: 45, bottom: 18 },
+      didDrawPage: () => { drawPdfHeader(doc, logo, title, `Period: ${periodLabel()}`); },
     });
+    const finalY = (doc as any).lastAutoTable?.finalY || 45;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(130, 130, 130);
+    doc.text(`${rows.length} record${rows.length === 1 ? '' : 's'}`, 14, finalY + 6);
+    drawPdfFooter(doc);
     doc.save(`${filenamePrefix}_${fileLabel()}.pdf`);
   };
 
   // Consumption Report (PDF) — same two tables as the Excel export's first
   // two sheets (raw log + stock ledger), one per page since jsPDF autotable
   // only draws one table per call cleanly.
-  const exportDailyReportPDF = () => {
+  const exportDailyReportPDF = async () => {
+    const logo = await loadLogo();
     const doc = new jsPDF({ orientation: 'landscape' });
-    doc.setFontSize(14);
-    doc.text('Consumption Report', 14, 15);
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text(`Period: ${periodLabel()}  ·  Generated ${new Date().toLocaleString()}`, 14, 21);
     autoTable(doc, {
-      startY: 26,
+      startY: 45,
       head: [['Date', 'Section', 'Material', 'Qty', 'Unit', 'Logged By', 'Notes']],
       body: searchedConsumptionLogs.map(c => [c.date, c.sectionName || c.sectionId, c.materialName, Number(c.qty).toFixed(2), c.unit, c.loggedByName, c.notes || '']),
       styles: { fontSize: 8 },
-      headStyles: { fillColor: [234, 88, 12] },
+      headStyles: { fillColor: BRAND_ORANGE, textColor: 255 },
+      margin: { top: 45, bottom: 18 },
+      didDrawPage: () => { drawPdfHeader(doc, logo, 'Consumption Report', `Period: ${periodLabel()}`); },
     });
     doc.addPage();
-    doc.setFontSize(14);
-    doc.text('Stock Ledger', 14, 15);
     autoTable(doc, {
-      startY: 22,
+      startY: 45,
       head: [['Material', 'Previous Stock', 'Issued to Floor', 'Consumed', 'Balance Stock', 'Unit']],
       body: stockLedger
         .filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0)
         .map(r => [r.materialName, r.previous.toFixed(2), r.issued.toFixed(2), r.consumed.toFixed(2), r.balance.toFixed(2), r.unit]),
       styles: { fontSize: 8 },
-      headStyles: { fillColor: [234, 88, 12] },
+      headStyles: { fillColor: BRAND_ORANGE, textColor: 255 },
+      margin: { top: 45, bottom: 18 },
+      didDrawPage: () => { drawPdfHeader(doc, logo, 'Stock Ledger', `Period: ${periodLabel()}`); },
     });
+    drawPdfFooter(doc);
     doc.save(`consumption_report_${fileLabel()}.pdf`);
   };
 
