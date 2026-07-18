@@ -198,6 +198,99 @@ export async function exportTablePdf(opts: {
 }
 
 /**
+ * Daily Defect Report PDF — matches the printed shop-floor "Quality Control
+ * Report" sheet layout, but split into two pages:
+ *   Page 1 — DEFECTS ONLY: one row per defect type, how many pools had it,
+ *            and which pool numbers.
+ *   Page 2 — PRODUCTION: shift I/II/III/Total quantities plus the full pool
+ *            number list (clean + defective) for the day.
+ */
+export async function exportDailyDefectReportPdf(report: {
+  workshopName: string;
+  date: string;
+  projectName: string;
+  controller: string;
+  shiftQuantities: { I: number; II: number; III: number };
+  pools: { poolNo: string; defects: string[] }[];
+  remarks?: string;
+}) {
+  const logo = await loadLogo();
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  const subtitle = `${report.projectName}  •  Date: ${report.date}  •  Controller: ${report.controller}`;
+
+  // ── PAGE 1 — DEFECTS ────────────────────────────────────────────────────
+  const defectCounts: Record<string, string[]> = {};
+  report.pools.forEach(p => p.defects.forEach(d => {
+    if (!defectCounts[d]) defectCounts[d] = [];
+    defectCounts[d].push(p.poolNo);
+  }));
+  const defectRows = Object.entries(defectCounts)
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([defect, poolNos]) => [defect, String(poolNos.length), poolNos.join(', ')]);
+
+  autoTable(doc, {
+    startY: 96,
+    head: [['Defect', 'Qty of Pools', 'Pool Number(s)']],
+    body: defectRows.length > 0 ? defectRows : [['— No defects recorded — clean run —', '', '']],
+    styles: { fontSize: 8.5, cellPadding: 5, textColor: [30, 41, 59] },
+    headStyles: { fillColor: BRAND_ORANGE, textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 0: { cellWidth: 160 }, 1: { cellWidth: 70, halign: 'center' }, 2: { cellWidth: 'auto' } },
+    margin: { top: 96, left: 32, right: 32, bottom: 44 },
+    rowPageBreak: 'avoid',
+    didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Defects', subtitle); },
+  });
+
+  const p1FinalY = (doc as any).lastAutoTable?.finalY || 96;
+  if (report.remarks) {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Remarks: ${report.remarks}`, 32, p1FinalY + 16, { maxWidth: doc.internal.pageSize.getWidth() - 64 });
+  }
+  drawPdfFooter(doc, `${COMPANY_NAME} — ${report.workshopName} — Defect Page`);
+
+  // ── PAGE 2 — PRODUCTION ────────────────────────────────────────────────
+  doc.addPage();
+  autoTable(doc, {
+    startY: 96,
+    head: [['Shift', 'Quantity of Pools']],
+    body: [
+      ['I', String(report.shiftQuantities.I)],
+      ['II', String(report.shiftQuantities.II)],
+      ['III', String(report.shiftQuantities.III)],
+      ['Total', String(report.shiftQuantities.I + report.shiftQuantities.II + report.shiftQuantities.III)],
+    ],
+    styles: { fontSize: 9, cellPadding: 5, textColor: [30, 41, 59] },
+    headStyles: { fillColor: BRAND_ORANGE, textColor: [255, 255, 255], fontStyle: 'bold' },
+    bodyStyles: { fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 100 }, 1: { cellWidth: 140 } },
+    margin: { top: 96, left: 32, right: 32, bottom: 44 },
+    didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Production', subtitle); },
+  });
+
+  const shiftTableY = (doc as any).lastAutoTable?.finalY || 96;
+  const poolRows = report.pools.map(p => [p.poolNo, p.defects.length === 0 ? 'OK' : `${p.defects.length} defect${p.defects.length > 1 ? 's' : ''}`]);
+  autoTable(doc, {
+    startY: shiftTableY + 20,
+    head: [['Pool Number', 'Status']],
+    body: poolRows.length > 0 ? poolRows : [['— No pools recorded —', '']],
+    styles: { fontSize: 8.5, cellPadding: 4, textColor: [30, 41, 59] },
+    headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 0: { cellWidth: 200 }, 1: { cellWidth: 140 } },
+    margin: { top: 96, left: 32, right: 32, bottom: 44 },
+    rowPageBreak: 'avoid',
+    didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Production', subtitle); },
+  });
+
+  drawPdfFooter(doc, `${COMPANY_NAME} — ${report.workshopName} — Production Page`);
+
+  const stamp = report.date || new Date().toISOString().slice(0, 10);
+  doc.save(`${report.workshopName.replace(/\s+/g, '_')}_${report.projectName.replace(/\s+/g, '_')}_${stamp}.pdf`);
+}
+
+/**
  * Pool lifecycle PDF — full history for a single pool, ready for filing.
  */
 export function exportPoolHistoryPdf(pool: any, stages: { id: string; name: string }[]) {
