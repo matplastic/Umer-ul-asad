@@ -115,6 +115,32 @@ export type ViewRole =
   | 'section_supervisor'
   | 'reports_analytics';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Daily Defect Report — digital version of the paper "Quality Control Report"
+// sheets used per workshop (Steel Fabrication, Steel Primer, GRP Fixing,
+// GRP Lamination, Mosaic, Plumbing). One report = one workshop, one date,
+// one project, with per-pool defect ticks so summaries like "3 pools had
+// Pinhole" can be computed automatically.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface DailyDefectPoolEntry {
+  poolNo: string;
+  defects: string[]; // defect type strings ticked for this pool, from WORKSHOP_DEFECT_CATALOG
+}
+
+export interface DailyDefectReport {
+  id: string;
+  stageId: StageId;
+  workshopName: string; // e.g. "Steel Fabrication Workshop" — matches the paper form title
+  date: string; // YYYY-MM-DD
+  projectName: string;
+  controller: string; // QC controller / inspector name
+  shiftQuantities: { I: number; II: number; III: number }; // "SHIFT (Quantity of Pools)" from the paper form
+  pools: DailyDefectPoolEntry[]; // "Description (Pool number)" rows with defect ticks
+  remarks?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
 export interface ProjectSummary {
   id: string;
   projectName: string;
