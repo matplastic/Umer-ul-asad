@@ -483,17 +483,56 @@ function makeSentinel() {
 //   • serializes concurrent writes from multiple PCs (no last-write-wins wipe)
 //   • FAILS when the device is offline instead of silently queueing a stale
 //     full-document overwrite that would flush hours later on reconnect
+//
+// DATA-LOSS FIX (v7): MERGE instead of blind overwrite.
+// THE BUG: this function used to call `updateFirestoreDocArray(name, () => data)`.
+// That threw away whatever the transaction just read from the live server and
+// wrote the caller's local array verbatim. A browser tab open for a while (a
+// kiosk screen, an idle PC, a phone that never refreshed) could have a
+// teams/employees/etc array missing records another device added or edited
+// since this tab loaded. The instant that tab changed ANYTHING in that
+// collection (e.g. setting one team's login code), it silently deleted every
+// record it didn't know about — this is exactly how "all Teams Allocation
+// data disappeared" happens with zero errors shown.
+//
+// THE FIX: merge by `id` against the array the transaction just read live
+// from Firestore ("current"), instead of replacing it:
+//   • records in `current` but missing from the local array are KEPT
+//     (added/edited elsewhere after this tab last synced)
+//   • records present in the local array win for matching ids (this tab's
+//     edit is respected)
+//   • records only in the local array (new adds) are appended
+// True deletes still work correctly because delete flows (dbDeleteEmployee,
+// dbSaveTeam-style handlers, etc.) go through their own targeted
+// `updateFirestoreDocArray(name, arr => arr.filter(...))` calls that operate
+// directly on the live server array — they never pass through this merge.
 // ─────────────────────────────────────────────────────────────────────────────
+function mergeById(current: any[], local: any[]): any[] {
+  if (!Array.isArray(current) || current.length === 0) return local;
+  if (!Array.isArray(local)) return current;
+  const localIds = new Set(local.map((item) => item?.id));
+  const restored = current.filter((item) => !localIds.has(item?.id));
+  if (restored.length > 0) {
+    console.warn(`[saveChangedCollectionsToFirestore] Restored ${restored.length} record(s) missing from local copy (added/edited elsewhere) instead of deleting them.`);
+  }
+  return [...local, ...restored];
+}
+
 export async function saveChangedCollectionsToFirestore(changed: Record<string, any[]>) {
   const entries = Object.entries(changed);
   if (entries.length === 0) return { success: true };
   await Promise.all(entries.map(([name, arr]) => {
     let data = arr;
-    if (name === 'logs') data = arr.slice(-200);
     if (name === 'projectsSummary' && !arr.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
       data = [...arr, makeSentinel()];
     }
-    return updateFirestoreDocArray(name, () => data);
+    // logs are an append/trim timeline, not id-keyed records — merging them
+    // by id doesn't apply, so keep the direct trimmed write for logs.
+    if (name === 'logs') {
+      const trimmed = data.slice(-200);
+      return updateFirestoreDocArray(name, () => trimmed);
+    }
+    return updateFirestoreDocArray(name, (current) => mergeById(current, data));
   }));
   return { success: true };
 }
@@ -755,6 +794,38 @@ export async function dbDeleteMonthlyTarget(id: string) {
 }
 
 // 5. Fine-grained operations: Teams
+//
+// DATA-LOSS FIX (v7 follow-up): team deletion used to only ever go through
+// the generic saveState -> saveChangedCollectionsToFirestore path (there was
+// no dedicated delete function for teams, unlike employees/pools/etc). Now
+// that saveChangedCollectionsToFirestore MERGES by id instead of blindly
+// overwriting (see mergeById above), a team removed only from the local
+// array would be treated as "missing due to a stale tab" and restored — the
+// delete button would silently stop working. This dedicated transactional
+// delete removes the team directly from the live Firestore array, exactly
+// like dbDeleteEmployee/dbDeletePool/etc, so the delete is real and permanent
+// regardless of what any other tab's local array looks like.
+export async function dbDeleteTeam(teamId: string) {
+  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  if (!base) {
+    await updateFirestoreDocArray('teams', (arr) => arr.filter(item => item.id !== teamId), true);
+    return { success: true };
+  }
+
+  try {
+    const headers = await getHeaders();
+    const response = await fetch(getApiUrl(`/api/teams/${teamId}`), {
+      method: 'DELETE',
+      headers,
+    });
+    if (!response.ok) throw new Error('Failed to delete Team from SQL.');
+    return await response.json();
+  } catch (error) {
+    console.error('dbDeleteTeam failed:', error);
+    throw error;
+  }
+}
+
 export async function dbSaveTeam(team: Team) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
