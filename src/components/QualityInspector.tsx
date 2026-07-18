@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { Pool, StageId } from '../types';
+import { Pool, StageId, ActivityLog } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
 import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
 import { DailyDefectReport } from './DailyDefectReport';
-import { DailyDefectReport as DailyDefectReportType } from '../types';
 
 interface UndoClaimRequest {
   id: string;
@@ -35,10 +34,8 @@ interface QualityInspectorProps {
   qcDefects?: QCDefect[];
   onLogDefect?: (defect: QCDefect) => void;
   onUpdateDefectStatus?: (defectId: string, newStatus: QCDefect['status'], operatorName: string) => void;
-  // Daily Defect Report portal
-  dailyDefectReports?: DailyDefectReportType[];
-  onSaveDailyDefectReport?: (report: DailyDefectReportType) => void;
-  onDeleteDailyDefectReport?: (id: string) => void;
+  // Daily Defect Report portal (auto-generated from logs + qcDefects)
+  logs?: ActivityLog[];
 }
 
 export const QualityInspector: React.FC<QualityInspectorProps> = ({
@@ -57,9 +54,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   qcDefects = [],
   onLogDefect,
   onUpdateDefectStatus,
-  dailyDefectReports = [],
-  onSaveDailyDefectReport,
-  onDeleteDailyDefectReport,
+  logs = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'queue' | 'daily_report'>('queue');
   const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || '');
@@ -270,10 +265,8 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
 
       {activeTab === 'daily_report' ? (
         <DailyDefectReport
-          reports={dailyDefectReports}
-          controllerName={selectedInspector}
-          onSaveReport={(r) => onSaveDailyDefectReport && onSaveDailyDefectReport(r)}
-          onDeleteReport={(id) => onDeleteDailyDefectReport && onDeleteDailyDefectReport(id)}
+          logs={logs}
+          qcDefects={qcDefects}
         />
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
