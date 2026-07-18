@@ -77,6 +77,77 @@ export const DEFECT_TYPES: { category: string; items: string[] }[] = [
   },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-workshop defect catalogue — matches the exact defect rows from the
+// paper "Quality Control Report" sheets used on the shop floor for each
+// workshop. When a stage has an entry here, QCDefectPanel shows this exact
+// list instead of the generic category picker above, so pool-level defect
+// logging and the Daily Defect Report portal always stay in sync with the
+// same wording ("Bubbles - Pinholes", "Wet spots", etc).
+// ─────────────────────────────────────────────────────────────────────────────
+export const WORKSHOP_DEFECT_CATALOG: Partial<Record<string, string[]>> = {
+  steel_fabrication: [
+    'Assembly',
+    'Welding',
+    'Trim',
+    'Lengths (Dimensions)',
+    'Angles',
+    'Grinding (slag)',
+    'Squareness',
+    'Planety',
+  ],
+  steel_primer: [
+    'Exposed Steel spots',
+    'Wet spots',
+    'Sags',
+    'Thickness',
+  ],
+  cladding: [ // GRP Fixing Workshop
+    'Leveling',
+    'GRP Intersection',
+    'Gap between GRP & Steel',
+    'Fitting Pipes Gap',
+  ],
+  lamination: [ // GRP Lamination Workshop
+    'Bubbles - Pinholes',
+    'Flatness',
+    'Leveling',
+    'Cracks',
+    'Delamination',
+    'Dry spots without resin',
+  ],
+  plumbing: [
+    'Routing',
+    'Pipes Distance',
+    'Pipes Position',
+    'PVC Crack',
+    'Supports',
+    'Leakage',
+    'Thickness',
+  ],
+  mosaic: [
+    'Flatness (Inside)', 'Flatness (Outside)',
+    'Lippage (Inside)', 'Lippage (Outside)',
+    'Leveling (Inside)', 'Leveling (Outside)',
+    'Angle (Inside)', 'Angle (Outside)',
+    'Joints spacing (Inside)', 'Joints spacing (Outside)',
+    'Joints aesthetic (Inside)', 'Joints aesthetic (Outside)',
+    'Cleaning (Inside)', 'Cleaning (Outside)',
+    'Others',
+  ],
+};
+
+// Workshop title shown on the paper form header, keyed the same way — used by
+// the Daily Defect Report portal so the on-screen title matches the printed sheet.
+export const WORKSHOP_TITLES: Partial<Record<string, string>> = {
+  steel_fabrication: 'Steel Fabrication Workshop',
+  steel_primer: 'Steel Primer Workshop',
+  cladding: 'GRP Fixing Workshop',
+  lamination: 'GRP Lamination Workshop',
+  plumbing: 'Plumbing Inspection',
+  mosaic: 'Mosaic Inspection Report',
+};
+
 export const DEFECT_SEVERITY_CONFIG = {
   minor:    { label: 'Minor',    color: 'bg-amber-50 text-amber-700 border-amber-200',    dot: 'bg-amber-400' },
   major:    { label: 'Major',    color: 'bg-orange-50 text-orange-700 border-orange-200', dot: 'bg-orange-500' },
@@ -194,8 +265,12 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
     setErrorMsg('');
   };
 
-  const currentCategoryItems =
-    DEFECT_TYPES.find(c => c.category === selectedCategory)?.items || [];
+  const workshopList = WORKSHOP_DEFECT_CATALOG[stageId];
+  const usingWorkshopList = !!workshopList;
+
+  const currentCategoryItems = workshopList
+    || DEFECT_TYPES.find(c => c.category === selectedCategory)?.items
+    || [];
 
   return (
     <div className="border border-slate-100 rounded-xl overflow-hidden">
@@ -238,7 +313,8 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
             </button>
           </div>
 
-          {/* Category picker */}
+          {/* Category picker — only shown for stages without an exact workshop list */}
+          {!usingWorkshopList && (
           <div>
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">Defect Category</label>
             <div className="flex flex-wrap gap-1.5">
@@ -258,10 +334,13 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
               ))}
             </div>
           </div>
+          )}
 
           {/* Defect type dropdown */}
           <div>
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">Defect Type *</label>
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">
+              Defect Type *{usingWorkshopList && ` (${WORKSHOP_TITLES[stageId] || stageName})`}
+            </label>
             <select
               value={selectedDefect}
               onChange={e => setSelectedDefect(e.target.value)}
