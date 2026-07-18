@@ -211,31 +211,40 @@ export async function exportDailyDefectReportPdf(report: {
   projectName: string;
   controller: string;
   totalProduction: number;
-  pools: { poolNo: string; defects: string[] }[];
+  /** Every defect type in the workshop's catalogue, including zero-qty ones,
+   *  each with the full list of pool occurrences (poolNo/project/orientation/type). */
+  catalogRows: {
+    defect: string;
+    qty: number;
+    occurrences: { poolNo: string; projectName: string; orientation: string; poolType: string }[];
+  }[];
+  pools: { poolNo: string; projectName: string; orientation: string; poolType: string; defects: string[] }[];
   remarks?: string;
 }) {
   const logo = await loadLogo();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
   const subtitle = `${report.projectName}  •  Date: ${report.date}  •  Controller: ${report.controller}`;
 
-  // ── PAGE 1 — DEFECTS ────────────────────────────────────────────────────
-  const defectCounts: Record<string, string[]> = {};
-  report.pools.forEach(p => p.defects.forEach(d => {
-    if (!defectCounts[d]) defectCounts[d] = [];
-    defectCounts[d].push(p.poolNo);
-  }));
-  const defectRows = Object.entries(defectCounts)
-    .sort((a, b) => b[1].length - a[1].length)
-    .map(([defect, poolNos]) => [defect, String(poolNos.length), poolNos.join(', ')]);
+  // ── PAGE 1 — DEFECTS (every catalogue defect, zero-qty included) ───────
+  // Each occurrence is its own line inside the "Pool Details" cell, formatted
+  // "PoolNo — ProjectName — Orientation — Type" so a defect with several
+  // affected pools reads as a clean stacked list, matching how the paper
+  // form's "Description (Pool number)" column is filled in by hand.
+  const defectRows = report.catalogRows.map(({ defect, qty, occurrences }) => {
+    const detailLines = occurrences
+      .map(o => [o.poolNo, o.projectName, o.orientation, o.poolType].filter(Boolean).join(' — '))
+      .join('\n');
+    return [defect, qty > 0 ? String(qty) : '-', detailLines || '-'];
+  });
 
   autoTable(doc, {
     startY: 96,
-    head: [['Defect', 'Qty of Pools', 'Pool Number(s)']],
-    body: defectRows.length > 0 ? defectRows : [['— No defects recorded — clean run —', '', '']],
-    styles: { fontSize: 8.5, cellPadding: 5, textColor: [30, 41, 59] },
+    head: [['Defect', 'Qty', 'Pool No. — Project — Orientation — Type']],
+    body: defectRows.length > 0 ? defectRows : [['— No defect catalogue configured for this workshop —', '', '']],
+    styles: { fontSize: 8.5, cellPadding: 5, textColor: [30, 41, 59], valign: 'top' },
     headStyles: { fillColor: BRAND_ORANGE, textColor: [255, 255, 255], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 0: { cellWidth: 160 }, 1: { cellWidth: 70, halign: 'center' }, 2: { cellWidth: 'auto' } },
+    columnStyles: { 0: { cellWidth: 140 }, 1: { cellWidth: 40, halign: 'center' }, 2: { cellWidth: 'auto' } },
     margin: { top: 96, left: 32, right: 32, bottom: 44 },
     rowPageBreak: 'avoid',
     didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Defects', subtitle); },
@@ -264,15 +273,20 @@ export async function exportDailyDefectReportPdf(report: {
   });
 
   const totalTableY = (doc as any).lastAutoTable?.finalY || 96;
-  const poolRows = report.pools.map(p => [p.poolNo, p.defects.length === 0 ? 'OK' : `${p.defects.length} defect${p.defects.length > 1 ? 's' : ''}`]);
+  const poolRows = report.pools.map(p => [
+    p.poolNo,
+    p.projectName,
+    [p.orientation, p.poolType].filter(Boolean).join(' / ') || '-',
+    p.defects.length === 0 ? 'OK' : `${p.defects.length} defect${p.defects.length > 1 ? 's' : ''}`,
+  ]);
   autoTable(doc, {
     startY: totalTableY + 20,
-    head: [['Pool Number', 'Status']],
-    body: poolRows.length > 0 ? poolRows : [['— No pools recorded —', '']],
+    head: [['Pool Number', 'Project', 'Orientation / Type', 'Status']],
+    body: poolRows.length > 0 ? poolRows : [['— No pools recorded —', '', '', '']],
     styles: { fontSize: 8.5, cellPadding: 4, textColor: [30, 41, 59] },
     headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 0: { cellWidth: 200 }, 1: { cellWidth: 140 } },
+    columnStyles: { 0: { cellWidth: 90 }, 1: { cellWidth: 150 }, 2: { cellWidth: 110 }, 3: { cellWidth: 'auto' } },
     margin: { top: 96, left: 32, right: 32, bottom: 44 },
     rowPageBreak: 'avoid',
     didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Production', subtitle); },
