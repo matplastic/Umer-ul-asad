@@ -3,8 +3,9 @@ import { DailyDefectReport as DailyDefectReportType, DailyDefectPoolEntry } from
 import { WORKSHOP_DEFECT_CATALOG, WORKSHOP_TITLES } from './QCDefectPanel';
 import {
   ClipboardList, Plus, Trash2, X, Save, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle2, FileBarChart2, Calendar, Building2,
+  AlertTriangle, CheckCircle2, FileBarChart2, Calendar, Building2, Printer,
 } from 'lucide-react';
+import { exportDailyDefectReportPdf } from '../lib/exportUtils';
 
 // The 6 workshops that have a printed paper form, in the order the paper
 // binder is usually filled out on the shop floor.
@@ -293,13 +294,31 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={handleSave}
-          className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl cursor-pointer transition-colors"
-        >
-          <Save className="h-4 w-4" /> Save Daily Defect Report
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl cursor-pointer transition-colors"
+          >
+            <Save className="h-4 w-4" /> Save Daily Defect Report
+          </button>
+          <button
+            type="button"
+            onClick={() => exportDailyDefectReportPdf({
+              workshopName: WORKSHOP_TITLES[stageId] || stageId,
+              date,
+              projectName: projectName.trim() || '—',
+              controller: controllerName || '—',
+              shiftQuantities: { I: shiftI, II: shiftII, III: shiftIII },
+              pools: pools.filter(p => p.poolNo.trim() !== ''),
+              remarks: remarks.trim() || undefined,
+            })}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-xl cursor-pointer transition-colors"
+            title="Preview / download PDF without saving"
+          >
+            <Printer className="h-4 w-4" /> PDF
+          </button>
+        </div>
       </div>
 
       {/* ── History / saved reports ────────────────────────────────────────── */}
@@ -352,6 +371,15 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({
                     </div>
                     {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-400 shrink-0" /> : <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />}
                   </button>
+                  <div className="px-4 py-1.5 bg-slate-50 border-t border-slate-100 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); exportDailyDefectReportPdf(report); }}
+                      className="flex items-center gap-1 text-[10px] font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
+                    >
+                      <Printer className="h-3 w-3" /> Quick PDF
+                    </button>
+                  </div>
 
                   {isExpanded && (
                     <div className="p-4 space-y-3">
@@ -388,7 +416,14 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({
                         <p className="text-xs text-slate-500 italic">"{report.remarks}"</p>
                       )}
 
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => exportDailyDefectReportPdf(report)}
+                          className="flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg cursor-pointer"
+                        >
+                          <Printer className="h-3 w-3" /> PDF
+                        </button>
                         <button
                           type="button"
                           onClick={() => onDeleteReport(report.id)}
