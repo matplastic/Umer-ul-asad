@@ -21,7 +21,6 @@ import { HRPortal } from './components/HRPortal';
 import { ReportsAndAnalytics } from './components/ReportsAndAnalytics';
 import { QRScanner } from './components/QRCodeModule';
 import { QCDefect } from './components/QCDefectPanel';
-import { DailyDefectReport as DailyDefectReportType } from './types';
 import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
@@ -39,8 +38,6 @@ import {
   dbDeleteTeam,
   dbSaveTrolley,
   dbDeleteTrolley,
-  dbSaveDailyDefectReport,
-  dbDeleteDailyDefectReport,
   dbSaveQcDefect,
   dbAddRecycleBin,
   dbDeleteRecycleBin,
@@ -142,11 +139,6 @@ export default function App() {
   // ── QC Defects — logged per stage per pool by Quality Inspectors ──────────
   const [qcDefects, setQcDefects] = useState<QCDefect[]>(() => {
     try { return JSON.parse(localStorage.getItem('apex_qc_defects') || '[]'); } catch { return []; }
-  });
-
-  // ── Daily Defect Reports — workshop-wise digital QC report sheets ─────────
-  const [dailyDefectReports, setDailyDefectReports] = useState<DailyDefectReportType[]>(() => {
-    try { return JSON.parse(localStorage.getItem('apex_daily_defect_reports') || '[]'); } catch { return []; }
   });
 
   // Undo claim requests from shop floor workers
@@ -748,7 +740,6 @@ export default function App() {
         case 'recycleBin':       safeUpdate(setRecycleBin, data as RecycleBinItem[]); break;
         case 'employeePunches':  safeUpdate(setEmployeePunches, data as EmployeePunch[]); break;
         case 'qcDefects':        safeUpdate(setQcDefects, data as QCDefect[]); break;
-        case 'dailyDefectReports': safeUpdate(setDailyDefectReports, data as DailyDefectReportType[]); break;
       }
       // Keep localStorage hot-cache in sync so offline reload starts with fresh data
       const lsKey = 'apex_' + collection.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
@@ -1071,21 +1062,6 @@ export default function App() {
       }
       return updated;
     });
-  };
-
-  // ── Daily Defect Report handlers ──────────────────────────────────────────
-  const handleSaveDailyDefectReport = (report: DailyDefectReportType) => {
-    const updated = [report, ...dailyDefectReports];
-    setDailyDefectReports(updated);
-    localStorage.setItem('apex_daily_defect_reports', JSON.stringify(updated));
-    dbSaveDailyDefectReport(report).catch(console.error);
-  };
-
-  const handleDeleteDailyDefectReport = (id: string) => {
-    const updated = dailyDefectReports.filter(r => r.id !== id);
-    setDailyDefectReports(updated);
-    localStorage.setItem('apex_daily_defect_reports', JSON.stringify(updated));
-    dbDeleteDailyDefectReport(id).catch(console.error);
   };
 
   const handleUpdateTeams = (updatedTeams: Team[]) => {
@@ -3013,9 +2989,7 @@ export default function App() {
             qcDefects={qcDefects}
             onLogDefect={handleLogDefect}
             onUpdateDefectStatus={handleUpdateDefectStatus}
-            dailyDefectReports={dailyDefectReports}
-            onSaveDailyDefectReport={handleSaveDailyDefectReport}
-            onDeleteDailyDefectReport={handleDeleteDailyDefectReport}
+            logs={logs}
           />
         )}
 
