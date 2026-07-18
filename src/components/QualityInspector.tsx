@@ -3,6 +3,8 @@ import { Pool, StageId } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
 import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
+import { DailyDefectReport } from './DailyDefectReport';
+import { DailyDefectReport as DailyDefectReportType } from '../types';
 
 interface UndoClaimRequest {
   id: string;
@@ -33,6 +35,10 @@ interface QualityInspectorProps {
   qcDefects?: QCDefect[];
   onLogDefect?: (defect: QCDefect) => void;
   onUpdateDefectStatus?: (defectId: string, newStatus: QCDefect['status'], operatorName: string) => void;
+  // Daily Defect Report portal
+  dailyDefectReports?: DailyDefectReportType[];
+  onSaveDailyDefectReport?: (report: DailyDefectReportType) => void;
+  onDeleteDailyDefectReport?: (id: string) => void;
 }
 
 export const QualityInspector: React.FC<QualityInspectorProps> = ({
@@ -51,7 +57,11 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   qcDefects = [],
   onLogDefect,
   onUpdateDefectStatus,
+  dailyDefectReports = [],
+  onSaveDailyDefectReport,
+  onDeleteDailyDefectReport,
 }) => {
+  const [activeTab, setActiveTab] = useState<'queue' | 'daily_report'>('queue');
   const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || '');
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
@@ -207,6 +217,26 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setActiveTab('queue')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
+                activeTab === 'queue' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Inspection Queue
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('daily_report')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
+                activeTab === 'daily_report' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Daily Defect Report
+            </button>
+          </div>
           <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspector ID:</label>
             <select
@@ -238,6 +268,14 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
         </div>
       </div>
 
+      {activeTab === 'daily_report' ? (
+        <DailyDefectReport
+          reports={dailyDefectReports}
+          controllerName={selectedInspector}
+          onSaveReport={(r) => onSaveDailyDefectReport && onSaveDailyDefectReport(r)}
+          onDeleteReport={(id) => onDeleteDailyDefectReport && onDeleteDailyDefectReport(id)}
+        />
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {/* Pending Items queue */}
@@ -637,6 +675,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };
