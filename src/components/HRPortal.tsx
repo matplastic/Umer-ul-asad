@@ -2148,7 +2148,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
       {/* ── A4 Print / PDF Report Modal (Absent / Accident / Medical reports) ── */}
       {printReport && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div id="hr-report-modal-overlay" className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <style dangerouslySetInnerHTML={{ __html: `
             @media print {
               body * { visibility: hidden !important; }
@@ -2157,11 +2157,28 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 position: absolute !important; left: 0; top: 0; width: 100%;
                 background: white !important; color: black !important; padding: 1.5cm !important;
               }
+              /* The on-screen modal clips its content to fit the viewport
+                 (max-h-[90vh] + overflow-y-auto) so it can scroll. That clip
+                 still applies during print even though #printable-hr-report
+                 is absolutely positioned — the browser's print pagination
+                 then fights that clipped, scrollable box and produces
+                 overlapping/duplicated rows across page breaks. Removing the
+                 clip here (print only) is what actually fixes it. */
+              #hr-report-modal-overlay, #hr-report-modal-box {
+                position: static !important;
+                overflow: visible !important;
+                max-height: none !important;
+                height: auto !important;
+                display: block !important;
+              }
+              #printable-hr-report table { page-break-inside: auto; }
+              #printable-hr-report tr { page-break-inside: avoid; break-inside: avoid; }
+              #printable-hr-report thead { display: table-header-group; }
               .no-print { display: none !important; }
               @page { size: A4; margin: 1cm; }
             }
           ` }} />
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+          <div id="hr-report-modal-box" className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="no-print flex items-center justify-between border-b border-slate-200 px-5 py-3 sticky top-0 bg-white rounded-t-2xl">
               <span className="text-xs font-bold uppercase text-slate-500">{printReport.title} — Preview (A4)</span>
               <div className="flex gap-2">
@@ -2178,6 +2195,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     rows: printReport.rows,
                     filename: printReport.title.replace(/\s+/g, '_'),
                     orientation: 'portrait',
+                    deptLine: 'HR Department — ERP System',
                   })}
                   className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                   <Download className="h-3.5 w-3.5" /> Download PDF (A4)
