@@ -271,6 +271,22 @@ export interface IncomingMaterial {
   receivedByName: string;
   receivedAt: string;
   createdAt: string;
+  // Lot/batch tracking — each receipt is its own batch. qtyRemaining is
+  // drawn down FIFO as approvals issue material out to the floor, so you
+  // can tell which batch(es) actually left the shelf. Older records (before
+  // this field existed) have no batchNo and are treated as one big
+  // undifferentiated pool for FIFO purposes.
+  batchNo?: string | null;
+  qtyRemaining?: number | null;
+}
+
+// One line of a FIFO batch draw — which incoming-material receipt(s) an
+// approval/issue pulled from, and how much. Lets you trace a consumption
+// entry all the way back to the actual delivery it came from.
+export interface BatchDraw {
+  incomingId: string;
+  batchNo: string | null;
+  qty: number;
 }
 
 export interface ConsumptionLog {
@@ -284,6 +300,38 @@ export interface ConsumptionLog {
   qty: number;
   notes?: string | null;
   loggedByName: string;
+  createdAt: string;
+  // Document trail: which Floor Stock issue this consumption is drawing
+  // down. Not a hard foreign key (Floor Stock is a running balance, not
+  // per-batch), but lets you jump from a log entry to "what section/request
+  // put this material on the floor in the first place."
+  sectionRequestIds?: string[] | null;
+  // True once a Return-to-Store has been logged against this entry
+  // (see MaterialReturn) — kept so the log itself shows it was reversed
+  // instead of just silently having a matching return elsewhere.
+  reversed?: boolean | null;
+}
+
+// Reversal of material sitting on the floor, back into Store — the other
+// half of the Store ↔ Floor loop that was missing before. Undoes exactly
+// what an approval did: Floor Stock goes DOWN, Store's currentStock goes
+// back UP by the same qty. Consumption already logged is untouched — this
+// is only for floor stock that was issued but never used.
+export interface MaterialReturn {
+  id: string;
+  date: string;
+  sectionId: string;
+  sectionName: string;
+  materialId: string;
+  materialName: string;
+  unit: string;
+  qty: number;
+  reason?: string | null;
+  returnedByName: string;
+  // Which original approval(s) this traces back to, for the document trail
+  // — filled in automatically inside dbCreateMaterialReturn from Floor
+  // Stock's own trail, so callers don't need to supply it.
+  sourceRequestIds?: string[];
   createdAt: string;
 }
 
@@ -321,6 +369,10 @@ export interface FloorStock {
   materialName: string;
   unit: string;
   qty: number; // currently on the floor, issued but not yet consumed
+  // Document trail: every approved MaterialRequest.id that has ever fed
+  // this row. Lets a consumption entry (or a return) be traced back to the
+  // request(s)/approval(s) that actually put the material on the floor.
+  sourceRequestIds?: string[] | null;
   updatedAt: string;
 }
 
