@@ -957,13 +957,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
                   <th className="px-2 py-2" title="Key material"></th>
-                  <th className="text-left px-4 py-2">Material</th>
                   <th className="text-left px-4 py-2">ERP Code</th>
+                  <th className="text-left px-4 py-2">Material</th>
                   <th className="text-left px-4 py-2">Portal</th>
-                  <th className="text-left px-4 py-2">Section</th>
-                  <th className="text-left px-4 py-2">Category</th>
-                  <th className="text-left px-4 py-2">Brand</th>
-                  <th className="text-left px-4 py-2">Supplier</th>
                   <th className="text-left px-4 py-2">Location</th>
                   <th className="text-right px-4 py-2">Incoming</th>
                   <th className="text-right px-4 py-2">Consumed</th>
@@ -986,8 +982,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                             <Star className={`h-3.5 w-3.5 ${isMaterialCritical(m) ? 'text-amber-400 fill-amber-400' : 'text-slate-600'}`} />
                           </button>
                         </td>
-                        <td className="px-4 py-2 text-slate-200 font-semibold">{m.name}</td>
                         <td className="px-4 py-2 text-slate-400 font-mono">{(m as any).erpCode || '—'}</td>
+                        <td className="px-4 py-2 text-slate-200 font-semibold">{m.name}</td>
                         <td className="px-4 py-2">
                           <select value={grp} onChange={e => setMaterialGroup(m, e.target.value as any)} data-testid={`mat-group-${m.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase border cursor-pointer bg-transparent ${GROUP_BADGE[grp]}`}>
                             <option className="bg-slate-900" value="mep">MEP</option>
@@ -995,10 +991,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                             <option className="bg-slate-900" value="other">Other</option>
                           </select>
                         </td>
-                        <td className="px-4 py-2 text-slate-400"><button onClick={() => editSection(m)} className="hover:text-orange-400 cursor-pointer">{sectionLabel(m.section)}</button></td>
-                        <td className="px-4 py-2 text-slate-400">{m.category || '—'}</td>
-                        <td className="px-4 py-2 text-slate-400">{(m as any).brand || '—'}</td>
-                        <td className="px-4 py-2 text-slate-400">{(m as any).supplierName || '—'}</td>
                         <td className="px-4 py-2 text-slate-400">{(m as any).location || '—'}</td>
                         <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
                         <td className="px-4 py-2 text-right text-rose-400 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
