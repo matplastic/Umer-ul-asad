@@ -210,7 +210,7 @@ export async function exportDailyDefectReportPdf(report: {
   date: string;
   projectName: string;
   controller: string;
-  shiftQuantities: { I: number; II: number; III: number };
+  totalProduction: number;
   pools: { poolNo: string; defects: string[] }[];
   remarks?: string;
 }) {
@@ -250,29 +250,23 @@ export async function exportDailyDefectReportPdf(report: {
   }
   drawPdfFooter(doc, `${COMPANY_NAME} — ${report.workshopName} — Defect Page`);
 
-  // ── PAGE 2 — PRODUCTION ────────────────────────────────────────────────
+  // ── PAGE 2 — PRODUCTION (single shift) ─────────────────────────────────
   doc.addPage();
   autoTable(doc, {
     startY: 96,
-    head: [['Shift', 'Quantity of Pools']],
-    body: [
-      ['I', String(report.shiftQuantities.I)],
-      ['II', String(report.shiftQuantities.II)],
-      ['III', String(report.shiftQuantities.III)],
-      ['Total', String(report.shiftQuantities.I + report.shiftQuantities.II + report.shiftQuantities.III)],
-    ],
-    styles: { fontSize: 9, cellPadding: 5, textColor: [30, 41, 59] },
-    headStyles: { fillColor: BRAND_ORANGE, textColor: [255, 255, 255], fontStyle: 'bold' },
-    bodyStyles: { fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 100 }, 1: { cellWidth: 140 } },
+    head: [['Total Pools Produced']],
+    body: [[String(report.totalProduction)]],
+    styles: { fontSize: 11, cellPadding: 8, textColor: [30, 41, 59], halign: 'center' },
+    headStyles: { fillColor: BRAND_ORANGE, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+    bodyStyles: { fontStyle: 'bold', fontSize: 14 },
     margin: { top: 96, left: 32, right: 32, bottom: 44 },
     didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Production', subtitle); },
   });
 
-  const shiftTableY = (doc as any).lastAutoTable?.finalY || 96;
+  const totalTableY = (doc as any).lastAutoTable?.finalY || 96;
   const poolRows = report.pools.map(p => [p.poolNo, p.defects.length === 0 ? 'OK' : `${p.defects.length} defect${p.defects.length > 1 ? 's' : ''}`]);
   autoTable(doc, {
-    startY: shiftTableY + 20,
+    startY: totalTableY + 20,
     head: [['Pool Number', 'Status']],
     body: poolRows.length > 0 ? poolRows : [['— No pools recorded —', '']],
     styles: { fontSize: 8.5, cellPadding: 4, textColor: [30, 41, 59] },
