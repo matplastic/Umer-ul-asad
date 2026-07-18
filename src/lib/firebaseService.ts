@@ -30,6 +30,8 @@ export function subscribeToLiveState(
     'hrPayroll',
     'hrAccidents',
     'hrMedicals',
+    'qcDefects',
+    'dailyDefectReports',
   ];
   const unsubs: Unsubscribe[] = collections.map(name =>
     onSnapshot(
@@ -923,6 +925,31 @@ export async function dbDeleteEngineer(id: string) {
 }
 
 // 8. Fine-grained operations: Trolley Production
+export async function dbSaveDailyDefectReport(report: any) {
+  await updateFirestoreDocArray('dailyDefectReports', (arr) => {
+    const idx = arr.findIndex(item => item.id === report.id);
+    if (idx !== -1) arr[idx] = report;
+    else arr.push(report);
+    return arr;
+  });
+  return { success: true, report };
+}
+
+export async function dbDeleteDailyDefectReport(id: string) {
+  await updateFirestoreDocArray('dailyDefectReports', (arr) => arr.filter(item => item.id !== id), true);
+  return { success: true };
+}
+
+export async function dbSaveQcDefect(defect: any) {
+  await updateFirestoreDocArray('qcDefects', (arr) => {
+    const idx = arr.findIndex(item => item.id === defect.id);
+    if (idx !== -1) arr[idx] = defect;
+    else arr.push(defect);
+    return arr;
+  });
+  return { success: true, defect };
+}
+
 export async function dbSaveTrolley(trolley: TrolleyProduction) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
