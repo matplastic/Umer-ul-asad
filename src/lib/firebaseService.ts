@@ -599,16 +599,6 @@ export async function dbDeleteEmployee(id: string) {
 }
 
 // 3. Fine-grained operations: Pools
-// Lightweight fetch for components that only need the pool list (e.g. to
-// resolve a real poolId from project+poolNo) without pulling the entire
-// app state via getEntireStateFromFirestore().
-export async function dbFetchPools(): Promise<Pool[]> {
-  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
-  if (!base) return getFirestoreDocArray('pools');
-  const res = await fetch(getApiUrl('/api/pools'));
-  return res.ok ? res.json() : [];
-}
-
 export async function dbSavePool(pool: Pool) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
