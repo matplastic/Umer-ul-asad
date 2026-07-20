@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Pool, StageId, ActivityLog } from '../types';
+import { Pool, StageId, ActivityLog, IncomingMaterial } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
-import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw, Clock, PauseCircle, PackageSearch } from 'lucide-react';
 import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
 import { DailyDefectReport } from './DailyDefectReport';
+import { dbFetchIncomingMaterials, dbDecideIncomingQc } from '../lib/firebaseService';
 
 interface UndoClaimRequest {
   id: string;
@@ -56,7 +57,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   onUpdateDefectStatus,
   logs = [],
 }) => {
-  const [activeTab, setActiveTab] = useState<'queue' | 'daily_report'>('queue');
+  const [activeTab, setActiveTab] = useState<'queue' | 'incoming_qc' | 'daily_report'>('queue');
   const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || '');
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
@@ -65,6 +66,64 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const [filterMode, setFilterMode] = useState<'pending' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [reviewStageId, setReviewStageId] = useState<StageId | null>(null);
+
+  // ---------- Incoming Material QC gate ----------
+  const [incomingMaterials, setIncomingMaterials] = useState<IncomingMaterial[]>([]);
+  const [incomingLoading, setIncomingLoading] = useState(false);
+  const [incomingError, setIncomingError] = useState('');
+  const [incomingQcNotes, setIncomingQcNotes] = useState<Record<string, string>>({});
+
+  const loadIncomingMaterials = React.useCallback(async () => {
+    setIncomingLoading(true);
+    setIncomingError('');
+    try {
+      const rows = await dbFetchIncomingMaterials();
+      setIncomingMaterials(rows);
+    } catch (e) {
+      setIncomingError('Could not load incoming material receipts. Try Refresh.');
+    } finally {
+      setIncomingLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadIncomingMaterials();
+  }, [loadIncomingMaterials]);
+
+  React.useEffect(() => {
+    if (activeTab === 'incoming_qc') loadIncomingMaterials();
+  }, [activeTab, loadIncomingMaterials]);
+
+  const decideIncomingQc = async (inc: IncomingMaterial, decision: 'passed' | 'failed' | 'hold') => {
+    const notes = incomingQcNotes[inc.id] || '';
+    if (decision !== 'passed' && !notes.trim()) {
+      if (!confirm(`No reason noted for ${decision === 'failed' ? 'rejecting' : 'holding'} this batch. Continue anyway?`)) return;
+    }
+    if (!selectedInspector) {
+      alert('Select an Inspector ID before recording a decision.');
+      return;
+    }
+    await dbDecideIncomingQc(inc.id, decision, selectedInspector, notes || null);
+    setIncomingQcNotes(p => { const n = { ...p }; delete n[inc.id]; return n; });
+    loadIncomingMaterials();
+  };
+
+  const incomingQcPill = (status?: string) => {
+    const map: Record<string, string> = {
+      pending: 'bg-amber-50 text-amber-700 border-amber-200',
+      passed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      failed: 'bg-rose-50 text-rose-700 border-rose-200',
+      hold: 'bg-slate-100 text-slate-600 border-slate-300',
+    };
+    const s = status || 'pending';
+    const label: Record<string, string> = { pending: 'Pending QC', passed: 'Passed', failed: 'Rejected', hold: 'On Hold' };
+    return <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${map[s] || map.pending}`}>{label[s] || s}</span>;
+  };
+
+  const pendingIncoming = incomingMaterials.filter(i => (i.qcStatus || 'pending') === 'pending')
+    .slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const heldOrRejectedIncoming = incomingMaterials.filter(i => i.qcStatus === 'failed' || i.qcStatus === 'hold')
+    .slice().sort((a, b) => ((a.qcAt || '') < (b.qcAt || '') ? 1 : -1));
 
   React.useEffect(() => {
     if (inspectors.length > 0 && !inspectors.some(i => i.name === selectedInspector)) {
@@ -224,6 +283,20 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab('incoming_qc')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
+                activeTab === 'incoming_qc' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Incoming Material QC
+              {pendingIncoming.length > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px]">
+                  {pendingIncoming.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('daily_report')}
               className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
                 activeTab === 'daily_report' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
@@ -269,6 +342,133 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
           qcDefects={qcDefects}
           pools={pools}
         />
+      ) : activeTab === 'incoming_qc' ? (
+        <div className="space-y-6 font-sans">
+          <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+              <div className="text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5 text-amber-500" />
+                Awaiting Inspection ({pendingIncoming.length})
+              </div>
+              <button
+                onClick={loadIncomingMaterials}
+                disabled={incomingLoading}
+                className="flex items-center gap-1.5 text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${incomingLoading ? 'animate-spin' : ''}`} />
+                {incomingLoading ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
+
+            {incomingError && (
+              <div className="px-5 py-3 text-xs font-semibold text-rose-700 bg-rose-50 border-b border-rose-100 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" /> {incomingError}
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 uppercase text-[10px]">
+                    <th className="text-left px-4 py-2 font-bold">Received</th>
+                    <th className="text-left px-4 py-2 font-bold">Material</th>
+                    <th className="text-right px-4 py-2 font-bold">Qty</th>
+                    <th className="text-left px-4 py-2 font-bold">Supplier</th>
+                    <th className="text-left px-4 py-2 font-bold">Invoice</th>
+                    <th className="text-left px-4 py-2 font-bold">Received By</th>
+                    <th className="text-left px-4 py-2 font-bold">Inspection Notes</th>
+                    <th className="text-right px-4 py-2 font-bold">Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingIncoming.map(inc => (
+                    <tr key={inc.id} className="border-t border-slate-100">
+                      <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
+                      <td className="px-4 py-2 text-right text-slate-700 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.invoiceNo || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
+                      <td className="px-4 py-2">
+                        <input
+                          placeholder="Reason (required for hold/reject)"
+                          value={incomingQcNotes[inc.id] || ''}
+                          onChange={e => setIncomingQcNotes(p => ({ ...p, [inc.id]: e.target.value }))}
+                          className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 w-full focus:outline-none focus:ring-2 focus:ring-slate-300"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={() => decideIncomingQc(inc, 'passed')} data-testid={`qc-pass-${inc.id}`} title="Pass — add to inventory" className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Pass
+                          </button>
+                          <button onClick={() => decideIncomingQc(inc, 'hold')} data-testid={`qc-hold-${inc.id}`} title="Hold — needs a re-check" className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
+                            <PauseCircle className="h-3.5 w-3.5" /> Hold
+                          </button>
+                          <button onClick={() => decideIncomingQc(inc, 'failed')} data-testid={`qc-fail-${inc.id}`} title="Reject — will not enter inventory" className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
+                            <XCircle className="h-3.5 w-3.5" /> Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {!incomingLoading && pendingIncoming.length === 0 && (
+                    <tr><td colSpan={8} className="text-center text-slate-400 py-10">Nothing waiting on inspection. New GRNs logged by Store will show up here.</td></tr>
+                  )}
+                  {incomingLoading && pendingIncoming.length === 0 && (
+                    <tr><td colSpan={8} className="text-center text-slate-400 py-10">Loading incoming material receipts…</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+              <ShieldAlert className="h-3.5 w-3.5 text-rose-500" />
+              On Hold / Rejected — re-review or leave for Store to action
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 uppercase text-[10px]">
+                    <th className="text-left px-4 py-2 font-bold">Received</th>
+                    <th className="text-left px-4 py-2 font-bold">Material</th>
+                    <th className="text-right px-4 py-2 font-bold">Qty</th>
+                    <th className="text-left px-4 py-2 font-bold">Supplier</th>
+                    <th className="text-left px-4 py-2 font-bold">Status</th>
+                    <th className="text-left px-4 py-2 font-bold">Inspector</th>
+                    <th className="text-left px-4 py-2 font-bold">Notes</th>
+                    <th className="px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {heldOrRejectedIncoming.map(inc => (
+                    <tr key={inc.id} className="border-t border-slate-100">
+                      <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
+                      <td className="px-4 py-2 text-right text-slate-700 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}</td>
+                      <td className="px-4 py-2">{incomingQcPill(inc.qcStatus)}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.qcNotes || '—'}</td>
+                      <td className="px-4 py-2 text-right">
+                        {inc.qcStatus === 'hold' && (
+                          <button onClick={() => decideIncomingQc(inc, 'passed')} className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer ml-auto">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Pass Now
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {heldOrRejectedIncoming.length === 0 && (
+                    <tr><td colSpan={8} className="text-center text-slate-400 py-10">No held or rejected batches.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
