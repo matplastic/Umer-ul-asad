@@ -11,7 +11,7 @@ import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
   dbFetchMaterialRequests, dbDecideMaterialRequestBatch, dbMarkMaterialRequestBatchPrinted,
-  dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial, dbDecideIncomingQc,
+  dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
 } from '../lib/firebaseService';
 import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
@@ -319,17 +319,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // are held back at the quality gate and shouldn't inflate incoming totals.
   const passedIncoming = useMemo(() => filteredIncoming.filter(i => i.qcStatus === 'passed'), [filteredIncoming]);
   const pendingQcCount = useMemo(() => incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length, [incoming]);
-  const [qcNoteDrafts, setQcNoteDrafts] = useState<Record<string, string>>({});
-
-  const decideQc = async (inc: IncomingMaterial, decision: 'passed' | 'failed' | 'hold') => {
-    const notes = qcNoteDrafts[inc.id] || '';
-    if (decision !== 'passed' && !notes.trim()) {
-      if (!confirm(`No reason noted for ${decision === 'failed' ? 'rejecting' : 'holding'} this batch. Continue anyway?`)) return;
-    }
-    await dbDecideIncomingQc(inc.id, decision, currentUserName, notes || null);
-    setQcNoteDrafts(p => { const n = { ...p }; delete n[inc.id]; return n; });
-    loadAll(true);
-  };
 
   const filteredConsumptionLogs = useMemo(() => {
     if (!fromDate && !toDate) return consumptionLogs;
@@ -874,7 +863,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           <Truck className="h-4 w-4" /> Incoming
         </button>
         <button onClick={() => setTab('quality')} data-testid="tab-quality" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'quality' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
-          <ShieldCheck className="h-4 w-4" /> Quality Check
+          <ShieldCheck className="h-4 w-4" /> Quality Status
           {pendingQcCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center">{pendingQcCount}</span>
           )}
@@ -1119,9 +1108,16 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
-      {/* ---------- QUALITY CHECK TAB ---------- */}
+      {/* ---------- QUALITY STATUS TAB (read-only — decisions are made in the Quality Inspector portal) ---------- */}
       {tab === 'quality' && (
         <div className="space-y-6">
+          <div className="bg-indigo-950/30 border border-indigo-800/60 rounded-xl px-4 py-3 flex items-start gap-2.5">
+            <ShieldCheck className="h-4 w-4 text-indigo-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-indigo-200">
+              Pass/Hold/Reject decisions for incoming material are made by the <strong>Quality Inspector</strong> from the Quality Control portal, not from Store. This tab is a read-only status view of every GRN awaiting or already through inspection.
+            </p>
+          </div>
+
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5 text-amber-400" /> Awaiting Inspection ({incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length})
@@ -1135,8 +1131,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <th className="text-left px-4 py-2">Supplier</th>
                   <th className="text-left px-4 py-2">Invoice</th>
                   <th className="text-left px-4 py-2">Received By</th>
-                  <th className="text-left px-4 py-2">Inspection Notes</th>
-                  <th className="text-right px-4 py-2">Decision</th>
+                  <th className="text-left px-4 py-2">QC Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1150,31 +1145,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
                       <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
                       <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
-                      <td className="px-4 py-2">
-                        <input
-                          placeholder="Reason (required for hold/reject)"
-                          value={qcNoteDrafts[inc.id] || ''}
-                          onChange={e => setQcNoteDrafts(p => ({ ...p, [inc.id]: e.target.value }))}
-                          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white w-full"
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button onClick={() => decideQc(inc, 'passed')} data-testid={`qc-pass-${inc.id}`} title="Pass — add to inventory" className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Pass
-                          </button>
-                          <button onClick={() => decideQc(inc, 'hold')} data-testid={`qc-hold-${inc.id}`} title="Hold — needs a re-check" className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[10px] font-bold cursor-pointer">
-                            <PauseCircle className="h-3.5 w-3.5" /> Hold
-                          </button>
-                          <button onClick={() => decideQc(inc, 'failed')} data-testid={`qc-fail-${inc.id}`} title="Reject — will not enter inventory" className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
-                            <XCircle className="h-3.5 w-3.5" /> Reject
-                          </button>
-                        </div>
-                      </td>
+                      <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
                     </tr>
                   ))}
                 {incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length === 0 && (
-                  <tr><td colSpan={8} className="text-center text-slate-500 py-10">Nothing waiting on inspection. New GRNs will show up here.</td></tr>
+                  <tr><td colSpan={7} className="text-center text-slate-500 py-10">Nothing waiting on inspection.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1182,7 +1157,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5" /> On Hold / Rejected — needs Store Manager action
+              <ShieldCheck className="h-3.5 w-3.5" /> On Hold / Rejected
             </div>
             <table className="w-full min-w-[820px] text-xs">
               <thead>
@@ -1210,14 +1185,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
                       <td className="px-4 py-2 text-slate-400">{inc.qcNotes || '—'}</td>
                       <td className="px-4 py-2 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {inc.qcStatus === 'hold' && (
-                            <button onClick={() => decideQc(inc, 'passed')} className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
-                              <CheckCircle2 className="h-3.5 w-3.5" /> Pass Now
-                            </button>
-                          )}
-                          <button onClick={async () => { if (confirm('Remove this record permanently? (Rejected/held stock never entered inventory, so this is safe.)')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
-                        </div>
+                        <button onClick={async () => { if (confirm('Remove this record permanently? (Rejected/held stock never entered inventory, so this is safe.)')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                       </td>
                     </tr>
                   ))}
