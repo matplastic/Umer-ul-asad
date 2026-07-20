@@ -16,7 +16,7 @@ import {
 } from '../lib/firebaseService';
 import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 
-type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'reports' | 'key';
+type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key';
 
 // ==========================================================
 // PDF letterhead helpers — logo + company header + footer used by every
@@ -606,6 +606,68 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     pdfFromTable('New Incoming Material Report', ['Date', 'Material', 'Qty', 'Unit', 'Supplier', 'Invoice', 'Received By', 'QC Status'], rows, 'incoming_material_report');
   };
 
+  // --- Material Traceability — one combined receiving + QC-decision log,
+  // searchable by material/supplier/invoice/inspector name, scoped to the
+  // same date range as the rest of Store. This is the audit trail: who
+  // received it, when, what it weighed in at, and who passed/held/rejected
+  // it and why. ---
+  const [traceSearch, setTraceSearch] = useState('');
+  const filteredTraceability = useMemo(() => {
+    const q = traceSearch.trim().toLowerCase();
+    if (!q) return filteredIncoming;
+    return filteredIncoming.filter(inc => {
+      const haystack = [inc.materialName, inc.supplier, inc.invoiceNo, inc.receivedByName, inc.qcByName, inc.qcNotes]
+        .filter(Boolean).join(' | ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [filteredIncoming, traceSearch]);
+
+  const exportTraceabilityExcel = () => {
+    const rows = filteredTraceability.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1)).map(inc => ({
+      'Date Received': (inc.receivedAt || '').slice(0, 10),
+      Material: inc.materialName,
+      Qty: inc.qty,
+      Unit: inc.unit,
+      Supplier: inc.supplier || '',
+      Invoice: inc.invoiceNo || '',
+      'Received By': inc.receivedByName,
+      'QC Status': (inc.qcStatus || 'pending').toUpperCase(),
+      'QC By': inc.qcByName || '',
+      'QC Date': (inc.qcAt || '').slice(0, 10),
+      'QC Notes': inc.qcNotes || '',
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'Date Received': '', Material: '', Qty: '', Unit: '', Supplier: '', Invoice: '', 'Received By': '', 'QC Status': '', 'QC By': '', 'QC Date': '', 'QC Notes': '' }]),
+      'Material Traceability'
+    );
+    XLSX.writeFile(wb, `material_traceability_report_${fileLabel()}.xlsx`);
+  };
+
+  const exportTraceabilityPDF = () => {
+    const rows = filteredTraceability.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1))
+      .map(inc => [
+        (inc.receivedAt || '').slice(0, 10),
+        inc.materialName,
+        `${Number(inc.qty).toFixed(2)} ${inc.unit}`,
+        inc.supplier || '—',
+        inc.invoiceNo || '—',
+        inc.receivedByName,
+        (inc.qcStatus || 'pending').toUpperCase(),
+        inc.qcByName || '—',
+        inc.qcNotes || '—',
+      ]);
+    pdfFromTable(
+      'Material Traceability Report',
+      ['Date Received', 'Material', 'Qty', 'Supplier', 'Invoice', 'Received By', 'QC Status', 'QC By', 'QC Notes'],
+      rows,
+      'material_traceability_report'
+    );
+  };
+
+
+
   // --- Inventory report (Excel + PDF) — Total Incoming/Consumed are scoped
   // to the selected period via displayedAnalytics; Current Stock is always
   // the live shelf balance, same convention the Reports tab already uses. ---
@@ -828,7 +890,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
-      {(tab === 'incoming' || tab === 'reports' || tab === 'inventory' || tab === 'floor') && (
+      {(tab === 'incoming' || tab === 'reports' || tab === 'inventory' || tab === 'floor' || tab === 'traceability') && (
         <div className="mb-4 flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl p-3">
           <Clock className="h-3.5 w-3.5 text-slate-500" />
           <span className="text-xs font-bold uppercase text-slate-400">Period:</span>
@@ -867,6 +929,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           {pendingQcCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center">{pendingQcCount}</span>
           )}
+        </button>
+        <button onClick={() => setTab('traceability')} data-testid="tab-traceability" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'traceability' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <Search className="h-4 w-4" /> Material Traceability
         </button>
         <button onClick={() => setTab('bom')} data-testid="tab-bom" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'bom' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <ListChecks className="h-4 w-4" /> Bill of Materials
@@ -1191,6 +1256,74 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   ))}
                 {incoming.filter(i => i.qcStatus === 'failed' || i.qcStatus === 'hold').length === 0 && (
                   <tr><td colSpan={8} className="text-center text-slate-500 py-10">No held or rejected batches.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- MATERIAL TRACEABILITY TAB (combined receiving + QC log) ---------- */}
+      {tab === 'traceability' && (
+        <div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                placeholder="Search by material, supplier, invoice, or inspector…"
+                value={traceSearch}
+                onChange={e => setTraceSearch(e.target.value)}
+                data-testid="traceability-search"
+                className="bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white w-full"
+              />
+            </div>
+            <button onClick={exportTraceabilityExcel} data-testid="export-traceability-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <Download className="h-3.5 w-3.5" /> Excel
+            </button>
+            <button onClick={exportTraceabilityPDF} data-testid="export-traceability-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <FileText className="h-3.5 w-3.5" /> PDF
+            </button>
+          </div>
+          <div className="mb-4 text-[11px] text-slate-500">
+            One combined record of every GRN — what was received, when, by whom — and its full inspection history: who decided, when, and why. Uses the period set above (or all-time if none selected).
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
+              Material Traceability ({filteredTraceability.length})
+            </div>
+            <table className="w-full min-w-[1000px] text-xs">
+              <thead>
+                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                  <th className="text-left px-4 py-2">Date Received</th>
+                  <th className="text-left px-4 py-2">Material</th>
+                  <th className="text-right px-4 py-2">Qty</th>
+                  <th className="text-left px-4 py-2">Supplier</th>
+                  <th className="text-left px-4 py-2">Invoice</th>
+                  <th className="text-left px-4 py-2">Received By</th>
+                  <th className="text-left px-4 py-2">QC Status</th>
+                  <th className="text-left px-4 py-2">QC By</th>
+                  <th className="text-left px-4 py-2">QC Date</th>
+                  <th className="text-left px-4 py-2">QC Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTraceability.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(inc => (
+                  <tr key={inc.id} className="border-t border-slate-800">
+                    <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
+                    <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                    <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
+                    <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
+                    <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
+                    <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
+                    <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
+                    <td className="px-4 py-2 text-slate-500 font-mono">{inc.qcAt ? new Date(inc.qcAt).toLocaleDateString() : '—'}</td>
+                    <td className="px-4 py-2 text-slate-400">{inc.qcNotes || '—'}</td>
+                  </tr>
+                ))}
+                {filteredTraceability.length === 0 && (
+                  <tr><td colSpan={10} className="text-center text-slate-500 py-10">No records match this search / period.</td></tr>
                 )}
               </tbody>
             </table>
