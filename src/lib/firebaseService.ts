@@ -1785,32 +1785,78 @@ export async function dbFetchIncomingMaterials(): Promise<IncomingMaterial[]> {
   return res.ok ? res.json() : [];
 }
 
-export async function dbCreateIncomingMaterial(payload: Omit<IncomingMaterial, 'id' | 'createdAt'>) {
-  const full: IncomingMaterial = { ...payload, id: newId('inc'), createdAt: new Date().toISOString() } as IncomingMaterial;
+// Logs material at the gate as a QC-pending receipt. Stock is intentionally
+// NOT touched here — it only moves into Material.currentStock once an
+// inspector passes it via dbDecideIncomingQc below.
+export async function dbCreateIncomingMaterial(payload: Omit<IncomingMaterial, 'id' | 'createdAt' | 'qcStatus'>) {
+  const full: IncomingMaterial = { ...payload, id: newId('inc'), createdAt: new Date().toISOString(), qcStatus: 'pending' } as IncomingMaterial;
   if (!apiBase()) {
     const mat = (await getFirestoreDocArray('materials')).find((m) => m.id === payload.materialId);
     full.materialName = mat?.name || payload.materialName || '';
     full.unit = mat?.unit || payload.unit || '';
     await updateFirestoreDocArray('incomingMaterials', (arr) => { arr.push(full); return arr; });
-    if (mat) {
-      await updateFirestoreDocArray('materials', (arr) =>
-        arr.map((m) => (m.id === payload.materialId ? { ...m, currentStock: (m.currentStock || 0) + Number(payload.qty || 0) } : m))
-      );
-    }
     return { success: true, item: full };
   }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl('/api/incoming-materials'), {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, qcStatus: 'pending' }),
+  });
+  return res.json();
+}
+
+// Inspector decision on a pending GRN. 'passed' is the only outcome that
+// adds the qty into Material.currentStock; 'failed'/'hold' just flags the
+// record so the Store Manager can see it and decide what to do (return to
+// supplier, scrap, re-inspect, etc.) without it ever reaching inventory.
+export async function dbDecideIncomingQc(id: string, decision: 'passed' | 'failed' | 'hold', qcByName: string, qcNotes?: string | null) {
+  if (!apiBase()) {
+    let materialId: string | null = null;
+    let qty = 0;
+    let alreadyPassed = false;
+    await updateFirestoreDocArray('incomingMaterials', (arr) =>
+      arr.map((i) => {
+        if (i.id !== id) return i;
+        materialId = i.materialId;
+        qty = Number(i.qty || 0);
+        alreadyPassed = i.qcStatus === 'passed';
+        return { ...i, qcStatus: decision, qcByName, qcAt: new Date().toISOString(), qcNotes: qcNotes || null };
+      })
+    );
+    if (decision === 'passed' && materialId && !alreadyPassed) {
+      await updateFirestoreDocArray('materials', (arr) =>
+        arr.map((m) => (m.id === materialId ? { ...m, currentStock: (m.currentStock || 0) + qty } : m))
+      );
+    }
+    return { success: true };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/incoming-materials/${id}/qc-decide`), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ decision, qcByName, qcNotes }),
   });
   return res.json();
 }
 
 export async function dbDeleteIncomingMaterial(id: string) {
   if (!apiBase()) {
-    await updateFirestoreDocArray('incomingMaterials', (arr) => arr.filter((i) => i.id !== id), true);
+    let materialId: string | null = null;
+    let qty = 0;
+    let wasPassed = false;
+    await updateFirestoreDocArray('incomingMaterials', (arr) => {
+      const rec = arr.find((i) => i.id === id);
+      if (rec) { materialId = rec.materialId; qty = Number(rec.qty || 0); wasPassed = rec.qcStatus === 'passed'; }
+      return arr.filter((i) => i.id !== id);
+    }, true);
+    // Only reverse stock if this GRN had actually passed QC and been added
+    // to inventory — pending/failed/hold receipts never touched stock.
+    if (wasPassed && materialId) {
+      await updateFirestoreDocArray('materials', (arr) =>
+        arr.map((m) => (m.id === materialId ? { ...m, currentStock: (m.currentStock || 0) - qty } : m))
+      );
+    }
     return { success: true };
   }
   const headers = await getHeaders();
