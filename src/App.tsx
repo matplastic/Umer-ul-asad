@@ -2306,6 +2306,7 @@ export default function App() {
     const pool = updatedPools[poolIndex];
     const stageHist = { ...pool.stageHistory[stageId] };
     stageHist.teamId = teamId;
+    stageHist.teamName = team.name;
     pool.stageHistory[stageId] = stageHist;
 
     // Update team: link to pool
