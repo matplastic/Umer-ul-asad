@@ -849,6 +849,24 @@ export default function App() {
     // NOTE: intentionally NOT calling saveState() here — see comment above.
   };
 
+  // Returns the ids of records that actually differ between the previous and
+  // updated array (by shallow JSON comparison). Used so Firestore writes for
+  // `teams`/`pools` only ever overwrite the specific record(s) this action
+  // touched, instead of every id in the local array — see mergeByIdScoped in
+  // firebaseService.ts for why that matters (prevents stale-device races).
+  const findChangedIds = (prev: any[], updated: any[]): string[] => {
+    if (prev === updated) return [];
+    const prevById = new Map(prev.map((item) => [item?.id, item]));
+    const ids: string[] = [];
+    for (const item of updated) {
+      const before = prevById.get(item?.id);
+      if (!before || JSON.stringify(before) !== JSON.stringify(item)) {
+        ids.push(item?.id);
+      }
+    }
+    return ids;
+  };
+
   const saveState = (
     updatedPools: Pool[], 
     updatedTeams: Team[], 
@@ -913,7 +931,11 @@ export default function App() {
       return;
     }
 
-    saveChangedCollectionsToFirestore(changed)
+    const changedIds: Record<string, string[]> = {};
+    if (changed.teams) changedIds.teams = findChangedIds(teams, safeTeams);
+    if (changed.pools) changedIds.pools = findChangedIds(pools, safePools);
+
+    saveChangedCollectionsToFirestore(changed, changedIds)
       .then(() => {
         setFirebaseStatus('connected');
         setFirebaseError(null);
