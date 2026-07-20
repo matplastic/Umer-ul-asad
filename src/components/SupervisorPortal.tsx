@@ -7,10 +7,10 @@ import {
   dbFetchMaterials, dbFetchBomItems, dbSubmitMaterialRequestBatch, dbFetchMaterialRequests,
   dbFetchConsumptionLogs, dbCreateConsumptionLog, dbDeleteConsumptionLog,
   dbFetchProductionLogs, dbCreateProductionLog, dbDeleteProductionLog,
-  dbFetchFloorStock, dbCreateMaterialReturn,
+  dbFetchFloorStock, dbCreateMaterialReturn, dbFetchPools, dbSavePool,
 } from '../lib/firebaseService';
 import {
-  Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog, FloorStock,
+  Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog, FloorStock, Pool,
   SECTION_DEFINITIONS, SUPERVISOR_SECTIONS,
 } from '../types';
 
@@ -33,6 +33,9 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const [consumption, setConsumption] = useState<ConsumptionLog[]>([]);
   const [production, setProduction] = useState<ProductionLog[]>([]);
   const [floorStock, setFloorStock] = useState<FloorStock[]>([]);
+  // Real pools, so Material Requests and Production logs can be tied to an
+  // actual Work Order (= Pool) by id instead of always saving poolId: null.
+  const [pools, setPools] = useState<Pool[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   // of one request at a time.
   const [rProject, setRProject] = useState('');
   const [rPoolType, setRPoolType] = useState('');
+  const [rPoolNo, setRPoolNo] = useState('');
   const [rMaterialId, setRMaterialId] = useState('');
   const [rQty, setRQty] = useState('');
   const [rReason, setRReason] = useState('');
@@ -75,18 +79,33 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   // materials show up in the request search.
   const [rGroup, setRGroup] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
   const materialGroup = (m: Material): 'mep' | 'civil' | 'other' => ((m as any).inventoryGroup) || 'other';
+
+  // Pools matching a given project (+ optionally pool type), for the Pool
+  // No. dropdowns below — this is what makes "Work Order" a real linked
+  // pool instead of free text nobody could trace back.
+  const poolsFor = useCallback((project: string, poolType?: string) => {
+    return pools.filter(pl => pl.projectName === project && (!poolType || pl.poolType === poolType));
+  }, [pools]);
+
+  // Resolves poolNo (as picked from the dropdown) back to the actual Pool,
+  // scoped to the project so pool numbers from other projects don't collide.
+  const resolvePool = useCallback((project: string, poolNo: string): Pool | undefined => {
+    if (!poolNo) return undefined;
+    return pools.find(pl => pl.projectName === project && pl.poolNo === poolNo);
+  }, [pools]);
   const [rDropdownOpen, setRDropdownOpen] = useState(false);
 
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, c, p, fs] = await Promise.all([
+      const [m, b, r, c, p, fs, pl] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
         dbFetchConsumptionLogs(),
         dbFetchProductionLogs(),
         dbFetchFloorStock(),
+        dbFetchPools(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
       setBom(Array.isArray(b) ? b : []);
@@ -94,6 +113,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       setConsumption(Array.isArray(c) ? c : []);
       setProduction(Array.isArray(p) ? p : []);
       setFloorStock(Array.isArray(fs) ? fs : []);
+      setPools(Array.isArray(pl) ? pl : []);
       setError(null);
     } catch (e: any) {
       setError('Could not reach the server. Check your connection.');
@@ -285,6 +305,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const submitProduction = async () => {
     if (!pProject || !pPoolType || !pQty) { setFlash('Fill project, pool type and quantity'); return; }
     const stageName = SECTION_DEFINITIONS.find(s => s.id === pStage)?.name || pStage;
+    const pool = resolvePool(pProject, pPoolNo);
     await dbCreateProductionLog({
       date: pDate,
       sectionId: pStage,
@@ -292,13 +313,32 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       projectName: pProject,
       poolType: pPoolType,
       poolNo: pPoolNo || null,
-      poolId: null,
+      poolId: pool?.id || null,
       quantity: Number(pQty),
       loggedByName: currentUserName,
       notes: null,
     });
+    // Work Order (= Pool) progress update: if this stage hasn't started yet
+    // on the actual pool, logging production against it is the signal that
+    // it has — flip it to IN_PROGRESS with a start time. Never downgrades
+    // or overwrites a stage that's already further along (PENDING_INSPECTION/
+    // APPROVED/REJECTED/etc.) — that stays QC's call, this only fills the gap
+    // where production was happening but the pool record never reflected it.
+    if (pool) {
+      const stage = pool.stageHistory?.[pStage as keyof typeof pool.stageHistory];
+      if (stage && stage.status === 'NOT_STARTED') {
+        const updatedPool: Pool = {
+          ...pool,
+          stageHistory: {
+            ...pool.stageHistory,
+            [pStage]: { ...stage, status: 'IN_PROGRESS', startTime: stage.startTime || new Date().toISOString() },
+          },
+        };
+        try { await dbSavePool(updatedPool); } catch { /* production log already saved either way */ }
+      }
+    }
     setPPoolNo(''); setPQty('1');
-    setFlash('Production logged.');
+    setFlash(pool ? 'Production logged — Work Order progress updated.' : 'Production logged.');
     setTimeout(() => setFlash(null), 2500);
     loadAll(true);
   };
@@ -357,11 +397,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const submitRequest = async () => {
     if (!rProject || !rPoolType) { setFlash('Pick a project and pool type'); return; }
     if (rCart.length === 0) { setFlash('Add at least one material to the cart first'); return; }
+    const pool = resolvePool(rProject, rPoolNo);
     await dbSubmitMaterialRequestBatch(rCart.map(line => ({
       projectName: rProject,
       poolType: rPoolType,
-      poolId: null,
-      poolNo: null,
+      poolId: pool?.id || null,
+      poolNo: rPoolNo || null,
       stageId: section as any,
       materialId: line.materialId,
       materialName: line.materialName,
@@ -371,7 +412,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       requestedByName: currentUserName,
       requestedByRole: `Section Supervisor - ${sectionName}`,
     })));
-    setRCart([]); setRProject(''); setRPoolType(''); setRMaterialId(''); setRQty(''); setRReason(''); setRSearch('');
+    setRCart([]); setRProject(''); setRPoolType(''); setRPoolNo(''); setRMaterialId(''); setRQty(''); setRReason(''); setRSearch('');
     setFlash('Request sent to store/manager for approval.');
     setTimeout(() => setFlash(null), 2500);
     loadAll(true);
@@ -567,7 +608,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               <option value="">Pool type…</option>
               {(poolTypesByProject[pProject] || []).map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-            <input placeholder="Pool No. (optional)" value={pPoolNo} onChange={e => setPPoolNo(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <select value={pPoolNo} onChange={e => setPPoolNo(e.target.value)} disabled={!pProject} data-testid="prod-pool-no" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+              <option value="">Pool No. (optional)…</option>
+              {poolsFor(pProject, pPoolType).map(pl => <option key={pl.id} value={pl.poolNo}>{pl.poolNo}</option>)}
+            </select>
             <input type="number" step="1" min="1" data-testid="prod-qty" placeholder="Qty" value={pQty} onChange={e => setPQty(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={submitProduction} data-testid="prod-submit" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer">
               <Plus className="h-3.5 w-3.5" /> Log
@@ -622,6 +666,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             <select value={rPoolType} onChange={e => setRPoolType(e.target.value)} disabled={!rProject} data-testid="req-pool-type" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
               <option value="">Pool type…</option>
               {(poolTypesByProject[rProject] || []).map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={rPoolNo} onChange={e => setRPoolNo(e.target.value)} disabled={!rProject} data-testid="req-pool-no" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+              <option value="">Pool No. (optional)…</option>
+              {poolsFor(rProject, rPoolType).map(pl => <option key={pl.id} value={pl.poolNo}>{pl.poolNo}</option>)}
             </select>
             <select value={rGroup} onChange={e => setRGroup(e.target.value as any)} data-testid="req-material-group" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
               <option value="all">All Portals</option>
