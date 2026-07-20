@@ -1504,7 +1504,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       .map((p) => {
         const hist = p.stageHistory[stage.id];
         const team = teams.find((t) => t.id === hist.teamId);
-        const teamName = team?.name || (hist.teamId ? hist.teamId.replace(`${stage.id}_`, '').toUpperCase() : 'Unknown Team');
+        const teamName = team?.name || hist.teamName || (hist.teamId ? hist.teamId.replace(`${stage.id}_`, '').toUpperCase() : 'Unknown Team');
         return {
           poolId: p.id,
           poolNo: p.poolNo,
