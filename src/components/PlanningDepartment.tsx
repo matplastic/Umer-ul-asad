@@ -1287,8 +1287,9 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       // 1. Search Query Match
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const numMatch = p.poolNo.toLowerCase().includes(q);
-        const shapeMatch = p.shape.toLowerCase().includes(q);
+        const liveP = p.releasedPoolId ? pools.find(lp => lp.id === p.releasedPoolId) : undefined;
+        const numMatch = p.poolNo.toLowerCase().includes(q) || (liveP?.poolNo.toLowerCase().includes(q) ?? false);
+        const shapeMatch = p.shape.toLowerCase().includes(q) || (liveP?.shape.toLowerCase().includes(q) ?? false);
         const prjMatch = p.projectName.toLowerCase().includes(q);
         if (!numMatch && !shapeMatch && !prjMatch) return false;
       }
@@ -1744,13 +1745,27 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                   <tbody className="divide-y divide-slate-100">
                     {filteredPlannedPools.map(plan => {
                       const progressInfo = poolLiveProgressMap[plan.id];
-                      
+
+                      // BUGFIX: once a planned pool is released, its poolNo/orientation/
+                      // dimensions/shape can still be edited later from the live Pool
+                      // Details Editor on the shop floor. The `plan` record here is a
+                      // frozen snapshot taken at release time and is never updated
+                      // afterward, so we must prefer the live linked pool's current
+                      // values (when one exists) for display everywhere in this row.
+                      const linkedLivePool = plan.releasedPoolId
+                        ? pools.find(lp => lp.id === plan.releasedPoolId)
+                        : undefined;
+                      const displayPoolNo = linkedLivePool?.poolNo ?? plan.poolNo;
+                      const displayOrientation = linkedLivePool?.orientation ?? plan.orientation;
+                      const displayDimensions = linkedLivePool?.dimensions ?? plan.dimensions;
+                      const displayShape = linkedLivePool?.shape ?? plan.shape;
+
                       return (
                         <tr key={plan.id} className="hover:bg-slate-50/40 transition-colors">
                           
                           {/* Pool No */}
                           <td className="py-4.5 px-6 font-bold text-slate-900 font-mono text-[13px]">
-                            {plan.poolNo}
+                            {displayPoolNo}
                           </td>
 
                           {/* Project Source */}
@@ -1796,10 +1811,10 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 
                           {/* Dimensions & shape */}
                           <td className="py-4.5 px-4">
-                            <div className="text-slate-800 font-medium mb-0.5">{plan.dimensions}</div>
+                            <div className="text-slate-800 font-medium mb-0.5">{displayDimensions}</div>
                             <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5 leading-none">
-                              <span className={`h-1.5 w-1.5 rounded-full ${plan.orientation === 'Mirror' ? 'bg-indigo-550 bg-indigo-500' : 'bg-slate-400'}`}></span>
-                              <span>{plan.orientation} Orientation • {plan.shape}</span>
+                              <span className={`h-1.5 w-1.5 rounded-full ${displayOrientation === 'Mirror' ? 'bg-indigo-550 bg-indigo-500' : 'bg-slate-400'}`}></span>
+                              <span>{displayOrientation} Orientation • {displayShape}</span>
                             </div>
                           </td>
 
