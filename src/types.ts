@@ -285,6 +285,14 @@ export interface IncomingMaterial {
   // undifferentiated pool for FIFO purposes.
   batchNo?: string | null;
   qtyRemaining?: number | null;
+  // Quality inspection gate — material sits here as 'pending' the moment
+  // it's logged at the gate, and does NOT touch Material.currentStock yet.
+  // An inspector then passes it (→ stock is added) or fails/holds it
+  // (→ stock stays untouched, Store Manager sees it flagged for action).
+  qcStatus: 'pending' | 'passed' | 'failed' | 'hold';
+  qcByName?: string | null;
+  qcAt?: string | null;
+  qcNotes?: string | null;
 }
 
 // One line of a FIFO batch draw — which incoming-material receipt(s) an
