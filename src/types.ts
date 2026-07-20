@@ -34,6 +34,13 @@ export interface StageHistory {
   stageId: StageId;
   status: StageStatus;
   teamId?: string;
+  // Snapshot of the team's name at the moment it claimed this stage. Team
+  // records can later be renamed, recreated (e.g. under a new kiosk team
+  // code), or deleted — teamId alone then no longer resolves to anything
+  // and the UI falls back to "Unknown Team" even though a real team did the
+  // work. Storing the name here means display never depends on that team
+  // record still existing.
+  teamName?: string;
   startTime?: string | null;
   endTime?: string | null;
   durationMinutes?: number | null;
