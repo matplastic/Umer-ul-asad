@@ -628,6 +628,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                 {inProgressPools.filter(matchesPoolSearch).map((pool) => {
                   const hist = pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
                   const claimingTeam = teams.find(t => t.id === hist.teamId);
+                  const claimingTeamName = claimingTeam?.name || hist.teamName || 'Unknown Team';
                   return (
                     <div key={pool.id} className="p-3.5 border border-slate-50 rounded-xl bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                       <div className="space-y-1">
@@ -648,7 +649,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           })()}
                         </div>
                         <div className="text-slate-500">
-                          Assigned: <strong className="text-slate-700">{claimingTeam ? claimingTeam.name : 'Unknown Team'}</strong>
+                          Assigned: <strong className="text-slate-700">{claimingTeamName}</strong>
                           {hist.startTime && (
                             <span className="ml-3 font-mono text-[10px] text-slate-400">
                               Started: {new Date(hist.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -702,6 +703,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                 {approvedPools.filter(matchesPoolSearch).map((pool) => {
                   const hist = pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
                   const signTeam = teams.find(t => t.id === hist.teamId);
+                  const signTeamName = signTeam?.name || hist.teamName || 'Unknown';
                   return (
                     <div key={pool.id} className="p-3 border border-slate-50 hover:bg-slate-50 rounded-lg flex items-center justify-between text-xs transition-colors">
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -722,7 +724,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       </div>
                       <div className="text-right text-slate-400 text-[10.5px]">
                         <span>QA Approved by <strong>{hist.inspectorId || 'QC Lead'}</strong></span>
-                        <span className="block italic text-[9.5px]">Team: {signTeam ? signTeam.name : 'Unknown'}</span>
+                        <span className="block italic text-[9.5px]">Team: {signTeamName}</span>
                       </div>
                     </div>
                   );
