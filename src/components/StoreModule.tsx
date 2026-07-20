@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
-  Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText,
+  Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -11,12 +11,12 @@ import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
   dbFetchMaterialRequests, dbDecideMaterialRequestBatch, dbMarkMaterialRequestBatchPrinted,
-  dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
+  dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial, dbDecideIncomingQc,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
 } from '../lib/firebaseService';
 import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 
-type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'reports' | 'key';
+type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'reports' | 'key';
 
 // ==========================================================
 // PDF letterhead helpers — logo + company header + footer used by every
@@ -315,6 +315,22 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return incoming.filter(i => inDateRange(i.receivedAt));
   }, [incoming, fromDate, toDate, inDateRange]);
 
+  // Only 'passed' GRNs count toward Inventory/stock reports; pending/failed/hold
+  // are held back at the quality gate and shouldn't inflate incoming totals.
+  const passedIncoming = useMemo(() => filteredIncoming.filter(i => i.qcStatus === 'passed'), [filteredIncoming]);
+  const pendingQcCount = useMemo(() => incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length, [incoming]);
+  const [qcNoteDrafts, setQcNoteDrafts] = useState<Record<string, string>>({});
+
+  const decideQc = async (inc: IncomingMaterial, decision: 'passed' | 'failed' | 'hold') => {
+    const notes = qcNoteDrafts[inc.id] || '';
+    if (decision !== 'passed' && !notes.trim()) {
+      if (!confirm(`No reason noted for ${decision === 'failed' ? 'rejecting' : 'holding'} this batch. Continue anyway?`)) return;
+    }
+    await dbDecideIncomingQc(inc.id, decision, currentUserName, notes || null);
+    setQcNoteDrafts(p => { const n = { ...p }; delete n[inc.id]; return n; });
+    loadAll(true);
+  };
+
   const filteredConsumptionLogs = useMemo(() => {
     if (!fromDate && !toDate) return consumptionLogs;
     return consumptionLogs.filter(c => inDateRange(c.date));
@@ -354,7 +370,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       materialName: m.name,
       unit: m.unit,
       currentStock: m.currentStock || 0,
-      totalIncoming: sum(filteredIncoming, m.id),
+      totalIncoming: sum(passedIncoming, m.id),
       totalConsumed: sum(filteredConsumptionLogs, m.id),
     }));
     const dailyBySection: Record<string, number> = {};
@@ -365,13 +381,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return {
       inventoryReport,
       consumptionByMaterial: byMaterial(filteredConsumptionLogs),
-      incomingByMaterial: byMaterial(filteredIncoming),
+      incomingByMaterial: byMaterial(passedIncoming),
       dailyBySection,
       plannedBySection: {},
       perProject: analytics?.perProject || {},
       perPoolType: analytics?.perPoolType || [],
     };
-  }, [analytics, materials, filteredIncoming, filteredConsumptionLogs, fromDate, toDate]);
+  }, [analytics, materials, passedIncoming, filteredConsumptionLogs, fromDate, toDate]);
 
   // Store-level stock ledger: Previous Stock → Issued to Floor → Consumed
   // (by supervisors) → Balance Stock, per material, for the selected date
@@ -392,7 +408,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     for (const r of approvedInRange) issuedByMaterial[r.materialId] = (issuedByMaterial[r.materialId] || 0) + Number(r.qtyRequested || 0);
 
     const incomingByMaterial: Record<string, number> = {};
-    for (const i of filteredIncoming) incomingByMaterial[i.materialId] = (incomingByMaterial[i.materialId] || 0) + Number(i.qty || 0);
+    for (const i of passedIncoming) incomingByMaterial[i.materialId] = (incomingByMaterial[i.materialId] || 0) + Number(i.qty || 0);
 
     const consumedByMaterial: Record<string, number> = {};
     for (const c of filteredConsumptionLogs) consumedByMaterial[c.materialId] = (consumedByMaterial[c.materialId] || 0) + Number(c.qty || 0);
@@ -405,7 +421,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       const previous = balance - incoming + issued;
       return { materialId: m.id, materialName: m.name, unit: m.unit, previous, issued, incoming, consumed, balance };
     });
-  }, [materials, requests, filteredIncoming, filteredConsumptionLogs, fromDate, toDate, inDateRange]);
+  }, [materials, requests, passedIncoming, filteredConsumptionLogs, fromDate, toDate, inDateRange]);
 
   // --- Materials ---
   const saveMaterial = async () => {
@@ -588,16 +604,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       Supplier: inc.supplier || '',
       Invoice: inc.invoiceNo || '',
       'Received By': inc.receivedByName,
+      'QC Status': (inc.qcStatus || 'pending').toUpperCase(),
     }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Date: '', Material: '', Qty: '', Unit: '', Supplier: '', Invoice: '', 'Received By': '' }]), 'Incoming Materials');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Date: '', Material: '', Qty: '', Unit: '', Supplier: '', Invoice: '', 'Received By': '', 'QC Status': '' }]), 'Incoming Materials');
     XLSX.writeFile(wb, `incoming_material_report_${fileLabel()}.xlsx`);
   };
 
   const exportIncomingPDF = () => {
     const rows = filteredIncoming.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1))
-      .map(inc => [(inc.receivedAt || '').slice(0, 10), inc.materialName, Number(inc.qty).toFixed(2), inc.unit, inc.supplier || '—', inc.invoiceNo || '—', inc.receivedByName]);
-    pdfFromTable('New Incoming Material Report', ['Date', 'Material', 'Qty', 'Unit', 'Supplier', 'Invoice', 'Received By'], rows, 'incoming_material_report');
+      .map(inc => [(inc.receivedAt || '').slice(0, 10), inc.materialName, Number(inc.qty).toFixed(2), inc.unit, inc.supplier || '—', inc.invoiceNo || '—', inc.receivedByName, (inc.qcStatus || 'pending').toUpperCase()]);
+    pdfFromTable('New Incoming Material Report', ['Date', 'Material', 'Qty', 'Unit', 'Supplier', 'Invoice', 'Received By', 'QC Status'], rows, 'incoming_material_report');
   };
 
   // --- Inventory report (Excel + PDF) — Total Incoming/Consumed are scoped
@@ -763,6 +780,18 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${map[status] || map.PENDING}`}>{status}</span>;
   };
 
+  const qcPill = (status?: string) => {
+    const map: Record<string, string> = {
+      pending: 'bg-amber-950/40 text-amber-400 border-amber-800',
+      passed: 'bg-emerald-950/40 text-emerald-400 border-emerald-800',
+      failed: 'bg-rose-950/40 text-rose-400 border-rose-800',
+      hold: 'bg-slate-800 text-slate-300 border-slate-600',
+    };
+    const s = status || 'pending';
+    const label: Record<string, string> = { pending: 'Pending QC', passed: 'Passed', failed: 'Rejected', hold: 'On Hold' };
+    return <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${map[s] || map.pending}`}>{label[s] || s}</span>;
+  };
+
   const sectionLabel = (id?: string | null) => {
     if (!id) return '—';
     return SECTION_DEFINITIONS.find(s => s.id === id)?.name || id;
@@ -843,6 +872,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </button>
         <button onClick={() => setTab('incoming')} data-testid="tab-incoming" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'incoming' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <Truck className="h-4 w-4" /> Incoming
+        </button>
+        <button onClick={() => setTab('quality')} data-testid="tab-quality" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'quality' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <ShieldCheck className="h-4 w-4" /> Quality Check
+          {pendingQcCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center">{pendingQcCount}</span>
+          )}
         </button>
         <button onClick={() => setTab('bom')} data-testid="tab-bom" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'bom' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <ListChecks className="h-4 w-4" /> Bill of Materials
@@ -1032,7 +1067,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Log Incoming</button>
+            <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Send to Quality</button>
+          </div>
+          <div className="mb-4 text-[11px] text-slate-500 flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-amber-400" /> New receipts go to <span className="text-amber-400 font-bold">Quality Check</span> first and only join Inventory stock once an inspector passes them.
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
@@ -1057,6 +1095,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <th className="text-left px-4 py-2">Supplier</th>
                   <th className="text-left px-4 py-2">Invoice</th>
                   <th className="text-left px-4 py-2">Received By</th>
+                  <th className="text-left px-4 py-2">QC Status</th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
@@ -1069,10 +1108,122 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
                     <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
                     <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
-                    <td className="px-4 py-2 text-right"><button onClick={async () => { if (confirm('Delete this GRN and reverse stock?')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                    <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
+                    <td className="px-4 py-2 text-right"><button onClick={async () => { if (confirm(inc.qcStatus === 'passed' ? 'Delete this GRN and reverse stock?' : 'Delete this GRN record?')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
                 ))}
-                {incoming.length === 0 && <tr><td colSpan={7} className="text-center text-slate-500 py-10">No incoming materials logged yet.</td></tr>}
+                {incoming.length === 0 && <tr><td colSpan={8} className="text-center text-slate-500 py-10">No incoming materials logged yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- QUALITY CHECK TAB ---------- */}
+      {tab === 'quality' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-amber-400" /> Awaiting Inspection ({incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length})
+            </div>
+            <table className="w-full min-w-[820px] text-xs">
+              <thead>
+                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                  <th className="text-left px-4 py-2">Received</th>
+                  <th className="text-left px-4 py-2">Material</th>
+                  <th className="text-right px-4 py-2">Qty</th>
+                  <th className="text-left px-4 py-2">Supplier</th>
+                  <th className="text-left px-4 py-2">Invoice</th>
+                  <th className="text-left px-4 py-2">Received By</th>
+                  <th className="text-left px-4 py-2">Inspection Notes</th>
+                  <th className="text-right px-4 py-2">Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                {incoming.filter(i => (i.qcStatus || 'pending') === 'pending')
+                  .slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                  .map(inc => (
+                    <tr key={inc.id} className="border-t border-slate-800">
+                      <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
+                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                      <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
+                      <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
+                      <td className="px-4 py-2">
+                        <input
+                          placeholder="Reason (required for hold/reject)"
+                          value={qcNoteDrafts[inc.id] || ''}
+                          onChange={e => setQcNoteDrafts(p => ({ ...p, [inc.id]: e.target.value }))}
+                          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white w-full"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={() => decideQc(inc, 'passed')} data-testid={`qc-pass-${inc.id}`} title="Pass — add to inventory" className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Pass
+                          </button>
+                          <button onClick={() => decideQc(inc, 'hold')} data-testid={`qc-hold-${inc.id}`} title="Hold — needs a re-check" className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[10px] font-bold cursor-pointer">
+                            <PauseCircle className="h-3.5 w-3.5" /> Hold
+                          </button>
+                          <button onClick={() => decideQc(inc, 'failed')} data-testid={`qc-fail-${inc.id}`} title="Reject — will not enter inventory" className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
+                            <XCircle className="h-3.5 w-3.5" /> Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                {incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length === 0 && (
+                  <tr><td colSpan={8} className="text-center text-slate-500 py-10">Nothing waiting on inspection. New GRNs will show up here.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
+              <ShieldCheck className="h-3.5 w-3.5" /> On Hold / Rejected — needs Store Manager action
+            </div>
+            <table className="w-full min-w-[820px] text-xs">
+              <thead>
+                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                  <th className="text-left px-4 py-2">Received</th>
+                  <th className="text-left px-4 py-2">Material</th>
+                  <th className="text-right px-4 py-2">Qty</th>
+                  <th className="text-left px-4 py-2">Supplier</th>
+                  <th className="text-left px-4 py-2">Status</th>
+                  <th className="text-left px-4 py-2">Inspector</th>
+                  <th className="text-left px-4 py-2">Notes</th>
+                  <th className="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {incoming.filter(i => i.qcStatus === 'failed' || i.qcStatus === 'hold')
+                  .slice().sort((a, b) => ((a.qcAt || '') < (b.qcAt || '') ? 1 : -1))
+                  .map(inc => (
+                    <tr key={inc.id} className="border-t border-slate-800">
+                      <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
+                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                      <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
+                      <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
+                      <td className="px-4 py-2 text-slate-400">{inc.qcNotes || '—'}</td>
+                      <td className="px-4 py-2 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {inc.qcStatus === 'hold' && (
+                            <button onClick={() => decideQc(inc, 'passed')} className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer">
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Pass Now
+                            </button>
+                          )}
+                          <button onClick={async () => { if (confirm('Remove this record permanently? (Rejected/held stock never entered inventory, so this is safe.)')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                {incoming.filter(i => i.qcStatus === 'failed' || i.qcStatus === 'hold').length === 0 && (
+                  <tr><td colSpan={8} className="text-center text-slate-500 py-10">No held or rejected batches.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
