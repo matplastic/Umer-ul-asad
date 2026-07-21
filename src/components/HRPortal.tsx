@@ -659,6 +659,20 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">
+                    Badge / ID Number {editEmp?.id ? '' : '(matches the badge machine — e.g. F0001)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={editEmp?.id || ''}
+                    disabled={!!editEmp?.id}
+                    placeholder="e.g. F0001"
+                    onChange={e => setEditEmp(prev => ({ ...prev, id: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:bg-slate-50 disabled:text-slate-400"
+                  />
+                  {editEmp?.id && <p className="text-[10px] text-slate-400 mt-1">Badge number can't be changed after registration — it's used to match attendance sheet imports.</p>}
+                </div>
                 {[
                   { label: 'Full Name *', key: 'name', type: 'text' },
                   { label: 'Department *', key: 'department', type: 'text' },
@@ -719,16 +733,17 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                {['Name', 'Department', 'Role', 'Contact', 'Joined', 'Actions'].map(h => (
+                {['Badge', 'Name', 'Department', 'Role', 'Contact', 'Joined', 'Actions'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-12 text-slate-400 text-sm">No employees found</td></tr>
+                <tr><td colSpan={7} className="text-center py-12 text-slate-400 text-sm">No employees found</td></tr>
               ) : filtered.map(emp => (
                 <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs font-bold text-slate-500">{emp.id}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="h-8 w-8 rounded-full bg-violet-100 text-violet-700 font-black text-xs flex items-center justify-center shrink-0">
@@ -782,6 +797,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   const AttendanceTab = () => {
     const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
     const [empFilter, setEmpFilter] = useState('All');
+    const [attSubTab, setAttSubTab] = useState<'daily' | 'deployment'>('daily');
 
     const empNames = useMemo(() => ['All', ...Array.from(new Set(employeePunches.map(p => p.employeeName)))], []);
 
@@ -793,9 +809,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
     // Compute attendance summary per employee for this day
     const summary = useMemo(() => {
-      const map: Record<string, { name: string; inTime?: string; outTime?: string; status: string }> = {};
+      const map: Record<string, { id: string; name: string; inTime?: string; outTime?: string; status: string }> = {};
       dayPunches.forEach(p => {
-        if (!map[p.employeeId]) map[p.employeeId] = { name: p.employeeName, status: 'Absent' };
+        if (!map[p.employeeId]) map[p.employeeId] = { id: p.employeeId, name: p.employeeName, status: 'Absent' };
         if (p.punchType === 'IN') { map[p.employeeId].inTime = p.timestamp; map[p.employeeId].status = 'Present'; }
         if (p.punchType === 'OUT') { map[p.employeeId].outTime = p.timestamp; }
       });
@@ -826,12 +842,13 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         subtitle: `Date: ${fmtDate(dateFilter)}  •  ${totalAbsent} of ${employees.length} employees absent`,
         columns: [
           { header: '#', key: 'no' },
+          { header: 'Badge', key: 'badge' },
           { header: 'Employee Name', key: 'name' },
           { header: 'Department', key: 'department' },
           { header: 'Role', key: 'role' },
         ],
         rows: absentees.map((e, i) => ({
-          no: i + 1, name: e.name, department: e.department || '—', role: e.role || '—',
+          no: i + 1, badge: e.id, name: e.name, department: e.department || '—', role: e.role || '—',
         })),
       });
     };
@@ -865,6 +882,25 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           </div>
         </div>
 
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setAttSubTab('daily')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors ${attSubTab === 'daily' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}
+          >Daily Attendance</button>
+          <button
+            onClick={() => setAttSubTab('deployment')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors flex items-center gap-1.5 ${attSubTab === 'deployment' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500'}`}
+          ><MapPin className="h-3.5 w-3.5" /> Site Deployment ({siteDeployed.length})</button>
+        </div>
+
+        {attSubTab === 'deployment' ? (
+          <SiteDeploymentPanel
+            employees={employees}
+            siteDeployed={siteDeployed}
+            saveSiteDeployed={saveSiteDeployed}
+          />
+        ) : (
+        <>
         <AttendanceUploadPanel
           employees={employees}
           selectedDate={dateFilter}
@@ -874,15 +910,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           onDeleteEmployeePunchesByDate={onDeleteEmployeePunchesByDate}
         />
 
-        <SiteDeploymentPanel
-          employees={employees}
-          siteDeployed={siteDeployed}
-          saveSiteDeployed={saveSiteDeployed}
-        />
-
         {totalDeployedToday > 0 && (
           <div className="bg-sky-50/60 rounded-xl border border-sky-200 px-4 py-2.5 flex items-center gap-2 text-xs font-bold text-sky-700">
-            <MapPin className="h-3.5 w-3.5" /> {totalDeployedToday} staff on Site/Factory Deployment today — excluded from the absent list below.
+            <MapPin className="h-3.5 w-3.5" /> {totalDeployedToday} staff on Site/Factory Deployment today — excluded from the absent list below. <button onClick={() => setAttSubTab('deployment')} className="underline cursor-pointer">View list</button>
           </div>
         )}
 
@@ -897,7 +927,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             <table className="w-full text-sm">
               <thead className="bg-rose-100/60">
                 <tr>
-                  {['#', 'Employee', 'Department', 'Role'].map(h => (
+                  {['#', 'Badge', 'Employee', 'Department', 'Role'].map(h => (
                     <th key={h} className="text-left px-4 py-2 text-xs font-bold text-rose-700 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
@@ -906,6 +936,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 {absentees.map((e, i) => (
                   <tr key={e.id}>
                     <td className="px-4 py-2 text-slate-500">{i + 1}</td>
+                    <td className="px-4 py-2 font-mono text-xs text-slate-500">{e.id}</td>
                     <td className="px-4 py-2 font-semibold text-slate-800">{e.name}</td>
                     <td className="px-4 py-2 text-slate-600">{e.department || '—'}</td>
                     <td className="px-4 py-2 text-slate-600">{e.role || '—'}</td>
@@ -920,20 +951,21 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                {['Employee', 'Time In', 'Time Out', 'Hours', 'Status'].map(h => (
+                {['Badge', 'Employee', 'Time In', 'Time Out', 'Hours', 'Status'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {summary.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-12 text-slate-400 text-sm">No punch records for this date</td></tr>
+                <tr><td colSpan={6} className="text-center py-12 text-slate-400 text-sm">No punch records for this date</td></tr>
               ) : summary.map((s, i) => {
                 const hours = s.inTime && s.outTime
                   ? ((new Date(s.outTime).getTime() - new Date(s.inTime).getTime()) / 3600000).toFixed(1)
                   : '—';
                 return (
                   <tr key={i} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{s.id || '—'}</td>
                     <td className="px-4 py-3 font-semibold text-slate-800">{s.name}</td>
                     <td className="px-4 py-3 text-slate-600">
                       {s.inTime ? new Date(s.inTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -953,6 +985,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             </tbody>
           </table>
         </div>
+        </>
+        )}
       </div>
     );
   };
