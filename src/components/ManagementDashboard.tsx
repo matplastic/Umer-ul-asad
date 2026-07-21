@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
 import { STAGES } from '../data/mockData';
-import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, subscribeToLiveState } from '../lib/firebaseService';
+import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
 import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
@@ -225,10 +225,16 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // the Present/Absent overview cards match HR Portal exactly instead of
   // counting deployed staff as absent.
   const [siteDeployedIds, setSiteDeployedIds] = useState<Set<string>>(new Set());
+  const [hrLeavesForToday, setHrLeavesForToday] = useState<any[]>([]);
+  const [hrMedicalsForToday, setHrMedicalsForToday] = useState<any[]>([]);
   useEffect(() => {
     dbFetchHRSiteDeployed().then(list => setSiteDeployedIds(new Set(list.map((d: any) => d.employeeId)))).catch(() => {});
+    dbFetchHRLeaves().then(setHrLeavesForToday).catch(() => {});
+    dbFetchHRMedicals().then(setHrMedicalsForToday).catch(() => {});
     const unsub = subscribeToLiveState(({ collection, data }) => {
       if (collection === 'hrSiteDeployed') setSiteDeployedIds(new Set((data as any[]).map(d => d.employeeId)));
+      if (collection === 'hrLeaves') setHrLeavesForToday(data as any[]);
+      if (collection === 'hrMedicals') setHrMedicalsForToday(data as any[]);
     });
     return () => { try { unsub(); } catch {} };
   }, []);
@@ -4623,14 +4629,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     </div>
                     <div className="mt-3">
                       <span className="text-3xl font-black font-mono text-rose-700">
-                        {employees.filter(emp =>
-                          !employeePunches.some(p => p.employeeId === emp.id && p.date === selectedPunchDate && p.punchType === 'IN') &&
-                          !emp.nonPunching && !siteDeployedIds.has(emp.id)
-                        ).length}
+                        {employees.filter(emp => {
+                          const noPunch = !employeePunches.some(p => p.employeeId === emp.id && p.date === selectedPunchDate && p.punchType === 'IN');
+                          if (!noPunch || emp.nonPunching || siteDeployedIds.has(emp.id)) return false;
+                          const onLeave = hrLeavesForToday.some((l: any) => l.employeeId === emp.id && l.status === 'Approved' && selectedPunchDate >= l.fromDate && selectedPunchDate <= l.toDate);
+                          const onMedical = hrMedicalsForToday.some((m: any) => m.employeeId === emp.id && m.date === selectedPunchDate);
+                          return !onLeave && !onMedical;
+                        }).length}
                       </span>
                       <span className="text-slate-500 font-bold text-xs ml-2">/ {employees.length} workers</span>
                     </div>
-                    <p className="text-[10px] text-rose-700 mt-2 font-medium">No check-in punches recorded for this date. Excludes Non-Punching staff & Site/Factory Deployment (managed in HR Portal).</p>
+                    <p className="text-[10px] text-rose-700 mt-2 font-medium">No check-in punches recorded for this date. Excludes Non-Punching staff, Site/Factory Deployment, approved Leave & Medical (managed in HR Portal).</p>
                   </div>
 
                   <div className="bg-white border border-slate-200 p-5 rounded-2xl flex flex-col justify-between shadow-xs">
