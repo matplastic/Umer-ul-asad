@@ -141,7 +141,7 @@ const isMaterialCritical = (m: Material): boolean => {
 };
 const emptyBom = { projectName: '', poolType: '', materialId: '', qtyPerPool: '' };
 const emptyIncoming = { materialId: '', qty: '', supplier: '', invoiceNo: '', notes: '' };
-const emptyAsset = { name: '', assetNumber: '', issuedTo: '', value: '', notes: '' };
+const emptyAsset = { name: '', assetNumber: '', erpNo: '', issuedTo: '', value: '', notes: '' };
 
 export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, projectNames, poolTypesByProject }) => {
   const [tab, setTab] = useState<Tab>('inventory');
@@ -284,7 +284,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     const q = assetSearch.trim().toLowerCase();
     if (!q) return companyAssets;
     return companyAssets.filter(a => {
-      const haystack = [a.name, a.assetNumber, a.issuedTo, a.notes].filter(Boolean).join(' | ').toLowerCase();
+      const haystack = [a.name, a.assetNumber, a.erpNo, a.issuedTo, a.notes].filter(Boolean).join(' | ').toLowerCase();
       return haystack.includes(q);
     });
   }, [companyAssets, assetSearch]);
@@ -472,6 +472,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       id: `asset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       name: newAsset.name,
       assetNumber: newAsset.assetNumber,
+      erpNo: newAsset.erpNo || null,
       issuedTo: newAsset.issuedTo || null,
       value: newAsset.value === '' || newAsset.value === null || newAsset.value === undefined ? null : Number(newAsset.value),
       notes: newAsset.notes || null,
@@ -493,6 +494,28 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     if (next === null) return;
     await dbSaveCompanyAsset({ ...asset, issuedTo: next.trim() || null });
     loadAll(true);
+  };
+
+  // Lets Store move something that was wrongly entered as a consumable
+  // Material into the proper Company Assets register instead — copies
+  // name/ERP code/notes across, then removes it from Materials so it
+  // doesn't keep showing up (and being counted) in Inventory.
+  const moveMaterialToAsset = async (m: Material) => {
+    if (!confirm(`Move "${m.name}" out of Inventory and into Company Assets?`)) return;
+    const asset: CompanyAsset = {
+      id: `asset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: m.name,
+      assetNumber: '',
+      erpNo: (m as any).erpCode || null,
+      issuedTo: null,
+      value: null,
+      notes: m.notes || null,
+      createdAt: new Date().toISOString(),
+    };
+    await dbSaveCompanyAsset(asset);
+    await dbDeleteMaterial(m.id);
+    loadAll(true);
+    setTab('assets');
   };
 
   const adjustStock = async (id: string) => {
@@ -1175,6 +1198,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         <td className="px-4 py-2 text-right text-slate-500">{m.reorderLevel || 0}</td>
                         <td className="px-4 py-2 text-right flex items-center justify-end gap-2">
                           <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
+                          <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-400 cursor-pointer text-[11px] font-bold">Move to Assets</button>
                           <button onClick={() => deleteMaterial(m.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                         </td>
                       </tr>
@@ -1195,19 +1219,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {tab === 'assets' && (
         <div>
           {/* Add asset form */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
             <input placeholder="Asset name" data-testid="new-asset-name" value={newAsset.name} onChange={e => setNewAsset((p: any) => ({ ...p, name: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
             <input placeholder="Asset number / tag" data-testid="new-asset-number" value={newAsset.assetNumber} onChange={e => setNewAsset((p: any) => ({ ...p, assetNumber: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input placeholder="ERP No" data-testid="new-asset-erpno" value={newAsset.erpNo} onChange={e => setNewAsset((p: any) => ({ ...p, erpNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Issued to (optional)" data-testid="new-asset-issuedto" value={newAsset.issuedTo} onChange={e => setNewAsset((p: any) => ({ ...p, issuedTo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input type="number" placeholder="Value (AED)" data-testid="new-asset-value" value={newAsset.value} onChange={e => setNewAsset((p: any) => ({ ...p, value: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={saveAsset} data-testid="new-asset-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Asset</button>
-            <input placeholder="Notes (optional)" data-testid="new-asset-notes" value={newAsset.notes} onChange={e => setNewAsset((p: any) => ({ ...p, notes: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-6" />
+            <input placeholder="Notes (optional)" data-testid="new-asset-notes" value={newAsset.notes} onChange={e => setNewAsset((p: any) => ({ ...p, notes: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-7" />
           </div>
 
           <div className="relative mb-3 max-w-md">
             <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
-              placeholder="Search assets — name, asset number, or who it's issued to…"
+              placeholder="Search assets — name, asset number, ERP No, or who it's issued to…"
               data-testid="asset-search"
               value={assetSearch}
               onChange={e => setAssetSearch(e.target.value)}
@@ -1221,6 +1246,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 <tr className="border-b border-slate-800 text-slate-400 text-left">
                   <th className="px-4 py-2 font-semibold">Asset Name</th>
                   <th className="px-4 py-2 font-semibold">Asset Number</th>
+                  <th className="px-4 py-2 font-semibold">ERP No</th>
                   <th className="px-4 py-2 font-semibold">Issued To</th>
                   <th className="px-4 py-2 font-semibold text-right">Value (AED)</th>
                   <th className="px-4 py-2 font-semibold">Notes</th>
@@ -1232,6 +1258,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <tr key={a.id} className="border-b border-slate-800/60 hover:bg-slate-800/30">
                     <td className="px-4 py-2 text-slate-200 font-semibold">{a.name}</td>
                     <td className="px-4 py-2 text-slate-400 font-mono">{a.assetNumber}</td>
+                    <td className="px-4 py-2 text-slate-400 font-mono">{a.erpNo || '—'}</td>
                     <td className="px-4 py-2">
                       <button onClick={() => setAssetIssuedTo(a)} data-testid={`asset-issuedto-${a.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${a.issuedTo ? 'bg-amber-950/40 text-amber-400 border-amber-800' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
                         {a.issuedTo || 'In store'}
