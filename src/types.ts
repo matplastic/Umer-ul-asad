@@ -173,6 +173,10 @@ export interface Employee {
   phone?: string | null;
   notes?: string | null;
   createdAt: string;
+  // Manual/non-biometric staff (e.g. drivers, office staff without a badge
+  // machine). Always excluded from the absent list/report regardless of
+  // whether an attendance sheet shows a punch for them.
+  nonPunching?: boolean | null;
 }
 
 export interface EmployeePunch {
