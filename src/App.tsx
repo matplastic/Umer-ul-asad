@@ -3102,6 +3102,9 @@ export default function App() {
             employeePunches={employeePunches}
             onSaveEmployee={handleSaveEmployee}
             onDeleteEmployee={handleDeleteEmployee}
+            onAddEmployeePunchesBulk={handleSaveEmployeePunchesBulk}
+            onAddEmployeesBulk={handleSaveEmployeesBulk}
+            onDeleteEmployeePunchesByDate={handleDeleteEmployeePunchesByDate}
             currentUserName={loggedInUser?.displayName}
           />
         )}
