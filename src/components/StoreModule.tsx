@@ -317,8 +317,21 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
   // Only 'passed' GRNs count toward Inventory/stock reports; pending/failed/hold
   // are held back at the quality gate and shouldn't inflate incoming totals.
-  const passedIncoming = useMemo(() => filteredIncoming.filter(i => i.qcStatus === 'passed'), [filteredIncoming]);
-  const pendingQcCount = useMemo(() => incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length, [incoming]);
+  // Only the portion of a GRN that actually passed QC counts toward
+  // Inventory/stock reports — for legacy fully-passed records that's the
+  // whole qty; for partial/mixed records it's just the qtyPassed slice.
+  const passedIncoming = useMemo(() => {
+    return filteredIncoming
+      .map(i => ({ ...i, qty: i.qtyPassed != null ? Number(i.qtyPassed) : (i.qcStatus === 'passed' ? Number(i.qty || 0) : 0) }))
+      .filter(i => i.qty > 0);
+  }, [filteredIncoming]);
+  // Anything with qty still awaiting a first look, or parked in Hold
+  // waiting to be resolved, needs the Quality Inspector's attention.
+  const pendingQcCount = useMemo(() => incoming.filter(i => {
+    const passed = Number(i.qtyPassed || 0), failed = Number(i.qtyFailed || 0), hold = Number(i.qtyHold || 0);
+    const pending = Number(i.qty || 0) - passed - failed - hold;
+    return pending > 0 || hold > 0;
+  }).length, [incoming]);
 
   const filteredConsumptionLogs = useMemo(() => {
     if (!fromDate && !toDate) return consumptionLogs;
@@ -623,23 +636,31 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   }, [filteredIncoming, traceSearch]);
 
   const exportTraceabilityExcel = () => {
-    const rows = filteredTraceability.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1)).map(inc => ({
-      'Date Received': (inc.receivedAt || '').slice(0, 10),
-      Material: inc.materialName,
-      Qty: inc.qty,
-      Unit: inc.unit,
-      Supplier: inc.supplier || '',
-      Invoice: inc.invoiceNo || '',
-      'Received By': inc.receivedByName,
-      'QC Status': (inc.qcStatus || 'pending').toUpperCase(),
-      'QC By': inc.qcByName || '',
-      'QC Date': (inc.qcAt || '').slice(0, 10),
-      'QC Notes': inc.qcNotes || '',
-    }));
+    const rows = filteredTraceability.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1)).map(inc => {
+      const passed = Number(inc.qtyPassed || 0), failed = Number(inc.qtyFailed || 0), hold = Number(inc.qtyHold || 0);
+      const pending = Math.max(0, Number(inc.qty || 0) - passed - failed - hold);
+      return {
+        'Date Received': (inc.receivedAt || '').slice(0, 10),
+        Material: inc.materialName,
+        'Total Qty': inc.qty,
+        Unit: inc.unit,
+        Supplier: inc.supplier || '',
+        Invoice: inc.invoiceNo || '',
+        'Received By': inc.receivedByName,
+        'QC Status': (inc.qcStatus || 'pending').toUpperCase(),
+        'Qty Passed': passed,
+        'Qty Rejected': failed,
+        'Qty On Hold': hold,
+        'Qty Pending': pending,
+        'QC By': inc.qcByName || '',
+        'QC Date': (inc.qcAt || '').slice(0, 10),
+        'QC Notes': inc.qcNotes || '',
+      };
+    });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(
       wb,
-      XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'Date Received': '', Material: '', Qty: '', Unit: '', Supplier: '', Invoice: '', 'Received By': '', 'QC Status': '', 'QC By': '', 'QC Date': '', 'QC Notes': '' }]),
+      XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'Date Received': '', Material: '', 'Total Qty': '', Unit: '', Supplier: '', Invoice: '', 'Received By': '', 'QC Status': '', 'Qty Passed': '', 'Qty Rejected': '', 'Qty On Hold': '', 'Qty Pending': '', 'QC By': '', 'QC Date': '', 'QC Notes': '' }]),
       'Material Traceability'
     );
     XLSX.writeFile(wb, `material_traceability_report_${fileLabel()}.xlsx`);
@@ -647,20 +668,27 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
   const exportTraceabilityPDF = () => {
     const rows = filteredTraceability.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1))
-      .map(inc => [
-        (inc.receivedAt || '').slice(0, 10),
-        inc.materialName,
-        `${Number(inc.qty).toFixed(2)} ${inc.unit}`,
-        inc.supplier || '—',
-        inc.invoiceNo || '—',
-        inc.receivedByName,
-        (inc.qcStatus || 'pending').toUpperCase(),
-        inc.qcByName || '—',
-        inc.qcNotes || '—',
-      ]);
+      .map(inc => {
+        const passed = Number(inc.qtyPassed || 0), failed = Number(inc.qtyFailed || 0), hold = Number(inc.qtyHold || 0);
+        const pending = Math.max(0, Number(inc.qty || 0) - passed - failed - hold);
+        return [
+          (inc.receivedAt || '').slice(0, 10),
+          inc.materialName,
+          `${Number(inc.qty).toFixed(2)} ${inc.unit}`,
+          inc.supplier || '—',
+          inc.receivedByName,
+          (inc.qcStatus || 'pending').toUpperCase(),
+          passed ? `${passed}` : '—',
+          failed ? `${failed}` : '—',
+          hold ? `${hold}` : '—',
+          pending ? `${pending}` : '—',
+          inc.qcByName || '—',
+          inc.qcNotes || '—',
+        ];
+      });
     pdfFromTable(
       'Material Traceability Report',
-      ['Date Received', 'Material', 'Qty', 'Supplier', 'Invoice', 'Received By', 'QC Status', 'QC By', 'QC Notes'],
+      ['Date Received', 'Material', 'Total Qty', 'Supplier', 'Received By', 'QC Status', 'Passed', 'Rejected', 'Hold', 'Pending', 'QC By', 'QC Notes'],
       rows,
       'material_traceability_report'
     );
@@ -834,12 +862,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const qcPill = (status?: string) => {
     const map: Record<string, string> = {
       pending: 'bg-amber-950/40 text-amber-400 border-amber-800',
+      partial: 'bg-sky-950/40 text-sky-400 border-sky-800',
       passed: 'bg-emerald-950/40 text-emerald-400 border-emerald-800',
       failed: 'bg-rose-950/40 text-rose-400 border-rose-800',
       hold: 'bg-slate-800 text-slate-300 border-slate-600',
+      mixed: 'bg-violet-950/40 text-violet-400 border-violet-800',
     };
     const s = status || 'pending';
-    const label: Record<string, string> = { pending: 'Pending QC', passed: 'Passed', failed: 'Rejected', hold: 'On Hold' };
+    const label: Record<string, string> = {
+      pending: 'Pending QC', partial: 'Partially Decided', passed: 'Passed',
+      failed: 'Rejected', hold: 'On Hold', mixed: 'Split Outcome',
+    };
     return <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${map[s] || map.pending}`}>{label[s] || s}</span>;
   };
 
@@ -1179,41 +1212,54 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           <div className="bg-indigo-950/30 border border-indigo-800/60 rounded-xl px-4 py-3 flex items-start gap-2.5">
             <ShieldCheck className="h-4 w-4 text-indigo-400 mt-0.5 flex-shrink-0" />
             <p className="text-xs text-indigo-200">
-              Pass/Hold/Reject decisions for incoming material are made by the <strong>Quality Inspector</strong> from the Quality Control portal, not from Store. This tab is a read-only status view of every GRN awaiting or already through inspection.
+              Pass/Hold/Reject decisions for incoming material — including splitting one GRN across multiple outcomes (e.g. pass part, reject part) — are made by the <strong>Quality Inspector</strong> from the Quality Control portal, not from Store. This tab is a read-only status view of every GRN awaiting or already through inspection.
             </p>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-amber-400" /> Awaiting Inspection ({incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length})
+              <Clock className="h-3.5 w-3.5 text-amber-400" /> Awaiting Inspection ({pendingQcCount})
             </div>
-            <table className="w-full min-w-[820px] text-xs">
+            <table className="w-full min-w-[900px] text-xs">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Received</th>
                   <th className="text-left px-4 py-2">Material</th>
-                  <th className="text-right px-4 py-2">Qty</th>
+                  <th className="text-right px-4 py-2">Total Qty</th>
                   <th className="text-left px-4 py-2">Supplier</th>
-                  <th className="text-left px-4 py-2">Invoice</th>
                   <th className="text-left px-4 py-2">Received By</th>
                   <th className="text-left px-4 py-2">QC Status</th>
+                  <th className="text-left px-4 py-2">Split So Far</th>
                 </tr>
               </thead>
               <tbody>
-                {incoming.filter(i => (i.qcStatus || 'pending') === 'pending')
+                {incoming.filter(i => {
+                  const passed = Number(i.qtyPassed || 0), failed = Number(i.qtyFailed || 0), hold = Number(i.qtyHold || 0);
+                  const pending = Number(i.qty || 0) - passed - failed - hold;
+                  return pending > 0 || hold > 0;
+                })
                   .slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-                  .map(inc => (
-                    <tr key={inc.id} className="border-t border-slate-800">
-                      <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
-                      <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
-                      <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
-                      <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
-                      <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
-                    </tr>
-                  ))}
-                {incoming.filter(i => (i.qcStatus || 'pending') === 'pending').length === 0 && (
+                  .map(inc => {
+                    const passed = Number(inc.qtyPassed || 0), failed = Number(inc.qtyFailed || 0), hold = Number(inc.qtyHold || 0);
+                    const pending = Number(inc.qty || 0) - passed - failed - hold;
+                    return (
+                      <tr key={inc.id} className="border-t border-slate-800">
+                        <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
+                        <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
+                        <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                        <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
+                        <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
+                        <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
+                        <td className="px-4 py-2 text-[10px] space-y-0.5">
+                          {passed > 0 && <div className="text-emerald-400 font-bold">Passed: {passed} {inc.unit}</div>}
+                          {failed > 0 && <div className="text-rose-400 font-bold">Rejected: {failed} {inc.unit}</div>}
+                          {hold > 0 && <div className="text-slate-300 font-bold">On Hold: {hold} {inc.unit}</div>}
+                          {pending > 0 && <div className="text-amber-400 font-bold">Awaiting: {pending} {inc.unit}</div>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {pendingQcCount === 0 && (
                   <tr><td colSpan={7} className="text-center text-slate-500 py-10">Nothing waiting on inspection.</td></tr>
                 )}
               </tbody>
@@ -1222,23 +1268,27 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5" /> On Hold / Rejected
+              <ShieldCheck className="h-3.5 w-3.5" /> Fully Resolved
             </div>
-            <table className="w-full min-w-[820px] text-xs">
+            <table className="w-full min-w-[900px] text-xs">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Received</th>
                   <th className="text-left px-4 py-2">Material</th>
-                  <th className="text-right px-4 py-2">Qty</th>
+                  <th className="text-right px-4 py-2">Total Qty</th>
                   <th className="text-left px-4 py-2">Supplier</th>
-                  <th className="text-left px-4 py-2">Status</th>
+                  <th className="text-left px-4 py-2">Outcome</th>
                   <th className="text-left px-4 py-2">Inspector</th>
                   <th className="text-left px-4 py-2">Notes</th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
               <tbody>
-                {incoming.filter(i => i.qcStatus === 'failed' || i.qcStatus === 'hold')
+                {incoming.filter(i => {
+                  const passed = Number(i.qtyPassed || 0), failed = Number(i.qtyFailed || 0), hold = Number(i.qtyHold || 0);
+                  const pending = Number(i.qty || 0) - passed - failed - hold;
+                  return pending === 0 && hold === 0 && (i.qcStatus === 'failed' || i.qcStatus === 'mixed' || i.qcStatus === 'passed');
+                })
                   .slice().sort((a, b) => ((a.qcAt || '') < (b.qcAt || '') ? 1 : -1))
                   .map(inc => (
                     <tr key={inc.id} className="border-t border-slate-800">
@@ -1246,16 +1296,31 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
                       <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
                       <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
-                      <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
+                      <td className="px-4 py-2">
+                        {qcPill(inc.qcStatus)}
+                        {inc.qcStatus === 'mixed' && (
+                          <div className="text-[10px] text-slate-400 mt-1">{Number(inc.qtyPassed || 0)} passed · {Number(inc.qtyFailed || 0)} rejected {inc.unit}</div>
+                        )}
+                      </td>
                       <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
                       <td className="px-4 py-2 text-slate-400">{inc.qcNotes || '—'}</td>
                       <td className="px-4 py-2 text-right">
-                        <button onClick={async () => { if (confirm('Remove this record permanently? (Rejected/held stock never entered inventory, so this is safe.)')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <button onClick={async () => {
+                          const passedQty = Number(inc.qtyPassed || 0);
+                          const msg = passedQty > 0
+                            ? `This will remove the GRN and reverse ${passedQty} ${inc.unit} of ${inc.materialName} from stock. Continue?`
+                            : 'Remove this record permanently? (Rejected/held stock never entered inventory, so this is safe.)';
+                          if (confirm(msg)) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); }
+                        }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                       </td>
                     </tr>
                   ))}
-                {incoming.filter(i => i.qcStatus === 'failed' || i.qcStatus === 'hold').length === 0 && (
-                  <tr><td colSpan={8} className="text-center text-slate-500 py-10">No held or rejected batches.</td></tr>
+                {incoming.filter(i => {
+                  const passed = Number(i.qtyPassed || 0), failed = Number(i.qtyFailed || 0), hold = Number(i.qtyHold || 0);
+                  const pending = Number(i.qty || 0) - passed - failed - hold;
+                  return pending === 0 && hold === 0 && (i.qcStatus === 'failed' || i.qcStatus === 'mixed' || i.qcStatus === 'passed');
+                }).length === 0 && (
+                  <tr><td colSpan={8} className="text-center text-slate-500 py-10">No fully resolved GRNs yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1292,36 +1357,45 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
               Material Traceability ({filteredTraceability.length})
             </div>
-            <table className="w-full min-w-[1000px] text-xs">
+            <table className="w-full min-w-[1100px] text-xs">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
                   <th className="text-left px-4 py-2">Date Received</th>
                   <th className="text-left px-4 py-2">Material</th>
-                  <th className="text-right px-4 py-2">Qty</th>
+                  <th className="text-right px-4 py-2">Total Qty</th>
                   <th className="text-left px-4 py-2">Supplier</th>
                   <th className="text-left px-4 py-2">Invoice</th>
                   <th className="text-left px-4 py-2">Received By</th>
                   <th className="text-left px-4 py-2">QC Status</th>
+                  <th className="text-left px-4 py-2">Split (Pass/Reject/Hold/Pending)</th>
                   <th className="text-left px-4 py-2">QC By</th>
-                  <th className="text-left px-4 py-2">QC Date</th>
                   <th className="text-left px-4 py-2">QC Notes</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredTraceability.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(inc => (
-                  <tr key={inc.id} className="border-t border-slate-800">
-                    <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                    <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
-                    <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
-                    <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
-                    <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
-                    <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
-                    <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
-                    <td className="px-4 py-2 text-slate-500 font-mono">{inc.qcAt ? new Date(inc.qcAt).toLocaleDateString() : '—'}</td>
-                    <td className="px-4 py-2 text-slate-400">{inc.qcNotes || '—'}</td>
-                  </tr>
-                ))}
+                {filteredTraceability.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(inc => {
+                  const passed = Number(inc.qtyPassed || 0), failed = Number(inc.qtyFailed || 0), hold = Number(inc.qtyHold || 0);
+                  const pending = Math.max(0, Number(inc.qty || 0) - passed - failed - hold);
+                  return (
+                    <tr key={inc.id} className="border-t border-slate-800">
+                      <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
+                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                      <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
+                      <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
+                      <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
+                      <td className="px-4 py-2 text-[10px] space-x-2 whitespace-nowrap">
+                        <span className="text-emerald-400 font-bold">P {passed}</span>
+                        <span className="text-rose-400 font-bold">R {failed}</span>
+                        <span className="text-slate-300 font-bold">H {hold}</span>
+                        <span className="text-amber-400 font-bold">Pend {pending}</span>
+                      </td>
+                      <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
+                      <td className="px-4 py-2 text-slate-400">{inc.qcNotes || '—'}</td>
+                    </tr>
+                  );
+                })}
                 {filteredTraceability.length === 0 && (
                   <tr><td colSpan={10} className="text-center text-slate-500 py-10">No records match this search / period.</td></tr>
                 )}
