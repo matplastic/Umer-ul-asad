@@ -31,6 +31,7 @@ export function subscribeToLiveState(
     'hrAccidents',
     'hrMedicals',
     'hrSiteDeployed',
+    'hrPurchaseRequests',
     'qcDefects',
   ];
   const unsubs: Unsubscribe[] = collections.map(name =>
@@ -2261,4 +2262,34 @@ export async function dbFetchHRSiteDeployed(): Promise<any[]> {
 }
 export async function dbSaveHRSiteDeployed(deployed: any[]): Promise<void> {
   await setFirestoreDocArray('hrSiteDeployed', deployed, true);
+}
+
+// --- HR: Purchase Requests (office / accommodation items) ---
+// A lightweight approval flow separate from Store's Material Requests:
+// HR requests an item (office supplies, accommodation furniture, etc.), the
+// manager gets an email with Approve/Reject, and once approved HR can print
+// a purchase order for the purchaser and later attach the bill/invoice.
+export async function dbFetchHRPurchaseRequests(): Promise<any[]> {
+  return getFirestoreDocArray('hrPurchaseRequests');
+}
+export async function dbSaveHRPurchaseRequests(requests: any[]): Promise<void> {
+  await setFirestoreDocArray('hrPurchaseRequests', requests, true);
+}
+
+// Fire-and-forget call to the Netlify Function that emails the manager.
+// Safe to call even when email isn't configured — it just no-ops server-side.
+export async function dbSendHRPurchaseRequestEmail(request: {
+  id: string; approvalToken: string; itemName: string; category: string;
+  qty: number; unit: string; estimatedCost?: number | null; purpose?: string | null;
+  requestedByName: string;
+}): Promise<void> {
+  try {
+    await fetch('/.netlify/functions/send-hr-purchase-request-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+  } catch (err) {
+    console.warn('[dbSendHRPurchaseRequestEmail] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
+  }
 }
