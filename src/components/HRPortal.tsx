@@ -824,6 +824,23 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     // machine on legitimate work, not absent — skip them entirely.
     const deployedIds = new Set(siteDeployed.map(d => d.employeeId));
 
+    // Approved leave covering this date, and a medical record dated this
+    // day, both explain an absence rather than leaving it unexplained.
+    const leaveByEmployee = useMemo(() => {
+      const map: Record<string, LeaveRequest> = {};
+      leaves.forEach(l => {
+        if (l.status !== 'Approved') return;
+        if (dateFilter >= l.fromDate && dateFilter <= l.toDate) map[l.employeeId] = l;
+      });
+      return map;
+    }, [leaves, dateFilter]);
+
+    const medicalByEmployee = useMemo(() => {
+      const map: Record<string, MedicalRecord> = {};
+      medicals.forEach(m => { if (m.date === dateFilter) map[m.employeeId] = m; });
+      return map;
+    }, [medicals, dateFilter]);
+
     // Employees with NO punch at all on this date = absentees (summary only ever
     // contains employees who punched, so absentees must be derived from the full
     // employee roster, not from summary). Non-punching staff and deployed
@@ -833,7 +850,12 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       () => employees.filter(e => !presentIds.has(e.id) && !e.nonPunching && !deployedIds.has(e.id)),
       [employees, dateFilter, dayPunches, siteDeployed]
     );
-    const totalAbsent = absentees.length;
+    // "Absent" now excludes anyone with an approved leave covering this date
+    // or a medical record dated this day — those are explained, not unexplained.
+    const unexplainedAbsentees = absentees.filter(e => !leaveByEmployee[e.id] && !medicalByEmployee[e.id]);
+    const totalAbsent = unexplainedAbsentees.length;
+    const totalOnLeave = absentees.filter(e => leaveByEmployee[e.id]).length;
+    const totalOnMedical = absentees.filter(e => medicalByEmployee[e.id]).length;
     const totalDeployedToday = employees.filter(e => deployedIds.has(e.id) && !presentIds.has(e.id)).length;
 
     const openAbsentReport = () => {
@@ -847,7 +869,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           { header: 'Department', key: 'department' },
           { header: 'Role', key: 'role' },
         ],
-        rows: absentees.map((e, i) => ({
+        rows: unexplainedAbsentees.map((e, i) => ({
           no: i + 1, badge: e.id, name: e.name, department: e.department || '—', role: e.role || '—',
         })),
       });
@@ -869,10 +891,20 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           >
             {empNames.map(n => <option key={n}>{n}</option>)}
           </select>
-          <div className="flex gap-3 ml-auto items-center">
+          <div className="flex gap-3 ml-auto items-center flex-wrap">
             <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-full border border-emerald-200">
               ✓ Present: {totalPresent}
             </span>
+            {totalOnLeave > 0 && (
+              <span className="bg-amber-50 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full border border-amber-200">
+                On Leave: {totalOnLeave}
+              </span>
+            )}
+            {totalOnMedical > 0 && (
+              <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-3 py-1.5 rounded-full border border-indigo-200">
+                Medical: {totalOnMedical}
+              </span>
+            )}
             <button
               onClick={openAbsentReport}
               className="bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold px-3 py-1.5 rounded-full border border-rose-200 flex items-center gap-1.5 cursor-pointer"
@@ -927,21 +959,34 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             <table className="w-full text-sm">
               <thead className="bg-rose-100/60">
                 <tr>
-                  {['#', 'Badge', 'Employee', 'Department', 'Role'].map(h => (
+                  {['#', 'Badge', 'Employee', 'Department', 'Role', 'Status'].map(h => (
                     <th key={h} className="text-left px-4 py-2 text-xs font-bold text-rose-700 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-rose-100">
-                {absentees.map((e, i) => (
-                  <tr key={e.id}>
-                    <td className="px-4 py-2 text-slate-500">{i + 1}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-slate-500">{e.id}</td>
-                    <td className="px-4 py-2 font-semibold text-slate-800">{e.name}</td>
-                    <td className="px-4 py-2 text-slate-600">{e.department || '—'}</td>
-                    <td className="px-4 py-2 text-slate-600">{e.role || '—'}</td>
-                  </tr>
-                ))}
+                {absentees.map((e, i) => {
+                  const leave = leaveByEmployee[e.id];
+                  const medical = medicalByEmployee[e.id];
+                  return (
+                    <tr key={e.id}>
+                      <td className="px-4 py-2 text-slate-500">{i + 1}</td>
+                      <td className="px-4 py-2 font-mono text-xs text-slate-500">{e.id}</td>
+                      <td className="px-4 py-2 font-semibold text-slate-800">{e.name}</td>
+                      <td className="px-4 py-2 text-slate-600">{e.department || '—'}</td>
+                      <td className="px-4 py-2 text-slate-600">{e.role || '—'}</td>
+                      <td className="px-4 py-2">
+                        {medical ? (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">Medical{medical.disease ? ` — ${medical.disease}` : ''}</span>
+                        ) : leave ? (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">{leave.leaveType} Leave</span>
+                        ) : (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">Absent</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
