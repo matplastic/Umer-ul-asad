@@ -1,6 +1,6 @@
 import { auth, app } from './googleDrive.ts';
 import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset } from '../types';
 
 const clientDb = getFirestore(app);
 
@@ -1196,6 +1196,39 @@ export async function dbDeleteMaterial(id: string) {
   }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/materials/${id}`), { method: 'DELETE', headers });
+  return res.json();
+}
+
+// --- Company Assets ---
+// A separate register from Materials: no stock/consumption, just what it
+// is, its tag number, who has it, and its value.
+export async function dbFetchCompanyAssets(): Promise<CompanyAsset[]> {
+  if (!apiBase()) return getFirestoreDocArray('companyAssets');
+  const res = await fetch(getApiUrl('/api/company-assets'));
+  return res.ok ? res.json() : [];
+}
+
+export async function dbSaveCompanyAsset(asset: CompanyAsset) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('companyAssets', (arr) => {
+      const idx = arr.findIndex((a) => a.id === asset.id);
+      if (idx !== -1) arr[idx] = asset; else arr.push(asset);
+      return arr;
+    });
+    return { success: true, asset };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/company-assets'), { method: 'POST', headers, body: JSON.stringify(asset) });
+  return res.json();
+}
+
+export async function dbDeleteCompanyAsset(id: string) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('companyAssets', (arr) => arr.filter((a) => a.id !== id), true);
+    return { success: true };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/company-assets/${id}`), { method: 'DELETE', headers });
   return res.json();
 }
 
