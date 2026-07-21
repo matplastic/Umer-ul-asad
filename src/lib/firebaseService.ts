@@ -1806,36 +1806,95 @@ export async function dbCreateIncomingMaterial(payload: Omit<IncomingMaterial, '
   return res.json();
 }
 
-// Inspector decision on a pending GRN. 'passed' is the only outcome that
-// adds the qty into Material.currentStock; 'failed'/'hold' just flags the
-// record so the Store Manager can see it and decide what to do (return to
-// supplier, scrap, re-inspect, etc.) without it ever reaching inventory.
-export async function dbDecideIncomingQc(id: string, decision: 'passed' | 'failed' | 'hold', qcByName: string, qcNotes?: string | null) {
+// Inspector decision on a pending GRN, for a specific quantity out of the
+// total received — supports splitting one receipt across multiple outcomes
+// (e.g. 300 received, pass 180 now, reject 120). Only the passed portion of
+// *this* decision is added into Material.currentStock; failed/hold portions
+// never touch stock. qty defaults to the entire remaining (undecided)
+// portion, so callers that don't care about splitting can omit it and get
+// the old all-or-nothing behavior.
+//
+// sourceBucket lets an inspector come back later and resolve material that
+// was previously held: 'pending' (default) decides fresh, never-looked-at
+// qty; 'hold' moves qty OUT of the hold pool into passed/failed (re-holding
+// held qty is a no-op, so only 'passed'/'failed' make sense with 'hold').
+export async function dbDecideIncomingQc(
+  id: string,
+  decision: 'passed' | 'failed' | 'hold',
+  qcByName: string,
+  qcNotes?: string | null,
+  qty?: number,
+  sourceBucket: 'pending' | 'hold' = 'pending'
+) {
   if (!apiBase()) {
     let materialId: string | null = null;
-    let qty = 0;
-    let alreadyPassed = false;
+    let passedQtyThisDecision = 0;
+    let resultRecord: IncomingMaterial | null = null;
     await updateFirestoreDocArray('incomingMaterials', (arr) =>
       arr.map((i) => {
         if (i.id !== id) return i;
+        const totalQty = Number(i.qty || 0);
+        let passed = Number(i.qtyPassed || 0);
+        let failed = Number(i.qtyFailed || 0);
+        let hold = Number(i.qtyHold || 0);
+        const qtyPending = Math.max(0, totalQty - passed - failed - hold);
+
+        const availableInSource = sourceBucket === 'hold' ? hold : qtyPending;
+        const decideQty = Math.max(0, Math.min(qty != null ? Number(qty) : availableInSource, availableInSource));
+
         materialId = i.materialId;
-        qty = Number(i.qty || 0);
-        alreadyPassed = i.qcStatus === 'passed';
-        return { ...i, qcStatus: decision, qcByName, qcAt: new Date().toISOString(), qcNotes: qcNotes || null };
+        if (decision === 'passed') passedQtyThisDecision = decideQty;
+
+        if (sourceBucket === 'hold') hold -= decideQty; // resolving previously-held qty out of the hold pool
+        if (decision === 'passed') passed += decideQty;
+        else if (decision === 'failed') failed += decideQty;
+        else if (decision === 'hold') hold += decideQty; // parking fresh pending qty for a re-check later
+
+        const nextPending = Math.max(0, totalQty - passed - failed - hold);
+
+        // Derive the overall bucket so existing pending/passed/failed/hold
+        // filters elsewhere in the app keep working unmodified for the
+        // common all-or-nothing cases, with 'partial'/'mixed' covering
+        // everything genuinely split.
+        let nextStatus: IncomingMaterial['qcStatus'];
+        if (nextPending === totalQty) nextStatus = 'pending';
+        else if (passed === totalQty) nextStatus = 'passed';
+        else if (failed === totalQty) nextStatus = 'failed';
+        else if (hold === totalQty) nextStatus = 'hold';
+        else if (nextPending > 0 || hold > 0) nextStatus = 'partial';
+        else nextStatus = 'mixed';
+
+        const decisions = [...(i.qcDecisions || [])];
+        if (decideQty > 0) {
+          decisions.push({ qty: decideQty, decision, byName: qcByName, at: new Date().toISOString(), notes: qcNotes || null });
+        }
+
+        resultRecord = {
+          ...i,
+          qcStatus: nextStatus,
+          qtyPassed: passed,
+          qtyFailed: failed,
+          qtyHold: hold,
+          qcByName,
+          qcAt: new Date().toISOString(),
+          qcNotes: qcNotes || null,
+          qcDecisions: decisions,
+        };
+        return resultRecord;
       })
     );
-    if (decision === 'passed' && materialId && !alreadyPassed) {
+    if (passedQtyThisDecision > 0 && materialId) {
       await updateFirestoreDocArray('materials', (arr) =>
-        arr.map((m) => (m.id === materialId ? { ...m, currentStock: (m.currentStock || 0) + qty } : m))
+        arr.map((m) => (m.id === materialId ? { ...m, currentStock: (m.currentStock || 0) + passedQtyThisDecision } : m))
       );
     }
-    return { success: true };
+    return { success: true, item: resultRecord };
   }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/incoming-materials/${id}/qc-decide`), {
     method: 'POST',
     headers,
-    body: JSON.stringify({ decision, qcByName, qcNotes }),
+    body: JSON.stringify({ decision, qcByName, qcNotes, qty, sourceBucket }),
   });
   return res.json();
 }
@@ -1844,15 +1903,19 @@ export async function dbDeleteIncomingMaterial(id: string) {
   if (!apiBase()) {
     let materialId: string | null = null;
     let qty = 0;
-    let wasPassed = false;
     await updateFirestoreDocArray('incomingMaterials', (arr) => {
       const rec = arr.find((i) => i.id === id);
-      if (rec) { materialId = rec.materialId; qty = Number(rec.qty || 0); wasPassed = rec.qcStatus === 'passed'; }
+      if (rec) {
+        materialId = rec.materialId;
+        // Only reverse the portion that actually reached inventory. Legacy
+        // fully-passed records have no qtyPassed field — fall back to the
+        // full qty for those; partial/mixed records reverse just their
+        // qtyPassed slice.
+        qty = rec.qtyPassed != null ? Number(rec.qtyPassed) : (rec.qcStatus === 'passed' ? Number(rec.qty || 0) : 0);
+      }
       return arr.filter((i) => i.id !== id);
     }, true);
-    // Only reverse stock if this GRN had actually passed QC and been added
-    // to inventory — pending/failed/hold receipts never touched stock.
-    if (wasPassed && materialId) {
+    if (qty > 0 && materialId) {
       await updateFirestoreDocArray('materials', (arr) =>
         arr.map((m) => (m.id === materialId ? { ...m, currentStock: (m.currentStock || 0) - qty } : m))
       );
