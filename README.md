@@ -1,20 +1,36 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# MAT Plastic ERP System
 
-# Run and deploy your AI Studio app
+An internal web-based Manufacturing ERP application for MAT Plastic Industries LLC (UAE swimming pool manufacturer — steel fabrication, steel coating, GRP/fibreglass, mosaic, and acrylic production).
 
-This contains everything you need to run your app locally.
+## Overview
 
-View your app in AI Studio: https://ai.studio/apps/768156f1-0d39-4893-8da1-0602a028a056
+This system manages the full production and operations workflow, including:
+
+- Material request workflow with cart-based batching, manager approval/rejection via email (Resend) and WhatsApp (Twilio), and per-item approve/reject decisions
+- Inventory and store management, including searchable material lookup, stock validation, and Floor Stock tracking
+- Production stage tracking across manufacturing boards, with parallel-stage gating (e.g. Skimmer Fitting / Lamination)
+- HR Management Portal (employee directory, attendance, payroll, leave, warnings, accident reports, medical records)
+- QC defect tracking with real-time propagation across stage floor, management, and planning views
+- Worker PIN-pad login for Stage Floor portals
+- Automated Google Drive backups
+
+## Tech Stack
+
+- **Frontend:** React + TypeScript, built with Vite
+- **Backend / Data:** Firebase (Firestore)
+- **Hosting:** Netlify
+- **Notifications:** Resend (email), Twilio (WhatsApp)
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Configure your Firebase project credentials (see `firebase-applet-config.json` and `firestore.rules`)
 3. Run the app:
    `npm run dev`
+
+## Deployment
+
+Deployed via Netlify (see `netlify.toml`).
