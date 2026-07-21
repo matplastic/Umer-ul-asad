@@ -3,6 +3,7 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
   Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
+  Wrench,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -13,10 +14,11 @@ import {
   dbFetchMaterialRequests, dbDecideMaterialRequestBatch, dbMarkMaterialRequestBatchPrinted,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
+  dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, CompanyAsset, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 
-type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key';
+type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets';
 
 // ==========================================================
 // PDF letterhead helpers — logo + company header + footer used by every
@@ -139,6 +141,7 @@ const isMaterialCritical = (m: Material): boolean => {
 };
 const emptyBom = { projectName: '', poolType: '', materialId: '', qtyPerPool: '' };
 const emptyIncoming = { materialId: '', qty: '', supplier: '', invoiceNo: '', notes: '' };
+const emptyAsset = { name: '', assetNumber: '', issuedTo: '', value: '', notes: '' };
 
 export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, projectNames, poolTypesByProject }) => {
   const [tab, setTab] = useState<Tab>('inventory');
@@ -149,6 +152,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [consumptionLogs, setConsumptionLogs] = useState<ConsumptionLog[]>([]);
   const [floorStock, setFloorStock] = useState<FloorStock[]>([]);
   const [materialReturns, setMaterialReturns] = useState<MaterialReturn[]>([]);
+  const [companyAssets, setCompanyAssets] = useState<CompanyAsset[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +169,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [newMaterial, setNewMaterial] = useState<any>(emptyMaterial);
   const [newBom, setNewBom] = useState<any>(emptyBom);
   const [newIncoming, setNewIncoming] = useState<any>(emptyIncoming);
+  const [newAsset, setNewAsset] = useState<any>(emptyAsset);
+  // Company Assets tab search — matches asset name, asset number, or who it's issued to.
+  const [assetSearch, setAssetSearch] = useState('');
   const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
   const [sectionFilter, setSectionFilter] = useState<string>('');
   // Inventory tab search — matches name, ERP code, supplier, brand,
@@ -186,7 +193,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, inc, an, cons, fs, rets] = await Promise.all([
+      const [m, b, r, inc, an, cons, fs, rets, assets] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
@@ -195,6 +202,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         dbFetchConsumptionLogs(),
         dbFetchFloorStock(),
         dbFetchMaterialReturns(),
+        dbFetchCompanyAssets(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
       setBom(Array.isArray(b) ? b : []);
@@ -203,6 +211,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       setConsumptionLogs(Array.isArray(cons) ? cons.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setFloorStock(Array.isArray(fs) ? fs.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setMaterialReturns(Array.isArray(rets) ? rets.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
+      setCompanyAssets(Array.isArray(assets) ? assets.map((x: any) => ({ ...x, value: x.value === null || x.value === undefined || x.value === '' ? null : Number(x.value) })) : []);
       setAnalytics(an);
       setError(null);
     } catch (e: any) {
@@ -270,6 +279,15 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     }
     return list;
   }, [materials, sectionFilter, inventorySearch]);
+
+  const filteredAssets = useMemo(() => {
+    const q = assetSearch.trim().toLowerCase();
+    if (!q) return companyAssets;
+    return companyAssets.filter(a => {
+      const haystack = [a.name, a.assetNumber, a.issuedTo, a.notes].filter(Boolean).join(' | ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [companyAssets, assetSearch]);
 
   // Date-range helper: dates on records are 'YYYY-MM-DD' or ISO strings — a
   // plain string comparison works fine for both since they're lexicographic.
@@ -442,6 +460,38 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const deleteMaterial = async (id: string) => {
     if (!confirm('Delete this material? This cannot be undone.')) return;
     await dbDeleteMaterial(id);
+    loadAll(true);
+  };
+
+  // --- Company Assets ---
+  // Assets are a simple register (name, tag number, who has it, value) —
+  // no unit, no stock, no consumption log, unlike Materials above.
+  const saveAsset = async () => {
+    if (!newAsset.name || !newAsset.assetNumber) return;
+    const item: CompanyAsset = {
+      id: `asset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: newAsset.name,
+      assetNumber: newAsset.assetNumber,
+      issuedTo: newAsset.issuedTo || null,
+      value: newAsset.value === '' || newAsset.value === null || newAsset.value === undefined ? null : Number(newAsset.value),
+      notes: newAsset.notes || null,
+      createdAt: new Date().toISOString(),
+    };
+    await dbSaveCompanyAsset(item);
+    setNewAsset(emptyAsset);
+    loadAll(true);
+  };
+
+  const deleteAsset = async (id: string) => {
+    if (!confirm('Delete this asset? This cannot be undone.')) return;
+    await dbDeleteCompanyAsset(id);
+    loadAll(true);
+  };
+
+  const setAssetIssuedTo = async (asset: CompanyAsset) => {
+    const next = prompt('Issued to (person / section / department — leave blank if back in store):', asset.issuedTo || '');
+    if (next === null) return;
+    await dbSaveCompanyAsset({ ...asset, issuedTo: next.trim() || null });
     loadAll(true);
   };
 
@@ -954,6 +1004,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         <button onClick={() => setTab('inventory')} data-testid="tab-inventory" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'inventory' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <Package className="h-4 w-4" /> Inventory
         </button>
+        <button onClick={() => setTab('assets')} data-testid="tab-assets" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'assets' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <Wrench className="h-4 w-4" /> Company Assets
+        </button>
         <button onClick={() => setTab('incoming')} data-testid="tab-incoming" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'incoming' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <Truck className="h-4 w-4" /> Incoming
         </button>
@@ -1138,7 +1191,71 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
-      {/* ---------- KEY MATERIALS TAB (steel, resin, fiber mat, mosaic, etc.) ---------- */}
+      {/* ---------- COMPANY ASSETS TAB (tools, equipment — not consumed, just tracked: name, tag number, who has it, value) ---------- */}
+      {tab === 'assets' && (
+        <div>
+          {/* Add asset form */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
+            <input placeholder="Asset name" data-testid="new-asset-name" value={newAsset.name} onChange={e => setNewAsset((p: any) => ({ ...p, name: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
+            <input placeholder="Asset number / tag" data-testid="new-asset-number" value={newAsset.assetNumber} onChange={e => setNewAsset((p: any) => ({ ...p, assetNumber: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input placeholder="Issued to (optional)" data-testid="new-asset-issuedto" value={newAsset.issuedTo} onChange={e => setNewAsset((p: any) => ({ ...p, issuedTo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input type="number" placeholder="Value (AED)" data-testid="new-asset-value" value={newAsset.value} onChange={e => setNewAsset((p: any) => ({ ...p, value: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <button onClick={saveAsset} data-testid="new-asset-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Asset</button>
+            <input placeholder="Notes (optional)" data-testid="new-asset-notes" value={newAsset.notes} onChange={e => setNewAsset((p: any) => ({ ...p, notes: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-6" />
+          </div>
+
+          <div className="relative mb-3 max-w-md">
+            <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              placeholder="Search assets — name, asset number, or who it's issued to…"
+              data-testid="asset-search"
+              value={assetSearch}
+              onChange={e => setAssetSearch(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-xs text-white"
+            />
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 text-left">
+                  <th className="px-4 py-2 font-semibold">Asset Name</th>
+                  <th className="px-4 py-2 font-semibold">Asset Number</th>
+                  <th className="px-4 py-2 font-semibold">Issued To</th>
+                  <th className="px-4 py-2 font-semibold text-right">Value (AED)</th>
+                  <th className="px-4 py-2 font-semibold">Notes</th>
+                  <th className="px-4 py-2 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAssets.map(a => (
+                  <tr key={a.id} className="border-b border-slate-800/60 hover:bg-slate-800/30">
+                    <td className="px-4 py-2 text-slate-200 font-semibold">{a.name}</td>
+                    <td className="px-4 py-2 text-slate-400 font-mono">{a.assetNumber}</td>
+                    <td className="px-4 py-2">
+                      <button onClick={() => setAssetIssuedTo(a)} data-testid={`asset-issuedto-${a.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${a.issuedTo ? 'bg-amber-950/40 text-amber-400 border-amber-800' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
+                        {a.issuedTo || 'In store'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-2 text-right text-slate-300 font-mono">{a.value != null ? Number(a.value).toLocaleString() : '—'}</td>
+                    <td className="px-4 py-2 text-slate-500">{a.notes || '—'}</td>
+                    <td className="px-4 py-2 text-right">
+                      <button onClick={() => deleteAsset(a.id)} data-testid={`asset-delete-${a.id}`} className="text-rose-400 hover:text-rose-300 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredAssets.length === 0 && (
+              <div className="text-center text-slate-500 text-sm py-10">
+                {assetSearch ? `No assets match "${assetSearch}".` : 'No company assets yet. Add one above.'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+
       {tab === 'key' && (
         <KeyMaterialsDashboard materials={materials} analytics={analytics} onToggleCritical={toggleCritical} />
       )}
