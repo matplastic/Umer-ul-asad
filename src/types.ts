@@ -234,6 +234,7 @@ export interface CompanyAsset {
   id: string;
   name: string; // Asset name, e.g. "Angle Grinder"
   assetNumber: string; // Asset tag / serial number, e.g. "MAT-AST-0042"
+  erpNo?: string | null; // ERP number for this asset (same convention as Material.erpCode)
   issuedTo?: string | null; // Person, section, or department currently holding it. Empty/null = in store.
   value?: number | null; // Purchase/book value (AED)
   notes?: string | null;
