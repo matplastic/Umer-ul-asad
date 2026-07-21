@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { Employee, EmployeePunch, ViewRole } from '../types';
 import {
   Users, Clock, DollarSign, CalendarOff, AlertTriangle, BarChart2,
-  Plus, Search, Trash2, Edit2, CheckCircle, XCircle,
+  Plus, Search, Trash2, Edit2, CheckCircle, XCircle, Check,
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
-  Printer, Download, UserX
+  Printer, Download, UserX, UploadCloud, MapPin
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import {
@@ -18,6 +19,7 @@ import {
   dbFetchHRPayroll, dbSaveHRPayroll,
   dbFetchHRAccidents, dbSaveHRAccidents,
   dbFetchHRMedicals, dbSaveHRMedicals,
+  dbFetchHRSiteDeployed, dbSaveHRSiteDeployed,
   subscribeToLiveState,
 } from '../lib/firebaseService';
 
@@ -88,7 +90,21 @@ interface HRPortalProps {
   employeePunches: EmployeePunch[];
   onSaveEmployee: (emp: Employee) => void;
   onDeleteEmployee: (id: string) => void;
+  onAddEmployeePunchesBulk?: (punches: EmployeePunch[]) => void;
+  onAddEmployeesBulk?: (newStaff: Employee[]) => void;
+  onDeleteEmployeePunchesByDate?: (date: string) => void;
   currentUserName?: string;
+}
+
+// A staff member currently deployed to a site/factory job away from the
+// badge machine. While listed here, Attendance excludes them from the
+// absent count/report instead of flagging them absent.
+interface SiteDeployedEntry {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  deployedAt: string;
+  note?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -122,6 +138,310 @@ const StatCard = ({ icon, label, value, sub, color }: {
   </div>
 );
 
+// Daily Attendance Sheet Upload — parses an Excel/CSV export from the badge
+// machine software and turns it into IN/OUT punch records. Supports columns:
+// BadgeNumber, EmployeeName, AttendanceDate, ActualCheckIn, ActualCheckOut,
+// DayOff, CheckInDeviceName (case/spacing-insensitive header matching).
+const AttendanceUploadPanel = ({
+  employees, selectedDate, onDateDetected,
+  onAddEmployeePunchesBulk, onAddEmployeesBulk, onDeleteEmployeePunchesByDate,
+}: {
+  employees: Employee[];
+  selectedDate: string;
+  onDateDetected: (date: string) => void;
+  onAddEmployeePunchesBulk?: (punches: EmployeePunch[]) => void;
+  onAddEmployeesBulk?: (newStaff: Employee[]) => void;
+  onDeleteEmployeePunchesByDate?: (date: string) => void;
+}) => {
+  const [file, setFile] = useState<File | null>(null);
+  const [parsedRows, setParsedRows] = useState<any[]>([]);
+  const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string } | null>(null);
+  const [autoOnboard, setAutoOnboard] = useState(true);
+  const [dragActive, setDragActive] = useState(false);
+
+  const findCol = (headers: string[], names: string[]) => headers.findIndex(h => names.includes(h));
+
+  const normalizeDate = (rawDate: string): string => {
+    if (!rawDate) return '';
+    if (!isNaN(Number(rawDate)) && Number(rawDate) > 30000) {
+      const d = XLSX.SSF.parse_date_code(Number(rawDate));
+      return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+    }
+    const parts = rawDate.split(/[-\/]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) return `${parts[0]}-${parts[1]}-${parts[2]}`;
+      if (parts[2].length === 4) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    return rawDate;
+  };
+
+  const parseRows = (rawHeaders: string[], rows: string[][]) => {
+    const headers = rawHeaders.map(h => String(h || '').trim().toLowerCase().replace(/[\s_\-]/g, ''));
+    const badgeIdx = findCol(headers, ['badgenumber', 'badge', 'id', 'employeeno']);
+    const nameIdx = findCol(headers, ['employeename', 'name', 'employee']);
+    const deptIdx = findCol(headers, ['departmentname', 'department', 'dept']);
+    const dateIdx = findCol(headers, ['attendancedate', 'date', 'attendance']);
+    const inIdx = findCol(headers, ['actualcheckin', 'checkin', 'timein', 'in']);
+    const outIdx = findCol(headers, ['actualcheckout', 'checkout', 'timeout', 'out']);
+    const deviceIdx = headers.findIndex(h => h.includes('checkindevicename') || h.includes('device') || h.includes('machine'));
+
+    if (badgeIdx === -1 && nameIdx === -1) {
+      setStatus({ type: 'error', message: 'Unable to map columns. Please ensure "BadgeNumber" and/or "EmployeeName" columns exist.' });
+      return;
+    }
+
+    const parsed: any[] = [];
+    let detectedDate = '';
+    rows.forEach((cells, i) => {
+      if (!cells || cells.length === 0) return;
+      const rawBadge = badgeIdx !== -1 && cells[badgeIdx] !== undefined ? String(cells[badgeIdx]).trim() : '';
+      const rawName = nameIdx !== -1 && cells[nameIdx] !== undefined ? String(cells[nameIdx]).trim() : '';
+      const rawDept = deptIdx !== -1 && cells[deptIdx] !== undefined ? String(cells[deptIdx]).trim() : 'Production';
+      const rawDate = dateIdx !== -1 && cells[dateIdx] !== undefined ? String(cells[dateIdx]).trim() : '';
+      const rawIn = inIdx !== -1 && cells[inIdx] !== undefined ? String(cells[inIdx]).trim() : '00:00';
+      const rawOut = outIdx !== -1 && cells[outIdx] !== undefined ? String(cells[outIdx]).trim() : '00:00';
+      const rawDevice = deviceIdx !== -1 && cells[deviceIdx] !== undefined ? String(cells[deviceIdx]).trim() : 'Device_2';
+
+      if (!rawBadge && !rawName) return;
+      if (rawBadge.toLowerCase().includes('badge') || rawName.toLowerCase().includes('name') || rawBadge.toLowerCase().includes('statistics')) return;
+
+      const normalizedDate = normalizeDate(rawDate);
+      if (normalizedDate && !detectedDate) detectedDate = normalizedDate;
+
+      const matched = employees.find(emp =>
+        (rawBadge && emp.id.toLowerCase() === rawBadge.toLowerCase()) ||
+        (rawName && emp.name.toLowerCase().replace(/\s/g, '') === rawName.toLowerCase().replace(/\s/g, ''))
+      );
+
+      parsed.push({
+        badgeNumber: rawBadge || (matched ? matched.id : `emp_${Date.now()}_${i}`),
+        employeeName: rawName || (matched ? matched.name : 'Unknown Worker'),
+        department: rawDept || (matched ? matched.department : 'Production'),
+        date: normalizedDate || selectedDate,
+        checkIn: rawIn && rawIn !== '00:00' && rawIn !== 'Absent' ? rawIn : null,
+        checkOut: rawOut && rawOut !== '00:00' && rawOut !== 'Absent' ? rawOut : null,
+        device: rawDevice,
+        isNew: !matched,
+      });
+    });
+
+    if (detectedDate) onDateDetected(detectedDate);
+    setParsedRows(parsed);
+    setStatus({ type: 'idle', message: `Parsed ${parsed.length} worker logs. Ready to import.` });
+  };
+
+  const handleFile = (f: File) => {
+    setFile(f);
+    const ext = f.name.split('.').pop()?.toLowerCase();
+    const reader = new FileReader();
+    if (ext === 'xlsx' || ext === 'xls') {
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const wb = XLSX.read(data, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          if (rows.length < 2) { setStatus({ type: 'error', message: 'The selected Excel file is empty.' }); return; }
+          const headerRowIdx = rows.findIndex(r => r && r.length > 0);
+          parseRows(rows[headerRowIdx].map(h => String(h || '')), rows.slice(headerRowIdx + 1));
+        } catch (err: any) {
+          setStatus({ type: 'error', message: 'Failed to process Excel file: ' + err.message });
+        }
+      };
+      reader.readAsArrayBuffer(f);
+    } else {
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        if (!text) { setStatus({ type: 'error', message: 'The selected file is empty or unreadable.' }); return; }
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { setStatus({ type: 'error', message: 'File has no content rows.' }); return; }
+        const delim = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
+        const parseLine = (line: string) => {
+          const out: string[] = []; let cur = ''; let inside = false;
+          for (const ch of line) {
+            if (ch === '"' || ch === "'") inside = !inside;
+            else if (ch === delim && !inside) { out.push(cur.trim().replace(/^['"]|['"]$/g, '')); cur = ''; }
+            else cur += ch;
+          }
+          out.push(cur.trim().replace(/^['"]|['"]$/g, ''));
+          return out;
+        };
+        parseRows(parseLine(lines[0]), lines.slice(1).map(parseLine));
+      };
+      reader.readAsText(f);
+    }
+  };
+
+  const confirmImport = () => {
+    if (parsedRows.length === 0) return;
+    const punches: EmployeePunch[] = [];
+    const newWorkers: Employee[] = [];
+
+    parsedRows.forEach((row, index) => {
+      if (row.isNew && autoOnboard && !newWorkers.some(w => w.id === row.badgeNumber)) {
+        newWorkers.push({ id: row.badgeNumber, name: row.employeeName, department: row.department, role: 'Operator', createdAt: new Date().toISOString() });
+      }
+      const mkPunch = (time: string, type: 'IN' | 'OUT'): EmployeePunch => {
+        const [h, m] = time.split(':');
+        const d = new Date(row.date);
+        d.setHours(parseInt(h, 10) || 0, parseInt(m, 10) || 0, 0, 0);
+        return {
+          id: `punch_${Date.now()}_${type.toLowerCase()}_${index}_${Math.random().toString(36).slice(2, 6)}`,
+          employeeId: row.badgeNumber, employeeName: row.employeeName, punchType: type,
+          timestamp: d.toISOString(), machineId: row.device || 'Main Shop Entrance', date: row.date,
+        };
+      };
+      if (row.checkIn) punches.push(mkPunch(row.checkIn, 'IN'));
+      if (row.checkOut) punches.push(mkPunch(row.checkOut, 'OUT'));
+    });
+
+    try {
+      if (newWorkers.length > 0) onAddEmployeesBulk?.(newWorkers);
+      if (punches.length > 0) onAddEmployeePunchesBulk?.(punches);
+      setStatus({ type: 'success', message: `Imported ${punches.length} punches. ${newWorkers.length} new workers added to Directory.` });
+      setTimeout(() => { setParsedRows([]); setFile(null); setStatus(null); }, 4000);
+    } catch (err: any) {
+      setStatus({ type: 'error', message: `Import failed: ${err?.message || String(err)}` });
+    }
+  };
+
+  const presentCount = parsedRows.filter(r => r.checkIn).length;
+  const absentCount = parsedRows.filter(r => !r.checkIn).length;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h4 className="text-xs font-black text-slate-700 uppercase tracking-wide flex items-center gap-2">
+          <UploadCloud className="h-4 w-4 text-violet-600" /> Upload Daily Attendance Sheet
+        </h4>
+        {onDeleteEmployeePunchesByDate && (
+          <button
+            onClick={() => { if (window.confirm(`Clear all punches saved for ${fmtDate(selectedDate)}?`)) onDeleteEmployeePunchesByDate(selectedDate); }}
+            className="text-[11px] font-bold text-rose-500 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
+          ><Trash2 className="h-3 w-3" /> Clear punches for {fmtDate(selectedDate)}</button>
+        )}
+      </div>
+
+      {parsedRows.length === 0 ? (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(e) => { e.preventDefault(); setDragActive(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
+          onClick={() => document.getElementById('hr_attendance_file_input')?.click()}
+          className={`border-2 border-dashed rounded-xl py-8 text-center cursor-pointer transition-colors ${dragActive ? 'border-violet-500 bg-violet-50' : 'border-slate-200 hover:border-violet-300'}`}
+        >
+          <input
+            id="hr_attendance_file_input" type="file" accept=".xlsx,.xls,.csv" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+          />
+          <UploadCloud className="h-6 w-6 text-slate-300 mx-auto mb-2" />
+          <p className="text-xs font-semibold text-slate-500">Drop the attendance sheet here, or click to browse</p>
+          <p className="text-[10px] text-slate-400 mt-1">Columns: BadgeNumber, EmployeeName, AttendanceDate, ActualCheckIn, ActualCheckOut, CheckInDeviceName</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="bg-slate-50 rounded-lg p-3 text-xs flex flex-wrap gap-x-4 gap-y-1 items-center">
+            <span>File: <span className="font-mono font-bold text-slate-700">{file?.name}</span></span>
+            <span>Total: <span className="font-mono font-bold text-slate-700">{parsedRows.length}</span></span>
+            <span className="text-emerald-700">Present: <span className="font-mono font-bold">{presentCount}</span></span>
+            <span className="text-rose-600">No punch: <span className="font-mono font-bold">{absentCount}</span></span>
+            <span className="text-amber-600">New workers: <span className="font-mono font-bold">{parsedRows.filter(r => r.isNew).length}</span></span>
+          </div>
+
+          {status && (
+            <div className={`text-xs font-semibold rounded-lg px-3 py-2 ${status.type === 'error' ? 'bg-rose-50 text-rose-700 border border-rose-200' : status.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-sky-50 text-sky-700 border border-sky-200'}`}>
+              {status.message}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            {parsedRows.some(r => r.isNew) && (
+              <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                <input type="checkbox" checked={autoOnboard} onChange={(e) => setAutoOnboard(e.target.checked)} />
+                Auto-add new workers to Directory
+              </label>
+            )}
+            <button onClick={confirmImport} className="bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer">
+              <Check className="h-3.5 w-3.5" /> Import {presentCount + parsedRows.filter(r => r.checkOut).length} Punches
+            </button>
+            <button onClick={() => { setParsedRows([]); setFile(null); setStatus(null); }} className="text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Site/Factory Deployment — staff temporarily sent off-site are listed here
+// so Attendance stops counting them as absent. Removing a name puts them
+// straight back under normal present/absent tracking from the next sheet.
+const SiteDeploymentPanel = ({
+  employees, siteDeployed, saveSiteDeployed,
+}: {
+  employees: Employee[];
+  siteDeployed: SiteDeployedEntry[];
+  saveSiteDeployed: (list: SiteDeployedEntry[]) => void;
+}) => {
+  const [pickId, setPickId] = useState('');
+  const [note, setNote] = useState('');
+
+  const available = employees.filter(e => !siteDeployed.some(d => d.employeeId === e.id));
+
+  const add = () => {
+    if (!pickId) return;
+    const emp = employees.find(e => e.id === pickId);
+    if (!emp) return;
+    saveSiteDeployed([
+      { id: uid(), employeeId: emp.id, employeeName: emp.name, deployedAt: new Date().toISOString(), note: note.trim() || undefined },
+      ...siteDeployed,
+    ]);
+    setPickId(''); setNote('');
+  };
+
+  const remove = (id: string) => saveSiteDeployed(siteDeployed.filter(d => d.id !== id));
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
+      <h4 className="text-xs font-black text-slate-700 uppercase tracking-wide flex items-center gap-2">
+        <MapPin className="h-4 w-4 text-sky-600" /> Site / Factory Deployment ({siteDeployed.length})
+      </h4>
+      <p className="text-[11px] text-slate-400">
+        Add staff sent to a site or another factory here — they'll be removed from the absent list while listed. Remove them once they're back and normal attendance tracking resumes.
+      </p>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        <select value={pickId} onChange={e => setPickId(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-[180px] bg-white">
+          <option value="">Select employee…</option>
+          {available.map(e => <option key={e.id} value={e.id}>{e.name}{e.department ? ` — ${e.department}` : ''}</option>)}
+        </select>
+        <input value={note} onChange={e => setNote(e.target.value)} placeholder="Site / note (optional)" className="border border-slate-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-[160px]" />
+        <button onClick={add} disabled={!pickId} className="bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer">
+          <Plus className="h-3.5 w-3.5" /> Add
+        </button>
+      </div>
+
+      {siteDeployed.length > 0 && (
+        <div className="divide-y divide-slate-100 border border-slate-100 rounded-lg overflow-hidden">
+          {siteDeployed.map(d => (
+            <div key={d.id} className="flex items-center justify-between px-3 py-2 text-sm">
+              <div>
+                <span className="font-semibold text-slate-800">{d.employeeName}</span>
+                {d.note && <span className="text-xs text-slate-400 ml-2">{d.note}</span>}
+                <span className="text-[10px] text-slate-300 ml-2">since {fmtDate(d.deployedAt)}</span>
+              </div>
+              <button onClick={() => remove(d.id)} className="text-rose-400 hover:text-rose-600 cursor-pointer" title="Remove — resumes normal attendance tracking">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const HRPortal: React.FC<HRPortalProps> = ({
@@ -129,6 +449,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   employeePunches,
   onSaveEmployee,
   onDeleteEmployee,
+  onAddEmployeePunchesBulk,
+  onAddEmployeesBulk,
+  onDeleteEmployeePunchesByDate,
   currentUserName,
 }) => {
   const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'reports' | 'accounts'>('directory');
@@ -150,6 +473,16 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   // isn't blank for a moment before Firestore responds; Firestore is always
   // the source of truth once it answers.
   // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Site/Factory Deployed staff (excluded from absent list) ──
+  const [siteDeployed, setSiteDeployed] = useState<SiteDeployedEntry[]>(() => {
+    try { return JSON.parse(localStorage.getItem('hr_site_deployed') || '[]'); } catch { return []; }
+  });
+  const saveSiteDeployed = (list: SiteDeployedEntry[]) => {
+    setSiteDeployed(list);
+    try { localStorage.setItem('hr_site_deployed', JSON.stringify(list)); } catch {}
+    dbSaveHRSiteDeployed(list).catch(err => console.error('[HRPortal] Failed to sync site-deployed list to Firestore:', err));
+  };
 
   // ── Leave state ──
   const [leaves, setLeaves] = useState<LeaveRequest[]>(() => {
@@ -206,8 +539,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     let cancelled = false;
 
     Promise.all([
-      dbFetchHRLeaves(), dbFetchHRWarnings(), dbFetchHRPayroll(), dbFetchHRAccidents(), dbFetchHRMedicals(),
-    ]).then(([l, w, p, a, m]) => {
+      dbFetchHRLeaves(), dbFetchHRWarnings(), dbFetchHRPayroll(), dbFetchHRAccidents(), dbFetchHRMedicals(), dbFetchHRSiteDeployed(),
+    ]).then(([l, w, p, a, m, sd]) => {
       if (cancelled) return;
       // Never let an empty Firestore read blank out data already showing
       // from the local cache — only apply results that have data, or apply
@@ -217,6 +550,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       if (p.length > 0 || payroll.length === 0) { setPayroll(p); try { localStorage.setItem('hr_payroll', JSON.stringify(p)); } catch {} }
       if (a.length > 0 || accidents.length === 0) { setAccidents(a); try { localStorage.setItem('hr_accidents', JSON.stringify(a)); } catch {} }
       if (m.length > 0 || medicals.length === 0) { setMedicals(m); try { localStorage.setItem('hr_medicals', JSON.stringify(m)); } catch {} }
+      if (sd.length > 0 || siteDeployed.length === 0) { setSiteDeployed(sd); try { localStorage.setItem('hr_site_deployed', JSON.stringify(sd)); } catch {} }
     }).catch(err => console.error('[HRPortal] Failed to load HR data from Firestore:', err));
 
     // Live sync: any change made on any other PC arrives here within about a
@@ -238,6 +572,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         case 'hrPayroll':   safeUpdate(setPayroll, data as PayrollRecord[], 'hr_payroll'); break;
         case 'hrAccidents': safeUpdate(setAccidents, data as AccidentReport[], 'hr_accidents'); break;
         case 'hrMedicals':  safeUpdate(setMedicals, data as MedicalRecord[], 'hr_medicals'); break;
+        case 'hrSiteDeployed': safeUpdate(setSiteDeployed, data as SiteDeployedEntry[], 'hr_site_deployed'); break;
       }
     });
 
@@ -276,6 +611,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         email: editEmp.email || null,
         phone: editEmp.phone || null,
         notes: editEmp.notes || null,
+        nonPunching: editEmp.nonPunching || false,
         createdAt: editEmp.createdAt || new Date().toISOString(),
       });
       setShowForm(false);
@@ -349,6 +685,16 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
                   />
                 </div>
+                <label className="col-span-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!editEmp?.nonPunching}
+                    onChange={e => setEditEmp(prev => ({ ...prev, nonPunching: e.target.checked }))}
+                  />
+                  <span className="text-xs font-semibold text-slate-600">
+                    Non-Punching / Manual staff — always excluded from the absent list (drivers, office staff, etc. with no badge machine)
+                  </span>
+                </label>
               </div>
               <div className="flex gap-2 pt-2">
                 <button
@@ -397,7 +743,12 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   <td className="px-4 py-3">
                     <span className="bg-violet-50 text-violet-700 text-xs font-bold px-2 py-0.5 rounded-full">{emp.department}</span>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{emp.role || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {emp.role || '—'}
+                    {emp.nonPunching && (
+                      <span className="ml-2 inline-block text-[9px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-full align-middle">Manual</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-slate-500 text-xs">
                     <div>{emp.email || '—'}</div>
                     <div>{emp.phone || '—'}</div>
@@ -453,15 +804,21 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
     const totalPresent = summary.filter(s => s.status === 'Present').length;
 
+    // Staff on the Site/Factory Deployment list are away from the badge
+    // machine on legitimate work, not absent — skip them entirely.
+    const deployedIds = new Set(siteDeployed.map(d => d.employeeId));
+
     // Employees with NO punch at all on this date = absentees (summary only ever
     // contains employees who punched, so absentees must be derived from the full
-    // employee roster, not from summary).
+    // employee roster, not from summary). Non-punching staff and deployed
+    // staff are excluded from this list altogether.
     const presentIds = new Set(dayPunches.filter(p => p.punchType === 'IN').map(p => p.employeeId));
     const absentees = useMemo(
-      () => employees.filter(e => !presentIds.has(e.id)),
-      [employees, dateFilter, dayPunches]
+      () => employees.filter(e => !presentIds.has(e.id) && !e.nonPunching && !deployedIds.has(e.id)),
+      [employees, dateFilter, dayPunches, siteDeployed]
     );
     const totalAbsent = absentees.length;
+    const totalDeployedToday = employees.filter(e => deployedIds.has(e.id) && !presentIds.has(e.id)).length;
 
     const openAbsentReport = () => {
       setPrintReport({
@@ -507,6 +864,27 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             </button>
           </div>
         </div>
+
+        <AttendanceUploadPanel
+          employees={employees}
+          selectedDate={dateFilter}
+          onDateDetected={(d) => setDateFilter(d)}
+          onAddEmployeePunchesBulk={onAddEmployeePunchesBulk}
+          onAddEmployeesBulk={onAddEmployeesBulk}
+          onDeleteEmployeePunchesByDate={onDeleteEmployeePunchesByDate}
+        />
+
+        <SiteDeploymentPanel
+          employees={employees}
+          siteDeployed={siteDeployed}
+          saveSiteDeployed={saveSiteDeployed}
+        />
+
+        {totalDeployedToday > 0 && (
+          <div className="bg-sky-50/60 rounded-xl border border-sky-200 px-4 py-2.5 flex items-center gap-2 text-xs font-bold text-sky-700">
+            <MapPin className="h-3.5 w-3.5" /> {totalDeployedToday} staff on Site/Factory Deployment today — excluded from the absent list below.
+          </div>
+        )}
 
         {absentees.length > 0 && (
           <div className="bg-rose-50/60 rounded-xl border border-rose-200 overflow-hidden">
