@@ -289,10 +289,35 @@ export interface IncomingMaterial {
   // it's logged at the gate, and does NOT touch Material.currentStock yet.
   // An inspector then passes it (→ stock is added) or fails/holds it
   // (→ stock stays untouched, Store Manager sees it flagged for action).
-  qcStatus: 'pending' | 'passed' | 'failed' | 'hold';
+  //
+  // Partial-quantity QC: a single GRN line can be split across multiple
+  // decisions (e.g. 300 received, 180 passed, 120 rejected). qcStatus
+  // reflects the *overall* bucket so existing pending/passed/failed/hold
+  // filters keep working on legacy (all-or-nothing) records:
+  //   'pending' — nothing decided yet (qtyPending === qty)
+  //   'partial' — some decided, some still awaiting inspection
+  //   'passed'/'failed'/'hold' — fully decided, one outcome for all of it
+  //   'mixed'   — fully decided, but split across 2+ outcomes
+  qcStatus: 'pending' | 'passed' | 'failed' | 'hold' | 'partial' | 'mixed';
   qcByName?: string | null;
   qcAt?: string | null;
   qcNotes?: string | null;
+  // Running totals of qty already decided, by outcome. Undefined on
+  // legacy (pre-partial-QC) records — treated as 0, so qtyPending still
+  // computes correctly (qty - qtyPassed - qtyFailed - qtyHold).
+  qtyPassed?: number | null;
+  qtyFailed?: number | null;
+  qtyHold?: number | null;
+  // Full audit trail — one entry per partial decision, so you can always
+  // see who decided what portion, when, and why, even after the GRN as a
+  // whole is fully resolved.
+  qcDecisions?: {
+    qty: number;
+    decision: 'passed' | 'failed' | 'hold';
+    byName: string;
+    at: string;
+    notes?: string | null;
+  }[];
 }
 
 // One line of a FIFO batch draw — which incoming-material receipt(s) an
