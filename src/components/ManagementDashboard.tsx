@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
 import { STAGES } from '../data/mockData';
-import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl } from '../lib/firebaseService';
+import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, subscribeToLiveState } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
 import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
@@ -220,6 +220,18 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
   // Bio Cloud Live REST API Integration states
   const [attendanceActionTab, setAttendanceActionTab] = useState<'upload' | 'biocloud'>('upload');
+
+  // Staff on the HR Portal's Site/Factory Deployment list — kept here too so
+  // the Present/Absent overview cards match HR Portal exactly instead of
+  // counting deployed staff as absent.
+  const [siteDeployedIds, setSiteDeployedIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    dbFetchHRSiteDeployed().then(list => setSiteDeployedIds(new Set(list.map((d: any) => d.employeeId)))).catch(() => {});
+    const unsub = subscribeToLiveState(({ collection, data }) => {
+      if (collection === 'hrSiteDeployed') setSiteDeployedIds(new Set((data as any[]).map(d => d.employeeId)));
+    });
+    return () => { try { unsub(); } catch {} };
+  }, []);
   const [bioCloudUrl, setBioCloudUrl] = useState<string>(() => {
     return localStorage.getItem('apex_biocloud_url') || '';
   });
@@ -4612,12 +4624,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     <div className="mt-3">
                       <span className="text-3xl font-black font-mono text-rose-700">
                         {employees.filter(emp =>
-                          !employeePunches.some(p => p.employeeId === emp.id && p.date === selectedPunchDate && p.punchType === 'IN')
+                          !employeePunches.some(p => p.employeeId === emp.id && p.date === selectedPunchDate && p.punchType === 'IN') &&
+                          !emp.nonPunching && !siteDeployedIds.has(emp.id)
                         ).length}
                       </span>
                       <span className="text-slate-500 font-bold text-xs ml-2">/ {employees.length} workers</span>
                     </div>
-                    <p className="text-[10px] text-rose-700 mt-2 font-medium">No check-in punches recorded for this date.</p>
+                    <p className="text-[10px] text-rose-700 mt-2 font-medium">No check-in punches recorded for this date. Excludes Non-Punching staff & Site/Factory Deployment (managed in HR Portal).</p>
                   </div>
 
                   <div className="bg-white border border-slate-200 p-5 rounded-2xl flex flex-col justify-between shadow-xs">
