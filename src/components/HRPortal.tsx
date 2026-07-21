@@ -6,7 +6,7 @@ import {
   Plus, Search, Trash2, Edit2, CheckCircle, XCircle, Check,
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
-  Printer, Download, UserX, UploadCloud, MapPin
+  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import {
@@ -20,6 +20,7 @@ import {
   dbFetchHRAccidents, dbSaveHRAccidents,
   dbFetchHRMedicals, dbSaveHRMedicals,
   dbFetchHRSiteDeployed, dbSaveHRSiteDeployed,
+  dbFetchHRPurchaseRequests, dbSaveHRPurchaseRequests, dbSendHRPurchaseRequestEmail,
   subscribeToLiveState,
 } from '../lib/firebaseService';
 
@@ -83,6 +84,29 @@ interface MedicalRecord {
   notes: string;
   approvedBy: string;
   createdAt: string;
+}
+
+// Office/accommodation item requests raised from HR — goes to the manager
+// for email approval, then HR can print a PO for the purchaser and later
+// attach the bill/invoice once bought.
+interface HRPurchaseRequest {
+  id: string;
+  itemName: string;
+  category: 'Office' | 'Accommodation' | 'Other';
+  qty: number;
+  unit: string;
+  estimatedCost?: number | null;
+  purpose?: string | null;
+  requestedByName: string;
+  requestedAt: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  approvalToken: string;
+  decidedByName?: string | null;
+  decisionNotes?: string | null;
+  decidedAt?: string | null;
+  billFileName?: string | null;
+  billDataUrl?: string | null;
+  billUploadedAt?: string | null;
 }
 
 interface HRPortalProps {
@@ -454,7 +478,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   onDeleteEmployeePunchesByDate,
   currentUserName,
 }) => {
-  const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'reports' | 'accounts'>('directory');
+  const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('directory');
 
   // ── A4 print/PDF report state (Absent / Accident / Medical reports) ──
   const [printReport, setPrintReport] = useState<{
@@ -482,6 +506,16 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     setSiteDeployed(list);
     try { localStorage.setItem('hr_site_deployed', JSON.stringify(list)); } catch {}
     dbSaveHRSiteDeployed(list).catch(err => console.error('[HRPortal] Failed to sync site-deployed list to Firestore:', err));
+  };
+
+  // ── Purchase Requests (office / accommodation items) ──
+  const [purchaseRequests, setPurchaseRequests] = useState<HRPurchaseRequest[]>(() => {
+    try { return JSON.parse(localStorage.getItem('hr_purchase_requests') || '[]'); } catch { return []; }
+  });
+  const savePurchaseRequests = (list: HRPurchaseRequest[]) => {
+    setPurchaseRequests(list);
+    try { localStorage.setItem('hr_purchase_requests', JSON.stringify(list)); } catch {}
+    dbSaveHRPurchaseRequests(list).catch(err => console.error('[HRPortal] Failed to sync purchase requests to Firestore:', err));
   };
 
   // ── Leave state ──
@@ -539,8 +573,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     let cancelled = false;
 
     Promise.all([
-      dbFetchHRLeaves(), dbFetchHRWarnings(), dbFetchHRPayroll(), dbFetchHRAccidents(), dbFetchHRMedicals(), dbFetchHRSiteDeployed(),
-    ]).then(([l, w, p, a, m, sd]) => {
+      dbFetchHRLeaves(), dbFetchHRWarnings(), dbFetchHRPayroll(), dbFetchHRAccidents(), dbFetchHRMedicals(), dbFetchHRSiteDeployed(), dbFetchHRPurchaseRequests(),
+    ]).then(([l, w, p, a, m, sd, pr]) => {
       if (cancelled) return;
       // Never let an empty Firestore read blank out data already showing
       // from the local cache — only apply results that have data, or apply
@@ -551,6 +585,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       if (a.length > 0 || accidents.length === 0) { setAccidents(a); try { localStorage.setItem('hr_accidents', JSON.stringify(a)); } catch {} }
       if (m.length > 0 || medicals.length === 0) { setMedicals(m); try { localStorage.setItem('hr_medicals', JSON.stringify(m)); } catch {} }
       if (sd.length > 0 || siteDeployed.length === 0) { setSiteDeployed(sd); try { localStorage.setItem('hr_site_deployed', JSON.stringify(sd)); } catch {} }
+      if (pr.length > 0 || purchaseRequests.length === 0) { setPurchaseRequests(pr); try { localStorage.setItem('hr_purchase_requests', JSON.stringify(pr)); } catch {} }
     }).catch(err => console.error('[HRPortal] Failed to load HR data from Firestore:', err));
 
     // Live sync: any change made on any other PC arrives here within about a
@@ -573,6 +608,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         case 'hrAccidents': safeUpdate(setAccidents, data as AccidentReport[], 'hr_accidents'); break;
         case 'hrMedicals':  safeUpdate(setMedicals, data as MedicalRecord[], 'hr_medicals'); break;
         case 'hrSiteDeployed': safeUpdate(setSiteDeployed, data as SiteDeployedEntry[], 'hr_site_deployed'); break;
+        case 'hrPurchaseRequests': safeUpdate(setPurchaseRequests, data as HRPurchaseRequest[], 'hr_purchase_requests'); break;
       }
     });
 
@@ -1961,6 +1997,232 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // PURCHASE REQUESTS TAB — office/accommodation items: request → manager
+  // email approval → print PO → HR uploads bill once bought
+  // ─────────────────────────────────────────────────────────────────────────────
+  const PurchaseRequestsTab = () => {
+    const [showForm, setShowForm] = useState(false);
+    const [form, setForm] = useState<Partial<HRPurchaseRequest>>({ category: 'Office', qty: 1, unit: 'pcs' });
+    const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
+    const [billTargetId, setBillTargetId] = useState<string | null>(null);
+    const [sending, setSending] = useState(false);
+
+    const filtered = purchaseRequests
+      .filter(r => statusFilter === 'All' || r.status === statusFilter)
+      .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
+
+    const newToken = () => {
+      try { if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return (crypto as any).randomUUID().replace(/-/g, ''); } catch {}
+      return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+    };
+
+    const handleSubmit = async () => {
+      if (!form.itemName || !form.qty) return;
+      setSending(true);
+      const record: HRPurchaseRequest = {
+        id: uid(),
+        itemName: form.itemName,
+        category: (form.category as any) || 'Office',
+        qty: Number(form.qty) || 1,
+        unit: form.unit || 'pcs',
+        estimatedCost: form.estimatedCost ? Number(form.estimatedCost) : null,
+        purpose: form.purpose || null,
+        requestedByName: currentUserName || 'HR',
+        requestedAt: new Date().toISOString(),
+        status: 'Pending',
+        approvalToken: newToken(),
+      };
+      savePurchaseRequests([record, ...purchaseRequests]);
+      try {
+        await dbSendHRPurchaseRequestEmail({
+          id: record.id, approvalToken: record.approvalToken, itemName: record.itemName,
+          category: record.category, qty: record.qty, unit: record.unit,
+          estimatedCost: record.estimatedCost, purpose: record.purpose, requestedByName: record.requestedByName,
+        });
+      } catch (err) { console.warn('[PurchaseRequestsTab] Email notify failed:', err); }
+      setSending(false);
+      setShowForm(false);
+      setForm({ category: 'Office', qty: 1, unit: 'pcs' });
+    };
+
+    const decide = (id: string, action: 'Approved' | 'Rejected') => {
+      savePurchaseRequests(purchaseRequests.map(r => r.id === id
+        ? { ...r, status: action, decidedByName: currentUserName || 'Manager', decidedAt: new Date().toISOString() }
+        : r
+      ));
+    };
+
+    const printPO = (r: HRPurchaseRequest) => {
+      setPrintReport({
+        title: 'Purchase Order',
+        subtitle: `Request ID: ${r.id}  •  Approved ${r.decidedAt ? fmtDate(r.decidedAt) : ''} by ${r.decidedByName || ''}`,
+        columns: [
+          { header: 'Item', key: 'item' },
+          { header: 'Category', key: 'category' },
+          { header: 'Qty', key: 'qty' },
+          { header: 'Est. Cost (AED)', key: 'cost' },
+          { header: 'Purpose', key: 'purpose' },
+          { header: 'Requested By', key: 'by' },
+        ],
+        rows: [{
+          item: r.itemName, category: r.category, qty: `${r.qty} ${r.unit}`,
+          cost: r.estimatedCost ? r.estimatedCost.toFixed(2) : '—', purpose: r.purpose || '—', by: r.requestedByName,
+        }],
+      });
+    };
+
+    const handleBillUpload = (r: HRPurchaseRequest, file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        savePurchaseRequests(purchaseRequests.map(x => x.id === r.id
+          ? { ...x, billFileName: file.name, billDataUrl: reader.result as string, billUploadedAt: new Date().toISOString() }
+          : x
+        ));
+        setBillTargetId(null);
+      };
+      reader.readAsDataURL(file);
+    };
+
+    const statusStyle = (s: string) => s === 'Approved'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : s === 'Rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200';
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex gap-2">
+            {(['All', 'Pending', 'Approved', 'Rejected'] as const).map(s => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
+                  statusFilter === s ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                }`}
+              >{s}</button>
+            ))}
+          </div>
+          <button onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors">
+            <Plus className="h-4 w-4" /> New Purchase Request
+          </button>
+        </div>
+
+        <p className="text-xs text-slate-400">
+          Request office or accommodation items here — the manager gets an email to Approve/Reject. Once approved, print the Purchase Order for the purchaser, then upload the bill after buying.
+        </p>
+
+        {filtered.length === 0 ? (
+          <div className="text-center text-slate-400 text-sm py-16 border border-dashed border-slate-200 rounded-xl">No purchase requests yet.</div>
+        ) : (
+          <div className="grid gap-3">
+            {filtered.map(r => (
+              <div key={r.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-black text-slate-800">{r.itemName}</span>
+                      <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full">{r.category}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusStyle(r.status)}`}>{r.status}</span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {r.qty} {r.unit}{r.estimatedCost ? ` • Est. AED ${r.estimatedCost.toFixed(2)}` : ''} • Requested by {r.requestedByName} on {fmtDate(r.requestedAt)}
+                    </p>
+                    {r.purpose && <p className="text-xs text-slate-500 mt-1">Purpose: {r.purpose}</p>}
+                    {r.decidedByName && (
+                      <p className="text-[11px] text-slate-400 mt-1">{r.status} by {r.decidedByName} on {r.decidedAt ? fmtDate(r.decidedAt) : ''}</p>
+                    )}
+                    {r.billFileName && (
+                      <a href={r.billDataUrl || '#'} download={r.billFileName} className="text-[11px] text-violet-600 hover:text-violet-800 font-semibold mt-1 inline-flex items-center gap-1">
+                        <Receipt className="h-3 w-3" /> Bill: {r.billFileName}
+                      </a>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {r.status === 'Pending' && (
+                      <>
+                        <button onClick={() => decide(r.id, 'Approved')} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 cursor-pointer">Approve</button>
+                        <button onClick={() => decide(r.id, 'Rejected')} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer">Reject</button>
+                      </>
+                    )}
+                    {r.status === 'Approved' && (
+                      <>
+                        <button onClick={() => printPO(r)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1 cursor-pointer">
+                          <Printer className="h-3.5 w-3.5" /> Print PO
+                        </button>
+                        <label className="text-xs font-bold px-3 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 flex items-center gap-1 cursor-pointer">
+                          <Paperclip className="h-3.5 w-3.5" /> {r.billFileName ? 'Replace Bill' : 'Upload Bill'}
+                          <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleBillUpload(r, f); }} />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showForm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-violet-600" /> New Purchase Request</h3>
+                <button onClick={() => setShowForm(false)}><X className="h-5 w-5 text-slate-400" /></button>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Item Name *</label>
+                  <input value={form.itemName || ''} onChange={e => setForm(p => ({ ...p, itemName: e.target.value }))}
+                    placeholder="e.g. Office chairs, AC filter, Bed sheets"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">Category</label>
+                    <select value={form.category || 'Office'} onChange={e => setForm(p => ({ ...p, category: e.target.value as any }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      <option value="Office">Office</option>
+                      <option value="Accommodation">Accommodation</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">Qty</label>
+                    <input type="number" min={1} value={form.qty ?? 1} onChange={e => setForm(p => ({ ...p, qty: Number(e.target.value) }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">Unit</label>
+                    <input value={form.unit || 'pcs'} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Estimated Cost (AED, optional)</label>
+                  <input type="number" min={0} value={form.estimatedCost ?? ''} onChange={e => setForm(p => ({ ...p, estimatedCost: e.target.value ? Number(e.target.value) : null }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Purpose / Reason</label>
+                  <textarea value={form.purpose || ''} onChange={e => setForm(p => ({ ...p, purpose: e.target.value }))} rows={3}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none" />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={handleSubmit} disabled={!form.itemName || sending}
+                  className="flex-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+                  <Save className="h-4 w-4" /> {sending ? 'Sending…' : 'Submit to Manager'}
+                </button>
+                <button onClick={() => setShowForm(false)} className="px-4 py-2.5 rounded-lg border border-slate-200 text-slate-500 font-bold text-sm cursor-pointer">Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // ACCOUNTS TAB — create & manage every person's login (username + password)
   // ─────────────────────────────────────────────────────────────────────────────
   const ROLE_OPTIONS: { value: ViewRole; label: string }[] = [
@@ -2540,11 +2802,13 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'warnings', label: 'Warnings', icon: <AlertTriangle className="h-4 w-4" /> },
     { id: 'accidents', label: 'Accidents', icon: <ShieldAlert className="h-4 w-4" /> },
     { id: 'medical', label: 'Medical', icon: <Stethoscope className="h-4 w-4" /> },
+    { id: 'purchases', label: 'Purchases', icon: <ShoppingCart className="h-4 w-4" /> },
     { id: 'reports', label: 'Reports', icon: <BarChart2 className="h-4 w-4" /> },
     { id: 'accounts', label: 'Accounts', icon: <KeyRound className="h-4 w-4" /> },
   ] as const;
 
   const pendingLeaveCount = leaves.filter(l => l.status === 'Pending').length;
+  const pendingPurchaseCount = purchaseRequests.filter(r => r.status === 'Pending').length;
 
   return (
     <div className="space-y-6">
@@ -2588,6 +2852,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             {tab.id === 'leave' && pendingLeaveCount > 0 && (
               <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">{pendingLeaveCount}</span>
             )}
+            {tab.id === 'purchases' && pendingPurchaseCount > 0 && (
+              <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">{pendingPurchaseCount}</span>
+            )}
           </button>
         ))}
       </div>
@@ -2600,6 +2867,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       {activeTab === 'warnings' && <WarningsTab />}
       {activeTab === 'accidents' && <AccidentsTab />}
       {activeTab === 'medical' && <MedicalTab />}
+      {activeTab === 'purchases' && <PurchaseRequestsTab />}
       {activeTab === 'reports' && <ReportsTab />}
       {activeTab === 'accounts' && <AccountsTab />}
 
