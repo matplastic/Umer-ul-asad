@@ -30,6 +30,7 @@ export function subscribeToLiveState(
     'hrPayroll',
     'hrAccidents',
     'hrMedicals',
+    'hrSiteDeployed',
     'qcDefects',
   ];
   const unsubs: Unsubscribe[] = collections.map(name =>
@@ -2214,4 +2215,17 @@ export async function dbFetchHRMedicals(): Promise<any[]> {
 }
 export async function dbSaveHRMedicals(medicals: any[]): Promise<void> {
   await setFirestoreDocArray('hrMedicals', medicals, true);
+}
+
+// --- HR: Site/Factory Deployed Staff ---
+// Employees temporarily sent to a site/factory job are placed on this list.
+// While an employee's badge is on this list, Attendance treats them as
+// deployed instead of absent (they are removed from the absent count/report
+// entirely). Removing them from this list returns them to normal
+// present/absent tracking on the next uploaded sheet.
+export async function dbFetchHRSiteDeployed(): Promise<any[]> {
+  return getFirestoreDocArray('hrSiteDeployed');
+}
+export async function dbSaveHRSiteDeployed(deployed: any[]): Promise<void> {
+  await setFirestoreDocArray('hrSiteDeployed', deployed, true);
 }
