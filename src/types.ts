@@ -224,6 +224,22 @@ export interface Material {
   createdAt: string;
 }
 
+// A fixed/durable Company Asset (tools, equipment, machinery, furniture,
+// vehicles, etc.) tracked in the Store portal alongside consumable
+// Materials. Unlike Material, an Asset is NOT consumed against stock —
+// there's no unit, currentStock, or consumption log for it. It's simply a
+// register: what it is, its tag/serial number, who currently has it, and
+// what it's worth.
+export interface CompanyAsset {
+  id: string;
+  name: string; // Asset name, e.g. "Angle Grinder"
+  assetNumber: string; // Asset tag / serial number, e.g. "MAT-AST-0042"
+  issuedTo?: string | null; // Person, section, or department currently holding it. Empty/null = in store.
+  value?: number | null; // Purchase/book value (AED)
+  notes?: string | null;
+  createdAt: string;
+}
+
 // One line of the Bill of Materials for a Project + Pool Type combination
 export interface BOMItem {
   id: string;
