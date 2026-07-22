@@ -120,6 +120,7 @@ export type ViewRole =
   | 'hr_portal'
   | 'store'
   | 'section_supervisor'
+  | 'factory_supervisor'
   | 'reports_analytics';
 
 export interface ProjectSummary {
