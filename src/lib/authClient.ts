@@ -16,6 +16,11 @@ export interface AuthUser {
   createdAt: string;
   updatedAt: string | null;
   lastLoginAt: string | null;
+  /** Short numeric PIN (4-6 digits) so this person can identify themselves
+   *  on a shared shop-floor computer without typing their full username and
+   *  password each time — same idea as Team.code for workers. Only meaningful
+   *  for section_supervisor accounts today, but kept generic. */
+  quickCode?: string | null;
 }
 
 // Internal shape actually stored in Firestore — same as AuthUser plus the
@@ -341,7 +346,7 @@ export async function createUserAccount(input: {
 
 export async function updateUserAccount(
   id: string,
-  patch: Partial<Pick<AuthUser, 'displayName' | 'role' | 'employeeId' | 'active'>>
+  patch: Partial<Pick<AuthUser, 'displayName' | 'role' | 'employeeId' | 'active' | 'quickCode'>>
 ): Promise<AuthUser> {
   const backendResult = await tryBackend<AuthUser>(`/api/users/${id}`, {
     method: 'PUT',
@@ -386,6 +391,20 @@ export async function resetUserPassword(id: string, password?: string | null): P
 
   if (!found) throw new Error('Account not found.');
   return { tempPassword: finalPassword, isCustomPassword };
+}
+
+/** Looks up an active account by its short quick-code PIN (see AuthUser.quickCode).
+ *  Used by the shared shop-floor computer so a supervisor can identify themselves
+ *  without typing their full username and password — mirrors how Team.code works
+ *  for stage workers. Pass `role` to restrict the search (e.g. 'section_supervisor'). */
+export async function findAccountByQuickCode(code: string, role?: ViewRole): Promise<AuthUser | null> {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+  const accounts = await readAllAccounts();
+  const match = accounts.find(a =>
+    a.quickCode === trimmed && !!a.active && (!role || a.role === role)
+  );
+  return match ? stripSecret(match) : null;
 }
 
 export async function deactivateUserAccount(id: string): Promise<void> {
