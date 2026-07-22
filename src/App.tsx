@@ -5,6 +5,7 @@ import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
+import { AutoPrintMaterialSlip } from './components/AutoPrintMaterialSlip';
 import { LoginScreen } from './components/LoginScreen';
 import { getStoredUser, logout as logoutUser, findAccountByQuickCode, type AuthUser } from './lib/authClient';
 import { startPresenceHeartbeat, stopPresenceHeartbeat } from './lib/presence';
@@ -2839,6 +2840,12 @@ export default function App() {
         )}
         {/* Global Page Up / Page Down floating buttons — visible on all portals */}
         <ScrollButtons />
+
+        {/* Shop Floor kiosk auto-print agent: this tablet sits next to the
+            store printer, so as soon as the Shop Floor portal is open here,
+            it listens for manager approvals (from anywhere, any network)
+            and prints the issue slip automatically — no manual click. */}
+        {currentRole === 'stage_worker' && <AutoPrintMaterialSlip />}
 
         <div className="flex-1 min-w-0 flex flex-col justify-between">
 
