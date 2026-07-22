@@ -2281,7 +2281,7 @@ export async function dbSaveHRPurchaseRequests(requests: any[]): Promise<void> {
 // on the manager's side). Safe to call even when email isn't configured —
 // it just no-ops server-side.
 export async function dbSendHRPurchaseRequestEmail(batch: {
-  batchId: string; approvalToken: string; requestedByName: string; purpose?: string | null;
+  batchId?: string; id?: string; approvalToken: string; requestedByName: string; purpose?: string | null;
   items: { id: string; itemName: string; category: string; qty: number; unit: string; estimatedCost?: number | null }[];
 }): Promise<void> {
   try {
