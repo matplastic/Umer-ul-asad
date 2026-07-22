@@ -2452,6 +2452,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { value: 'hr_portal', label: 'HR Management Portal' },
     { value: 'store', label: 'Store & Inventory' },
     { value: 'section_supervisor', label: 'Section Supervisor' },
+    { value: 'factory_supervisor', label: 'Factory Supervisor' },
     { value: 'reports_analytics', label: 'Reports & Analytics' },
   ];
 
