@@ -5,6 +5,7 @@ import { STAGES } from '../data/mockData';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
+import { listUserAccounts, updateUserAccount, type AuthUser } from '../lib/authClient';
 import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { OnlineUsersPanel } from './OnlineUsersPanel';
 import { StageDashboard } from './StageDashboard';
@@ -155,6 +156,42 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor'>('analytics');
+
+  // Section Supervisor accounts — loaded so Teams Allocation can assign each
+  // supervisor a short quick-code PIN for the shared shop-floor computer,
+  // the same way Team.code works for workers.
+  const [supervisorAccounts, setSupervisorAccounts] = useState<AuthUser[]>([]);
+  const [supervisorAccountsLoading, setSupervisorAccountsLoading] = useState(false);
+  const [supervisorAccountsError, setSupervisorAccountsError] = useState<string | null>(null);
+
+  const loadSupervisorAccounts = () => {
+    setSupervisorAccountsLoading(true);
+    setSupervisorAccountsError(null);
+    listUserAccounts()
+      .then(accounts => setSupervisorAccounts(accounts.filter(a => a.role === 'section_supervisor')))
+      .catch((err) => setSupervisorAccountsError(err?.message || 'Failed to load supervisor accounts.'))
+      .finally(() => setSupervisorAccountsLoading(false));
+  };
+
+  useEffect(() => {
+    if (activeTab === 'teams') loadSupervisorAccounts();
+  }, [activeTab]);
+
+  const handleSetSupervisorQuickCode = async (acc: AuthUser) => {
+    const input = prompt(`Set a quick-login code for "${acc.displayName}" (they'll enter this on the shared shop-floor computer instead of typing their password):`, acc.quickCode || '');
+    if (input === null) return;
+    const trimmed = input.trim();
+    if (!trimmed) { alert('Code cannot be empty.'); return; }
+    if (!/^\d{4,6}$/.test(trimmed)) { alert('Code must be 4 to 6 digits.'); return; }
+    const clash = supervisorAccounts.find(a => a.id !== acc.id && a.quickCode === trimmed);
+    if (clash) { alert(`That code is already used by "${clash.displayName}". Pick a different one.`); return; }
+    try {
+      const updated = await updateUserAccount(acc.id, { quickCode: trimmed });
+      setSupervisorAccounts(prev => prev.map(a => a.id === acc.id ? updated : a));
+    } catch (err: any) {
+      alert(err?.message || 'Failed to set quick code.');
+    }
+  };
   const [releaseLogSearch, setReleaseLogSearch] = useState('');
   const [releaseLogFrom, setReleaseLogFrom] = useState('');
   const [releaseLogTo, setReleaseLogTo] = useState('');
@@ -4129,6 +4166,60 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 {teamsRestoreMessage}
               </div>
             )}
+
+          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5 uppercase">
+                <KeyRound className="h-3.5 w-3.5 text-amber-500" />
+                Section Supervisor Codes
+              </h4>
+              <button
+                onClick={loadSupervisorAccounts}
+                className="text-[10px] font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className={`h-3 w-3 ${supervisorAccountsLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-3">
+              Each supervisor gets their own 4-6 digit code so they can identify themselves on the shared shop-floor computer without typing a full password. Supervisor accounts are created in HR Portal → Accounts.
+            </p>
+
+            {supervisorAccountsError && (
+              <p className="text-xs font-bold text-rose-500 mb-2">{supervisorAccountsError}</p>
+            )}
+
+            {supervisorAccounts.length === 0 && !supervisorAccountsLoading ? (
+              <p className="text-xs text-slate-400 italic">No supervisor accounts yet. Create one in HR Portal → Accounts with role "Section Supervisor".</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {supervisorAccounts.map(acc => (
+                  <div key={acc.id} className="p-2.5 border border-slate-100 rounded-lg text-xs flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
+                        <HardHat className="h-3 w-3 text-amber-500 shrink-0" />
+                        {acc.displayName}
+                        {!acc.active && <span className="text-[9px] px-1 rounded bg-slate-100 text-slate-400 font-black">DISABLED</span>}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Code: {acc.quickCode ? (
+                          <strong className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{acc.quickCode}</strong>
+                        ) : (
+                          <span className="text-rose-500 font-bold">Not set</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleSetSupervisorQuickCode(acc)}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer shrink-0"
+                    >
+                      {acc.quickCode ? 'Change' : 'Set Code'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {STAGES.map((stage) => {
