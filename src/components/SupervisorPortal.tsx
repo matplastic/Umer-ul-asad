@@ -18,13 +18,17 @@ interface SupervisorPortalProps {
   currentUserName: string;
   projectNames: string[];
   poolTypesByProject: Record<string, string[]>;
+  /** When set, shows a "Switch Supervisor" button — used on a shared shop-floor
+   *  computer so the next supervisor can identify themselves with their own
+   *  quick code without a full sign-out/sign-in. */
+  onSwitchUser?: () => void;
 }
 
 type Tab = 'consumption' | 'production' | 'request' | 'history';
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserName, projectNames, poolTypesByProject }) => {
+export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserName, projectNames, poolTypesByProject, onSwitchUser }) => {
   const [section, setSection] = useState<string>(SUPERVISOR_SECTIONS[0].id);
   const [tab, setTab] = useState<Tab>('consumption');
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -397,16 +401,29 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Section Supervisor Portal</h1>
-            <p className="text-xs text-slate-400">Log daily material consumption, pools produced, and request materials</p>
+            <p className="text-xs text-slate-400">
+              Log daily material consumption, pools produced, and request materials
+              {currentUserName && <span className="text-slate-500"> · Signed in as <span className="text-amber-400 font-semibold">{currentUserName}</span></span>}
+            </p>
           </div>
         </div>
-        <button
-          onClick={() => loadAll()}
-          data-testid="supervisor-refresh"
-          className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium cursor-pointer">
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {onSwitchUser && (
+            <button
+              onClick={onSwitchUser}
+              data-testid="supervisor-switch-user"
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium cursor-pointer">
+              Switch Supervisor
+            </button>
+          )}
+          <button
+            onClick={() => loadAll()}
+            data-testid="supervisor-refresh"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium cursor-pointer">
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
