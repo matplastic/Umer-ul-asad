@@ -6,7 +6,7 @@ import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { LoginScreen } from './components/LoginScreen';
-import { getStoredUser, logout as logoutUser, type AuthUser } from './lib/authClient';
+import { getStoredUser, logout as logoutUser, findAccountByQuickCode, type AuthUser } from './lib/authClient';
 import { startPresenceHeartbeat, stopPresenceHeartbeat } from './lib/presence';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
 import { ProductionEngineer } from './components/ProductionEngineer';
@@ -277,6 +277,42 @@ export default function App() {
     setTeamCodeError('');
   };
 
+  // ── Section Supervisor quick-code check-in ──────────────────────────────
+  // Mirrors the team-code flow above: the shared shop-floor computer stays
+  // signed in as a generic 'section_supervisor' account, and each individual
+  // supervisor identifies themselves with their own short PIN (set by
+  // Management in the Teams Allocation tab) instead of a full password.
+  const [checkedInSupervisor, setCheckedInSupervisor] = useState<{ id: string; name: string } | null>(null);
+  const [supervisorCodeInput, setSupervisorCodeInput] = useState('');
+  const [supervisorCodeError, setSupervisorCodeError] = useState('');
+  const [supervisorCodeChecking, setSupervisorCodeChecking] = useState(false);
+
+  const handleSupervisorCodeSubmit = async () => {
+    const code = supervisorCodeInput.trim();
+    if (!code) { setSupervisorCodeError('Enter your code.'); return; }
+    setSupervisorCodeChecking(true);
+    setSupervisorCodeError('');
+    try {
+      const match = await findAccountByQuickCode(code, 'section_supervisor');
+      if (!match) {
+        setSupervisorCodeError('Code not recognized. Ask Management to set your code in Teams Allocation.');
+        return;
+      }
+      setCheckedInSupervisor({ id: match.id, name: match.displayName });
+      setSupervisorCodeInput('');
+    } catch (err: any) {
+      setSupervisorCodeError(err?.message || 'Could not check the code. Try again.');
+    } finally {
+      setSupervisorCodeChecking(false);
+    }
+  };
+
+  const handleSupervisorSwitchUser = () => {
+    setCheckedInSupervisor(null);
+    setSupervisorCodeInput('');
+    setSupervisorCodeError('');
+  };
+
   // True only when the current screen is a worker who checked in with a team
   // code (not a permanently PIN-locked station) — used to hide all nav/portal
   // switching and the team dropdown, and to show the red Exit button instead.
@@ -307,7 +343,7 @@ export default function App() {
   // Shop Floor logins are exempt — those are shared stage tablets meant to
   // stay signed in for the whole shift, not a single person's session.
   const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-  const IDLE_EXEMPT_ROLES: ViewRole[] = ['stage_worker'];
+  const IDLE_EXEMPT_ROLES: ViewRole[] = ['stage_worker', 'section_supervisor'];
   const [idleLogoutNotice, setIdleLogoutNotice] = useState(false);
   const idleTimeoutEnabled = !!loggedInUser && !IDLE_EXEMPT_ROLES.includes(loggedInUser.role);
   useIdleTimeout(idleTimeoutEnabled, IDLE_TIMEOUT_MS, () => {
@@ -3123,16 +3159,51 @@ export default function App() {
         )}
 
         {currentRole === 'section_supervisor' && (
-          <SupervisorPortal
-            currentUserName={loggedInUser?.displayName || 'Supervisor'}
-            projectNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
-            poolTypesByProject={[...pools, ...plannedPools].reduce((acc: Record<string, string[]>, p) => {
-              if (!p.projectName || !p.poolType) return acc;
-              if (!acc[p.projectName]) acc[p.projectName] = [];
-              if (!acc[p.projectName].includes(p.poolType)) acc[p.projectName].push(p.poolType);
-              return acc;
-            }, {})}
-          />
+          checkedInSupervisor ? (
+            <SupervisorPortal
+              currentUserName={checkedInSupervisor.name}
+              projectNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
+              poolTypesByProject={[...pools, ...plannedPools].reduce((acc: Record<string, string[]>, p) => {
+                if (!p.projectName || !p.poolType) return acc;
+                if (!acc[p.projectName]) acc[p.projectName] = [];
+                if (!acc[p.projectName].includes(p.poolType)) acc[p.projectName].push(p.poolType);
+                return acc;
+              }, {})}
+              onSwitchUser={handleSupervisorSwitchUser}
+            />
+          ) : (
+            <div className="min-h-[70vh] flex items-center justify-center px-4">
+              <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-100 shadow-sm p-6 text-center">
+                <div className="h-12 w-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto mb-3 font-black text-lg">
+                  #
+                </div>
+                <h3 className="text-sm font-black text-slate-800">Enter Your Code</h3>
+                <p className="text-xs text-slate-400 mt-1 mb-5">
+                  Enter your personal supervisor code. Ask Management if you don't have one yet.
+                </p>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={supervisorCodeInput}
+                  onChange={(e) => { setSupervisorCodeInput(e.target.value); setSupervisorCodeError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSupervisorCodeSubmit(); }}
+                  autoFocus
+                  placeholder="Supervisor code"
+                  className="w-full text-center text-lg tracking-widest font-mono border border-slate-200 rounded-xl px-3 py-3 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+                {supervisorCodeError && (
+                  <p className="text-xs font-bold text-rose-500 mt-2">{supervisorCodeError}</p>
+                )}
+                <button
+                  onClick={handleSupervisorCodeSubmit}
+                  disabled={supervisorCodeChecking}
+                  className="w-full mt-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs rounded-xl cursor-pointer"
+                >
+                  {supervisorCodeChecking ? 'Checking…' : 'Continue'}
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {currentRole === 'reports_analytics' && (
