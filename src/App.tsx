@@ -15,6 +15,7 @@ import { QualityInspector } from './components/QualityInspector';
 import { FactoryEntrance } from './components/FactoryEntrance';
 import { ManagementDashboard } from './components/ManagementDashboard';
 import { SectionDashboardTV } from './components/SectionDashboardTV';
+import { FactorySupervisorPortal } from './components/FactorySupervisorPortal';
 import { PlanningDepartment } from './components/PlanningDepartment';
 import { TrolleyProductionTracker } from './components/TrolleyProductionTracker';
 import { HRPortal } from './components/HRPortal';
@@ -3275,6 +3276,26 @@ export default function App() {
               </div>
             </div>
           )
+        )}
+
+        {currentRole === 'factory_supervisor' && (
+          <FactorySupervisorPortal
+            currentUserName={loggedInUser?.displayName || 'Factory Supervisor'}
+            pools={pools}
+            teams={teams}
+            logs={logs}
+            plannedPools={plannedPools}
+            googleUser={googleUser}
+            onGoogleSignIn={handleGoogleSignIn}
+            onClaimPool={handleClaimPool}
+            onStartStage={handleStartStage}
+            onFinishStage={handleFinishStage}
+            onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
+            onRequestUndoClaim={handleRequestUndoClaim}
+            onRefresh={refreshFromCloud}
+            isSyncing={isSyncing}
+            qcDefects={qcDefects}
+          />
         )}
 
         {currentRole === 'reports_analytics' && (
