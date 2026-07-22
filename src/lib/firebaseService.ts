@@ -1324,6 +1324,27 @@ export async function dbFetchMaterialRequests(): Promise<MaterialRequest[]> {
   return res.ok ? res.json() : [];
 }
 
+// Real-time listener used by the Shop Floor kiosk auto-print agent. The
+// kiosk tablet sits physically next to the store printer, so it's the
+// device that should react the instant a manager approves a request from
+// anywhere else (phone, laptop, different WiFi) — Firestore is the only
+// thing connecting the two.
+export function subscribeToMaterialRequests(
+  callback: (items: MaterialRequest[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    doc(clientDb, 'system_state', 'materialRequests'),
+    snap => {
+      if (snap.exists()) {
+        const raw = snap.data();
+        const data = Array.isArray(raw?.data) ? raw.data : [];
+        callback(data as MaterialRequest[]);
+      }
+    },
+    err => console.warn('[subscribeToMaterialRequests] subscription error:', err)
+  );
+}
+
 // Section Supervisor submits their whole cart (1 to however-many material
 // lines) in one go. Every line shares one batchId + one approvalToken, so
 // the manager's email/WhatsApp has ONE Approve/Reject action for the whole
