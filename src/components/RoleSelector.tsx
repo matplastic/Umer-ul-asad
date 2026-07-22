@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ViewRole, StageId } from '../types';
 import { STAGES } from '../data/mockData';
-import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight, Factory } from 'lucide-react';
 
 interface RoleSelectorProps {
   currentRole: ViewRole;
@@ -111,6 +111,7 @@ const NAV_ITEMS: { role: ViewRole; label: string; icon: React.ElementType; testI
   { role: 'hr_portal', label: 'HR Portal', icon: UserCog },
   { role: 'store', label: 'Store Portal', icon: Warehouse, testId: 'role-store' },
   { role: 'section_supervisor', label: 'Section Supervisor', icon: HardHat, testId: 'role-section-supervisor' },
+  { role: 'factory_supervisor', label: 'Factory Supervisor', icon: Factory, testId: 'role-factory-supervisor' },
   { role: 'reports_analytics', label: 'Reports & Analytics', icon: FileBarChart, testId: 'role-reports-analytics' },
 ];
 
