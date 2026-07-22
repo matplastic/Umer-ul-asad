@@ -21,7 +21,7 @@ import { HRPortal } from './components/HRPortal';
 import { ReportsAndAnalytics } from './components/ReportsAndAnalytics';
 import { QRScanner } from './components/QRCodeModule';
 import { QCDefect } from './components/QCDefectPanel';
-import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera } from 'lucide-react';
+import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera, HardHat } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
   getEntireStateFromFirestore, 
@@ -286,6 +286,10 @@ export default function App() {
   const [supervisorCodeInput, setSupervisorCodeInput] = useState('');
   const [supervisorCodeError, setSupervisorCodeError] = useState('');
   const [supervisorCodeChecking, setSupervisorCodeChecking] = useState(false);
+  // Shows/hides the small floating "Supervisor Login" widget on the Stage
+  // Floor screen, so a supervisor can jump into their own portal from the
+  // same shared computer without logging out of the stage_worker account.
+  const [showSupervisorCodeBox, setShowSupervisorCodeBox] = useState(false);
 
   const handleSupervisorCodeSubmit = async () => {
     const code = supervisorCodeInput.trim();
@@ -300,6 +304,7 @@ export default function App() {
       }
       setCheckedInSupervisor({ id: match.id, name: match.displayName });
       setSupervisorCodeInput('');
+      setShowSupervisorCodeBox(false);
     } catch (err: any) {
       setSupervisorCodeError(err?.message || 'Could not check the code. Try again.');
     } finally {
@@ -2978,8 +2983,73 @@ export default function App() {
           />
         )}
 
-        {currentRole === 'stage_worker' && (
-          (stationLock.isLocked && stationLock.teamId) || workerCheckedIn ? (
+        {currentRole === 'stage_worker' && checkedInSupervisor && (
+          <SupervisorPortal
+            currentUserName={checkedInSupervisor.name}
+            projectNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
+            poolTypesByProject={[...pools, ...plannedPools].reduce((acc: Record<string, string[]>, p) => {
+              if (!p.projectName || !p.poolType) return acc;
+              if (!acc[p.projectName]) acc[p.projectName] = [];
+              if (!acc[p.projectName].includes(p.poolType)) acc[p.projectName].push(p.poolType);
+              return acc;
+            }, {})}
+            onSwitchUser={handleSupervisorSwitchUser}
+          />
+        )}
+
+        {currentRole === 'stage_worker' && !checkedInSupervisor && (
+          <>
+            {/* Floating widget: lets a supervisor jump into their own portal
+                from this same shared computer without logging out of the
+                stage_worker account. */}
+            <div className="fixed bottom-4 right-4 z-40">
+              {showSupervisorCodeBox ? (
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-xl p-4 w-64">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black text-slate-700 uppercase flex items-center gap-1.5">
+                      <HardHat className="h-3.5 w-3.5 text-amber-500" />
+                      Supervisor Code
+                    </span>
+                    <button
+                      onClick={() => { setShowSupervisorCodeBox(false); setSupervisorCodeError(''); setSupervisorCodeInput(''); }}
+                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    value={supervisorCodeInput}
+                    onChange={(e) => { setSupervisorCodeInput(e.target.value); setSupervisorCodeError(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSupervisorCodeSubmit(); }}
+                    autoFocus
+                    placeholder="Enter code"
+                    className="w-full text-center text-base tracking-widest font-mono border border-slate-200 rounded-xl px-3 py-2 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                  {supervisorCodeError && (
+                    <p className="text-[10px] font-bold text-rose-500 mt-1.5">{supervisorCodeError}</p>
+                  )}
+                  <button
+                    onClick={handleSupervisorCodeSubmit}
+                    disabled={supervisorCodeChecking}
+                    className="w-full mt-2.5 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white font-bold text-xs rounded-xl cursor-pointer"
+                  >
+                    {supervisorCodeChecking ? 'Checking…' : 'Open Supervisor Portal'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowSupervisorCodeBox(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-full shadow-lg cursor-pointer"
+                >
+                  <HardHat className="h-3.5 w-3.5" />
+                  Supervisor Login
+                </button>
+              )}
+            </div>
+
+            {(stationLock.isLocked && stationLock.teamId) || workerCheckedIn ? (
             <StageDashboard
               stage={currentStageInfo}
               pools={pools}
@@ -3028,7 +3098,8 @@ export default function App() {
                 </button>
               </div>
             </div>
-          )
+          )}
+          </>
         )}
 
         {currentRole === 'quality_inspector' && (
