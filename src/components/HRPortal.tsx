@@ -2080,7 +2080,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       savePurchaseRequests([...records, ...purchaseRequests]);
       try {
         await dbSendHRPurchaseRequestEmail({
-          batchId: batchId || records[0].id,
+          // Single item: identify it by its own id (its stored batchId is
+          // null, so sending that id under the batchId key would never
+          // match anything). Multiple items: identify by the shared batchId.
+          ...(batchId ? { batchId } : { id: records[0].id }),
           approvalToken,
           requestedByName,
           purpose: records[0].purpose,
@@ -2116,7 +2119,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         ],
         rows: [{
           item: r.itemName, category: r.category, qty: `${r.qty} ${r.unit}`,
-          cost: r.estimatedCost ? r.estimatedCost.toFixed(2) : '—', purpose: r.purpose || '—', by: r.requestedByName,
+          cost: r.actualCost ? r.actualCost.toFixed(2) : r.estimatedCost ? r.estimatedCost.toFixed(2) : '—', purpose: r.purpose || '—', by: r.requestedByName,
         }],
       });
     };
@@ -2326,7 +2329,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between">
                 <h3 className="font-black text-slate-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-violet-600" /> New Purchase Request</h3>
-                <button onClick={() => { setShowForm(false); setCart([]); }}><X className="h-5 w-5 text-slate-400" /></button>
+                <button onClick={() => { setShowForm(false); setCart([]); setDraftItem({ category: 'Office', qty: 1, unit: 'pcs' }); }}><X className="h-5 w-5 text-slate-400" /></button>
               </div>
 
               {cart.length > 0 && (
@@ -2393,7 +2396,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   className="flex-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                   <Save className="h-4 w-4" /> {sending ? 'Sending…' : `Submit ${cart.length > 1 ? `${cart.length} Items` : cart.length === 1 ? '1 Item' : ''} to Manager`}
                 </button>
-                <button onClick={() => { setShowForm(false); setCart([]); }} className="px-4 py-2.5 rounded-lg border border-slate-200 text-slate-500 font-bold text-sm cursor-pointer">Cancel</button>
+                <button onClick={() => { setShowForm(false); setCart([]); setDraftItem({ category: 'Office', qty: 1, unit: 'pcs' }); }} className="px-4 py-2.5 rounded-lg border border-slate-200 text-slate-500 font-bold text-sm cursor-pointer">Cancel</button>
               </div>
             </div>
           </div>
@@ -2452,7 +2455,6 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { value: 'hr_portal', label: 'HR Management Portal' },
     { value: 'store', label: 'Store & Inventory' },
     { value: 'section_supervisor', label: 'Section Supervisor' },
-    { value: 'factory_supervisor', label: 'Factory Supervisor' },
     { value: 'reports_analytics', label: 'Reports & Analytics' },
   ];
 
