@@ -91,11 +91,18 @@ interface MedicalRecord {
 // attach the bill/invoice once bought.
 interface HRPurchaseRequest {
   id: string;
+  // Items submitted together from one HR "cart" share a batchId + one
+  // approvalToken, so the manager gets ONE email with per-item Approve/
+  // Reject for the whole batch instead of a separate email per item.
+  batchId?: string | null;
   itemName: string;
   category: 'Office' | 'Accommodation' | 'Other';
   qty: number;
   unit: string;
   estimatedCost?: number | null;
+  // Actual amount paid, entered alongside the bill once bought — spending
+  // totals use this over estimatedCost whenever it's been filled in.
+  actualCost?: number | null;
   purpose?: string | null;
   requestedByName: string;
   requestedAt: string;
@@ -486,6 +493,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     subtitle: string;
     columns: { header: string; key: string }[];
     rows: Record<string, any>[];
+    departmentLabel?: string;
   } | null>(null);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2002,47 +2010,88 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   // ─────────────────────────────────────────────────────────────────────────────
   const PurchaseRequestsTab = () => {
     const [showForm, setShowForm] = useState(false);
-    const [form, setForm] = useState<Partial<HRPurchaseRequest>>({ category: 'Office', qty: 1, unit: 'pcs' });
+    const [draftItem, setDraftItem] = useState<Partial<HRPurchaseRequest>>({ category: 'Office', qty: 1, unit: 'pcs' });
+    const [cart, setCart] = useState<Partial<HRPurchaseRequest>[]>([]);
     const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
     const [billTargetId, setBillTargetId] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
+    const [view, setView] = useState<'list' | 'spending'>('list');
 
     const filtered = purchaseRequests
       .filter(r => statusFilter === 'All' || r.status === statusFilter)
       .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
+
+    // Spending is tracked off Approved requests with a cost — the actual
+    // amount paid (entered with the bill) is used whenever present, falling
+    // back to the estimate. Dated by bill upload (actual purchase date) if
+    // available, otherwise the approval date, otherwise the request date.
+    const spendDate = (r: HRPurchaseRequest) => (r.billUploadedAt || r.decidedAt || r.requestedAt).slice(0, 10);
+    const spendAmount = (r: HRPurchaseRequest) => r.actualCost ?? r.estimatedCost ?? 0;
+    const spendable = purchaseRequests.filter(r => r.status === 'Approved' && spendAmount(r));
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const weekAgoStr = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const monthStr = todayStr.slice(0, 7);
+    const dailyTotal = spendable.filter(r => spendDate(r) === todayStr).reduce((s, r) => s + spendAmount(r), 0);
+    const weeklyTotal = spendable.filter(r => spendDate(r) >= weekAgoStr).reduce((s, r) => s + spendAmount(r), 0);
+    const monthlyTotal = spendable.filter(r => spendDate(r).startsWith(monthStr)).reduce((s, r) => s + spendAmount(r), 0);
+    const spendSorted = [...spendable].sort((a, b) => spendDate(b).localeCompare(spendDate(a)));
 
     const newToken = () => {
       try { if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return (crypto as any).randomUUID().replace(/-/g, ''); } catch {}
       return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
     };
 
-    const handleSubmit = async () => {
-      if (!form.itemName || !form.qty) return;
+    const addToCart = () => {
+      if (!draftItem.itemName || !draftItem.qty) return;
+      setCart(prev => [...prev, draftItem]);
+      setDraftItem({ category: draftItem.category, qty: 1, unit: draftItem.unit || 'pcs' });
+    };
+
+    const removeFromCart = (idx: number) => setCart(prev => prev.filter((_, i) => i !== idx));
+
+    const handleSubmitCart = async () => {
+      // Allow submitting either a cart built with "Add Item", or — if the
+      // person filled the fields and clicked submit without adding — just
+      // that one item, same as Store's cart flow.
+      const items = cart.length > 0 ? cart : (draftItem.itemName && draftItem.qty ? [draftItem] : []);
+      if (items.length === 0) return;
       setSending(true);
-      const record: HRPurchaseRequest = {
+
+      const batchId = items.length > 1 ? `hrb_${uid()}` : null;
+      const approvalToken = newToken();
+      const requestedAt = new Date().toISOString();
+      const requestedByName = currentUserName || 'HR';
+
+      const records: HRPurchaseRequest[] = items.map(it => ({
         id: uid(),
-        itemName: form.itemName,
-        category: (form.category as any) || 'Office',
-        qty: Number(form.qty) || 1,
-        unit: form.unit || 'pcs',
-        estimatedCost: form.estimatedCost ? Number(form.estimatedCost) : null,
-        purpose: form.purpose || null,
-        requestedByName: currentUserName || 'HR',
-        requestedAt: new Date().toISOString(),
+        batchId,
+        itemName: it.itemName!,
+        category: (it.category as any) || 'Office',
+        qty: Number(it.qty) || 1,
+        unit: it.unit || 'pcs',
+        estimatedCost: it.estimatedCost ? Number(it.estimatedCost) : null,
+        purpose: it.purpose || null,
+        requestedByName,
+        requestedAt,
         status: 'Pending',
-        approvalToken: newToken(),
-      };
-      savePurchaseRequests([record, ...purchaseRequests]);
+        approvalToken,
+      }));
+
+      savePurchaseRequests([...records, ...purchaseRequests]);
       try {
         await dbSendHRPurchaseRequestEmail({
-          id: record.id, approvalToken: record.approvalToken, itemName: record.itemName,
-          category: record.category, qty: record.qty, unit: record.unit,
-          estimatedCost: record.estimatedCost, purpose: record.purpose, requestedByName: record.requestedByName,
+          batchId: batchId || records[0].id,
+          approvalToken,
+          requestedByName,
+          purpose: records[0].purpose,
+          items: records.map(r => ({ id: r.id, itemName: r.itemName, category: r.category, qty: r.qty, unit: r.unit, estimatedCost: r.estimatedCost })),
         });
       } catch (err) { console.warn('[PurchaseRequestsTab] Email notify failed:', err); }
+
       setSending(false);
       setShowForm(false);
-      setForm({ category: 'Office', qty: 1, unit: 'pcs' });
+      setCart([]);
+      setDraftItem({ category: 'Office', qty: 1, unit: 'pcs' });
     };
 
     const decide = (id: string, action: 'Approved' | 'Rejected') => {
@@ -2056,6 +2105,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       setPrintReport({
         title: 'Purchase Order',
         subtitle: `Request ID: ${r.id}  •  Approved ${r.decidedAt ? fmtDate(r.decidedAt) : ''} by ${r.decidedByName || ''}`,
+        departmentLabel: 'Admin Department',
         columns: [
           { header: 'Item', key: 'item' },
           { header: 'Category', key: 'category' },
@@ -2071,24 +2121,127 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       });
     };
 
-    const handleBillUpload = (r: HRPurchaseRequest, file: File) => {
+    const [billForm, setBillForm] = useState<{ actualCost: string; file: File | null }>({ actualCost: '', file: null });
+
+    const handleBillUpload = (r: HRPurchaseRequest) => {
+      if (!billForm.file) return;
       const reader = new FileReader();
       reader.onload = () => {
         savePurchaseRequests(purchaseRequests.map(x => x.id === r.id
-          ? { ...x, billFileName: file.name, billDataUrl: reader.result as string, billUploadedAt: new Date().toISOString() }
+          ? {
+              ...x,
+              billFileName: billForm.file!.name,
+              billDataUrl: reader.result as string,
+              billUploadedAt: new Date().toISOString(),
+              actualCost: billForm.actualCost ? Number(billForm.actualCost) : x.actualCost,
+            }
           : x
         ));
         setBillTargetId(null);
+        setBillForm({ actualCost: '', file: null });
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(billForm.file);
     };
 
     const statusStyle = (s: string) => s === 'Approved'
       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
       : s === 'Rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200';
 
+    const printSpendReport = () => {
+      setPrintReport({
+        title: 'Spending Report',
+        subtitle: `Today: AED ${dailyTotal.toFixed(2)}  •  Last 7 Days: AED ${weeklyTotal.toFixed(2)}  •  This Month: AED ${monthlyTotal.toFixed(2)}`,
+        departmentLabel: 'Admin Department',
+        columns: [
+          { header: 'Date', key: 'date' },
+          { header: 'Item', key: 'item' },
+          { header: 'Category', key: 'category' },
+          { header: 'Cost (AED)', key: 'cost' },
+          { header: 'Bill', key: 'bill' },
+        ],
+        rows: spendSorted.map(r => ({
+          date: fmtDate(spendDate(r)), item: r.itemName, category: r.category,
+          cost: spendAmount(r).toFixed(2), bill: r.billFileName ? 'Attached' : '—',
+        })),
+      });
+    };
+
     return (
       <div className="space-y-4">
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setView('list')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors ${view === 'list' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}
+          >Requests</button>
+          <button
+            onClick={() => setView('spending')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors flex items-center gap-1.5 ${view === 'spending' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500'}`}
+          ><DollarSign className="h-3.5 w-3.5" /> Spending</button>
+        </div>
+
+        {view === 'spending' ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Today</p>
+                <p className="text-2xl font-black text-slate-800 mt-1">AED {dailyTotal.toFixed(2)}</p>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Last 7 Days</p>
+                <p className="text-2xl font-black text-slate-800 mt-1">AED {weeklyTotal.toFixed(2)}</p>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">This Month</p>
+                <p className="text-2xl font-black text-slate-800 mt-1">AED {monthlyTotal.toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Spend History (Approved with cost)</h4>
+                <button onClick={printSpendReport} className="text-xs font-bold text-violet-700 hover:text-violet-900 flex items-center gap-1 cursor-pointer">
+                  <Printer className="h-3.5 w-3.5" /> Print / Export PDF
+                </button>
+              </div>
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    {['Date', 'Item', 'Category', 'Cost (AED)', 'Bill'].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {spendSorted.length === 0 ? (
+                    <tr><td colSpan={5} className="text-center py-12 text-slate-400 text-sm">No spending recorded yet — costs are counted once a request is Approved with an Estimated Cost.</td></tr>
+                  ) : spendSorted.map(r => (
+                    <tr key={r.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 text-slate-600">{fmtDate(spendDate(r))}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-800">{r.itemName}</td>
+                      <td className="px-4 py-3 text-slate-600">{r.category}</td>
+                      <td className="px-4 py-3 font-mono text-slate-700">
+                        {spendAmount(r).toFixed(2)}
+                        {r.actualCost ? (
+                          <span className="ml-1.5 text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1 py-0.5 rounded-full align-middle">Actual</span>
+                        ) : (
+                          <span className="ml-1.5 text-[9px] font-bold text-slate-400 bg-slate-50 border border-slate-200 px-1 py-0.5 rounded-full align-middle">Est.</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {r.billFileName ? (
+                          <a href={r.billDataUrl || '#'} download={r.billFileName} className="text-violet-600 hover:text-violet-800 font-semibold inline-flex items-center gap-1">
+                            <Receipt className="h-3.5 w-3.5" /> View
+                          </a>
+                        ) : <span className="text-slate-300">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="flex flex-wrap gap-3 items-center justify-between">
           <div className="flex gap-2">
             {(['All', 'Pending', 'Approved', 'Rejected'] as const).map(s => (
@@ -2125,7 +2278,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusStyle(r.status)}`}>{r.status}</span>
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
-                      {r.qty} {r.unit}{r.estimatedCost ? ` • Est. AED ${r.estimatedCost.toFixed(2)}` : ''} • Requested by {r.requestedByName} on {fmtDate(r.requestedAt)}
+                      {r.qty} {r.unit}
+                      {r.actualCost ? ` • Paid AED ${r.actualCost.toFixed(2)}` : r.estimatedCost ? ` • Est. AED ${r.estimatedCost.toFixed(2)}` : ''}
+                      {' '}• Requested by {r.requestedByName} on {fmtDate(r.requestedAt)}
                     </p>
                     {r.purpose && <p className="text-xs text-slate-500 mt-1">Purpose: {r.purpose}</p>}
                     {r.decidedByName && (
@@ -2149,10 +2304,12 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                         <button onClick={() => printPO(r)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1 cursor-pointer">
                           <Printer className="h-3.5 w-3.5" /> Print PO
                         </button>
-                        <label className="text-xs font-bold px-3 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 flex items-center gap-1 cursor-pointer">
+                        <button
+                          onClick={() => { setBillTargetId(r.id); setBillForm({ actualCost: r.actualCost ? String(r.actualCost) : '', file: null }); }}
+                          className="text-xs font-bold px-3 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 flex items-center gap-1 cursor-pointer"
+                        >
                           <Paperclip className="h-3.5 w-3.5" /> {r.billFileName ? 'Replace Bill' : 'Upload Bill'}
-                          <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleBillUpload(r, f); }} />
-                        </label>
+                        </button>
                       </>
                     )}
                   </div>
@@ -2161,25 +2318,43 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             ))}
           </div>
         )}
+        </>
+        )}
 
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between">
                 <h3 className="font-black text-slate-800 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-violet-600" /> New Purchase Request</h3>
-                <button onClick={() => setShowForm(false)}><X className="h-5 w-5 text-slate-400" /></button>
+                <button onClick={() => { setShowForm(false); setCart([]); }}><X className="h-5 w-5 text-slate-400" /></button>
               </div>
-              <div className="space-y-3">
+
+              {cart.length > 0 && (
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {cart.map((it, idx) => (
+                    <div key={idx} className="flex items-center justify-between px-3 py-2 text-sm">
+                      <div>
+                        <span className="font-semibold text-slate-800">{it.itemName}</span>
+                        <span className="text-xs text-slate-400 ml-2">{it.qty} {it.unit} • {it.category}{it.estimatedCost ? ` • AED ${it.estimatedCost}` : ''}</span>
+                      </div>
+                      <button onClick={() => removeFromCart(idx)} className="text-rose-400 hover:text-rose-600 cursor-pointer"><X className="h-4 w-4" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="space-y-3 border border-dashed border-slate-200 rounded-lg p-3">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">{cart.length > 0 ? 'Add Another Item' : 'Item Details'}</p>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Item Name *</label>
-                  <input value={form.itemName || ''} onChange={e => setForm(p => ({ ...p, itemName: e.target.value }))}
+                  <input value={draftItem.itemName || ''} onChange={e => setDraftItem(p => ({ ...p, itemName: e.target.value }))}
                     placeholder="e.g. Office chairs, AC filter, Bed sheets"
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-slate-500 block mb-1">Category</label>
-                    <select value={form.category || 'Office'} onChange={e => setForm(p => ({ ...p, category: e.target.value as any }))}
+                    <select value={draftItem.category || 'Office'} onChange={e => setDraftItem(p => ({ ...p, category: e.target.value as any }))}
                       className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="Office">Office</option>
                       <option value="Accommodation">Accommodation</option>
@@ -2188,36 +2363,76 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-500 block mb-1">Qty</label>
-                    <input type="number" min={1} value={form.qty ?? 1} onChange={e => setForm(p => ({ ...p, qty: Number(e.target.value) }))}
+                    <input type="number" min={1} value={draftItem.qty ?? 1} onChange={e => setDraftItem(p => ({ ...p, qty: Number(e.target.value) }))}
                       className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-500 block mb-1">Unit</label>
-                    <input value={form.unit || 'pcs'} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))}
+                    <input value={draftItem.unit || 'pcs'} onChange={e => setDraftItem(p => ({ ...p, unit: e.target.value }))}
                       className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Estimated Cost (AED, optional)</label>
-                  <input type="number" min={0} value={form.estimatedCost ?? ''} onChange={e => setForm(p => ({ ...p, estimatedCost: e.target.value ? Number(e.target.value) : null }))}
+                  <input type="number" min={0} value={draftItem.estimatedCost ?? ''} onChange={e => setDraftItem(p => ({ ...p, estimatedCost: e.target.value ? Number(e.target.value) : null }))}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Purpose / Reason</label>
-                  <textarea value={form.purpose || ''} onChange={e => setForm(p => ({ ...p, purpose: e.target.value }))} rows={3}
+                  <textarea value={draftItem.purpose || ''} onChange={e => setDraftItem(p => ({ ...p, purpose: e.target.value }))} rows={2}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none" />
                 </div>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button onClick={handleSubmit} disabled={!form.itemName || sending}
-                  className="flex-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
-                  <Save className="h-4 w-4" /> {sending ? 'Sending…' : 'Submit to Manager'}
+                <button onClick={addToCart} disabled={!draftItem.itemName || !draftItem.qty}
+                  className="w-full text-sm font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 disabled:opacity-40 py-2 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+                  <Plus className="h-4 w-4" /> Add Item to Request
                 </button>
-                <button onClick={() => setShowForm(false)} className="px-4 py-2.5 rounded-lg border border-slate-200 text-slate-500 font-bold text-sm cursor-pointer">Cancel</button>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button onClick={handleSubmitCart} disabled={(cart.length === 0 && !draftItem.itemName) || sending}
+                  className="flex-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+                  <Save className="h-4 w-4" /> {sending ? 'Sending…' : `Submit ${cart.length > 1 ? `${cart.length} Items` : cart.length === 1 ? '1 Item' : ''} to Manager`}
+                </button>
+                <button onClick={() => { setShowForm(false); setCart([]); }} className="px-4 py-2.5 rounded-lg border border-slate-200 text-slate-500 font-bold text-sm cursor-pointer">Cancel</button>
               </div>
             </div>
           </div>
         )}
+
+        {billTargetId && (() => {
+          const targetReq = purchaseRequests.find(x => x.id === billTargetId);
+          if (!targetReq) return null;
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-black text-slate-800 flex items-center gap-2"><Receipt className="h-5 w-5 text-violet-600" /> Upload Bill</h3>
+                  <button onClick={() => { setBillTargetId(null); setBillForm({ actualCost: '', file: null }); }}><X className="h-5 w-5 text-slate-400" /></button>
+                </div>
+                <p className="text-xs text-slate-500">{targetReq.itemName} — {targetReq.qty} {targetReq.unit}</p>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Actual Amount Paid (AED)</label>
+                  <input type="number" min={0} value={billForm.actualCost} onChange={e => setBillForm(p => ({ ...p, actualCost: e.target.value }))}
+                    placeholder={targetReq.estimatedCost ? `Estimated: ${targetReq.estimatedCost}` : 'e.g. 450'}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                  <p className="text-[10px] text-slate-400 mt-1">This is what Spending totals use — enter the real amount from the bill for accurate tracking.</p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Bill / Receipt (image or PDF)</label>
+                  <input type="file" accept="image/*,.pdf" onChange={e => setBillForm(p => ({ ...p, file: e.target.files?.[0] || null }))}
+                    className="w-full text-sm" />
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button onClick={() => handleBillUpload(targetReq)} disabled={!billForm.file}
+                    className="flex-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+                    <Save className="h-4 w-4" /> Save Bill
+                  </button>
+                  <button onClick={() => { setBillTargetId(null); setBillForm({ actualCost: '', file: null }); }} className="px-4 py-2.5 rounded-lg border border-slate-200 text-slate-500 font-bold text-sm cursor-pointer">Cancel</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -2937,7 +3152,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-12 w-auto object-contain" />
                   <div>
                     <h2 className="text-lg font-black tracking-tight">MAT PLASTIC INDUSTRIES LLC</h2>
-                    <p className="text-xs text-slate-600">HR Department — {printReport.title}</p>
+                    <p className="text-xs text-slate-600">{printReport.departmentLabel || 'HR Department'} — {printReport.title}</p>
                   </div>
                 </div>
                 <div className="text-right text-xs text-slate-600 shrink-0">
