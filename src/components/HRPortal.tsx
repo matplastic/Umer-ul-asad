@@ -6,9 +6,10 @@ import {
   Plus, Search, Trash2, Edit2, CheckCircle, XCircle, Check,
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
-  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip
+  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
+import { EmployeeAttendanceReport } from './EmployeeAttendanceReport';
 import {
   listUserAccounts, createUserAccount, updateUserAccount,
   resetUserPassword, deactivateUserAccount, type AuthUser
@@ -841,7 +842,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   const AttendanceTab = () => {
     const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
     const [empFilter, setEmpFilter] = useState('All');
-    const [attSubTab, setAttSubTab] = useState<'daily' | 'deployment'>('daily');
+    const [attSubTab, setAttSubTab] = useState<'daily' | 'deployment' | 'employeeReport'>('daily');
 
     const empNames = useMemo(() => ['All', ...Array.from(new Set(employeePunches.map(p => p.employeeName)))], []);
 
@@ -967,9 +968,21 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             onClick={() => setAttSubTab('deployment')}
             className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors flex items-center gap-1.5 ${attSubTab === 'deployment' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500'}`}
           ><MapPin className="h-3.5 w-3.5" /> Site Deployment ({siteDeployed.length})</button>
+          <button
+            onClick={() => setAttSubTab('employeeReport')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors flex items-center gap-1.5 ${attSubTab === 'employeeReport' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500'}`}
+          ><CalendarRange className="h-3.5 w-3.5" /> Employee Report</button>
         </div>
 
-        {attSubTab === 'deployment' ? (
+        {attSubTab === 'employeeReport' ? (
+          <EmployeeAttendanceReport
+            employees={employees}
+            employeePunches={employeePunches}
+            leaves={leaves}
+            medicals={medicals}
+            siteDeployed={siteDeployed}
+          />
+        ) : attSubTab === 'deployment' ? (
           <SiteDeploymentPanel
             employees={employees}
             siteDeployed={siteDeployed}
