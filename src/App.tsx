@@ -3314,6 +3314,7 @@ export default function App() {
             employees={employees}
             logs={logs}
             teams={teams}
+            employeePunches={employeePunches}
           />
         )}
 
