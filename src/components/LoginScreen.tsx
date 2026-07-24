@@ -20,6 +20,7 @@ const ROLE_LABELS: Record<ViewRole, string> = {
   quality_inspector: 'Quality Assurance',
   stage_worker: 'Stage Shop Floor',
   trolley_prod: 'Trolley Production Supervisor',
+  factory_supervisor: 'Factory Supervisor',
   factory_entrance: 'Factory Entrance TV Monitor',
   section_dashboard: 'Section TV Dashboard',
   hr_portal: 'HR Management Portal',
