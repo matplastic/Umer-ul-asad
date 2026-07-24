@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Pool, ActivityLog, ProjectSummary, MonthlyTarget, Employee, PlannedPool, Team } from '../types';
+import { Pool, ActivityLog, ProjectSummary, MonthlyTarget, Employee, PlannedPool, Team, EmployeePunch } from '../types';
+import { AllReportsTab } from './AllReportsTab';
 import { STAGES } from '../data/mockData';
 import {
   BarChart3, FileText, Download, Printer, TrendingUp, AlertTriangle,
@@ -20,12 +21,13 @@ interface ReportsAndAnalyticsProps {
   employees: Employee[];
   logs: ActivityLog[];
   teams: Team[];
+  employeePunches?: EmployeePunch[];
 }
 
-type TabId = 'analytics' | 'reports' | 'exports';
+type TabId = 'analytics' | 'reports' | 'exports' | 'all';
 
 export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
-  pools, plannedPools, projectsSummary, monthlyTargets, employees, logs, teams
+  pools, plannedPools, projectsSummary, monthlyTargets, employees, logs, teams, employeePunches = []
 }) => {
   const [tab, setTab] = useState<TabId>('analytics');
 
@@ -46,6 +48,7 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
         {/* Tab switcher */}
         <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 self-start md:self-center">
           {[
+            { id: 'all' as TabId, label: 'All Reports', icon: FileSpreadsheet },
             { id: 'analytics' as TabId, label: 'Live Analytics', icon: TrendingUp },
             { id: 'reports' as TabId, label: 'PDF Reports', icon: FileText },
             { id: 'exports' as TabId, label: 'Excel Exports', icon: FileSpreadsheet },
@@ -67,6 +70,9 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
         </div>
       </div>
 
+      {tab === 'all' && (
+        <AllReportsTab pools={pools} logs={logs} employees={employees} employeePunches={employeePunches} />
+      )}
       {tab === 'analytics' && (
         <AnalyticsTab pools={pools} logs={logs} monthlyTargets={monthlyTargets} projectsSummary={projectsSummary} />
       )}
