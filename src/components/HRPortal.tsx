@@ -56,12 +56,40 @@ interface PayrollRecord {
   employeeName: string;
   month: string; // YYYY-MM
   baseSalary: number;
-  overtimeHours: number;
-  overtimeRate: number;
+  allowances: number;
+  // Overtime hours worked, split by rate. Pay for both is computed off the
+  // basic salary's hourly rate (basic / 30 / 8), not off an arbitrary rate
+  // typed in each time — normal OT is always basic-hourly × 1.22, Sunday OT
+  // is always basic-hourly × 1.50.
+  normalOtHours: number;
+  sundayOtHours: number;
   deductions: number;
   netSalary: number;
   status: 'Draft' | 'Paid';
   paidAt?: string;
+  // Legacy fields kept only so payroll entries created before this change
+  // still display correctly — new entries never write these.
+  overtimeHours?: number;
+  overtimeRate?: number;
+}
+
+const NORMAL_OT_MULTIPLIER = 1.22;
+const SUNDAY_OT_MULTIPLIER = 1.50;
+
+// Standard basic-salary-based hourly rate: monthly basic / 30 days / 8 hours.
+function hourlyRateFromBasic(basicSalary: number): number {
+  return basicSalary / 30 / 8;
+}
+
+function computePayrollNet(p: {
+  baseSalary?: number; allowances?: number;
+  normalOtHours?: number; sundayOtHours?: number; deductions?: number;
+}): { normalOtPay: number; sundayOtPay: number; net: number } {
+  const hourly = hourlyRateFromBasic(p.baseSalary || 0);
+  const normalOtPay = (p.normalOtHours || 0) * hourly * NORMAL_OT_MULTIPLIER;
+  const sundayOtPay = (p.sundayOtHours || 0) * hourly * SUNDAY_OT_MULTIPLIER;
+  const net = (p.baseSalary || 0) + (p.allowances || 0) + normalOtPay + sundayOtPay - (p.deductions || 0);
+  return { normalOtPay, sundayOtPay, net };
 }
 
 interface AccidentReport {
@@ -1108,16 +1136,16 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const handleSave = () => {
       if (!form.employeeId || !form.baseSalary) return;
       const emp = employees.find(e => e.id === form.employeeId);
-      const overtime = (form.overtimeHours || 0) * (form.overtimeRate || 0);
-      const net = (form.baseSalary || 0) + overtime - (form.deductions || 0);
+      const { net } = computePayrollNet(form);
       const record: PayrollRecord = {
         id: form.id || uid(),
         employeeId: form.employeeId,
         employeeName: emp?.name || '',
         month: monthFilter,
         baseSalary: form.baseSalary || 0,
-        overtimeHours: form.overtimeHours || 0,
-        overtimeRate: form.overtimeRate || 0,
+        allowances: form.allowances || 0,
+        normalOtHours: form.normalOtHours || 0,
+        sundayOtHours: form.sundayOtHours || 0,
         deductions: form.deductions || 0,
         netSalary: net,
         status: 'Draft',
@@ -1179,8 +1207,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 </div>
                 {[
                   { label: 'Base Salary (AED) *', key: 'baseSalary' },
-                  { label: 'Overtime Hours', key: 'overtimeHours' },
-                  { label: 'Overtime Rate (AED/hr)', key: 'overtimeRate' },
+                  { label: 'Allowances (AED)', key: 'allowances' },
+                  { label: 'Normal Overtime Hours (× 1.22)', key: 'normalOtHours' },
+                  { label: 'Sunday Overtime Hours (× 1.50)', key: 'sundayOtHours' },
                   { label: 'Deductions (AED)', key: 'deductions' },
                 ].map(f => (
                   <div key={f.key}>
@@ -1193,13 +1222,18 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     />
                   </div>
                 ))}
-                <div className="bg-violet-50 rounded-lg p-3 text-sm font-bold text-violet-800">
-                  Net Salary: {fmtCurrency(
-                    (form.baseSalary || 0) +
-                    (form.overtimeHours || 0) * (form.overtimeRate || 0) -
-                    (form.deductions || 0)
-                  )}
-                </div>
+                {(() => {
+                  const { normalOtPay, sundayOtPay, net } = computePayrollNet(form);
+                  const hourly = hourlyRateFromBasic(form.baseSalary || 0);
+                  return (
+                    <div className="bg-violet-50 rounded-lg p-3 text-xs text-violet-800 space-y-1">
+                      <div className="flex justify-between"><span>Hourly rate (basic ÷ 30 ÷ 8)</span><span className="font-bold">{fmtCurrency(hourly)}</span></div>
+                      <div className="flex justify-between"><span>Normal OT pay</span><span className="font-bold">{fmtCurrency(normalOtPay)}</span></div>
+                      <div className="flex justify-between"><span>Sunday OT pay</span><span className="font-bold">{fmtCurrency(sundayOtPay)}</span></div>
+                      <div className="flex justify-between text-sm pt-1 border-t border-violet-200"><span className="font-bold">Net Salary</span><span className="font-black">{fmtCurrency(net)}</span></div>
+                    </div>
+                  );
+                })()}
               </div>
               <div className="flex gap-2 pt-2">
                 <button onClick={handleSave} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 rounded-lg text-sm flex items-center justify-center gap-2">
@@ -1215,19 +1249,32 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                {['Employee', 'Base Salary', 'Overtime', 'Deductions', 'Net Salary', 'Status', 'Action'].map(h => (
+                {['Employee', 'Base Salary', 'Allowances', 'Normal OT', 'Sunday OT', 'Deductions', 'Net Salary', 'Status', 'Action'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-slate-400 text-sm">No payroll entries for this month</td></tr>
-              ) : filtered.map(p => (
+                <tr><td colSpan={9} className="text-center py-12 text-slate-400 text-sm">No payroll entries for this month</td></tr>
+              ) : filtered.map(p => {
+                const hourly = hourlyRateFromBasic(p.baseSalary);
+                const hasSplitOt = p.normalOtHours !== undefined || p.sundayOtHours !== undefined;
+                const normalOtPay = hasSplitOt ? (p.normalOtHours || 0) * hourly * NORMAL_OT_MULTIPLIER : (p.overtimeHours || 0) * (p.overtimeRate || 0);
+                const sundayOtPay = hasSplitOt ? (p.sundayOtHours || 0) * hourly * SUNDAY_OT_MULTIPLIER : 0;
+                return (
                 <tr key={p.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3 font-semibold text-slate-800">{p.employeeName}</td>
                   <td className="px-4 py-3 text-slate-600">{fmtCurrency(p.baseSalary)}</td>
-                  <td className="px-4 py-3 text-slate-600">{p.overtimeHours}h × {fmtCurrency(p.overtimeRate)}</td>
+                  <td className="px-4 py-3 text-slate-600">{fmtCurrency(p.allowances || 0)}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {hasSplitOt ? `${p.normalOtHours || 0}h` : `${p.overtimeHours || 0}h`}
+                    <span className="text-slate-400"> ({fmtCurrency(normalOtPay)})</span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {hasSplitOt ? `${p.sundayOtHours || 0}h` : '—'}
+                    <span className="text-slate-400"> ({fmtCurrency(sundayOtPay)})</span>
+                  </td>
                   <td className="px-4 py-3 text-rose-600">−{fmtCurrency(p.deductions)}</td>
                   <td className="px-4 py-3 font-bold text-slate-800">{fmtCurrency(p.netSalary)}</td>
                   <td className="px-4 py-3">
@@ -1247,7 +1294,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     {p.status === 'Paid' && <span className="text-xs text-slate-400">{p.paidAt ? fmtDate(p.paidAt) : ''}</span>}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
