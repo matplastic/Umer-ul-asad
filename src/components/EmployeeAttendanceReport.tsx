@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { UserCheck, UserX, CalendarClock, Printer, Download, HeartPulse, MapPin } from 'lucide-react';
+import { UserCheck, UserX, CalendarClock, Printer, Download, HeartPulse, MapPin, CalendarOff } from 'lucide-react';
 import { exportToExcel, exportTablePdf } from '../lib/exportUtils';
 import { Employee, EmployeePunch } from '../types';
 
@@ -18,7 +18,7 @@ interface EmployeeAttendanceReportProps {
   siteDeployed: DeployedLike[];
 }
 
-type DayStatus = 'Present' | 'Absent' | 'On Leave' | 'Medical' | 'Deployed';
+type DayStatus = 'Present' | 'Absent' | 'On Leave' | 'Medical' | 'Deployed' | 'Holiday';
 
 interface DayRow {
   date: string;
@@ -34,6 +34,7 @@ const STATUS_STYLE: Record<DayStatus, string> = {
   'On Leave': 'bg-amber-50 text-amber-700 border-amber-200',
   Medical: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   Deployed: 'bg-sky-50 text-sky-700 border-sky-200',
+  Holiday: 'bg-slate-100 text-slate-500 border-slate-200',
 };
 
 function fmt(d: Date): string {
@@ -120,6 +121,12 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
       if (inPunch) {
         return { date, dayName, status: 'Present' as DayStatus, inTime: inPunch.timestamp, outTime: outPunch?.timestamp };
       }
+      // Sunday is the standing weekly holiday — a Sunday with no punch is a
+      // day off, not an absence, and shouldn't count against the employee.
+      const isSunday = new Date(date + 'T00:00:00').getDay() === 0;
+      if (isSunday) {
+        return { date, dayName, status: 'Holiday' as DayStatus };
+      }
       if (deployedIds.has(employeeId)) {
         return { date, dayName, status: 'Deployed' as DayStatus };
       }
@@ -135,7 +142,7 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
   }, [employeeId, range, punchesForEmp, deployedIds, approvedLeavesForEmp, medicalsForEmp]);
 
   const summary = useMemo(() => {
-    const counts: Record<DayStatus, number> = { Present: 0, Absent: 0, 'On Leave': 0, Medical: 0, Deployed: 0 };
+    const counts: Record<DayStatus, number> = { Present: 0, Absent: 0, 'On Leave': 0, Medical: 0, Deployed: 0, Holiday: 0 };
     dayRows.forEach(r => { counts[r.status]++; });
     return counts;
   }, [dayRows]);
@@ -146,7 +153,7 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
     if (!employee || dayRows.length === 0) return;
     exportTablePdf({
       title: `Attendance Report — ${employee.name}`,
-      subtitle: `Badge: ${employee.id}  •  ${range.startDate} to ${range.endDate}  •  Present: ${summary.Present}  •  Absent: ${summary.Absent}  •  Leave: ${summary['On Leave']}  •  Medical: ${summary.Medical}  •  Deployed: ${summary.Deployed}`,
+      subtitle: `Badge: ${employee.id}  •  ${range.startDate} to ${range.endDate}  •  Present: ${summary.Present}  •  Absent: ${summary.Absent}  •  Leave: ${summary['On Leave']}  •  Medical: ${summary.Medical}  •  Deployed: ${summary.Deployed}  •  Sunday Holiday: ${summary.Holiday}`,
       columns: [
         { header: 'Date', dataKey: 'date' },
         { header: 'Day', dataKey: 'dayName' },
@@ -258,7 +265,7 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
 
       {employee && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
               <div className="flex items-center gap-2 text-emerald-700 mb-1"><UserCheck className="h-4 w-4" /><span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Present</span></div>
               <p className="text-2xl font-black text-slate-800">{summary.Present}</p>
@@ -278,6 +285,10 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
             <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
               <div className="flex items-center gap-2 text-sky-700 mb-1"><MapPin className="h-4 w-4" /><span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Deployed</span></div>
               <p className="text-2xl font-black text-slate-800">{summary.Deployed}</p>
+            </div>
+            <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-slate-500 mb-1"><CalendarOff className="h-4 w-4" /><span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Sunday Off</span></div>
+              <p className="text-2xl font-black text-slate-800">{summary.Holiday}</p>
             </div>
           </div>
 
