@@ -6,10 +6,12 @@ import {
 } from 'lucide-react';
 import { exportToExcel, exportTablePdf } from '../lib/exportUtils';
 import { DateRangeFilter, DateRange } from './DateRangeFilter';
+import { EmployeeAttendanceReport } from './EmployeeAttendanceReport';
 import {
   dbFetchHRLeaves, dbFetchHRWarnings, dbFetchHRAccidents, dbFetchHRMedicals,
   dbFetchHRPurchaseRequests, dbFetchMaterialRequests, dbFetchIncomingMaterials,
   dbFetchConsumptionLogs, dbFetchMaterialReturns, dbFetchProductionLogs,
+  dbFetchHRSiteDeployed,
 } from '../lib/firebaseService';
 import { Pool, ActivityLog, Employee, EmployeePunch } from '../types';
 
@@ -89,17 +91,19 @@ export const AllReportsTab: React.FC<AllReportsTabProps> = ({ pools, logs, emplo
   const [consumptionLogs, setConsumptionLogs] = useState<any[]>([]);
   const [materialReturns, setMaterialReturns] = useState<any[]>([]);
   const [productionLogs, setProductionLogs] = useState<any[]>([]);
+  const [siteDeployed, setSiteDeployed] = useState<any[]>([]);
 
   const loadAll = useCallback(async () => {
     setLoadingAll(true);
     try {
       const [
         leaves, warnings, accidents, medicals, purchaseReqs,
-        matReqs, incoming, consumption, returns, prodLogs,
+        matReqs, incoming, consumption, returns, prodLogs, deployed,
       ] = await Promise.all([
         dbFetchHRLeaves(), dbFetchHRWarnings(), dbFetchHRAccidents(), dbFetchHRMedicals(),
         dbFetchHRPurchaseRequests(), dbFetchMaterialRequests(), dbFetchIncomingMaterials(),
         dbFetchConsumptionLogs(), dbFetchMaterialReturns(), dbFetchProductionLogs(),
+        dbFetchHRSiteDeployed(),
       ]);
       setHrLeaves(leaves || []);
       setHrWarnings(warnings || []);
@@ -111,6 +115,7 @@ export const AllReportsTab: React.FC<AllReportsTabProps> = ({ pools, logs, emplo
       setConsumptionLogs(consumption || []);
       setMaterialReturns(returns || []);
       setProductionLogs(prodLogs || []);
+      setSiteDeployed(deployed || []);
     } catch (err) {
       console.error('[AllReportsTab] Failed to load report data:', err);
     } finally {
@@ -359,6 +364,23 @@ export const AllReportsTab: React.FC<AllReportsTabProps> = ({ pools, logs, emplo
           <RefreshCw className={`h-3.5 w-3.5 ${loadingAll ? 'animate-spin' : ''}`} />
           {loadingAll ? 'Loading...' : 'Refresh Data'}
         </button>
+      </div>
+
+      <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
+        <h3 className="font-extrabold text-slate-800 text-sm mb-1 flex items-center gap-2">
+          <Users className="h-4 w-4 text-violet-600" />
+          Employee Attendance Report
+        </h3>
+        <p className="text-xs text-slate-400 mb-4">
+          Pick any employee and a weekly, monthly, or yearly period to see exactly which days they were present, absent, on leave, on medical, or deployed.
+        </p>
+        <EmployeeAttendanceReport
+          employees={employees}
+          employeePunches={employeePunches}
+          leaves={hrLeaves}
+          medicals={hrMedicals}
+          siteDeployed={siteDeployed}
+        />
       </div>
 
       <div className="flex gap-2 flex-wrap border-b border-slate-100 pb-3">
