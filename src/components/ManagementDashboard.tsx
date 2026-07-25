@@ -157,6 +157,31 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor'>('analytics');
 
+  // DERIVED TEAM STATUS (source of truth): a team's own `status`/`activePoolId`
+  // fields can drift out of sync with reality (manual edits, dropped writes,
+  // or the dual-stage-parallel release bug). The real source of truth is
+  // whether any pool's stageHistory for that team's stage still lists them
+  // as teamId with an in-progress status. Every busy/idle count and badge in
+  // this file should read from this set instead of trusting team.status raw.
+  const genuinelyBusyTeamIds = React.useMemo(() => {
+    const busy = new Set<string>();
+    for (const p of pools) {
+      for (const stageId of Object.keys(p.stageHistory) as StageId[]) {
+        const hist = p.stageHistory[stageId];
+        if (hist?.teamId && (hist.status === 'IN_PROGRESS' || hist.status === 'PENDING_INSPECTION' || hist.status === 'REJECTED')) {
+          busy.add(hist.teamId);
+        }
+      }
+    }
+    // Also trust team.status === 'BUSY' as a fallback for teams claimed but
+    // not yet reflected in any pool's stageHistory (e.g. just-claimed).
+    for (const t of teams) {
+      if (t.status === 'BUSY') busy.add(t.id);
+    }
+    return busy;
+  }, [pools, teams]);
+  const isTeamBusy = (teamId: string) => genuinelyBusyTeamIds.has(teamId);
+
   // Section Supervisor accounts — loaded so Teams Allocation can assign each
   // supervisor a short quick-code PIN for the shared shop-floor computer,
   // the same way Team.code works for workers.
@@ -1116,7 +1141,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const handleDeleteTeam = (teamId: string) => {
     const team = teams.find(t => t.id === teamId);
     if (!team) return;
-    if (team.status === 'BUSY') {
+    if (isTeamBusy(teamId)) {
       alert("Cannot delete a shop floor team while they are currently assigned to an active pool build!");
       return;
     }
@@ -1895,7 +1920,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
           <div>
             <span className="block text-2xl font-semibold text-neutral-800 font-mono tracking-tight">
-              {teams.filter(t => t.status === 'BUSY').length} / {teams.length}
+              {teams.filter(t => isTeamBusy(t.id)).length} / {teams.length}
             </span>
             <span className="text-xs font-medium text-neutral-400">Assigned teams rate</span>
           </div>
@@ -4249,7 +4274,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             (hist.status === 'IN_PROGRESS' || hist.status === 'PENDING_INSPECTION' || hist.status === 'REJECTED');
                         });
                         const busyPool = (team.activePoolId ? pools.find(p => p.id === team.activePoolId) : null) || derivedBusyPool || null;
-                        const isBusy = !!busyPool || team.status === 'BUSY';
+                        const isBusy = isTeamBusy(team.id);
                         return (
                           <div key={team.id} className="p-2 border border-slate-50 hover:bg-slate-50/55 rounded-lg text-xs">
                             <div className="flex justify-between items-center font-bold">
@@ -5734,7 +5759,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             <div>
                               <p className="font-extrabold text-slate-800">{team.name}</p>
                               <p className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded mt-0.5 inline-block text-slate-500 border border-slate-200 font-bold bg-white">
-                                Status: <strong className={team.status === 'BUSY' ? 'text-amber-600' : 'text-emerald-700'}>{team.status}</strong>
+                                Status: <strong className={isTeamBusy(team.id) ? 'text-amber-600' : 'text-emerald-700'}>{isTeamBusy(team.id) ? 'BUSY' : 'IDLE'}</strong>
                               </p>
                             </div>
                           )}
