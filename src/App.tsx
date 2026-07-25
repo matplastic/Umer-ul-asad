@@ -2503,8 +2503,17 @@ export default function App() {
     // Defensive fallback: if stageHist.teamId is missing/stale (e.g. the claim
     // write never landed), also release any team whose activePoolId still
     // points at this pool, so a team can never get stuck BUSY forever.
+    //
+    // BUGFIX: the fallback must also check t.stageId === stageId. Without it,
+    // approving one DUAL_STAGE_IDS sibling (e.g. Skimmer Fitting) would also
+    // wrongly release the OTHER sibling's team (e.g. Lamination) whenever that
+    // team's activePoolId still pointed at the same shared pool — even though
+    // that team is still actively mid-task on their own parallel stage. This is
+    // exactly what caused teams to show IDLE/free while actually still holding
+    // a pool, and caused team-pool allocation data to get overwritten/lost when
+    // that wrongly-freed team then claimed a new pool.
     const updatedTeams = teams.map(t => {
-      if (t.id === originalWorkspecTeamId || t.activePoolId === poolId) {
+      if (t.id === originalWorkspecTeamId || (t.activePoolId === poolId && t.stageId === stageId)) {
         return { ...t, status: 'IDLE' as const, activePoolId: null };
       }
       return t;
