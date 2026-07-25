@@ -95,7 +95,7 @@ export const AutoPrintMaterialSlip: React.FC = () => {
           #auto-print-area, #auto-print-area * { visibility: visible; }
           #auto-print-area {
             position: absolute; top: 0; left: 0;
-            width: 210mm; min-height: 297mm; padding: 15mm;
+            width: 100%;
             font-size: 12pt;
           }
           @page { size: A4; margin: 15mm; }
