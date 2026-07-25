@@ -377,8 +377,9 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       const poolType = String(rawType || '').trim() || 'Type 3';
       const notes = String(rawNotes || '').trim();
 
-      const isDuplicateInRegister = plannedPools.some(pp => pp.poolNo === poolNo);
-      const isDuplicateInFloor = pools.some(p => p.poolNo === poolNo);
+      const projectNameKey = projectName.trim().toLowerCase();
+      const isDuplicateInRegister = plannedPools.some(pp => pp.poolNo === poolNo && (pp.projectName || '').trim().toLowerCase() === projectNameKey);
+      const isDuplicateInFloor = pools.some(p => p.poolNo === poolNo && (p.projectName || '').trim().toLowerCase() === projectNameKey);
       const isInvalid = !poolNo;
 
       return {
