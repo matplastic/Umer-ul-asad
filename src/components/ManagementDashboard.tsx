@@ -4239,15 +4239,25 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                     <div className="space-y-2">
                       {stageTeams.map((team) => {
-                        const busyPool = team.activePoolId ? pools.find(p => p.id === team.activePoolId) : null;
+                        // DERIVED STATUS FIX: the team doc's own `status`/`activePoolId`
+                        // fields can drift out of sync with reality (manual edits,
+                        // dropped writes, etc). Source of truth is pool.stageHistory —
+                        // same fallback approach already used in StageDashboard.tsx.
+                        const derivedBusyPool = pools.find(p => {
+                          const hist = p.stageHistory[team.stageId];
+                          return hist && hist.teamId === team.id &&
+                            (hist.status === 'IN_PROGRESS' || hist.status === 'PENDING_INSPECTION' || hist.status === 'REJECTED');
+                        });
+                        const busyPool = (team.activePoolId ? pools.find(p => p.id === team.activePoolId) : null) || derivedBusyPool || null;
+                        const isBusy = !!busyPool || team.status === 'BUSY';
                         return (
                           <div key={team.id} className="p-2 border border-slate-50 hover:bg-slate-50/55 rounded-lg text-xs">
                             <div className="flex justify-between items-center font-bold">
                               <span className="text-slate-800">{team.name}</span>
                               <span className={`text-[9px] px-1.5 rounded-full font-black ${
-                                team.status === 'IDLE' ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' : 'bg-amber-50 border border-amber-100 text-amber-750 text-amber-700'
+                                !isBusy ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' : 'bg-amber-50 border border-amber-100 text-amber-750 text-amber-700'
                               }`}>
-                                {team.status}
+                                {isBusy ? 'BUSY' : 'IDLE'}
                               </span>
                             </div>
                             {busyPool && (
