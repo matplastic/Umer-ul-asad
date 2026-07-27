@@ -9,6 +9,7 @@ import { listUserAccounts, updateUserAccount, type AuthUser } from '../lib/authC
 import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { OnlineUsersPanel } from './OnlineUsersPanel';
 import { StageDashboard } from './StageDashboard';
+import { StageReportsTab } from './StageReportsTab';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
   CartesianGrid, Tooltip as RechartsTooltip, Legend
@@ -155,7 +156,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports'>('analytics');
 
   // DERIVED TEAM STATUS (source of truth): a team's own `status`/`activePoolId`
   // fields can drift out of sync with reality (manual edits, dropped writes,
@@ -2107,6 +2108,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'release_log', label: 'Pool Release Log', icon: Calendar, elId: 'tab-mgmt-release-log' },
               { id: 'daily_progress', label: 'Daily Stage Progress', icon: Calendar, elId: 'tab-mgmt-daily-progress' },
               { id: 'rejection_log', label: 'Rejection Log', icon: AlertTriangle, elId: 'tab-mgmt-rejection-log' },
+              { id: 'stage_reports', label: 'Stage Reports', icon: FileSpreadsheet, elId: 'tab-mgmt-stage-reports' },
             ],
           },
           {
@@ -4143,6 +4145,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             )}
 
           </div>
+        )}
+
+        {/* Tab: Stage Reports — per-stage PDF/Excel export, Remaining/Unclaimed + Completed */}
+        {activeTab === 'stage_reports' && (
+          <StageReportsTab pools={pools} />
         )}
 
         {/* Tab 3: Teams Status Allocation */}
