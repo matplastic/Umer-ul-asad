@@ -829,6 +829,51 @@ export async function dbDeleteTeam(teamId: string) {
   }
 }
 
+// DATA-LOSS FIX (v8): dbDeleteTeam above and the generic saveState() path
+// used to fire as TWO SEPARATE, uncoordinated Firestore transactions on
+// every team edit — one that merges the local array by id (saveState ->
+// saveChangedCollectionsToFirestore -> mergeById), and one that deletes
+// removed ids (dbDeleteTeam). Each transaction reads the live doc, decides
+// what to write, and commits independently. Firestore's transaction retry
+// only protects a transaction from itself; it does NOT guarantee any
+// ordering between two separately-fired transactions targeting the same
+// document. When several team edits happened close together (multiple
+// kiosks open, or a quick rename immediately after a delete), these two
+// writes could interleave and a delete could be silently undone by the
+// merge's "restore records missing from local" logic, or vice versa —
+// this is how Teams Allocation data could vanish or come back wrong with
+// no error shown.
+//
+// THE FIX: do the merge AND the removal inside ONE atomic transaction.
+// Call this instead of (saveState's teams write + dbDeleteTeam per id).
+export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = []): Promise<Team[]> {
+  const docRef = doc(clientDb, 'system_state', 'teams');
+  let updatedArr: any[] = [];
+
+  await runTransaction(clientDb, async (transaction) => {
+    const snap = await transaction.get(docRef);
+    const current: any[] = snap.exists() && Array.isArray(snap.data()?.data)
+      ? snap.data()!.data
+      : [];
+
+    const localIds = new Set(localTeams.map((t) => t?.id));
+    const removedSet = new Set(removedIds);
+
+    // Records on the server but missing from the local array are only
+    // "restored" (assumed added/edited elsewhere) if they were NOT
+    // explicitly deleted by this action. Records explicitly removed stay
+    // removed, even though they're also "missing from local" — this is
+    // the distinction the old two-transaction approach couldn't make
+    // atomically.
+    const restored = current.filter((item) => !localIds.has(item?.id) && !removedSet.has(item?.id));
+
+    updatedArr = [...localTeams, ...restored];
+    transaction.set(docRef, { data: removeUndefined(updatedArr) });
+  });
+
+  return updatedArr;
+}
+
 export async function dbSaveTeam(team: Team) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
