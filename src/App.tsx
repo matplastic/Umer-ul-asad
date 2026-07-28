@@ -2293,11 +2293,38 @@ export default function App() {
   const handleDeletePlannedPool = async (planId: string) => {
     const design = plannedPools.find(p => p.id === planId);
     if (!design) return;
-    if (design.status !== 'PLANNED') {
-      alert("Cannot delete a released or completed pool from the planning list.");
-      return;
+
+    // RELEASED/COMPLETED planned pools are linked to a live pool on the shop
+    // floor via releasedPoolId. Previously these were blocked from deletion
+    // here entirely. Now we allow it, but deleting one also deletes the
+    // linked live pool record (production/QC/team data) so nothing is left
+    // orphaned in the shop-floor collections.
+    const linkedLivePool = design.status !== 'PLANNED' && design.releasedPoolId
+      ? pools.find(p => p.id === design.releasedPoolId)
+      : undefined;
+
+    const confirmMsg = linkedLivePool
+      ? `Delete pool "${design.poolNo}" (${design.projectName}) permanently?\n\nThis pool has already been released to the shop floor (status: ${design.status}). Deleting it removes BOTH the planning record AND its live manufacturing/production data. A copy of each is kept in the Recycle Bin for 3 days.`
+      : `Remove pre-planned pool ${design.poolNo} from the index?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    if (linkedLivePool) {
+      const poolTrashItem: RecycleBinItem = {
+        id: `pool_trash_${linkedLivePool.id}_${Date.now()}`,
+        dataType: 'pool',
+        deletedAt: new Date().toISOString(),
+        payload: linkedLivePool
+      };
+      await dbAddRecycleBin(poolTrashItem).catch(console.error);
+
+      const updatedPools = pools.filter(p => p.id !== linkedLivePool.id);
+      const updatedTeams = teams.map(t =>
+        t.activePoolId === linkedLivePool.id ? { ...t, status: 'IDLE' as const, activePoolId: null } : t
+      );
+      setPools(updatedPools);
+      setTeams(updatedTeams);
+      await dbDeletePool(linkedLivePool.id).catch(console.error);
     }
-    if (!window.confirm(`Remove pre-planned pool ${design.poolNo} from the index?`)) return;
 
     // Save to Recycle Bin
     const trashItem: RecycleBinItem = {
