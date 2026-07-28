@@ -897,7 +897,24 @@ export async function dbDeleteTeam(teamId: string) {
 //
 // THE FIX: do the merge AND the removal inside ONE atomic transaction.
 // Call this instead of (saveState's teams write + dbDeleteTeam per id).
-export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = []): Promise<Team[]> {
+// DATA-LOSS FIX (v9): SCOPED merge for teams, matching mergeByIdScoped above.
+//
+// THE BUG: this function let localTeams (the caller's ENTIRE in-memory team
+// list) win for every id it contained — not just the id(s) actually edited.
+// The Team Allocation screen (or any screen holding team state) could be
+// carrying a stale copy of a team that the shop floor had just updated
+// (assigned a pool, started a timer) seconds earlier. Saving ANY unrelated
+// team edit — a rename, adding a team — would silently overwrite that
+// just-updated team with the stale copy, because it "won" the merge even
+// though this screen never touched it. This is why only team-allocation
+// data kept reverting: this was the one save path in the app that still did
+// a full-array overwrite after the general fix (mergeByIdScoped) was added.
+//
+// THE FIX: only let local win for ids the caller says it actually changed
+// (`changedIds`). Everything else — and any explicit removal — is decided
+// from `current` (the live server value read inside this transaction), so
+// an untouched team can never be rewound by a stale screen.
+export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [], changedIds?: string[]): Promise<Team[]> {
   const docRef = doc(clientDb, 'system_state', 'teams');
   let updatedArr: any[] = [];
 
@@ -907,18 +924,32 @@ export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [])
       ? snap.data()!.data
       : [];
 
-    const localIds = new Set(localTeams.map((t) => t?.id));
     const removedSet = new Set(removedIds);
+    const localById = new Map(localTeams.map((t) => [t?.id, t]));
 
-    // Records on the server but missing from the local array are only
-    // "restored" (assumed added/edited elsewhere) if they were NOT
-    // explicitly deleted by this action. Records explicitly removed stay
-    // removed, even though they're also "missing from local" — this is
-    // the distinction the old two-transaction approach couldn't make
-    // atomically.
-    const restored = current.filter((item) => !localIds.has(item?.id) && !removedSet.has(item?.id));
+    if (!changedIds) {
+      // No explicit changed-id list supplied — fall back to the old
+      // (broad) behaviour rather than silently dropping the write.
+      const localIds = new Set(localTeams.map((t) => t?.id));
+      const restored = current.filter((item) => !localIds.has(item?.id) && !removedSet.has(item?.id));
+      updatedArr = [...localTeams, ...restored];
+    } else {
+      const changedSet = new Set(changedIds);
+      // Start from the server's live copy, drop explicit removals, and only
+      // swap in local's version for ids that were actually changed.
+      updatedArr = current
+        .filter((item) => !removedSet.has(item?.id))
+        .map((item) => (changedSet.has(item?.id) && localById.has(item?.id) ? localById.get(item?.id) : item));
 
-    updatedArr = [...localTeams, ...restored];
+      // Brand-new teams: changed ids that don't exist in `current` yet.
+      const currentIds = new Set(current.map((item) => item?.id));
+      for (const id of changedSet) {
+        if (!currentIds.has(id) && !removedSet.has(id) && localById.has(id)) {
+          updatedArr.push(localById.get(id));
+        }
+      }
+    }
+
     transaction.set(docRef, { data: removeUndefined(updatedArr) });
   });
 
