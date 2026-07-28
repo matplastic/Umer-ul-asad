@@ -370,9 +370,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           </div>
                           <button
                             onClick={() => {
-                              if (window.confirm(`Confirm: start work on Pool [${myClaimedPool.poolNo}] - ${myClaimedPool.projectName} for ${stage.name}?\n\nWorking team: ${activeTeam?.name || 'Unknown Team'}`)) {
-                                onStartStage(myClaimedPool.id, stage.id);
-                              }
+                              onStartStage(myClaimedPool.id, stage.id);
                             }}
                             className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-100"
                           >
@@ -394,9 +392,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           </div>
                           <button
                             onClick={() => {
-                              if (window.confirm(`Confirm: mark Pool [${myClaimedPool.poolNo}] - ${myClaimedPool.projectName} as COMPLETE for ${stage.name}?\n\nWorking team: ${activeTeam?.name || 'Unknown Team'}\n\nDouble-check this is YOUR pool before confirming — this cannot be undone from here.`)) {
-                                onFinishStage(myClaimedPool.id, stage.id);
-                              }
+                              onFinishStage(myClaimedPool.id, stage.id);
                             }}
                             className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-blue-150"
                           >
