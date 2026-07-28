@@ -93,6 +93,26 @@ export interface Team {
   code?: string; // Login PIN so a worker can check in as this team on a shared kiosk screen
 }
 
+// Audit trail entry for bulk deletions from the Planning Department
+// Inventory Registry. One entry is written per confirmed bulk-delete action
+// (not per item), with a snapshot of every item removed, so we always know
+// who deleted what and when even after the records themselves are gone.
+export interface InventoryDeletionLog {
+  id: string;
+  timestamp: string;
+  performedByUsername: string;
+  performedByDisplayName: string;
+  performedByUserId: string;
+  module: 'Planning Inventory Registry';
+  deletedCount: number;
+  deletedItems: {
+    id: string;
+    poolNo: string;
+    projectName: string;
+    status: string;
+  }[];
+}
+
 export interface ActivityLog {
   id: string;
   timestamp: string;
