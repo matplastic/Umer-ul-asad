@@ -2474,8 +2474,16 @@ export default function App() {
     if (!team || team.status === 'BUSY') return;
 
     // Update pool: assign stage team details
+    // SYNC FIX: clone both the pool AND its stageHistory bag before editing.
+    // `updatedPools[poolIndex]` was the SAME object as `pools[poolIndex]` —
+    // mutating `pool.stageHistory[stageId]` in place mutated the OLD state
+    // too (same reference), so findChangedIds() saw before === after and
+    // never marked this pool as changed. That meant the Firestore write
+    // silently dropped this pool's update — it showed up on this device
+    // (local state) but never synced to other devices.
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
     stageHist.teamId = teamId;
     stageHist.teamName = team.name;
@@ -2515,8 +2523,12 @@ export default function App() {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
+    // SYNC FIX: see handleClaimPool above — clone stageHistory too, or the
+    // mutation happens on the shared object and the change silently fails
+    // to reach Firestore (findChangedIds sees no difference).
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
     stageHist.status = 'IN_PROGRESS';
     stageHist.startTime = customDateTime || new Date().toISOString();
@@ -2548,8 +2560,12 @@ export default function App() {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
+    // SYNC FIX: see handleClaimPool above — without cloning stageHistory,
+    // this pool getting sent to Quality never actually synced to Firestore
+    // on other devices (it only ever looked correct on the device that did it).
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
     
     stageHist.status = 'PENDING_INSPECTION';
@@ -2592,8 +2608,10 @@ export default function App() {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
+    // SYNC FIX: see handleClaimPool above.
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Set approved status
@@ -2703,8 +2721,10 @@ export default function App() {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
+    // SYNC FIX: see handleClaimPool above.
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Set rejected status & increment loop
@@ -2879,8 +2899,12 @@ export default function App() {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
+    // SYNC FIX: cloning `pool` alone wasn't enough — pool.stageHistory was
+    // still the SAME nested object as the original, so writing
+    // pool.stageHistory[stageId] below still mutated the old state in
+    // place, and findChangedIds never detected the change.
     const updatedPools = [...pools];
-    const pool = { ...updatedPools[poolIndex] };
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Reset the stage so any team can claim it again
@@ -2934,8 +2958,10 @@ export default function App() {
     const poolIndex = pools.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
+    // SYNC FIX: see handleClaimPool above.
     const updatedPools = [...pools];
-    const pool = updatedPools[poolIndex];
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
 
     // Record skipped / custom carry status
