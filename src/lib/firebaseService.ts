@@ -521,7 +521,57 @@ function mergeById(current: any[], local: any[]): any[] {
   return [...local, ...restored];
 }
 
-export async function saveChangedCollectionsToFirestore(changed: Record<string, any[]>) {
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA-LOSS FIX (v8): SCOPED merge — only let this tab's copy win for the
+// specific record id(s) it actually changed.
+//
+// THE BUG: mergeById() (above) let the caller's ENTIRE local array win,
+// record-by-record, for every id present in it. But "local" here is this
+// tab's full in-memory copy of pools/teams — which is stale for every record
+// this tab didn't just touch. Any save from a tab with an older screenful of
+// data (a TV dashboard, a tablet that's been open a while, a second device)
+// would silently overwrite a DIFFERENT record that another device had just
+// updated seconds earlier — e.g. Worker B marks a pool finished, then Device
+// A's next unrelated save (approving a different pool, starting a timer)
+// wipes that finish back to its old state, because Device A's stale copy of
+// that pool "won" the merge even though Device A never touched it.
+//
+// THE FIX: only apply the local version for ids the caller explicitly says
+// it changed (`changedIds`). Every other record comes straight from
+// `current` — the value the transaction just read live from the server —
+// so an untouched record can never be rewound by a stale tab.
+// ─────────────────────────────────────────────────────────────────────────────
+function mergeByIdScoped(current: any[], local: any[], changedIds?: string[]): any[] {
+  if (!Array.isArray(current) || current.length === 0) return local;
+  if (!Array.isArray(local)) return current;
+  // No explicit list of changed ids for this collection — fall back to the
+  // old (broad) merge behaviour rather than silently dropping the write.
+  if (!changedIds) return mergeById(current, local);
+
+  const changedSet = new Set(changedIds);
+  const localById = new Map(local.map((item) => [item?.id, item]));
+
+  // Start from the server's live copy and only swap in local's version for
+  // ids that were actually changed by this action.
+  const result = current.map((item) =>
+    changedSet.has(item?.id) && localById.has(item?.id) ? localById.get(item?.id) : item
+  );
+
+  // Brand-new records: changed ids that don't exist in `current` yet.
+  const currentIds = new Set(current.map((item) => item?.id));
+  for (const id of changedSet) {
+    if (!currentIds.has(id) && localById.has(id)) {
+      result.push(localById.get(id));
+    }
+  }
+
+  return result;
+}
+
+export async function saveChangedCollectionsToFirestore(
+  changed: Record<string, any[]>,
+  changedIds: Record<string, string[]> = {}
+) {
   const entries = Object.entries(changed);
   if (entries.length === 0) return { success: true };
   await Promise.all(entries.map(([name, arr]) => {
@@ -535,7 +585,8 @@ export async function saveChangedCollectionsToFirestore(changed: Record<string, 
       const trimmed = data.slice(-200);
       return updateFirestoreDocArray(name, () => trimmed);
     }
-    return updateFirestoreDocArray(name, (current) => mergeById(current, data));
+    const ids = changedIds[name];
+    return updateFirestoreDocArray(name, (current) => mergeByIdScoped(current, data, ids));
   }));
   return { success: true };
 }
