@@ -59,6 +59,7 @@ interface PlanningDepartmentProps {
     notes?: string;
   }) => void;
   onDeletePlannedPool: (planId: string) => void;
+  onBulkDeletePlannedPools?: (planIds: string[]) => Promise<void> | void;
   onUpdatePlannedPool?: (planId: string, updatedFields: { projectName?: string }) => void;
   onReleasePlannedPool: (planId: string, operatorName: string) => string | null;
   engineers: { id: string; name: string; title?: string }[];
@@ -122,6 +123,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   onAddPlannedPool,
   onAddPlannedPoolBatch,
   onDeletePlannedPool,
+  onBulkDeletePlannedPools,
   onUpdatePlannedPool,
   onReleasePlannedPool,
   engineers,
@@ -1327,11 +1329,11 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
     });
   }, [combinedRegistryPools, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
 
-  // Only pre-planned records (not synthetic "live-" shop-floor entries) can
-  // actually be deleted here — same rule the existing single-row Delete
-  // button already follows.
+  // Only pre-planned records with status PLANNED (not synthetic "live-"
+  // shop-floor entries, and not already RELEASED/COMPLETED) can actually be
+  // deleted — same rule the backend delete handler enforces.
   const deletableFilteredPools = useMemo(
-    () => filteredPlannedPools.filter(p => !p.id.startsWith('live-')),
+    () => filteredPlannedPools.filter(p => !p.id.startsWith('live-') && p.status === 'PLANNED'),
     [filteredPlannedPools]
   );
 
@@ -1383,8 +1385,20 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
         .filter(p => idsToDelete.includes(p.id))
         .map(p => ({ id: p.id, poolNo: p.poolNo, projectName: p.projectName, status: p.status }));
 
-      // Delete each selected planned pool.
-      idsToDelete.forEach(id => onDeletePlannedPool(id));
+      // Delete all selected planned pools in a single atomic pass — do NOT
+      // loop onDeletePlannedPool here, it shows its own window.confirm per
+      // item and reads from a stale closure, so a loop would only end up
+      // deleting one item. onBulkDeletePlannedPools removes them all at once
+      // with no per-item prompt.
+      if (onBulkDeletePlannedPools) {
+        await onBulkDeletePlannedPools(idsToDelete);
+      } else {
+        // Fallback for older wiring that hasn't passed the bulk prop yet —
+        // still works, just sequential and slower.
+        for (const id of idsToDelete) {
+          onDeletePlannedPool(id);
+        }
+      }
 
       // Record exactly who deleted what, before clearing selection.
       const auditEntry: InventoryDeletionLog = {
