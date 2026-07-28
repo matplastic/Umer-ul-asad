@@ -48,6 +48,7 @@ import {
   dbDeletePool,
   dbSavePlannedPool,
   dbDeletePlannedPool,
+  dbBulkDeletePlannedPools,
   dbSaveEmployeePunch,
   dbDeleteEmployeePunch,
   dbSaveEmployeePunchesBulk,
@@ -2309,33 +2310,39 @@ export default function App() {
   // and (b) computes `updated` from the `plannedPools` closure captured at
   // render time — calling it repeatedly in a tight loop means every call
   // filters the SAME original array and the final setPlannedPools() call
-  // wins, silently discarding all but one deletion. This variant removes
-  // every selected id in a single pass and writes state once. Confirmation
-  // and audit logging are handled by the caller (password modal in
-  // PlanningDepartment.tsx) before this is invoked.
+  // wins, silently discarding all but one deletion.
+  //
+  // It also does NOT fire off N parallel dbAddRecycleBin/dbDeletePlannedPool
+  // calls — that was tried first and caused large bulk deletes (40+ items)
+  // to hang for minutes, because every one of those calls opens its own
+  // Firestore transaction against the SAME 'plannedPools'/'recycleBin'
+  // document, so they all fight over the same doc and Firestore has to keep
+  // retrying the losers. dbBulkDeletePlannedPools does the whole batch as a
+  // single transaction instead.
+  //
+  // Confirmation and audit logging are handled by the caller (password modal
+  // in PlanningDepartment.tsx) before this is invoked.
   const handleBulkDeletePlannedPools = async (planIds: string[]) => {
     const idsSet = new Set(planIds);
     const toDelete = plannedPools.filter(p => idsSet.has(p.id) && p.status === 'PLANNED');
     if (toDelete.length === 0) return;
 
-    // Save every deleted item to the Recycle Bin.
-    await Promise.all(toDelete.map(design => {
-      const trashItem: RecycleBinItem = {
-        id: `planned_pool_trash_${design.id}_${Date.now()}`,
-        dataType: 'planned_pool',
-        deletedAt: new Date().toISOString(),
-        payload: design
-      };
-      return dbAddRecycleBin(trashItem).catch(console.error);
+    const trashItems: RecycleBinItem[] = toDelete.map(design => ({
+      id: `planned_pool_trash_${design.id}_${Date.now()}`,
+      dataType: 'planned_pool',
+      deletedAt: new Date().toISOString(),
+      payload: design
     }));
 
+    // Update local state immediately so the UI feels instant.
     const deletedIds = new Set(toDelete.map(d => d.id));
     const updated = plannedPools.filter(p => !deletedIds.has(p.id));
     setPlannedPools(updated);
     localStorage.setItem('apex_planned_pools', JSON.stringify(updated));
 
-    // Delete each from Firestore in parallel.
-    await Promise.all(toDelete.map(d => dbDeletePlannedPool(d.id).catch(console.error)));
+    // One single transaction handles both the plannedPools removal and the
+    // recycleBin insert for the whole batch.
+    await dbBulkDeletePlannedPools(toDelete.map(d => d.id), trashItems).catch(console.error);
 
     // Refresh recycle bin state
     const cloudData2 = await getEntireStateFromFirestore().catch(() => null);
