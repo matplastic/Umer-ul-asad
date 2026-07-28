@@ -23,6 +23,9 @@ interface QualityInspectorProps {
   allTeams: any[];
   onApproveStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string, picture?: string) => void;
   onRejectStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string, picture?: string) => void;
+  // Undo a stage that was already Certified & Approved — sends it back to
+  // rework, for when an inspector passes something by mistake.
+  onUndoApproval?: (poolId: string, stageId: StageId, inspectorId: string, notes: string) => void;
   inspectors?: { id: string; name: string; title: string }[];
   onDeletePool?: (poolId: string, operatorName: string) => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
@@ -44,6 +47,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   allTeams,
   onApproveStage,
   onRejectStage,
+  onUndoApproval,
   inspectors = [],
   onDeletePool,
   onSkipOrCarryOnSite,
@@ -191,6 +195,10 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const isPendingInspection = activeReviewPool && activeReviewStage &&
     activeReviewPool.stageHistory[activeReviewStage.id]?.status === 'PENDING_INSPECTION';
 
+  // Already Certified & Approved — the "undo, I passed this by mistake" case.
+  const isApprovedStage = activeReviewPool && activeReviewStage &&
+    activeReviewPool.stageHistory[activeReviewStage.id]?.status === 'APPROVED';
+
   React.useEffect(() => {
     if (displayedPools.length > 0 && (!activePoolId || !pools.some(p => p.id === activePoolId))) {
       const nextPool = displayedPools[0];
@@ -232,6 +240,20 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     }
     setErrorMsg('');
     onRejectStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim(), uploadedPicture || undefined);
+    setReviewerNotes('');
+    setUploadedPicture(null);
+    setActivePoolId(null);
+  };
+
+  const handleUndoApproval = () => {
+    if (!activeReviewPool || !activeReviewStage || !onUndoApproval) return;
+    if (!reviewerNotes.trim()) {
+      setErrorMsg('Please explain why this approval is being undone (kept in the audit trail).');
+      return;
+    }
+    if (!confirm(`Undo the approval for "${activeReviewStage.name}" on ${activeReviewPool.poolNo}? This sends it back to the shop floor for rework.`)) return;
+    setErrorMsg('');
+    onUndoApproval(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim());
     setReviewerNotes('');
     setUploadedPicture(null);
     setActivePoolId(null);
@@ -887,6 +909,54 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                       </button>
                     </div>
                   </>
+                ) : isApprovedStage ? (
+                  <div className="space-y-4 font-sans">
+                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 space-y-1.5">
+                      <p className="font-black uppercase tracking-wider flex items-center gap-1.5">
+                        <CheckCircle2 className="h-4 w-4" /> Already Certified &amp; Approved
+                      </p>
+                      <p>
+                        Signed off by <strong>{activeReviewHistory?.inspectorId || 'Unknown Inspector'}</strong>
+                        {activeReviewHistory?.inspectionTime
+                          ? ` on ${new Date(activeReviewHistory.inspectionTime).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                          : ''}.
+                      </p>
+                      {activeReviewHistory?.inspectorNotes && (
+                        <p className="italic text-emerald-700">&ldquo;{activeReviewHistory.inspectorNotes}&rdquo;</p>
+                      )}
+                    </div>
+
+                    {onUndoApproval ? (
+                      <div className="space-y-2.5 pt-1">
+                        <label className="block text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1">
+                          <RefreshCw className="h-4 w-4 text-rose-500" />
+                          Undo Reason (required)
+                        </label>
+                        <textarea
+                          placeholder="e.g., Approved by mistake — weld voids were missed on first pass, needs rework before it can pass again."
+                          value={reviewerNotes}
+                          onChange={(e) => setReviewerNotes(e.target.value)}
+                          className="w-full text-slate-800 border p-3 border-slate-200 rounded-xl text-xs min-h-[90px] focus:outline-none focus:ring-1 focus:ring-rose-500 font-medium bg-slate-50 focus:bg-white"
+                        />
+                        {errorMsg && (
+                          <div className="p-3 bg-rose-50 border border-rose-100 text-rose-800 rounded-xl text-xs font-semibold flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                            <span>{errorMsg}</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={handleUndoApproval}
+                          className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-sm cursor-pointer transition-all flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                        >
+                          <XCircle className="h-4 w-4" />
+                          <span>Undo Approval — Send Back to Rework</span>
+                        </button>
+                        <p className="text-[10px] text-slate-400 text-center">
+                          Only works if no work has started on the next stage yet. If it's blocked, use the Management Portal for a manual correction.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : (
                   <div className="bg-slate-50 border border-slate-100 p-5 rounded-xl text-center space-y-2 mt-4 font-sans">
                     <AlertCircle className="h-7 w-7 text-indigo-400 mx-auto" />
