@@ -2818,9 +2818,13 @@ export default function App() {
     const updatedPools = [...pools];
     updatedPools[poolIndex] = pool;
 
-    // Defensive: also free up any team still pointed at this pool/stage.
+    // Defensive: only free up a team if it's STILL pointed at this exact
+    // pool/stage right now. Matching on team ID alone was wrong — it would
+    // reset a team to IDLE even if that team had since moved on to a
+    // completely different pool, wiping their current assignment out from
+    // under them mid-work.
     const updatedTeams = teams.map(t => {
-      if (t.id === originalWorkspecTeamId || (t.activePoolId === poolId && t.stageId === stageId)) {
+      if (t.activePoolId === poolId && t.stageId === stageId) {
         return { ...t, status: 'IDLE' as const, activePoolId: null };
       }
       return t;
