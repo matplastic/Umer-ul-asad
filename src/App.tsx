@@ -1140,11 +1140,17 @@ export default function App() {
     //
     // Now both the merge and the removals happen inside ONE atomic
     // transaction (dbSyncTeams), so there is nothing left to race.
+    //
+    // DATA-LOSS FIX (v9): also pass changedIds so dbSyncTeams only lets
+    // this screen's copy win for the team(s) actually edited here — not
+    // every team it happens to be holding in memory. See mergeByIdScoped
+    // in firebaseService.ts for the full explanation.
     const updatedIds = new Set(updatedTeams.map(t => t.id));
     const removedIds = teams.filter(t => !updatedIds.has(t.id)).map(t => t.id);
+    const changedIds = findChangedIds(teams, updatedTeams);
     setTeams(updatedTeams);
     localStorage.setItem('apex_teams', JSON.stringify(updatedTeams));
-    dbSyncTeams(updatedTeams, removedIds).catch((err) => {
+    dbSyncTeams(updatedTeams, removedIds, changedIds).catch((err) => {
       console.error('dbSyncTeams failed:', err);
       setFirebaseStatus('error');
       setFirebaseError(err?.message || String(err));
