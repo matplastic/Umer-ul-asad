@@ -2704,6 +2704,98 @@ export default function App() {
     saveState(updatedPools, updatedTeams, updatedLogs);
   };
 
+  // 6b. Undo Approval (Quality Inspector caught their own mistake AFTER
+  // passing a stage — reverts the sign-off and sends the pool back to the
+  // shop floor for rework, exactly like a normal rejection).
+  //
+  // Safety guard: if the pool has already been advanced past this stage AND
+  // real work has started on the next stage (or the pool), undoing blindly
+  // would silently yank a pool out from under a team that's mid-task on the
+  // next step. In that case we block and point the inspector at the
+  // Management Portal for a manual correction instead.
+  const handleUndoApproval = (poolId: string, stageId: StageId, inspectorId: string, notes: string) => {
+    const poolIndex = pools.findIndex(p => p.id === poolId);
+    if (poolIndex === -1) return;
+
+    const pool = { ...pools[poolIndex], stageHistory: { ...pools[poolIndex].stageHistory } };
+    const stageHist = { ...pool.stageHistory[stageId] };
+    if (stageHist.status !== 'APPROVED') return; // safety: only ever undo a real approval
+
+    const stageIndex = STAGES.findIndex(s => s.id === stageId);
+
+    const stageHasDownstreamWork = (checkStageId: StageId | null) => {
+      if (!checkStageId) return false;
+      const st = pool.stageHistory[checkStageId]?.status;
+      return !!st && st !== 'NOT_STARTED';
+    };
+
+    if (DUAL_STAGE_IDS.includes(stageId)) {
+      const gateIdx = STAGES.findIndex(s => s.id === DUAL_STAGE_IDS[0]);
+      const nextIndex = gateIdx + DUAL_STAGE_IDS.length;
+      if (pool.currentStageIndex > gateIdx) {
+        // The sibling approval already moved the pool past the dual gate.
+        const nextStageId = nextIndex < STAGES.length ? STAGES[nextIndex].id : null;
+        if (pool.completedAt || stageHasDownstreamWork(nextStageId)) {
+          alert('Cannot undo — work has already started on the next stage (or the pool is fully completed). Use the Management Portal to make a manual correction instead.');
+          return;
+        }
+        pool.currentStageIndex = gateIdx;
+      }
+    } else if (pool.currentStageIndex > stageIndex) {
+      const nextStageId = stageIndex + 1 < STAGES.length ? STAGES[stageIndex + 1].id : null;
+      if (pool.completedAt || stageHasDownstreamWork(nextStageId)) {
+        alert('Cannot undo — work has already started on the next stage (or the pool is fully completed). Use the Management Portal to make a manual correction instead.');
+        return;
+      }
+      pool.currentStageIndex = stageIndex;
+    }
+
+    const originalWorkspecTeamId = stageHist.teamId;
+
+    // Revert the sign-off and send it back to rework, same end-state as a reject.
+    stageHist.status = 'REJECTED';
+    stageHist.inspectorId = inspectorId;
+    stageHist.inspectorNotes = notes;
+    stageHist.inspectionTime = new Date().toISOString();
+    stageHist.rejectionCount = (stageHist.rejectionCount || 0) + 1;
+    stageHist.startTime = null;
+    stageHist.endTime = null;
+    stageHist.teamId = undefined;
+    pool.stageHistory[stageId] = stageHist;
+
+    const updatedPools = [...pools];
+    updatedPools[poolIndex] = pool;
+
+    // Defensive: also free up any team still pointed at this pool/stage.
+    const updatedTeams = teams.map(t => {
+      if (t.id === originalWorkspecTeamId || (t.activePoolId === poolId && t.stageId === stageId)) {
+        return { ...t, status: 'IDLE' as const, activePoolId: null };
+      }
+      return t;
+    });
+
+    const newLog: ActivityLog = {
+      id: `log_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      poolId: pool.id,
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      stageId,
+      type: 'REJECTED',
+      teamId: originalWorkspecTeamId,
+      teamName: teams.find(t => t.id === originalWorkspecTeamId)?.name,
+      operatorName: inspectorId,
+      notes: `QC UNDO: Previously certified approval was reverted by the inspector — ${notes}. Sent back to the shop floor for rework.`,
+    };
+
+    const updatedLogs = [...logs, newLog];
+
+    setPools(updatedPools);
+    setTeams(updatedTeams);
+    setLogs(updatedLogs);
+    saveState(updatedPools, updatedTeams, updatedLogs);
+  };
+
   // ── Request Undo Claim (from Shop Floor worker) ───────────────────────────────
   const handleRequestUndoClaim = (poolId: string, stageId: StageId, teamName: string, reason: string) => {
     const pool = pools.find(p => p.id === poolId);
@@ -3181,6 +3273,7 @@ export default function App() {
             allTeams={teams}
             onApproveStage={handleApproveStage}
             onRejectStage={handleRejectStage}
+            onUndoApproval={handleUndoApproval}
             inspectors={inspectors}
             onDeletePool={handleDeletePool}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
