@@ -1146,15 +1146,36 @@ export async function dbRestoreRecycleBin(id: string) {
     const list = await getFirestoreDocArray('recycleBin');
     const matched = list.find(item => item.id === id);
     if (matched) {
-      await setFirestoreDocArray('recycleBin', list.filter(item => item.id !== id));
-      const payload = matched.serializedData;
-      if (matched.originalTable === 'pools') {
-        await dbSavePool(payload);
-      } else if (matched.originalTable === 'plannedPools') {
+      // BUG FIX: this previously read matched.originalTable / matched.serializedData,
+      // fields that don't exist on RecycleBinItem (the real fields are dataType /
+      // payload). That meant NOTHING was ever restored — the item was just silently
+      // removed from the Recycle Bin list, permanently losing the data.
+      const payload = matched.payload;
+      if (matched.dataType === 'pool') {
+        // A scrapped production pool goes back into the Planning queue (not
+        // straight back into active production) so it can be re-dispatched
+        // through Planning like any other planned pool.
+        const restoredPlanned: PlannedPool = {
+          id: `plan_${payload.id || Date.now()}_restored`,
+          projectName: payload.projectName,
+          poolNo: payload.poolNo,
+          orientation: payload.orientation,
+          dimensions: payload.dimensions,
+          shape: payload.shape,
+          poolType: payload.poolType,
+          drawingUrl: payload.drawingUrl,
+          status: 'PLANNED',
+          releasedPoolId: null,
+          notes: payload.notes,
+          createdAt: new Date().toISOString(),
+        };
+        await dbSavePlannedPool(restoredPlanned);
+      } else if (matched.dataType === 'planned_pool') {
         await dbSavePlannedPool(payload);
-      } else if (matched.originalTable === 'trolleyProduction') {
+      } else if (matched.dataType === 'trolley') {
         await dbSaveTrolley(payload);
       }
+      await setFirestoreDocArray('recycleBin', list.filter(item => item.id !== id));
     }
     return { success: true };
   }
