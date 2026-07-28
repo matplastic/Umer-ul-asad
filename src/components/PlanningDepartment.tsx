@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { PlannedPool, Pool, PoolOrientation, ViewRole, ProjectSummary, MonthlyTarget } from '../types';
+import { PlannedPool, Pool, PoolOrientation, ViewRole, ProjectSummary, MonthlyTarget, InventoryDeletionLog } from '../types';
 import { STAGES } from '../data/mockData';
+import { loginWithPassword } from '../lib/authClient';
+import { dbSaveInventoryDeletionLog } from '../lib/firebaseService';
 import { 
   Plus, 
   Search, 
@@ -26,7 +28,8 @@ import {
   X,
   UserPlus,
   ShieldCheck,
-  Wrench
+  Wrench,
+  Lock
 } from 'lucide-react';
 
 interface PlanningDepartmentProps {
@@ -972,6 +975,14 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   const [selectedFilterOrientation, setSelectedFilterOrientation] = useState<string>('all');
   const [selectedFilterStatus, setSelectedFilterStatus] = useState<string>('all');
 
+  // Inventory Registry: multi-select + password-gated bulk delete
+  const [selectedRegistryIds, setSelectedRegistryIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteUsername, setBulkDeleteUsername] = useState('');
+  const [bulkDeletePassword, setBulkDeletePassword] = useState('');
+  const [bulkDeleteError, setBulkDeleteError] = useState('');
+  const [bulkDeleteInFlight, setBulkDeleteInFlight] = useState(false);
+
   // Release dialog state
   const [releasingPlanId, setReleasingPlanId] = useState<string | null>(null);
   const [selectedEngineerId, setSelectedEngineerId] = useState(engineers[0]?.id || '');
@@ -1315,6 +1326,95 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       return true;
     });
   }, [combinedRegistryPools, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
+
+  // Only pre-planned records (not synthetic "live-" shop-floor entries) can
+  // actually be deleted here — same rule the existing single-row Delete
+  // button already follows.
+  const deletableFilteredPools = useMemo(
+    () => filteredPlannedPools.filter(p => !p.id.startsWith('live-')),
+    [filteredPlannedPools]
+  );
+
+  const toggleRegistrySelect = (id: string) => {
+    setSelectedRegistryIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allDeletableSelected =
+    deletableFilteredPools.length > 0 &&
+    deletableFilteredPools.every(p => selectedRegistryIds.has(p.id));
+
+  const toggleRegistrySelectAll = () => {
+    setSelectedRegistryIds(prev => {
+      if (allDeletableSelected) return new Set();
+      const next = new Set(prev);
+      deletableFilteredPools.forEach(p => next.add(p.id));
+      return next;
+    });
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    setBulkDeleteError('');
+    if (!bulkDeleteUsername.trim() || !bulkDeletePassword) {
+      setBulkDeleteError('Username and password are required.');
+      return;
+    }
+    setBulkDeleteInFlight(true);
+    try {
+      // Re-verify credentials at the moment of deletion — this does not rely
+      // on whoever is already signed in on this kiosk, it checks the
+      // username/password typed into this dialog right now.
+      const verifiedUser = await loginWithPassword(bulkDeleteUsername.trim(), bulkDeletePassword);
+
+      const idsToDelete = Array.from(selectedRegistryIds).filter(id =>
+        deletableFilteredPools.some(p => p.id === id)
+      );
+      if (idsToDelete.length === 0) {
+        setBulkDeleteError('No deletable items are selected.');
+        setBulkDeleteInFlight(false);
+        return;
+      }
+
+      const itemsSnapshot = deletableFilteredPools
+        .filter(p => idsToDelete.includes(p.id))
+        .map(p => ({ id: p.id, poolNo: p.poolNo, projectName: p.projectName, status: p.status }));
+
+      // Delete each selected planned pool.
+      idsToDelete.forEach(id => onDeletePlannedPool(id));
+
+      // Record exactly who deleted what, before clearing selection.
+      const auditEntry: InventoryDeletionLog = {
+        id: `inv-del-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: new Date().toISOString(),
+        performedByUsername: verifiedUser.username,
+        performedByDisplayName: verifiedUser.displayName,
+        performedByUserId: verifiedUser.id,
+        module: 'Planning Inventory Registry',
+        deletedCount: itemsSnapshot.length,
+        deletedItems: itemsSnapshot,
+      };
+      try {
+        await dbSaveInventoryDeletionLog(auditEntry);
+      } catch (auditErr) {
+        // The deletion already went through — don't block the user on the
+        // audit write failing, just surface it in the console for follow-up.
+        console.error('Failed to record inventory deletion audit log:', auditErr);
+      }
+
+      setSelectedRegistryIds(new Set());
+      setShowBulkDeleteConfirm(false);
+      setBulkDeleteUsername('');
+      setBulkDeletePassword('');
+    } catch (err: any) {
+      setBulkDeleteError(err?.message || 'Invalid username or password.');
+    } finally {
+      setBulkDeleteInFlight(false);
+    }
+  };
 
   return (
     <div id="planning-department-section" className="space-y-6">
@@ -1706,23 +1806,44 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
           {/* Master Table */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
             
-            <div className="bg-slate-50/50 p-4 border-b border-slate-100 flex items-center justify-between text-xs">
+            <div className="bg-slate-50/50 p-4 border-b border-slate-100 flex items-center justify-between text-xs gap-3 flex-wrap">
               <span className="text-slate-500 font-medium">
                 Showing {filteredPlannedPools.length} of {combinedRegistryPools.length} items (pre-planned + active shop-floor pools)
               </span>
-              {filteredPlannedPools.length === 0 && (
-                <button 
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedFilterProject('all');
-                    setSelectedFilterOrientation('all');
-                    setSelectedFilterStatus('all');
-                  }}
-                  className="text-indigo-600 font-bold hover:underline"
-                >
-                  Reset filters
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {selectedRegistryIds.size > 0 && (
+                  <>
+                    <span className="text-slate-600 font-bold">{selectedRegistryIds.size} selected</span>
+                    <button
+                      onClick={() => setSelectedRegistryIds(new Set())}
+                      className="text-slate-400 hover:text-slate-600 font-medium hover:underline"
+                    >
+                      Clear
+                    </button>
+                    <button
+                      onClick={() => { setBulkDeleteError(''); setShowBulkDeleteConfirm(true); }}
+                      data-testid="bulk-delete-selected"
+                      className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-1.5 px-3 rounded-xl text-[11px] inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Trash2 className="h-3 w-3 shrink-0" />
+                      Delete Selected ({selectedRegistryIds.size})
+                    </button>
+                  </>
+                )}
+                {filteredPlannedPools.length === 0 && (
+                  <button 
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSelectedFilterProject('all');
+                      setSelectedFilterOrientation('all');
+                      setSelectedFilterStatus('all');
+                    }}
+                    className="text-indigo-600 font-bold hover:underline"
+                  >
+                    Reset filters
+                  </button>
+                )}
+              </div>
             </div>
 
             {filteredPlannedPools.length === 0 ? (
@@ -1735,7 +1856,17 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 <table className="w-full text-left text-xs text-slate-650">
                   <thead className="bg-slate-100/50 text-slate-600 uppercase tracking-wider text-[10px] font-bold border-b border-slate-100 leading-none">
                     <tr>
-                      <th className="py-3 px-6">Pool Serial</th>
+                      <th className="py-3 pl-6 pr-2 w-8">
+                        <input
+                          type="checkbox"
+                          checked={allDeletableSelected}
+                          onChange={toggleRegistrySelectAll}
+                          disabled={deletableFilteredPools.length === 0}
+                          title="Select all deletable rows in current view"
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </th>
+                      <th className="py-3 px-4">Pool Serial</th>
                       <th className="py-3 px-4">Project Association Name</th>
                       <th className="py-3 px-4">Design specs</th>
                       <th className="py-3 px-4">Status</th>
@@ -1761,11 +1892,25 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                       const displayDimensions = linkedLivePool?.dimensions ?? plan.dimensions;
                       const displayShape = linkedLivePool?.shape ?? plan.shape;
 
+                      const isDeletable = !plan.id.startsWith('live-');
+
                       return (
                         <tr key={plan.id} className="hover:bg-slate-50/40 transition-colors">
-                          
+
+                          {/* Row select checkbox */}
+                          <td className="py-4.5 pl-6 pr-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedRegistryIds.has(plan.id)}
+                              onChange={() => isDeletable && toggleRegistrySelect(plan.id)}
+                              disabled={!isDeletable}
+                              title={isDeletable ? 'Select for bulk delete' : 'Shop-floor records cannot be deleted here'}
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
+                            />
+                          </td>
+
                           {/* Pool No */}
-                          <td className="py-4.5 px-6 font-bold text-slate-900 font-mono text-[13px]">
+                          <td className="py-4.5 px-4 font-bold text-slate-900 font-mono text-[13px]">
                             {displayPoolNo}
                           </td>
 
@@ -3965,6 +4110,87 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 {directStageSelect === 'delivered' ? '🚚 Delivered' : '🏁 Produced'}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* INVENTORY REGISTRY BULK DELETE — PASSWORD CONFIRMATION MODAL */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-md w-full p-6 space-y-5 animate-scaleUp">
+
+            <div className="flex items-start gap-4">
+              <div className="bg-rose-50 p-3 rounded-full text-rose-600 shrink-0">
+                <Lock className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-800 font-sans tracking-wide">
+                  Confirm Deletion
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  You are about to permanently delete <strong>{selectedRegistryIds.size}</strong> item(s) from the Inventory Registry. This cannot be undone. Enter your username and password to confirm — this action is recorded in the audit log.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Username</label>
+                <input
+                  type="text"
+                  autoComplete="username"
+                  value={bulkDeleteUsername}
+                  onChange={e => setBulkDeleteUsername(e.target.value)}
+                  disabled={bulkDeleteInFlight}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-rose-500 disabled:opacity-60"
+                  placeholder="Your login username"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Password</label>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={bulkDeletePassword}
+                  onChange={e => setBulkDeletePassword(e.target.value)}
+                  disabled={bulkDeleteInFlight}
+                  onKeyDown={e => { if (e.key === 'Enter') handleConfirmBulkDelete(); }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-rose-500 disabled:opacity-60"
+                  placeholder="Your login password"
+                />
+              </div>
+              {bulkDeleteError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-[11px] text-rose-700 font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {bulkDeleteError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => {
+                  setShowBulkDeleteConfirm(false);
+                  setBulkDeleteUsername('');
+                  setBulkDeletePassword('');
+                  setBulkDeleteError('');
+                }}
+                disabled={bulkDeleteInFlight}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmBulkDelete}
+                disabled={bulkDeleteInFlight || !bulkDeleteUsername.trim() || !bulkDeletePassword}
+                data-testid="bulk-delete-confirm"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {bulkDeleteInFlight ? 'Verifying...' : `Delete ${selectedRegistryIds.size} Item(s)`}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
