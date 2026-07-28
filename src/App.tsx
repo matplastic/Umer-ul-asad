@@ -2303,6 +2303,47 @@ export default function App() {
     }
   };
 
+  // Bulk variant used by the Inventory Registry "Delete Selected" flow.
+  // Deliberately NOT a loop over handleDeletePlannedPool: that function (a)
+  // shows a window.confirm per item, which would fire once per selected row,
+  // and (b) computes `updated` from the `plannedPools` closure captured at
+  // render time — calling it repeatedly in a tight loop means every call
+  // filters the SAME original array and the final setPlannedPools() call
+  // wins, silently discarding all but one deletion. This variant removes
+  // every selected id in a single pass and writes state once. Confirmation
+  // and audit logging are handled by the caller (password modal in
+  // PlanningDepartment.tsx) before this is invoked.
+  const handleBulkDeletePlannedPools = async (planIds: string[]) => {
+    const idsSet = new Set(planIds);
+    const toDelete = plannedPools.filter(p => idsSet.has(p.id) && p.status === 'PLANNED');
+    if (toDelete.length === 0) return;
+
+    // Save every deleted item to the Recycle Bin.
+    await Promise.all(toDelete.map(design => {
+      const trashItem: RecycleBinItem = {
+        id: `planned_pool_trash_${design.id}_${Date.now()}`,
+        dataType: 'planned_pool',
+        deletedAt: new Date().toISOString(),
+        payload: design
+      };
+      return dbAddRecycleBin(trashItem).catch(console.error);
+    }));
+
+    const deletedIds = new Set(toDelete.map(d => d.id));
+    const updated = plannedPools.filter(p => !deletedIds.has(p.id));
+    setPlannedPools(updated);
+    localStorage.setItem('apex_planned_pools', JSON.stringify(updated));
+
+    // Delete each from Firestore in parallel.
+    await Promise.all(toDelete.map(d => dbDeletePlannedPool(d.id).catch(console.error)));
+
+    // Refresh recycle bin state
+    const cloudData2 = await getEntireStateFromFirestore().catch(() => null);
+    if (cloudData2 && cloudData2.recycleBin) {
+      setRecycleBin(cloudData2.recycleBin);
+    }
+  };
+
   const handleReleasePlannedPool = (planId: string, operatorName: string) => {
     const designIndex = plannedPools.findIndex(p => p.id === planId);
     if (designIndex === -1) return null;
@@ -2975,6 +3016,7 @@ export default function App() {
             onAddPlannedPool={handleAddPlannedPool}
             onAddPlannedPoolBatch={handleAddPlannedPoolBatch}
             onDeletePlannedPool={handleDeletePlannedPool}
+            onBulkDeletePlannedPools={handleBulkDeletePlannedPools}
             onUpdatePlannedPool={handleUpdatePlannedPool}
             onReleasePlannedPool={handleReleasePlannedPool}
             engineers={engineers}
@@ -3186,6 +3228,7 @@ export default function App() {
             onDeleteEmployee={handleDeleteEmployee}
             onDeleteProjectSummary={handleDeleteProjectSummary}
             onDeletePlannedPool={handleDeletePlannedPool}
+            onBulkDeletePlannedPools={handleBulkDeletePlannedPools}
             onDeletePool={handleDeletePool}
             onUpdatePool={handleUpdatePool}
             onDeleteTrolley={handleDeleteTrolley}
