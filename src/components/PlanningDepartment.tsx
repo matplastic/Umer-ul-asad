@@ -144,7 +144,8 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
   onDirectOverridePoolsBatch
 }) => {
   // Navigation tabs within Planning Portal
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'registry' | 'all_projects_portal' | 'monthly_targets' | 'quick_launch' | 'direct_stage_portal' | 'roles'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'registry' | 'all_projects_portal' | 'monthly_targets' | 'quick_launch' | 'direct_stage_portal' | 'roles' | 'pool_manager'>('dashboard');
+  const [poolManagerSearch, setPoolManagerSearch] = useState('');
 
   // New Project Form State
   const [newProjName, setNewProjName] = useState('');
@@ -1329,9 +1330,12 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
     });
   }, [combinedRegistryPools, searchQuery, selectedFilterProject, selectedFilterOrientation, selectedFilterStatus]);
 
-  // Only pre-planned records with status PLANNED (not synthetic "live-"
-  // shop-floor entries, and not already RELEASED/COMPLETED) can actually be
-  // deleted — same rule the backend delete handler enforces.
+  // Bulk-select is limited to PLANNED records (not synthetic "live-"
+  // shop-floor entries). The bulk delete transaction only touches the
+  // plannedPools collection, so RELEASED/COMPLETED rows (which are linked to
+  // a live shop-floor pool) are excluded from bulk select to avoid orphaning
+  // that live pool. To delete a RELEASED/COMPLETED pool, use the single-row
+  // Delete button instead — that path also removes the linked live pool.
   const deletableFilteredPools = useMemo(
     () => filteredPlannedPools.filter(p => !p.id.startsWith('live-') && p.status === 'PLANNED'),
     [filteredPlannedPools]
@@ -1520,6 +1524,17 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             id="tab-roles"
           >
             👷 Roles ({inspectors.length + engineers.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('pool_manager')}
+            className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'pool_manager'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'text-rose-600 hover:bg-rose-100'
+            }`}
+            id="tab-pool-manager"
+          >
+            🗑️ Delete Any Pool
           </button>
         </div>
       </div>
@@ -2042,13 +2057,9 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                 </span>
                               ) : (
                                 <button
-                                  onClick={() => {
-                                    if (window.confirm(`Delete planned pool "${plan.poolNo}" (${plan.projectName}) permanently?\n\nThis removes it from Firestore and all connected PCs in real time.`)) {
-                                      onDeletePlannedPool(plan.id);
-                                    }
-                                  }}
+                                  onClick={() => onDeletePlannedPool(plan.id)}
                                   data-testid={`delete-planned-${plan.id}`}
-                                  title="Delete this planned pool"
+                                  title={plan.status === 'PLANNED' ? 'Delete this planned pool' : 'Delete this pool — also removes its live shop-floor data'}
                                   className="bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-bold py-1.5 px-2.5 rounded-xl text-[11px] inline-flex items-center gap-1 border border-rose-200 cursor-pointer"
                                 >
                                   <Trash2 className="h-3 w-3 shrink-0" />
@@ -4291,6 +4302,98 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
           onSaveEngineer={onSaveEngineer}
           onDeleteEngineer={onDeleteEngineer}
         />
+      )}
+
+      {/* ====== TAB 8: DELETE ANY POOL — GLOBAL, UNRESTRICTED BY PROJECT/STAGE ====== */}
+      {activeTab === 'pool_manager' && (
+        <div className="bg-white rounded-2xl border border-rose-200 shadow-xs p-6 space-y-5">
+          <div>
+            <h3 className="text-base font-black text-rose-700 flex items-center gap-2">
+              <Trash2 className="h-5 w-5" />
+              Delete Any Pool
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+              Search across every pool in the system — any project, any stage, delivered or not — and delete it directly.
+              Unlike the Direct Override tool above, this list is not filtered to a single project. Deleted pools are sent to the Recycle Bin for 3 days.
+            </p>
+          </div>
+
+          <div className="relative max-w-md">
+            <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={poolManagerSearch}
+              onChange={(e) => setPoolManagerSearch(e.target.value)}
+              placeholder="Search by pool number or project name..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-rose-500"
+            />
+          </div>
+
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider">
+                <tr>
+                  <th className="text-left px-4 py-2.5">Pool No</th>
+                  <th className="text-left px-4 py-2.5">Project</th>
+                  <th className="text-left px-4 py-2.5">Status / Stage</th>
+                  <th className="text-right px-4 py-2.5">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {pools
+                  .filter(p => {
+                    const q = poolManagerSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return p.poolNo.toLowerCase().includes(q) || p.projectName.toLowerCase().includes(q);
+                  })
+                  .map(p => (
+                    <tr key={p.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-2.5 font-bold text-slate-800">{p.poolNo}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{p.projectName}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          p.isDelivered
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : p.completedAt
+                              ? 'bg-indigo-100 text-indigo-700'
+                              : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {p.isDelivered ? 'Delivered' : p.completedAt ? 'Completed / In Stock' : (STAGES[p.currentStageIndex]?.name || 'Assembly Done')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {onDeletePool && (
+                          <button
+                            type="button"
+                            onClick={() => onDeletePool(p.id, overrideOperatorName.trim() || 'Planning Officer')}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg px-3 py-1.5 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition-all"
+                            title="Delete this pool (sends to Recycle Bin for 3 days)"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                {pools.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400">No pools exist in the system.</td>
+                  </tr>
+                )}
+                {pools.length > 0 && pools.filter(p => {
+                  const q = poolManagerSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return p.poolNo.toLowerCase().includes(q) || p.projectName.toLowerCase().includes(q);
+                }).length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400">No pools match your search.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
     </div>
