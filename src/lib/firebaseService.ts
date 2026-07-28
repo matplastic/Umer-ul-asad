@@ -1083,6 +1083,42 @@ export async function dbAddRecycleBin(item: RecycleBinItem) {
   }
 }
 
+// 9b. Bulk planned-pool deletion (Inventory Registry "Delete Selected").
+// IMPORTANT: this does the plannedPools removal AND the recycleBin insert
+// in a single Firestore transaction, not N separate calls. Calling
+// dbDeletePlannedPool / dbAddRecycleBin once per item in a Promise.all
+// creates N concurrent transactions all fighting over the same two
+// documents ('plannedPools', 'recycleBin') — Firestore then has to retry
+// the losing transactions over and over, which is what caused bulk deletes
+// of 40+ items to hang for minutes. One transaction touching both docs
+// avoids that entirely.
+export async function dbBulkDeletePlannedPools(ids: string[], trashItems: RecycleBinItem[]) {
+  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  const idSet = new Set(ids);
+
+  if (!base) {
+    await updateFirestoreDocArrays({
+      plannedPools: (arr) => arr.filter(item => !idSet.has(item.id)),
+      recycleBin: (arr) => [...arr, ...trashItems],
+    }, { plannedPools: true, recycleBin: true });
+    return { success: true, deletedCount: ids.length };
+  }
+
+  try {
+    const headers = await getHeaders();
+    const response = await fetch(getApiUrl('/api/planned-pools/bulk-delete'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ids, trashItems }),
+    });
+    if (!response.ok) throw new Error('Failed to bulk delete Planned Pools.');
+    return await response.json();
+  } catch (error) {
+    console.error('dbBulkDeletePlannedPools failed:', error);
+    throw error;
+  }
+}
+
 export async function dbDeleteRecycleBin(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
