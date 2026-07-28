@@ -37,7 +37,7 @@ import {
   dbDeleteMonthlyTarget,
   dbSaveEmployee,
   dbDeleteEmployee,
-  dbDeleteTeam,
+  dbSyncTeams,
   dbSaveTrolley,
   dbDeleteTrolley,
   dbSaveQcDefect,
@@ -1130,17 +1130,24 @@ export default function App() {
   };
 
   const handleUpdateTeams = (updatedTeams: Team[]) => {
-    // DATA-LOSS FIX: saveState's Firestore write now MERGES by id instead of
-    // blindly overwriting (to stop stale tabs from wiping teams). That means
-    // a team simply missing from `updatedTeams` would otherwise get silently
-    // restored. Detect any ids present in the old `teams` but absent from
-    // `updatedTeams` — those are real, intentional deletions — and remove
-    // them directly via the transactional dbDeleteTeam so they stay deleted.
+    // DATA-LOSS FIX (v8): this used to call saveState() (a merge-by-id
+    // Firestore transaction) AND dbDeleteTeam() (a separate delete
+    // transaction) for every edit — two independent transactions racing
+    // against the same Firestore document with no guaranteed ordering
+    // between them. That race is how a rename or delete could silently
+    // restore a just-deleted team, or drop teams that should have stayed.
+    //
+    // Now both the merge and the removals happen inside ONE atomic
+    // transaction (dbSyncTeams), so there is nothing left to race.
     const updatedIds = new Set(updatedTeams.map(t => t.id));
     const removedIds = teams.filter(t => !updatedIds.has(t.id)).map(t => t.id);
     setTeams(updatedTeams);
-    saveState(pools, updatedTeams, logs, inspectors, engineers);
-    removedIds.forEach(id => { dbDeleteTeam(id).catch(console.error); });
+    localStorage.setItem('apex_teams', JSON.stringify(updatedTeams));
+    dbSyncTeams(updatedTeams, removedIds).catch((err) => {
+      console.error('dbSyncTeams failed:', err);
+      setFirebaseStatus('error');
+      setFirebaseError(err?.message || String(err));
+    });
   };
 
   const handleUpdateInspectors = (updatedInspectors: { id: string; name: string; title: string }[]) => {
