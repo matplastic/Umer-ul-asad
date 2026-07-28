@@ -1,6 +1,6 @@
 import { auth, app } from './googleDrive.ts';
 import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog } from '../types';
 
 const clientDb = getFirestore(app);
 
@@ -923,6 +923,34 @@ export async function dbSaveLog(log: ActivityLog) {
     return await response.json();
   } catch (error) {
     console.error('dbSaveLog failed:', error);
+    throw error;
+  }
+}
+
+// 6b. Fine-grained operations: Planning Inventory Registry deletion audit trail
+// Written once per confirmed bulk-delete action (password re-verified at the
+// point of deletion), never edited or removed by the app afterward.
+export async function dbSaveInventoryDeletionLog(entry: InventoryDeletionLog) {
+  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  if (!base) {
+    await updateFirestoreDocArray('inventoryDeletionLogs', (arr) => {
+      arr.push(entry);
+      return arr.slice(-500);
+    }, true);
+    return { success: true, entry };
+  }
+
+  try {
+    const headers = await getHeaders();
+    const response = await fetch(getApiUrl('/api/inventory-deletion-logs'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(entry),
+    });
+    if (!response.ok) throw new Error('Failed to save inventory deletion audit log.');
+    return await response.json();
+  } catch (error) {
+    console.error('dbSaveInventoryDeletionLog failed:', error);
     throw error;
   }
 }
