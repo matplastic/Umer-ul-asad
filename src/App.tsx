@@ -1815,11 +1815,30 @@ export default function App() {
 
     const updatedLogs = [...logs, newLog];
 
+    // SCRAP FIX: scrapping a pool must also clear out any matching Planning
+    // Inventory record (same poolNo + projectName). Otherwise the pool is gone
+    // from production but still "reserved" in plannedPools, which (a) keeps it
+    // showing in Planning Inventory forever, and (b) blocks re-entry of the
+    // same pool number via the duplicate check in handleAddPlannedPool.
+    const matchingPlannedPools = plannedPools.filter(
+      p => p.poolNo === targetPool.poolNo && p.projectName === targetPool.projectName
+    );
+    const updatedPlannedPools = plannedPools.filter(
+      p => !(p.poolNo === targetPool.poolNo && p.projectName === targetPool.projectName)
+    );
+
     setPools(updatedPools);
     setTeams(updatedTeams);
     setLogs(updatedLogs);
+    setPlannedPools(updatedPlannedPools);
     saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers);
     await dbDeletePool(poolId).catch(console.error);
+
+    // Remove any leftover planned-pool record(s) for this poolNo/project so
+    // Planning Inventory stops showing it and the number is free to re-enter.
+    for (const planned of matchingPlannedPools) {
+      await dbDeletePlannedPool(planned.id).catch(console.error);
+    }
 
     // Refresh recycle bin state
     const cloudData = await getEntireStateFromFirestore().catch(() => null);
