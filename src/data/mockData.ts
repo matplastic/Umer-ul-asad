@@ -8,7 +8,7 @@ export const STAGES: StageDefinition[] = [
   { id: 'skimmer_fitting', name: 'Skimmer Fitting', defaultTeamsCount: 4, color: '#f97316' }, // Orange
   { id: 'lamination', name: 'Lamination', defaultTeamsCount: 5, color: '#ec4899' }, // Pink
   { id: 'mechanical_fitting', name: 'Mechanical Fitting', defaultTeamsCount: 4, color: '#f43f5e' }, // Rose/Red
-  { id: 'skimmer_test', name: 'Skimmer Test', defaultTeamsCount: 3, color: '#f97316' }, // Orange
+  { id: 'skimmer_test', name: 'Skimmer Test', defaultTeamsCount: 3, color: '#f97316', quickStage: true }, // Orange
   { id: 'door_cutting', name: 'Door Cutting', defaultTeamsCount: 3, color: '#84cc16' }, // Lime
   { id: 'mosaic', name: 'Mosaic', defaultTeamsCount: 6, color: '#10b981' }, // Emerald
   { id: 'grouting', name: 'Grouting', defaultTeamsCount: 4, color: '#14b8a6' }, // Teal
