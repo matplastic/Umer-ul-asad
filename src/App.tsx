@@ -2623,6 +2623,59 @@ export default function App() {
     saveState(updatedPools, teams, updatedLogs);
   };
 
+  // 4b. Quick Batch Complete — for "quickStage" stages (e.g. Skimmer Test)
+  // where the real task takes seconds per pool. Ticks several pools at once
+  // and sends all of them straight to QA in a single click, instead of
+  // making the team Claim -> Start Timer -> Finish each pool individually.
+  const handleQuickBatchComplete = (poolIds: string[], stageId: StageId, teamId: string) => {
+    if (poolIds.length === 0) return;
+    const team = teamsRef.current.find(t => t.id === teamId);
+    if (!team) return;
+
+    const nowStr = new Date().toISOString();
+    const updatedPools = [...poolsRef.current];
+    const newLogs: ActivityLog[] = [];
+
+    poolIds.forEach((poolId) => {
+      const poolIndex = updatedPools.findIndex(p => p.id === poolId);
+      if (poolIndex === -1) return;
+
+      // Clone pool + stageHistory (same SYNC FIX pattern as handleClaimPool
+      // above — mutating the shared object in place would make this
+      // update silently fail to reach Firestore).
+      const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+      updatedPools[poolIndex] = pool;
+      const stageHist = { ...pool.stageHistory[stageId] };
+
+      stageHist.teamId = teamId;
+      stageHist.teamName = team.name;
+      stageHist.status = 'PENDING_INSPECTION';
+      stageHist.startTime = nowStr;
+      stageHist.endTime = nowStr;
+      stageHist.durationMinutes = 1; // Genuinely a seconds-long task; 1 min floor for reporting.
+      pool.stageHistory[stageId] = stageHist;
+
+      newLogs.push({
+        id: `log_${Date.now()}_${poolId}`,
+        timestamp: nowStr,
+        poolId: pool.id,
+        poolNo: pool.poolNo,
+        projectName: pool.projectName,
+        stageId,
+        type: 'STAGE_FINISHED',
+        teamName: team.name,
+        operatorName: team.name,
+        notes: `Quick tested and passed to Quality Inspection (batch checklist).`,
+      });
+    });
+
+    const updatedLogs = [...logs, ...newLogs];
+    setPools(updatedPools);
+    poolsRef.current = updatedPools;
+    setLogs(updatedLogs);
+    saveState(updatedPools, teams, updatedLogs);
+  };
+
   // 5. Approve Stage (By Quality Inspector)
   const handleApproveStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string) => {
     const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
@@ -3335,6 +3388,7 @@ export default function App() {
               onClaimPool={handleClaimPool}
               onStartStage={handleStartStage}
               onFinishStage={handleFinishStage}
+              onQuickBatchComplete={handleQuickBatchComplete}
               googleUser={googleUser}
               onGoogleSignIn={handleGoogleSignIn}
               onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
@@ -3457,6 +3511,7 @@ export default function App() {
             onClaimPool={handleClaimPool}
             onStartStage={handleStartStage}
             onFinishStage={handleFinishStage}
+            onQuickBatchComplete={handleQuickBatchComplete}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
             onRequestUndoClaim={handleRequestUndoClaim}
             onRefresh={refreshFromCloud}
@@ -3568,6 +3623,7 @@ export default function App() {
             onClaimPool={handleClaimPool}
             onStartStage={handleStartStage}
             onFinishStage={handleFinishStage}
+            onQuickBatchComplete={handleQuickBatchComplete}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
             onRequestUndoClaim={handleRequestUndoClaim}
             onRefresh={refreshFromCloud}
