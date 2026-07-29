@@ -30,6 +30,7 @@ interface FactorySupervisorPortalProps {
   onClaimPool: (poolId: string, teamId: string, stageId: StageId) => void;
   onStartStage: (poolId: string, stageId: StageId) => void;
   onFinishStage: (poolId: string, stageId: StageId) => void;
+  onQuickBatchComplete?: (poolIds: string[], stageId: StageId, teamId: string) => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
   onRequestUndoClaim?: (poolId: string, stageId: StageId, teamName: string, reason: string) => void;
   onRefresh?: () => void;
@@ -52,6 +53,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
   onClaimPool,
   onStartStage,
   onFinishStage,
+  onQuickBatchComplete,
   onSkipOrCarryOnSite,
   onRequestUndoClaim,
   onRefresh,
@@ -170,6 +172,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
               onClaimPool={onClaimPool}
               onStartStage={onStartStage}
               onFinishStage={onFinishStage}
+              onQuickBatchComplete={onQuickBatchComplete}
               googleUser={googleUser}
               onGoogleSignIn={onGoogleSignIn || (() => {})}
               onSkipOrCarryOnSite={onSkipOrCarryOnSite}
