@@ -21,6 +21,7 @@ interface StageDashboardProps {
   isSyncing?: boolean;
   qcDefects?: QCDefect[];
   onWorkerLogout?: () => void;
+  onQuickBatchComplete?: (poolIds: string[], stageId: StageId, teamId: string) => void;
 }
 
 export const StageDashboard: React.FC<StageDashboardProps> = ({
@@ -39,6 +40,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   isSyncing,
   qcDefects = [],
   onWorkerLogout,
+  onQuickBatchComplete,
 }) => {
   const [printPool, setPrintPool] = useState<Pool | null>(null);
   const [viewingDrawingPool, setViewingDrawingPool] = useState<Pool | null>(null);
@@ -272,6 +274,15 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
         {/* Action column (Left: Claimed work & selector info) */}
         <div className="lg:col-span-4 space-y-6">
           
+          {stage.quickStage ? (
+            <QuickTestChecklist
+              stage={stage}
+              activeTeam={activeTeam}
+              availablePools={availablePools}
+              onQuickBatchComplete={onQuickBatchComplete}
+            />
+          ) : (
+          <>
           {/* Active Team workstation */}
           <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
             <h3 className="text-sm font-black text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2 mb-4 flex items-center gap-1.5">
@@ -440,6 +451,8 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
               </div>
             )}
           </div>
+          </>
+          )}
 
           {/* Department Teams status list */}
           <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
@@ -1116,6 +1129,138 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
         </div>
       )}
 
+    </div>
+  );
+};
+
+// -----------------------------------------------------------------------
+// QuickTestChecklist
+// -----------------------------------------------------------------------
+// Used for "quickStage" stages like Skimmer Test, where the hands-on task
+// (e.g. filling water into a skimmer) takes seconds per pool. Instead of
+// making the team Claim -> Start Timer -> Finish each pool one at a time,
+// this lets them tick several pools they've just tested and send all of
+// them to QA in a single tap.
+interface QuickTestChecklistProps {
+  stage: StageDefinition;
+  activeTeam?: Team;
+  availablePools: Pool[];
+  onQuickBatchComplete?: (poolIds: string[], stageId: StageId, teamId: string) => void;
+}
+
+const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTeam, availablePools, onQuickBatchComplete }) => {
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [justSubmitted, setJustSubmitted] = useState(false);
+
+  const toggle = (poolId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(poolId)) next.delete(poolId);
+      else next.add(poolId);
+      return next;
+    });
+  };
+
+  const selectAll = () => setCheckedIds(new Set(availablePools.map((p) => p.id)));
+  const clearAll = () => setCheckedIds(new Set());
+
+  const handleSubmit = () => {
+    if (!activeTeam || checkedIds.size === 0 || !onQuickBatchComplete) return;
+    onQuickBatchComplete(Array.from(checkedIds), stage.id, activeTeam.id);
+    setCheckedIds(new Set());
+    setJustSubmitted(true);
+    setTimeout(() => setJustSubmitted(false), 2500);
+  };
+
+  return (
+    <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+      <h3 className="text-sm font-black text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2 mb-4 flex items-center gap-1.5">
+        <CheckSquare className="h-4 w-4 text-slate-400" />
+        Quick Test Checklist: {activeTeam ? activeTeam.name : 'Unassigned'}
+      </h3>
+
+      {!activeTeam ? (
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-2">
+          <p className="font-bold flex items-center gap-1.5">
+            <AlertTriangle className="h-4.5 w-4.5 text-amber-600" />
+            Select a Team to Interact
+          </p>
+          <p className="text-slate-600 leading-relaxed">
+            Choose a Team assignment in the header dropdown, then tick off pools as you test each one and send them all to QA together.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-100 rounded-lg p-2.5">
+            Tick each pool right after filling/testing its skimmer, then send them all to QA in one go — no per-pool timer needed.
+          </p>
+
+          {availablePools.length === 0 ? (
+            <div className="text-center py-8 bg-slate-50 border border-slate-100 border-dashed rounded-xl">
+              <p className="text-xs font-bold text-slate-500">No pools waiting for Skimmer Test</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  {checkedIds.size} of {availablePools.length} selected
+                </span>
+                <div className="flex gap-2">
+                  <button onClick={selectAll} className="text-[10px] font-bold text-orange-600 hover:text-orange-700 cursor-pointer">
+                    Select All
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button onClick={clearAll} className="text-[10px] font-bold text-slate-400 hover:text-slate-600 cursor-pointer">
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+                {availablePools.map((pool) => {
+                  const checked = checkedIds.has(pool.id);
+                  return (
+                    <label
+                      key={pool.id}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                        checked ? 'bg-orange-50 border-orange-200' : 'bg-slate-50/50 border-slate-100 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggle(pool.id)}
+                        className="h-4 w-4 accent-orange-600 cursor-pointer"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <span className="font-mono text-[11px] font-black text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">
+                          {pool.poolNo}
+                        </span>
+                        <span className="text-xs font-bold text-slate-800 ml-2">{pool.projectName}</span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={handleSubmit}
+                disabled={checkedIds.size === 0}
+                className="w-full py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed shadow-sm"
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+                <span>Send {checkedIds.size || ''} Tested Pool{checkedIds.size === 1 ? '' : 's'} to QA</span>
+              </button>
+
+              {justSubmitted && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] rounded-lg text-center font-bold">
+                  Sent to Quality Inspection Queue.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
