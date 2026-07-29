@@ -1501,6 +1501,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     notes: string;
   } | null>(null);
   const [editorSaveMsg, setEditorSaveMsg] = useState('');
+  const [forceStageIndex, setForceStageIndex] = useState<number>(0);
+  const [forceStageMsg, setForceStageMsg] = useState('');
 
   const editorMatchingPools = pools.filter(p => {
     if (!editorSearchQuery.trim()) return true;
@@ -1520,6 +1522,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       notes: pool.notes || '',
     });
     setEditorSaveMsg('');
+    setForceStageIndex(pool.currentStageIndex);
+    setForceStageMsg('');
   };
 
   const handleSavePoolEdits = () => {
@@ -1535,6 +1539,22 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     });
     setEditorSaveMsg('Saved!');
     setTimeout(() => setEditorSaveMsg(''), 2500);
+  };
+
+  const handleForceSetStage = () => {
+    if (!editorSelectedPoolId || !onUpdatePool) return;
+    const pool = pools.find(p => p.id === editorSelectedPoolId);
+    if (!pool) return;
+    const targetName = forceStageIndex >= STAGES.length ? 'Final Completion / Shipment' : STAGES[forceStageIndex].name;
+    if (!window.confirm(
+      `Force-move pool [${pool.poolNo}] to "${targetName}"?\n\n` +
+      `This directly overwrites the pool's stage position. Only use this to fix a pool that's ` +
+      `visibly stuck (e.g. QC approved it but it never left its old stage). This does NOT touch ` +
+      `stage history, QC records, or team assignments — it only corrects where the pool currently sits.`
+    )) return;
+    onUpdatePool(editorSelectedPoolId, { currentStageIndex: forceStageIndex });
+    setForceStageMsg('Stage corrected!');
+    setTimeout(() => setForceStageMsg(''), 2500);
   };
 
   // Daily Stage-wise Progress: pick any date and see exactly which pools were
@@ -5435,6 +5455,41 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       rows={3}
                       className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
                     />
+                  </div>
+
+                  <div className="rounded-2xl border-2 border-dashed border-rose-200 bg-rose-50/50 p-4 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider">⚠ Force Correct Stage (use only if stuck)</span>
+                    </div>
+                    <p className="text-[11px] text-rose-700/80 leading-snug">
+                      If QC approved this pool but it's still sitting in its old stage's active list,
+                      use this to manually move it. This does not touch QC/team history — it only fixes
+                      where the pool currently sits.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={forceStageIndex}
+                        onChange={(e) => setForceStageIndex(Number(e.target.value))}
+                        className="flex-1 text-xs border border-rose-200 rounded-xl px-3 py-2 font-semibold text-slate-700 bg-white focus:outline-none focus:ring-1 focus:ring-rose-400"
+                      >
+                        {STAGES.map((s, i) => (
+                          <option key={s.id} value={i}>{i}. {s.name}</option>
+                        ))}
+                        <option value={STAGES.length}>{STAGES.length}. Final Completion / Shipment</option>
+                      </select>
+                      <button
+                        onClick={handleForceSetStage}
+                        disabled={!onUpdatePool}
+                        className="text-xs font-bold px-4 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                      >
+                        Force Set
+                      </button>
+                    </div>
+                    {forceStageMsg && (
+                      <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                        <Check className="h-3.5 w-3.5" /> {forceStageMsg}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex justify-end gap-2 pt-2">
