@@ -485,9 +485,9 @@ export const SECTION_DEFINITIONS: SectionDefinition[] = [
   { id: 'lamination', name: 'Lamination' },
   { id: 'mechanical_fitting', name: 'Mechanical Fitting' },
   { id: 'skimmer_test', name: 'Skimmer Test' },
-  { id: 'door_cutting', name: 'Door Cutting' },
-  { id: 'mosaic', name: 'Mosaic' },
-  { id: 'grouting', name: 'Grouting' },
+  { id: 'door_cutting', name: 'Mosaic' },
+  { id: 'mosaic', name: 'Grouting' },
+  { id: 'grouting', name: 'Door Cutting' },
   { id: 'acrylic', name: 'Acrylic' },
 ];
 
