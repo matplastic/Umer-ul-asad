@@ -1613,6 +1613,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           poolNo: p.poolNo,
           projectName: p.projectName,
           poolType: p.poolType || 'Type 3',
+          orientation: p.orientation || 'Normal',
           teamName,
           inspectorId: hist.inspectorId || '—',
           time: hist.inspectionTime ? new Date(hist.inspectionTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '',
@@ -3985,6 +3986,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               <div className="flex items-center gap-1">
                                 <p className="font-black text-slate-800 truncate">{dp.poolNo}</p>
                                 <span className="text-[9px] px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded font-bold uppercase shrink-0">{dp.poolType}</span>
+                                <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase shrink-0 ${dp.orientation === 'Mirror' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>{dp.orientation}</span>
                               </div>
                               <p className="text-slate-400 truncate">{dp.projectName}</p>
                             </div>
