@@ -19,6 +19,11 @@ export interface StageDefinition {
   name: string;
   defaultTeamsCount: number;
   color: string;
+  // Marks stages where the actual hands-on work takes seconds per pool
+  // (e.g. filling water into a skimmer), so the normal one-pool-at-a-time
+  // Claim -> Start Timer -> Finish flow is overkill. These stages get a
+  // checklist UI instead: tick several pools, send them all to QA at once.
+  quickStage?: boolean;
 }
 
 export type StageStatus = 
