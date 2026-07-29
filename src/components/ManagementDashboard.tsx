@@ -2391,9 +2391,16 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   { name: 'Structural Lamination', target: activeTarget.laminationTarget || 100, actual: actualLamination, color: 'text-pink-600', progressColor: 'bg-pink-600' },
                   { name: 'Mechanical Fittings', target: activeTarget.mechanicalFittingTarget || 100, actual: actualMechanical, color: 'text-violet-600', progressColor: 'bg-violet-600' },
                   { name: 'Skimmer Test', target: activeTarget.skimmerTestTarget || 100, actual: actualSkimmerTest, color: 'text-orange-500', progressColor: 'bg-orange-500' },
-                  { name: 'Door Cutting', target: activeTarget.doorCuttingTarget || 100, actual: actualDoorCutting, color: 'text-lime-600', progressColor: 'bg-lime-600' },
-                  { name: 'Cosmetic Mosaic', target: activeTarget.mosaicTarget || 100, actual: actualMosaicTarget, color: 'text-amber-600', progressColor: 'bg-amber-600' },
-                  { name: 'Grouting / Grawting', target: activeTarget.groutingTarget || 100, actual: actualGroutingTarget, color: 'text-teal-600', progressColor: 'bg-teal-600' },
+                  // NOTE 2026-07-29: STAGES entries were renamed in place
+                  // (Door Cutting <-> Mosaic <-> Grouting swapped labels,
+                  // same ids) so pool.currentStageIndex never had to be
+                  // migrated. That means actuals for the "Door Cutting" label
+                  // now come from the stage with id 'grouting', "Cosmetic
+                  // Mosaic" actuals come from id 'door_cutting', and
+                  // "Grouting / Grawting" actuals come from id 'mosaic'.
+                  { name: 'Door Cutting', target: activeTarget.groutingTarget || 100, actual: actualGroutingTarget, color: 'text-lime-600', progressColor: 'bg-lime-600' },
+                  { name: 'Cosmetic Mosaic', target: activeTarget.doorCuttingTarget || 100, actual: actualDoorCutting, color: 'text-amber-600', progressColor: 'bg-amber-600' },
+                  { name: 'Grouting / Grawting', target: activeTarget.mosaicTarget || 100, actual: actualMosaicTarget, color: 'text-teal-600', progressColor: 'bg-teal-600' },
                   { name: 'Acrylic Window Fit', target: activeTarget.acrylicTarget || 100, actual: actualAcrylicTarget, color: 'text-rose-600', progressColor: 'bg-rose-600' },
                 ];
 
