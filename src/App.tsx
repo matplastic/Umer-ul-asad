@@ -88,6 +88,22 @@ export default function App() {
   const [pools, setPools] = useState<Pool[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
+
+  // RACE-CONDITION FIX: when several stage actions (claim/start/finish/
+  // approve/reject/skip/undo) fire in very quick succession — e.g. several
+  // workers on a shared kiosk processing multiple pools back-to-back, or one
+  // person moving fast through a batch — React may not have re-rendered
+  // between calls yet. Each handler used to read `pools`/`teams` from its own
+  // stale render-time closure, so a later handler's computed array (built
+  // from the OLD data) would silently overwrite an earlier handler's change
+  // when both called setPools/setTeams. These refs are updated synchronously,
+  // immediately after every write, so each subsequent handler in the same
+  // rapid sequence always reads the true latest data instead of stale state.
+  const poolsRef = useRef<Pool[]>(pools);
+  const teamsRef = useRef<Team[]>(teams);
+  useEffect(() => { poolsRef.current = pools; }, [pools]);
+  useEffect(() => { teamsRef.current = teams; }, [teams]);
+
   const [inspectors, setInspectors] = useState<{ id: string; name: string; title: string }[]>([]);
   const [engineers, setEngineers] = useState<{ id: string; name: string; title: string }[]>([]);
   const [projectsSummary, setProjectsSummary] = useState<ProjectSummary[]>(() => {
@@ -2466,11 +2482,11 @@ export default function App() {
   // 2. Claim Pool (Stage worker claims available pool card)
   const handleClaimPool = (poolId: string, teamId: string, stageId: StageId) => {
     // Find the pool
-    const poolIndex = pools.findIndex(p => p.id === poolId);
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
     // Verify team is free
-    const team = teams.find(t => t.id === teamId);
+    const team = teamsRef.current.find(t => t.id === teamId);
     if (!team || team.status === 'BUSY') return;
 
     // Update pool: assign stage team details
@@ -2481,7 +2497,7 @@ export default function App() {
     // never marked this pool as changed. That meant the Firestore write
     // silently dropped this pool's update — it showed up on this device
     // (local state) but never synced to other devices.
-    const updatedPools = [...pools];
+    const updatedPools = [...poolsRef.current];
     const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
@@ -2490,7 +2506,7 @@ export default function App() {
     pool.stageHistory[stageId] = stageHist;
 
     // Update team: link to pool
-    const updatedTeams = teams.map(t => {
+    const updatedTeams = teamsRef.current.map(t => {
       if (t.id === teamId) {
         return { ...t, status: 'BUSY' as const, activePoolId: poolId };
       }
@@ -2513,20 +2529,22 @@ export default function App() {
     const updatedLogs = [...logs, newLog];
 
     setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setTeams(updatedTeams);
+    teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs);
   };
 
   // 3. Start Stage Timer
   const handleStartStage = (poolId: string, stageId: StageId, customDateTime?: string) => {
-    const poolIndex = pools.findIndex(p => p.id === poolId);
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
     // SYNC FIX: see handleClaimPool above — clone stageHistory too, or the
     // mutation happens on the shared object and the change silently fails
     // to reach Firestore (findChangedIds sees no difference).
-    const updatedPools = [...pools];
+    const updatedPools = [...poolsRef.current];
     const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
@@ -2534,7 +2552,7 @@ export default function App() {
     stageHist.startTime = customDateTime || new Date().toISOString();
     pool.stageHistory[stageId] = stageHist;
 
-    const team = teams.find(t => t.id === stageHist.teamId);
+    const team = teamsRef.current.find(t => t.id === stageHist.teamId);
 
     const newLog: ActivityLog = {
       id: `log_${Date.now()}`,
@@ -2551,19 +2569,20 @@ export default function App() {
 
     const updatedLogs = [...logs, newLog];
     setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, teams, updatedLogs);
   };
 
   // 4. Complete / Finish Stage (Promotes to QA validation)
   const handleFinishStage = (poolId: string, stageId: StageId, customDateTime?: string) => {
-    const poolIndex = pools.findIndex(p => p.id === poolId);
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
     // SYNC FIX: see handleClaimPool above — without cloning stageHistory,
     // this pool getting sent to Quality never actually synced to Firestore
     // on other devices (it only ever looked correct on the device that did it).
-    const updatedPools = [...pools];
+    const updatedPools = [...poolsRef.current];
     const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
@@ -2582,7 +2601,7 @@ export default function App() {
     }
 
     pool.stageHistory[stageId] = stageHist;
-    const team = teams.find(t => t.id === stageHist.teamId);
+    const team = teamsRef.current.find(t => t.id === stageHist.teamId);
 
     const newLog: ActivityLog = {
       id: `log_${Date.now()}`,
@@ -2599,17 +2618,18 @@ export default function App() {
 
     const updatedLogs = [...logs, newLog];
     setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, teams, updatedLogs);
   };
 
   // 5. Approve Stage (By Quality Inspector)
   const handleApproveStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string) => {
-    const poolIndex = pools.findIndex(p => p.id === poolId);
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
     // SYNC FIX: see handleClaimPool above.
-    const updatedPools = [...pools];
+    const updatedPools = [...poolsRef.current];
     const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
@@ -2637,7 +2657,7 @@ export default function App() {
     // exactly what caused teams to show IDLE/free while actually still holding
     // a pool, and caused team-pool allocation data to get overwritten/lost when
     // that wrongly-freed team then claimed a new pool.
-    const updatedTeams = teams.map(t => {
+    const updatedTeams = teamsRef.current.map(t => {
       if (t.id === originalWorkspecTeamId || (t.activePoolId === poolId && t.stageId === stageId)) {
         return { ...t, status: 'IDLE' as const, activePoolId: null };
       }
@@ -2702,7 +2722,7 @@ export default function App() {
       stageId,
       type: 'APPROVED',
       teamId: originalWorkspecTeamId,
-      teamName: teams.find(t => t.id === originalWorkspecTeamId)?.name,
+      teamName: teamsRef.current.find(t => t.id === originalWorkspecTeamId)?.name,
       operatorName: inspectorId,
       notes: `QC APPROVED: ${notes}.${advanced ? ` Unlocked stage: ${unlockedStageName}` : ' Stage signed off.'}${dualWaitingNote}`,
       inspectorPicture
@@ -2711,18 +2731,20 @@ export default function App() {
     const updatedLogs = [...logs, newLog];
 
     setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setTeams(updatedTeams);
+    teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans);
   };
 
   // 6. Reject Stage (Sends pool back for rework)
   const handleRejectStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string) => {
-    const poolIndex = pools.findIndex(p => p.id === poolId);
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
     // SYNC FIX: see handleClaimPool above.
-    const updatedPools = [...pools];
+    const updatedPools = [...poolsRef.current];
     const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
@@ -2746,7 +2768,7 @@ export default function App() {
     pool.stageHistory[stageId] = stageHist;
 
     // Release the worker team to IDLE so they are not locked
-    const updatedTeams = teams.map(t => {
+    const updatedTeams = teamsRef.current.map(t => {
       if (t.id === originalWorkspecTeamId) {
         return { ...t, status: 'IDLE' as const, activePoolId: null };
       }
@@ -2762,7 +2784,7 @@ export default function App() {
       stageId,
       type: 'REJECTED',
       teamId: originalWorkspecTeamId,
-      teamName: teams.find(t => t.id === originalWorkspecTeamId)?.name,
+      teamName: teamsRef.current.find(t => t.id === originalWorkspecTeamId)?.name,
       operatorName: inspectorId,
       notes: `QC REJECTED: ${notes}. Returned to Available stage queue for re-finishing.`,
       inspectorPicture
@@ -2771,7 +2793,9 @@ export default function App() {
     const updatedLogs = [...logs, newLog];
 
     setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setTeams(updatedTeams);
+    teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs);
   };
@@ -2786,7 +2810,7 @@ export default function App() {
   // next step. In that case we block and point the inspector at the
   // Management Portal for a manual correction instead.
   const handleUndoApproval = (poolId: string, stageId: StageId, inspectorId: string, notes: string) => {
-    const poolIndex = pools.findIndex(p => p.id === poolId);
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
     const pool = { ...pools[poolIndex], stageHistory: { ...pools[poolIndex].stageHistory } };
@@ -2835,7 +2859,7 @@ export default function App() {
     stageHist.teamId = undefined;
     pool.stageHistory[stageId] = stageHist;
 
-    const updatedPools = [...pools];
+    const updatedPools = [...poolsRef.current];
     updatedPools[poolIndex] = pool;
 
     // Defensive: only free up a team if it's STILL pointed at this exact
@@ -2843,7 +2867,7 @@ export default function App() {
     // reset a team to IDLE even if that team had since moved on to a
     // completely different pool, wiping their current assignment out from
     // under them mid-work.
-    const updatedTeams = teams.map(t => {
+    const updatedTeams = teamsRef.current.map(t => {
       if (t.activePoolId === poolId && t.stageId === stageId) {
         return { ...t, status: 'IDLE' as const, activePoolId: null };
       }
@@ -2859,7 +2883,7 @@ export default function App() {
       stageId,
       type: 'REJECTED',
       teamId: originalWorkspecTeamId,
-      teamName: teams.find(t => t.id === originalWorkspecTeamId)?.name,
+      teamName: teamsRef.current.find(t => t.id === originalWorkspecTeamId)?.name,
       operatorName: inspectorId,
       notes: `QC UNDO: Previously certified approval was reverted by the inspector — ${notes}. Sent back to the shop floor for rework.`,
     };
@@ -2867,14 +2891,16 @@ export default function App() {
     const updatedLogs = [...logs, newLog];
 
     setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setTeams(updatedTeams);
+    teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs);
   };
 
   // ── Request Undo Claim (from Shop Floor worker) ───────────────────────────────
   const handleRequestUndoClaim = (poolId: string, stageId: StageId, teamName: string, reason: string) => {
-    const pool = pools.find(p => p.id === poolId);
+    const pool = poolsRef.current.find(p => p.id === poolId);
     if (!pool) return;
     const stage = STAGES.find(s => s.id === stageId);
     const newRequest = {
@@ -2896,14 +2922,14 @@ export default function App() {
 
   // ── QA Approves Undo (unclaims the pool stage so correct team can pick) ──────
   const handleApproveUndo = (requestId: string, poolId: string, stageId: StageId, inspectorName: string) => {
-    const poolIndex = pools.findIndex(p => p.id === poolId);
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
     // SYNC FIX: cloning `pool` alone wasn't enough — pool.stageHistory was
     // still the SAME nested object as the original, so writing
     // pool.stageHistory[stageId] below still mutated the old state in
     // place, and findChangedIds never detected the change.
-    const updatedPools = [...pools];
+    const updatedPools = [...poolsRef.current];
     const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     const stageHist = { ...pool.stageHistory[stageId] };
 
@@ -2915,7 +2941,7 @@ export default function App() {
     pool.stageHistory[stageId] = stageHist;
 
     // Also free the team that was assigned
-    const updatedTeams = teams.map(t =>
+    const updatedTeams = teamsRef.current.map(t =>
       t.activePoolId === poolId && t.stageId === stageId
         ? { ...t, status: 'IDLE' as const, activePoolId: null }
         : t
@@ -2937,7 +2963,9 @@ export default function App() {
 
     const updatedLogs = [...logs, newLog];
     setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setTeams(updatedTeams);
+    teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, plannedPools);
 
@@ -2955,11 +2983,11 @@ export default function App() {
   };
 
   const handleSkipOrCarryOnSite = (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => {
-    const poolIndex = pools.findIndex(p => p.id === poolId);
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
     // SYNC FIX: see handleClaimPool above.
-    const updatedPools = [...pools];
+    const updatedPools = [...poolsRef.current];
     const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
     updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
@@ -2975,7 +3003,7 @@ export default function App() {
     const originalWorkspecTeamId = stageHist.teamId;
 
     // Release team if assigned to BUSY status
-    const updatedTeams = teams.map(t => {
+    const updatedTeams = teamsRef.current.map(t => {
       if (t.id === originalWorkspecTeamId) {
         return { ...t, status: 'IDLE' as const, activePoolId: null };
       }
@@ -3014,7 +3042,9 @@ export default function App() {
     const updatedLogs = [...logs, newLog];
 
     setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setTeams(updatedTeams);
+    teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans);
   };
