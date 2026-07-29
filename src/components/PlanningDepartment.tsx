@@ -589,13 +589,22 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
           matchedStageIndex = fitIdx; matchedStageName = STAGES[fitIdx].name;
         }
       } else if (s.includes('door') || s.includes('cutting') || s.includes('door cut')) {
-        const foundIdx = STAGES.findIndex(st => st.id === 'door_cutting');
+        // NOTE 2026-07-29: "Door Cutting" work now happens where the stage
+        // with id 'grouting' used to be (STAGES entry has been renamed to
+        // "Door Cutting" without changing its id, to avoid remapping every
+        // pool's currentStageIndex). So the keyword "door"/"cutting" should
+        // resolve to the 'grouting'-id entry, not the 'door_cutting'-id one.
+        const foundIdx = STAGES.findIndex(st => st.id === 'grouting');
         if (foundIdx !== -1) { matchedStageIndex = foundIdx; matchedStageName = STAGES[foundIdx].name; }
       } else if (s.includes('mosaic') || s.includes('tile') || s.includes('cosmetic')) {
-        const foundIdx = STAGES.findIndex(st => st.id === 'mosaic');
+        // "Mosaic" work now happens where the stage with id 'door_cutting'
+        // used to be (renamed to "Mosaic" in place — see note above).
+        const foundIdx = STAGES.findIndex(st => st.id === 'door_cutting');
         if (foundIdx !== -1) { matchedStageIndex = foundIdx; matchedStageName = STAGES[foundIdx].name; }
       } else if (s.includes('grout') || s.includes('grawt')) {
-        const foundIdx = STAGES.findIndex(st => st.id === 'grouting');
+        // "Grouting"/"Grawting" work now happens where the stage with id
+        // 'mosaic' used to be (renamed to "Grouting" in place — see note above).
+        const foundIdx = STAGES.findIndex(st => st.id === 'mosaic');
         if (foundIdx !== -1) { matchedStageIndex = foundIdx; matchedStageName = STAGES[foundIdx].name; }
       } else if (s.includes('acrylic') || s.includes('glass window') || s.includes('window fit')) {
         const foundIdx = STAGES.findIndex(st => st.id === 'acrylic');
