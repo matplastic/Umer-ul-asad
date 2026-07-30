@@ -155,7 +155,15 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   const availablePools = currentStagePools.filter(
     (p) => {
       const hist = p.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
-      return (hist.status === 'NOT_STARTED' || hist.status === 'REJECTED' || hist.status === 'SKIPPED') && !hist.teamId;
+      const statusOk = hist.status === 'NOT_STARTED' || hist.status === 'REJECTED' || hist.status === 'SKIPPED';
+      // Quick stages (e.g. Skimmer Test) don't lock a pool to one team while queued —
+      // any helper can tick it off in the batch checklist. If a stray teamId ever gets
+      // attached to a quickStage pool (stale data, a dropped write, etc.) while status
+      // is still NOT_STARTED, the old `!hist.teamId` check made it invisible everywhere:
+      // excluded from this checklist AND from the normal claimed-pool workstation card,
+      // which doesn't even render for quickStage stages. So ignore teamId here for
+      // quickStage stages so a pool can never get stuck with no way to send it to QA.
+      return stage.quickStage ? statusOk : statusOk && !hist.teamId;
     }
   );
 
