@@ -63,6 +63,8 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
 
   // Pre-planned import dropdown selection state
   const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [planSearch, setPlanSearch] = useState('');
+  const [planListOpen, setPlanListOpen] = useState(false);
 
   // Single form states
   const [projectName, setProjectName] = useState('');
@@ -384,6 +386,8 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                         type="button" 
                         onClick={() => {
                           setSelectedPlanId('');
+                          setPlanSearch('');
+                          setPlanListOpen(false);
                           setProjectName('');
                           setPoolNo('');
                           setNotes('');
@@ -397,11 +401,24 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                       </button>
                     )}
                   </div>
-                  <select
-                    value={selectedPlanId}
-                    onChange={(e) => {
-                      const planId = e.target.value;
+                  {(() => {
+                    const selectedPlan = plannedPools.find(ap => ap.id === selectedPlanId);
+                    const filteredPlans = plannedPools
+                      .filter(ap => ap.status === 'PLANNED')
+                      .filter(ap => {
+                        const q = planSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          ap.poolNo.toLowerCase().includes(q) ||
+                          ap.projectName.toLowerCase().includes(q) ||
+                          (ap.poolType || '').toLowerCase().includes(q) ||
+                          ap.orientation.toLowerCase().includes(q)
+                        );
+                      });
+
+                    const applyPlan = (planId: string) => {
                       setSelectedPlanId(planId);
+                      setPlanListOpen(false);
                       if (!planId) {
                         setProjectName('');
                         setPoolNo('');
@@ -421,18 +438,74 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                           setNotes(matched.notes || '');
                         }
                       }
-                    }}
-                    className="w-full bg-white border border-indigo-200 text-slate-800 font-bold px-2.5 py-1.5 rounded-lg focus:outline-none text-xs"
-                  >
-                    <option value="">-- Select Registered Number --</option>
-                    {plannedPools.filter(ap => ap.status === 'PLANNED').map((ap) => (
-                      <option key={ap.id} value={ap.id}>
-                        {ap.poolNo} — {ap.projectName} ({ap.orientation})
-                      </option>
-                    ))}
-                  </select>
+                    };
+
+                    return (
+                      <div className="relative">
+                        {selectedPlan ? (
+                          <button
+                            type="button"
+                            onClick={() => setPlanListOpen(o => !o)}
+                            className="w-full flex items-center justify-between bg-white border border-indigo-200 text-slate-800 font-bold px-2.5 py-1.5 rounded-lg text-xs"
+                          >
+                            <span>{selectedPlan.poolNo} — {selectedPlan.projectName}</span>
+                            <span className="flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-wide text-indigo-500">
+                              <Tag className="h-3 w-3" />
+                              {selectedPlan.poolType || 'Unspecified'}
+                              <Compass className="h-3 w-3 ml-1" />
+                              {selectedPlan.orientation}
+                            </span>
+                          </button>
+                        ) : (
+                          <div className="relative">
+                            <Search className="absolute top-2.5 left-2.5 h-3.5 w-3.5 text-indigo-300" />
+                            <input
+                              type="text"
+                              value={planSearch}
+                              onFocus={() => setPlanListOpen(true)}
+                              onChange={(e) => { setPlanSearch(e.target.value); setPlanListOpen(true); }}
+                              placeholder="Search by pool no, project, type, or orientation..."
+                              className="w-full bg-white border border-indigo-200 text-slate-800 font-bold pl-8 pr-2.5 py-1.5 rounded-lg focus:outline-none text-xs"
+                            />
+                          </div>
+                        )}
+
+                        {planListOpen && (
+                          <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-indigo-200 rounded-lg shadow-lg divide-y divide-indigo-50">
+                            {filteredPlans.length === 0 && (
+                              <div className="px-3 py-3 text-[10.5px] text-slate-400 font-semibold">No matching planned pools.</div>
+                            )}
+                            {filteredPlans.map((ap) => (
+                              <button
+                                type="button"
+                                key={ap.id}
+                                onClick={() => applyPlan(ap.id)}
+                                className="w-full text-left px-3 py-2 hover:bg-indigo-50 transition-colors"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-black text-slate-700">{ap.poolNo}</span>
+                                  <span className="text-[9.5px] font-bold text-slate-400">{ap.projectName}</span>
+                                </div>
+                                <div className="flex items-center gap-3 mt-0.5 text-[9.5px] font-black uppercase tracking-wide">
+                                  <span className="flex items-center gap-1 text-indigo-500">
+                                    <Tag className="h-3 w-3" />
+                                    {ap.poolType || 'Unspecified'}
+                                  </span>
+                                  <span className="flex items-center gap-1 text-slate-500">
+                                    <Compass className="h-3 w-3" />
+                                    {ap.orientation}
+                                  </span>
+                                  <span className="text-slate-400 normal-case font-semibold tracking-normal">{ap.dimensions}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <p className="text-[9.5px] text-indigo-455 text-indigo-500 leading-tight">
-                    {selectedPlanId ? 'Locked to planning department specifications.' : 'Or fill custom details in the coordinates fields below.'}
+                    {selectedPlanId ? 'Locked to planning department specifications.' : 'Search or browse to see pool type and orientation before selecting.'}
                   </p>
                 </div>
               )}
