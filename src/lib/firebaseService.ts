@@ -568,13 +568,104 @@ function mergeByIdScoped(current: any[], local: any[], changedIds?: string[]): a
   return result;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA-LOSS FIX (v11): weak/lost signal was silently dropping writes.
+//
+// ROOT CAUSE: every write in this file goes through a Firestore
+// `runTransaction`. Transactions are NOT like normal Firestore writes — a
+// normal `setDoc`/`updateDoc` gets queued in the SDK's own offline cache
+// and sent automatically once the connection returns, even if the device
+// was fully offline when you made the change. A transaction cannot do
+// this: `transaction.get()` requires a live round-trip to the server, so
+// on a weak or dropped connection it just fails outright (after Firestore's
+// internal retry/timeout), and `updateFirestoreDocArray` rethrows.
+//
+// `saveChangedCollectionsToFirestore` used to fire pools/teams/logs/etc as
+// independent promises in one `Promise.all`. On a flaky kiosk connection
+// it's common for ONE of those (often teams, since a stage claim writes
+// pools+teams together and one of the two can win the network race while
+// the other times out) to fail while its siblings succeed — which matches
+// exactly what was reported: pool progress looks fine, but the team
+// allocation for that same action is gone. The local device's own state/
+// localStorage already showed the change as done, so nothing on-screen
+// indicated the cloud write had actually failed and been discarded.
+//
+// THE FIX: any collection write that fails here is no longer dropped — it's
+// persisted into `apex_pending_firestore_writes` in localStorage, and
+// retried automatically (see flushPendingWrites, wired up in App.tsx to
+// run on the browser's 'online' event and on a periodic timer) until it
+// actually lands in Firestore. If the same collection fails twice before
+// it's retried, the newer attempt supersedes the older one in the queue
+// instead of stacking duplicate writes.
+// ─────────────────────────────────────────────────────────────────────────────
+const PENDING_WRITES_KEY = 'apex_pending_firestore_writes';
+
+interface PendingWrite {
+  docName: string;
+  data: any[];
+  ids?: string[];
+  queuedAt: number;
+}
+
+function loadPendingWrites(): PendingWrite[] {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_WRITES_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function savePendingWrites(queue: PendingWrite[]) {
+  localStorage.setItem(PENDING_WRITES_KEY, JSON.stringify(queue));
+}
+
+function queuePendingWrite(docName: string, data: any[], ids?: string[]) {
+  // Collapse to one pending entry per collection — the newest attempt
+  // already contains everything the older queued one was trying to save.
+  const queue = loadPendingWrites().filter((pw) => pw.docName !== docName);
+  queue.push({ docName, data, ids, queuedAt: Date.now() });
+  savePendingWrites(queue);
+}
+
+export function getPendingWriteCount(): number {
+  return loadPendingWrites().length;
+}
+
+// Retries every queued write. Safe to call repeatedly (e.g. on a timer or
+// on the 'online' event) — entries that still fail simply stay queued for
+// the next attempt, entries that succeed are removed.
+export async function flushPendingWrites(): Promise<{ flushed: number; remaining: number }> {
+  const queue = loadPendingWrites();
+  if (queue.length === 0) return { flushed: 0, remaining: 0 };
+
+  const stillPending: PendingWrite[] = [];
+  let flushed = 0;
+
+  for (const pw of queue) {
+    try {
+      if (pw.docName === 'logs') {
+        await updateFirestoreDocArray('logs', () => pw.data);
+      } else {
+        await updateFirestoreDocArray(pw.docName, (current) => mergeByIdScoped(current, pw.data, pw.ids));
+      }
+      flushed++;
+    } catch {
+      stillPending.push(pw);
+    }
+  }
+
+  savePendingWrites(stillPending);
+  return { flushed, remaining: stillPending.length };
+}
+
 export async function saveChangedCollectionsToFirestore(
   changed: Record<string, any[]>,
   changedIds: Record<string, string[]> = {}
 ) {
   const entries = Object.entries(changed);
   if (entries.length === 0) return { success: true };
-  await Promise.all(entries.map(([name, arr]) => {
+
+  const results = await Promise.allSettled(entries.map(([name, arr]) => {
     let data = arr;
     if (name === 'projectsSummary' && !arr.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
       data = [...arr, makeSentinel()];
@@ -588,6 +679,25 @@ export async function saveChangedCollectionsToFirestore(
     const ids = changedIds[name];
     return updateFirestoreDocArray(name, (current) => mergeByIdScoped(current, data, ids));
   }));
+
+  let anyQueued = false;
+  results.forEach((result, i) => {
+    if (result.status === 'rejected') {
+      const [name, arr] = entries[i];
+      let data = arr;
+      if (name === 'projectsSummary' && !arr.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
+        data = [...arr, makeSentinel()];
+      }
+      const dataToQueue = name === 'logs' ? data.slice(-200) : data;
+      console.warn(`[saveChangedCollectionsToFirestore] '${name}' failed to save (likely weak/lost connection) — queued for automatic retry instead of being dropped.`, result.reason);
+      queuePendingWrite(name, dataToQueue, changedIds[name]);
+      anyQueued = true;
+    }
+  });
+
+  if (anyQueued) {
+    return { success: false, queued: true };
+  }
   return { success: true };
 }
 
@@ -954,6 +1064,72 @@ export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [],
   });
 
   return updatedArr;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA-LOSS FIX (v10): reconcile a restored Teams snapshot against live pool
+// data before it's ever written back to Firestore.
+//
+// THE BUG: "Teams Allocation" backups (and full-database backups) capture
+// Team.activePoolId as a plain snapshot at export time. Restoring that file
+// later — after pools it references have since PASSED that stage, been
+// re-claimed by a different team, or been deleted — used to go straight
+// through handleRestoreState -> saveState -> saveChangedCollectionsToFirestore.
+// Because the restored array differs from the live one for almost every
+// team, `findChangedIds` marked nearly all of them "changed", so
+// mergeByIdScoped let the STALE backup value win for every one of those
+// teams. That silently re-attached an already-finished pool back onto the
+// team that used to hold it — the exact "pool comes back to the same team
+// after I upload a backup" symptom — and could reintroduce a duplicate
+// `code` (kiosk login PIN) shared with a currently-active team, which is
+// what caused workers to be logged into the wrong ("random") team.
+//
+// THE FIX: before a restored teams array is ever applied, cross-check every
+// team.activePoolId against the CURRENT pool data (the pool must still
+// exist, the stage the team claims to be working must still show that
+// exact team as IN_PROGRESS on that pool's stageHistory). Anything that no
+// longer matches is released back to IDLE rather than trusted from the
+// backup. Duplicate login codes are also detected and stripped from every
+// but the first occurrence so two teams can never collide on the same PIN.
+// ─────────────────────────────────────────────────────────────────────────────
+export function reconcileTeamsForRestore(
+  livePools: any[],
+  restoredTeams: Team[]
+): { teams: Team[]; releasedCount: number; strippedCodeCount: number } {
+  const poolsById = new Map((livePools || []).map((p) => [p?.id, p]));
+  let releasedCount = 0;
+  let strippedCodeCount = 0;
+
+  const releasedTeams = restoredTeams.map((team) => {
+    if (!team?.activePoolId) return team;
+
+    const pool = poolsById.get(team.activePoolId);
+    const hist = pool?.stageHistory?.[team.stageId];
+    const stillGenuinelyActive =
+      !!pool &&
+      !!hist &&
+      hist.status === 'IN_PROGRESS' &&
+      hist.teamId === team.id;
+
+    if (stillGenuinelyActive) return team;
+
+    releasedCount += 1;
+    return { ...team, status: 'IDLE' as const, activePoolId: null };
+  });
+
+  const seenCodes = new Set<string>();
+  const dedupedTeams = releasedTeams.map((team) => {
+    if (!team.code) return team;
+    if (seenCodes.has(team.code)) {
+      strippedCodeCount += 1;
+      const { code, ...rest } = team;
+      return rest as Team;
+    }
+    seenCodes.add(team.code);
+    return team;
+  });
+
+  return { teams: dedupedTeams, releasedCount, strippedCodeCount };
 }
 
 export async function dbSaveTeam(team: Team) {
