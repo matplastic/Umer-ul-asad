@@ -38,6 +38,9 @@ import {
   dbSaveEmployee,
   dbDeleteEmployee,
   dbSyncTeams,
+  reconcileTeamsForRestore,
+  flushPendingWrites,
+  getPendingWriteCount,
   dbSaveTrolley,
   dbDeleteTrolley,
   dbSaveQcDefect,
@@ -508,12 +511,46 @@ export default function App() {
   // Firebase Integration states
   const [firebaseStatus, setFirebaseStatus] = useState<'idle' | 'linking' | 'connected' | 'error'>('idle');
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
+  // DATA-LOSS FIX (v11): count of changes saved locally but not yet
+  // confirmed in Firestore because the last write attempt failed (weak/lost
+  // signal). Surfaced as a banner so a claim/release made on bad WiFi never
+  // silently looks "done" when it's actually still sitting in the retry
+  // queue on this device only.
+  const [pendingWriteCount, setPendingWriteCount] = useState(0);
   // DATA-LOSS FIX: block ALL cloud writes until we have successfully loaded
   // the real cloud state at least once. Without this, an action performed
   // right after opening the app (or after a failed load that fell back to an
   // old localStorage copy) would push STALE data to Firestore and wipe
   // everything entered from other devices since this copy was cached.
   const cloudHydratedRef = useRef(false);
+
+  // DATA-LOSS FIX (v11): drain the pending-write retry queue whenever the
+  // browser reports it's back online, and also on a periodic timer as a
+  // fallback (the 'online' event is unreliable on some tablets/kiosks —
+  // it can report "online" while the WiFi is still too weak for Firestore,
+  // so a timer keeps trying instead of waiting for one event that may
+  // never accurately fire). Keeps pendingWriteCount in sync so the banner
+  // clears the moment a queued team/pool/etc write actually lands.
+  useEffect(() => {
+    const attemptFlush = () => {
+      flushPendingWrites()
+        .then(({ remaining }) => setPendingWriteCount(remaining))
+        .catch(() => {
+          // still offline / still failing — leave the queue as-is, we'll
+          // try again on the next tick or the next 'online' event
+          setPendingWriteCount(getPendingWriteCount());
+        });
+    };
+
+    setPendingWriteCount(getPendingWriteCount());
+    window.addEventListener('online', attemptFlush);
+    const intervalId = window.setInterval(attemptFlush, 20000);
+
+    return () => {
+      window.removeEventListener('online', attemptFlush);
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   // Load state from Firestore & register Auth listener on mount
   useEffect(() => {
@@ -996,9 +1033,20 @@ export default function App() {
     if (changed.pools) changedIds.pools = findChangedIds(pools, safePools);
 
     saveChangedCollectionsToFirestore(changed, changedIds)
-      .then(() => {
-        setFirebaseStatus('connected');
-        setFirebaseError(null);
+      .then((result) => {
+        if (result?.queued) {
+          // One or more collections (e.g. this team update) couldn't reach
+          // Firestore right now and were queued for automatic retry — this
+          // is NOT a dead end like the old behaviour, but it's also not
+          // "saved to the cloud" yet, so make that visible immediately
+          // rather than waiting for the next periodic flush tick.
+          setPendingWriteCount(getPendingWriteCount());
+          setFirebaseStatus('error');
+          setFirebaseError('Weak/lost connection — your last change is saved on this device and will sync automatically once the signal is back.');
+        } else {
+          setFirebaseStatus('connected');
+          setFirebaseError(null);
+        }
       })
       .catch((err: any) => {
         console.error('Cloud save error:', err);
@@ -1763,8 +1811,35 @@ export default function App() {
       console.warn(`[handleRestoreState] Backup file did not include: ${missing.join(', ')}. Keeping current data for these — nothing was wiped.`);
     }
 
+    // DATA-LOSS FIX (v10): a Teams backup (full or "Teams Allocation only")
+    // is a snapshot of who was assigned to what AT EXPORT TIME. Pools keep
+    // moving through stages after that, so by the time this file gets
+    // restored — especially an old file uploaded to recover from a wipe —
+    // some team->pool assignments in it are stale: the pool may already
+    // have passed that stage, been claimed by a different team since, or
+    // been deleted. Restoring blindly is how an already-finished pool used
+    // to jump back onto its old team, and how two teams could end up
+    // sharing one kiosk login code (workers logged into the wrong/"random"
+    // team). Reconcile against the pools we're keeping (the freshly
+    // restored set if this file includes them, otherwise whatever pools
+    // are already live) before any of it touches state or Firestore.
+    let teamsToApply = recovered.teams;
+    if (teamsToApply) {
+      const poolsForReconciliation = recovered.pools || pools;
+      const { teams: reconciled, releasedCount, strippedCodeCount } = reconcileTeamsForRestore(
+        poolsForReconciliation,
+        teamsToApply
+      );
+      teamsToApply = reconciled;
+      if (releasedCount > 0 || strippedCodeCount > 0) {
+        console.warn(
+          `[handleRestoreState] Reconciled restored teams: released ${releasedCount} stale pool assignment(s), stripped ${strippedCodeCount} duplicate login code(s).`
+        );
+      }
+    }
+
     if (recovered.pools) setPools(recovered.pools);
-    if (recovered.teams) setTeams(recovered.teams);
+    if (teamsToApply) setTeams(teamsToApply);
     if (recovered.logs) setLogs(recovered.logs);
     if (recovered.inspectors) setInspectors(recovered.inspectors);
     if (recovered.engineers) setEngineers(recovered.engineers);
@@ -1775,7 +1850,7 @@ export default function App() {
 
     saveState(
       recovered.pools || pools,
-      recovered.teams || teams,
+      teamsToApply || teams,
       recovered.logs || logs,
       recovered.inspectors || inspectors,
       recovered.engineers || engineers,
@@ -3253,6 +3328,22 @@ export default function App() {
                 </>
               )}
             </div>
+
+            {/* DATA-LOSS FIX (v11): visible whenever ANY device-local change
+                hasn't actually reached Firestore yet, independent of the
+                badge above — so a weak-signal write that got queued for
+                retry never silently looks identical to a fully-synced one. */}
+            {pendingWriteCount > 0 && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/60 border border-amber-700/80 font-mono text-[10px]"
+                title="Saved on this device. Retrying automatically until the signal is strong enough to reach the cloud."
+              >
+                <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" />
+                <span className="text-amber-300 font-bold">
+                  {pendingWriteCount} change{pendingWriteCount > 1 ? 's' : ''} syncing...
+                </span>
+              </div>
+            )}
 
             <span className="text-slate-400 hidden xl:inline">
               | Switch roles using the portal buttons to test the cross-functional pipeline in real-time.
