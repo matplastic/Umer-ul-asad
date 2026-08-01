@@ -1608,6 +1608,20 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         const hist = p.stageHistory[stage.id];
         const team = teams.find((t) => t.id === hist.teamId);
         const teamName = team?.name || hist.teamName || (hist.teamId ? hist.teamId.replace(`${stage.id}_`, '').toUpperCase() : 'Unknown Team');
+
+        // Lifetime rejection/defect history for this pool at this stage, regardless of date —
+        // so a pool rejected days ago still shows its defect note here once it later passes.
+        const defectHistory = logs
+          .filter(l => l.type === 'REJECTED' && l.poolNo === p.poolNo && l.stageId === stage.id)
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+          .map(l => ({
+            id: l.id,
+            date: l.timestamp ? toLocalDateStr(l.timestamp) : '—',
+            time: l.timestamp ? new Date(l.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—',
+            notes: l.notes || 'No defect notes recorded',
+            inspectorName: l.operatorName || '—',
+          }));
+
         return {
           poolId: p.id,
           poolNo: p.poolNo,
@@ -1617,6 +1631,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           teamName,
           inspectorId: hist.inspectorId || '—',
           time: hist.inspectionTime ? new Date(hist.inspectionTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '',
+          defectHistory,
         };
       });
     return { stage, donePools };
@@ -4029,19 +4044,41 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     ) : (
                       <div className="divide-y divide-slate-100 max-h-[260px] overflow-y-auto">
                         {donePools.map((dp) => (
-                          <div key={dp.poolId} className="px-4 py-2.5 flex items-center justify-between text-xs hover:bg-slate-50">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1">
-                                <p className="font-black text-slate-800 truncate">{dp.poolNo}</p>
-                                <span className="text-[9px] px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded font-bold uppercase shrink-0">{dp.poolType}</span>
-                                <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase shrink-0 ${dp.orientation === 'Mirror' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>{dp.orientation}</span>
+                          <div key={dp.poolId} className="px-4 py-2.5 hover:bg-slate-50">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1">
+                                  <p className="font-black text-slate-800 truncate">{dp.poolNo}</p>
+                                  <span className="text-[9px] px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded font-bold uppercase shrink-0">{dp.poolType}</span>
+                                  <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase shrink-0 ${dp.orientation === 'Mirror' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>{dp.orientation}</span>
+                                </div>
+                                <p className="text-slate-400 truncate">{dp.projectName}</p>
                               </div>
-                              <p className="text-slate-400 truncate">{dp.projectName}</p>
+                              <div className="text-right flex-shrink-0 ml-2">
+                                <p className="font-bold text-slate-600">{dp.teamName}</p>
+                                <p className="text-[10px] text-slate-400">{dp.time}</p>
+                              </div>
                             </div>
-                            <div className="text-right flex-shrink-0 ml-2">
-                              <p className="font-bold text-slate-600">{dp.teamName}</p>
-                              <p className="text-[10px] text-slate-400">{dp.time}</p>
-                            </div>
+
+                            {dp.defectHistory.length > 0 && (
+                              <div className="mt-1.5 bg-rose-50/60 border border-rose-100 rounded-md p-1.5 space-y-1">
+                                <span className="text-[9px] font-black text-rose-600 uppercase tracking-wider flex items-center gap-1">
+                                  <AlertTriangle className="h-2.5 w-2.5" />
+                                  Defect History ({dp.defectHistory.length})
+                                </span>
+                                {dp.defectHistory.map((d) => (
+                                  <div key={d.id} className="text-[10px] text-rose-700 pl-1 border-l-2 border-rose-300 leading-tight py-0.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-mono text-rose-400">{d.date} {d.time}</span>
+                                      {d.inspectorName !== '—' && (
+                                        <span className="text-rose-400">· {d.inspectorName}</span>
+                                      )}
+                                    </div>
+                                    <div className="italic text-rose-600/90 truncate">{d.notes}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
