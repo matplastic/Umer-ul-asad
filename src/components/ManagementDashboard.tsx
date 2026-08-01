@@ -4312,11 +4312,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             (hist.status === 'IN_PROGRESS' || hist.status === 'PENDING_INSPECTION' || hist.status === 'REJECTED');
                         });
                         const busyPool = (team.activePoolId ? pools.find(p => p.id === team.activePoolId) : null) || derivedBusyPool || null;
-                        // The auto-assigned rework pool sits in its own slot
-                        // (Team.reworkPoolId) separate from activePoolId, so
-                        // it needs its own lookup or it stays invisible here
-                        // whenever the team also has a normal pool claimed.
-                        const reworkPool = team.reworkPoolId ? pools.find(p => p.id === team.reworkPoolId) : null;
+                        // Auto-assigned rework pools live in their own array
+                        // slot (Team.reworkPoolIds) — a team can be holding
+                        // several rejections at once, each auto-started.
+                        const reworkPools = (team.reworkPoolIds || []).map(id => pools.find(p => p.id === id)).filter((p): p is typeof pools[number] => Boolean(p));
                         const isBusy = isTeamBusy(team.id);
                         return (
                           <div key={team.id} className="p-2 border border-slate-50 hover:bg-slate-50/55 rounded-lg text-xs">
@@ -4339,12 +4338,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                 </span>
                               </div>
                             )}
-                            {reworkPool && (
-                              <div className="mt-1.5 flex items-center justify-between text-[10px] text-rose-600 font-mono bg-rose-50 border border-rose-100 rounded px-1.5 py-0.5">
+                            {reworkPools.map(reworkPool => (
+                              <div key={reworkPool.id} className="mt-1.5 flex items-center justify-between text-[10px] text-rose-600 font-mono bg-rose-50 border border-rose-100 rounded px-1.5 py-0.5">
                                 <span className="truncate max-w-[100px] font-bold">Rework: {reworkPool.projectName}</span>
                                 <span>No: {reworkPool.poolNo}</span>
                               </div>
-                            )}
+                            ))}
                             <div className="mt-1.5 flex items-center justify-between text-[10px]">
                               <span className="text-slate-400">
                                 Login code: {team.code ? (
