@@ -2560,9 +2560,12 @@ export default function App() {
     const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
-    // Verify team is free
+    // Verify the team's NORMAL work slot is free. We deliberately check
+    // activePoolId here, not team.status — status stays 'BUSY' while a team
+    // is working an auto-assigned rework pool too, but that shouldn't block
+    // them from also claiming a fresh pool as their normal job.
     const team = teamsRef.current.find(t => t.id === teamId);
-    if (!team || team.status === 'BUSY') return;
+    if (!team || team.activePoolId) return;
 
     // Update pool: assign stage team details
     // SYNC FIX: clone both the pool AND its stageHistory bag before editing.
