@@ -2801,7 +2801,13 @@ export default function App() {
     // that wrongly-freed team then claimed a new pool.
     const updatedTeams = teamsRef.current.map(t => {
       if (t.id === originalWorkspecTeamId || (t.activePoolId === poolId && t.stageId === stageId)) {
-        return { ...t, status: 'IDLE' as const, activePoolId: null };
+        return { ...t, status: 'IDLE' as const, activePoolId: null, reworkPoolIds: (t.reworkPoolIds || []).filter(id => id !== poolId) };
+      }
+      // Even if this team wasn't the one holding activePoolId on this pool,
+      // it may still be holding it as a REWORK pool specifically — clear it
+      // there too so an approved rework pool never keeps showing as active.
+      if (t.reworkPoolIds?.includes(poolId)) {
+        return { ...t, reworkPoolIds: t.reworkPoolIds.filter(id => id !== poolId) };
       }
       return t;
     });
