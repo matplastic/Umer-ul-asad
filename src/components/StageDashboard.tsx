@@ -191,7 +191,10 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   const myClaimedPool = activeTeam && activeTeam.activePoolId
     ? pools.find((p) => p.id === activeTeam.activePoolId)
     : (activeTeam
-        ? inProgressPools.find((p) => (p.stageHistory[stage.id] || {}).teamId === activeTeam.id)
+        ? inProgressPools.find((p) =>
+            (p.stageHistory[stage.id] || {}).teamId === activeTeam.id &&
+            !(activeTeam.reworkPoolIds || []).includes(p.id) // don't double-show a rework pool here too
+          )
         : null);
 
   const myClaimedPoolHist = myClaimedPool
