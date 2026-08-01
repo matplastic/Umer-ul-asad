@@ -2781,6 +2781,25 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             {activePoolIds.map(pn => {
                               const poolLogs = dateLogs.filter(l => l.poolNo === pn);
                               const details = pools.find(p => p.poolNo === pn);
+
+                              // Full lifetime defect/rejection history for this pool, regardless of date,
+                              // so a rejection logged days ago still shows up in front of the pool once
+                              // it later passes and appears in today's activity.
+                              const poolDefectHistory = logs
+                                .filter(l => l.type === 'REJECTED' && l.poolNo === pn)
+                                .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                                .map(l => {
+                                  const stage = STAGES.find(s => s.id === l.stageId);
+                                  return {
+                                    id: l.id,
+                                    stageName: stage?.name || l.stageId || 'Unknown Stage',
+                                    date: l.timestamp ? toLocalDateStr(l.timestamp) : '—',
+                                    time: l.timestamp ? new Date(l.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—',
+                                    notes: l.notes || 'No defect notes recorded',
+                                    inspectorName: l.operatorName || '—',
+                                  };
+                                });
+
                               return (
                                 <div key={pn} className="bg-slate-50/30 border border-slate-100 rounded-lg p-3 space-y-2">
                                   <div className="flex justify-between items-center">
@@ -2789,6 +2808,28 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                       {details?.projectName || 'Apex Custom'}
                                     </span>
                                   </div>
+
+                                  {poolDefectHistory.length > 0 && (
+                                    <div className="bg-rose-50/60 border border-rose-100 rounded-md p-2 space-y-1">
+                                      <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider flex items-center gap-1">
+                                        <AlertTriangle className="h-3 w-3" />
+                                        Defect History ({poolDefectHistory.length})
+                                      </span>
+                                      {poolDefectHistory.map((d) => (
+                                        <div key={d.id} className="text-[10px] text-rose-700 pl-1 border-l-2 border-rose-300 leading-tight py-0.5">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-bold">{d.stageName}</span>
+                                            <span className="font-mono text-rose-400">{d.date} {d.time}</span>
+                                            {d.inspectorName !== '—' && (
+                                              <span className="text-rose-400">· {d.inspectorName}</span>
+                                            )}
+                                          </div>
+                                          <div className="italic text-rose-600/90 truncate">{d.notes}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
                                   <div className="text-[11px] text-slate-500 space-y-1">
                                     <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">
                                       Registered actions on this day:
