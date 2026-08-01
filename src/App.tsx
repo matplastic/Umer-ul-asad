@@ -2678,6 +2678,13 @@ export default function App() {
     pool.stageHistory[stageId] = stageHist;
     const team = teamsRef.current.find(t => t.id === stageHist.teamId);
 
+    // If this was the team's auto-assigned rework pool, free that slot now
+    // that it's back with QC — otherwise the team stays "holding" it forever
+    // and can never be auto-assigned a fresh rejection.
+    const updatedTeams = team?.reworkPoolId === poolId
+      ? teamsRef.current.map(t => t.id === team.id ? { ...t, reworkPoolId: null } : t)
+      : teamsRef.current;
+
     const newLog: ActivityLog = {
       id: `log_${Date.now()}`,
       timestamp: nowStr,
@@ -2694,8 +2701,12 @@ export default function App() {
     const updatedLogs = [...logs, newLog];
     setPools(updatedPools);
     poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
+    if (updatedTeams !== teamsRef.current) {
+      setTeams(updatedTeams);
+      teamsRef.current = updatedTeams;
+    }
     setLogs(updatedLogs);
-    saveState(updatedPools, teams, updatedLogs);
+    saveState(updatedPools, updatedTeams, updatedLogs);
   };
 
   // 4b. Quick Batch Complete — for "quickStage" stages (e.g. Skimmer Test)
@@ -2890,15 +2901,22 @@ export default function App() {
     stageHist.endTime = null;
 
     const originalWorkspecTeamId = stageHist.teamId;
-    
-    // Clear assigned team so either they or a different team reclaim and rework
-    stageHist.teamId = undefined; 
+
+    // AUTO-ASSIGN REWORK: keep the SAME team on this pool instead of dropping
+    // it into the open queue for anyone to claim. teamId stays set, which
+    // also keeps it correctly excluded from `availablePools` (see
+    // StageDashboard's `!hist.teamId` filter) so it can't be double-claimed.
+    // stageHist.teamId is intentionally left untouched.
     pool.stageHistory[stageId] = stageHist;
 
-    // Release the worker team to IDLE so they are not locked
+    // Give the team a dedicated `reworkPoolId` slot (separate from
+    // activePoolId) so they can also pick up a brand-new pool concurrently —
+    // the rework doesn't block them from taking on other work. We do NOT
+    // touch status/activePoolId here, since this rejection may be for a
+    // pool that wasn't even their current activePoolId.
     const updatedTeams = teamsRef.current.map(t => {
       if (t.id === originalWorkspecTeamId) {
-        return { ...t, status: 'IDLE' as const, activePoolId: null };
+        return { ...t, reworkPoolId: poolId };
       }
       return t;
     });
@@ -2914,7 +2932,7 @@ export default function App() {
       teamId: originalWorkspecTeamId,
       teamName: teamsRef.current.find(t => t.id === originalWorkspecTeamId)?.name,
       operatorName: inspectorId,
-      notes: `QC REJECTED: ${notes}. Returned to Available stage queue for re-finishing.`,
+      notes: `QC REJECTED: ${notes}. Auto-assigned back to the same team for rework.`,
       inspectorPicture
     };
 
