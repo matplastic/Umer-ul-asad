@@ -198,6 +198,17 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
     ? (myClaimedPool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 })
     : null;
 
+  // Auto-assigned rework pool: kept in its own dedicated slot (Team.reworkPoolId)
+  // so it shows up as a SECOND, concurrent card — the team doesn't have to
+  // finish it before picking up a fresh pool as normal work, and vice versa.
+  const myReworkPool = activeTeam && activeTeam.reworkPoolId
+    ? pools.find((p) => p.id === activeTeam.reworkPoolId)
+    : null;
+
+  const myReworkPoolHist = myReworkPool
+    ? (myReworkPool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 })
+    : null;
+
   // Pools recently approved in this stage (completed historical items)
   const approvedPools = pools.filter((p) => {
     const hist = p.stageHistory[stage.id];
@@ -454,6 +465,62 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                   <div className="text-center py-8 bg-slate-50 border border-slate-100 border-dashed rounded-xl">
                     <p className="text-xs font-bold text-slate-500">No active claimed pool card</p>
                     <p className="text-[10px] text-slate-400 mt-1">Select an item from the Available Queue or waiting list on the right to start work.</p>
+                  </div>
+                )}
+
+                {/* Auto-assigned rework pool — a SECOND, concurrent slot so QC
+                    rejections come straight back to this team without
+                    blocking them from also carrying a normal claimed pool. */}
+                {myReworkPool && myReworkPoolHist && (
+                  <div className="border border-rose-200 rounded-xl bg-rose-50/40 p-4 space-y-3 mt-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-[9px] font-black text-rose-600 uppercase tracking-wider">Auto-Assigned Rework</span>
+                        <div className="mt-1">
+                          <span className="font-mono text-xs font-black text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">
+                            {myReworkPool.poolNo}
+                          </span>
+                          <h4 className="text-sm font-bold text-slate-800 mt-1.5">{myReworkPool.projectName}</h4>
+                        </div>
+                      </div>
+                      {getStatusBadge(myReworkPoolHist.status)}
+                    </div>
+
+                    <div className="p-2.5 bg-rose-50 border border-rose-100 text-rose-800 text-xs rounded-lg space-y-1 font-sans">
+                      <p className="font-semibold flex items-center gap-1 text-rose-700">
+                        <AlertTriangle className="h-3.5 w-3.5 text-rose-550" />
+                        QA Rejection Note Checklist:
+                      </p>
+                      <p className="italic bg-white/60 p-2 rounded border border-rose-100 text-[11px] leading-relaxed">
+                        &quot;{myReworkPoolHist.inspectorNotes || 'No notes left'}&quot;
+                      </p>
+                    </div>
+
+                    {(myReworkPoolHist.status === 'NOT_STARTED' || myReworkPoolHist.status === 'REJECTED') && (
+                      <button
+                        onClick={() => onStartStage(myReworkPool.id, stage.id)}
+                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-100"
+                      >
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                        <span>Start Rework Timer</span>
+                      </button>
+                    )}
+
+                    {myReworkPoolHist.status === 'IN_PROGRESS' && (
+                      <button
+                        onClick={() => onFinishStage(myReworkPool.id, stage.id)}
+                        className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-blue-150"
+                      >
+                        <CheckSquare className="h-3.5 w-3.5" />
+                        <span>Complete Rework & Send to QA</span>
+                      </button>
+                    )}
+
+                    {myReworkPoolHist.status === 'PENDING_INSPECTION' && (
+                      <div className="p-3 bg-amber-50 border border-amber-100 text-amber-800 text-[11px] rounded-lg text-center font-medium">
+                        Rework sent back to QA automatically — awaiting sign-off.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
