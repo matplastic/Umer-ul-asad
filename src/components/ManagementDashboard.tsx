@@ -4315,7 +4315,15 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         // Auto-assigned rework pools live in their own array
                         // slot (Team.reworkPoolIds) — a team can be holding
                         // several rejections at once, each auto-started.
-                        const reworkPools = (team.reworkPoolIds || []).map(id => pools.find(p => p.id === id)).filter((p): p is typeof pools[number] => Boolean(p));
+                        const reworkPools = (team.reworkPoolIds || [])
+                          .map(id => pools.find(p => p.id === id))
+                          .filter((p): p is typeof pools[number] => Boolean(p))
+                          // Self-healing: skip stale ids whose stage is no
+                          // longer actually in rework (e.g. already approved).
+                          .filter(p => {
+                            const st = p.stageHistory[team.stageId]?.status;
+                            return st === 'IN_PROGRESS' || st === 'REJECTED' || st === 'PENDING_INSPECTION';
+                          });
                         const isBusy = isTeamBusy(team.id);
                         return (
                           <div key={team.id} className="p-2 border border-slate-50 hover:bg-slate-50/55 rounded-lg text-xs">
