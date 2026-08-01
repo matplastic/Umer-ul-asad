@@ -677,14 +677,14 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </span>
                         
                         <button
-                          disabled={!activeTeam || activeTeam.status === 'BUSY'}
+                          disabled={!activeTeam || !!myClaimedPool}
                           onClick={() => onClaimPool(pool.id, activeTeam!.id, stage.id)}
                           className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-all flex items-center gap-1 ${
-                            activeTeam && activeTeam.status === 'IDLE'
+                            activeTeam && !myClaimedPool
                               ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
                               : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                           }`}
-                          title={!activeTeam ? "Select a team first" : activeTeam.status === 'BUSY' ? "Finish current task first" : "Claim this pool"}
+                          title={!activeTeam ? "Select a team first" : myClaimedPool ? "Finish current task first" : "Claim this pool"}
                         >
                           <span>Claim Task</span>
                           <ChevronRight className="h-3.5 w-3.5" />
