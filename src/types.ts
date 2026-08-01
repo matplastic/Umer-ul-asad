@@ -95,11 +95,12 @@ export interface Team {
   name: string;
   status: 'IDLE' | 'BUSY';
   activePoolId?: string | null;
-  // Auto-assigned when QC rejects a pool this team was working. Kept SEPARATE
-  // from activePoolId so the team can pick up a brand-new pool as normal work
-  // while the rework pool sits alongside it as a second, concurrent slot —
-  // instead of the team being blocked/idle until the rework is done.
-  reworkPoolId?: string | null;
+  // Auto-assigned + auto-STARTED when QC rejects a pool this team was
+  // working. This is an ARRAY (not a single slot) because a second, third,
+  // etc. rejection can land on the same team while earlier rework pools are
+  // still in progress — none of them block the team from also claiming a
+  // brand-new pool as normal work via activePoolId.
+  reworkPoolIds?: string[];
   code?: string; // Login PIN so a worker can check in as this team on a shared kiosk screen
 }
 
