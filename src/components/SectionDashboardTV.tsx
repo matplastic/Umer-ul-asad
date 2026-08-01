@@ -203,7 +203,15 @@ export const SectionDashboardTV: React.FC<SectionDashboardTVProps> = ({ pools, t
               // Auto-assigned rework pools live in their own array slot
               // (Team.reworkPoolIds) — a team can be holding several
               // rejections at once, each auto-started.
-              const reworkPools = (team.reworkPoolIds || []).map(id => pools.find(p => p.id === id)).filter((p): p is typeof pools[number] => Boolean(p));
+              const reworkPools = (team.reworkPoolIds || [])
+                .map(id => pools.find(p => p.id === id))
+                .filter((p): p is typeof pools[number] => Boolean(p))
+                // Self-healing: skip stale ids whose stage is no longer
+                // actually in rework (e.g. already approved).
+                .filter(p => {
+                  const st = p.stageHistory[selectedStageId]?.status;
+                  return st === 'IN_PROGRESS' || st === 'REJECTED' || st === 'PENDING_INSPECTION';
+                });
               
               return (
                 <div 
