@@ -206,7 +206,18 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   // a team can be holding several rework pools at once, none of which block
   // them from also claiming a fresh pool as normal work.
   const myReworkPools = activeTeam && activeTeam.reworkPoolIds && activeTeam.reworkPoolIds.length > 0
-    ? activeTeam.reworkPoolIds.map(id => pools.find((p) => p.id === id)).filter((p): p is Pool => Boolean(p))
+    ? activeTeam.reworkPoolIds
+        .map(id => pools.find((p) => p.id === id))
+        .filter((p): p is Pool => Boolean(p))
+        // Self-healing: only show it if the stage itself is still actually
+        // in rework. This protects against stale ids left behind in
+        // reworkPoolIds (e.g. from before the approve-flow fix that clears
+        // this array), so an already-APPROVED pool never lingers on screen
+        // just because the array wasn't cleaned up.
+        .filter((p) => {
+          const st = p.stageHistory[stage.id]?.status;
+          return st === 'IN_PROGRESS' || st === 'REJECTED' || st === 'PENDING_INSPECTION';
+        })
     : [];
 
   // Pools recently approved in this stage (completed historical items)
