@@ -200,6 +200,9 @@ export const SectionDashboardTV: React.FC<SectionDashboardTVProps> = ({ pools, t
             {stageTeams.map(team => {
               const activePool = team.activePoolId ? pools.find(p => p.id === team.activePoolId) : null;
               const stageHist = activePool ? activePool.stageHistory[selectedStageId] : null;
+              // Auto-assigned rework pool lives in its own slot, separate from
+              // activePoolId, so it needs its own lookup to show on the board.
+              const reworkPool = team.reworkPoolId ? pools.find(p => p.id === team.reworkPoolId) : null;
               
               return (
                 <div 
@@ -254,6 +257,13 @@ export const SectionDashboardTV: React.FC<SectionDashboardTVProps> = ({ pools, t
 
                   {!activePool && (
                     <p className="text-xs text-slate-450 italic mt-2">Station is currently clear. Awaiting next released shell...</p>
+                  )}
+
+                  {reworkPool && (
+                    <div className="mt-2 pt-2 border-t border-rose-200/50 flex items-center justify-between text-[10px] bg-rose-50 border border-rose-100 rounded-md px-2 py-1">
+                      <span className="font-bold text-rose-700">Rework: {reworkPool.projectName}</span>
+                      <span className="font-mono text-rose-600">{reworkPool.poolNo}</span>
+                    </div>
                   )}
                 </div>
               );
