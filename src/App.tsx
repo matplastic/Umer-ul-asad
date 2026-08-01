@@ -2678,11 +2678,11 @@ export default function App() {
     pool.stageHistory[stageId] = stageHist;
     const team = teamsRef.current.find(t => t.id === stageHist.teamId);
 
-    // If this was the team's auto-assigned rework pool, free that slot now
-    // that it's back with QC — otherwise the team stays "holding" it forever
-    // and can never be auto-assigned a fresh rejection.
-    const updatedTeams = team?.reworkPoolId === poolId
-      ? teamsRef.current.map(t => t.id === team.id ? { ...t, reworkPoolId: null } : t)
+    // If this was one of the team's auto-assigned rework pools, remove it
+    // from the array now that it's back with QC — otherwise it stays
+    // "held" forever and blocks that slot from ever clearing.
+    const updatedTeams = team?.reworkPoolIds?.includes(poolId)
+      ? teamsRef.current.map(t => t.id === team.id ? { ...t, reworkPoolIds: t.reworkPoolIds!.filter(id => id !== poolId) } : t)
       : teamsRef.current;
 
     const newLog: ActivityLog = {
@@ -2888,35 +2888,34 @@ export default function App() {
     updatedPools[poolIndex] = pool;
     const stageHist = { ...pool.stageHistory[stageId] };
 
-    // Set rejected status & increment loop
-    stageHist.status = 'REJECTED';
+    // AUTO-ASSIGN + AUTO-START REWORK: instead of leaving this REJECTED and
+    // waiting for the team to click "Start", we start the timer immediately —
+    // the team didn't have to claim or start anything, it's already running.
+    stageHist.status = 'IN_PROGRESS';
     stageHist.inspectorId = inspectorId;
     stageHist.inspectorNotes = notes;
     stageHist.inspectionTime = new Date().toISOString();
     stageHist.rejectionCount = (stageHist.rejectionCount || 0) + 1;
     stageHist.inspectorPicture = inspectorPicture;
-    
-    // Reset startTime and endTime for clean rework tracking
-    stageHist.startTime = null;
+    stageHist.startTime = new Date().toISOString();
     stageHist.endTime = null;
 
     const originalWorkspecTeamId = stageHist.teamId;
 
-    // AUTO-ASSIGN REWORK: keep the SAME team on this pool instead of dropping
-    // it into the open queue for anyone to claim. teamId stays set, which
-    // also keeps it correctly excluded from `availablePools` (see
-    // StageDashboard's `!hist.teamId` filter) so it can't be double-claimed.
-    // stageHist.teamId is intentionally left untouched.
+    // teamId stays set (unchanged), which keeps this pool correctly excluded
+    // from `availablePools` (see StageDashboard's `!hist.teamId` filter) so
+    // it can't be double-claimed by another team.
     pool.stageHistory[stageId] = stageHist;
 
-    // Give the team a dedicated `reworkPoolId` slot (separate from
-    // activePoolId) so they can also pick up a brand-new pool concurrently —
-    // the rework doesn't block them from taking on other work. We do NOT
-    // touch status/activePoolId here, since this rejection may be for a
-    // pool that wasn't even their current activePoolId.
+    // Add this pool to the team's `reworkPoolIds` list — an ARRAY, not a
+    // single slot, so if a SECOND (or third) pool gets rejected on the same
+    // team while the first rework is still running, it stacks alongside it
+    // rather than overwriting it. None of this touches activePoolId/status,
+    // so the team can still claim a brand-new pool as normal work too.
     const updatedTeams = teamsRef.current.map(t => {
       if (t.id === originalWorkspecTeamId) {
-        return { ...t, reworkPoolId: poolId };
+        const existing = t.reworkPoolIds || [];
+        return existing.includes(poolId) ? t : { ...t, reworkPoolIds: [...existing, poolId] };
       }
       return t;
     });
@@ -2932,7 +2931,7 @@ export default function App() {
       teamId: originalWorkspecTeamId,
       teamName: teamsRef.current.find(t => t.id === originalWorkspecTeamId)?.name,
       operatorName: inspectorId,
-      notes: `QC REJECTED: ${notes}. Auto-assigned back to the same team for rework.`,
+      notes: `QC REJECTED: ${notes}. Auto-assigned and auto-started rework on the same team.`,
       inspectorPicture
     };
 
