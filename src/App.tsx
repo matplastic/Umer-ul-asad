@@ -2915,7 +2915,14 @@ export default function App() {
     const updatedTeams = teamsRef.current.map(t => {
       if (t.id === originalWorkspecTeamId) {
         const existing = t.reworkPoolIds || [];
-        return existing.includes(poolId) ? t : { ...t, reworkPoolIds: [...existing, poolId] };
+        const nextRework = existing.includes(poolId) ? existing : [...existing, poolId];
+        // This pool now lives EXCLUSIVELY in reworkPoolIds. If activePoolId
+        // was also pointing at it (the team was doing it as "normal" work
+        // when QC rejected it), clear activePoolId so it doesn't render as
+        // both the normal card AND a rework card, and so the team is free
+        // to claim a genuinely different pool as their next normal job.
+        const clearedActivePoolId = t.activePoolId === poolId ? null : t.activePoolId;
+        return { ...t, reworkPoolIds: nextRework, activePoolId: clearedActivePoolId };
       }
       return t;
     });
