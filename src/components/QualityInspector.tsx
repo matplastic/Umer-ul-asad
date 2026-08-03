@@ -27,6 +27,11 @@ interface QualityInspectorProps {
   // rework, for when an inspector passes something by mistake.
   onUndoApproval?: (poolId: string, stageId: StageId, inspectorId: string, notes: string) => void;
   inspectors?: { id: string; name: string; title: string }[];
+  // The display name of whoever is actually logged in right now. When
+  // provided, the Inspector ID is auto-set to this person and the manual
+  // picker is hidden — so every approval/rejection is attributed to the
+  // real logged-in user, not whoever was last selected on a shared kiosk.
+  currentUserName?: string;
   onDeletePool?: (poolId: string, operatorName: string) => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
   pendingUndoRequests?: UndoClaimRequest[];
@@ -49,6 +54,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   onRejectStage,
   onUndoApproval,
   inspectors = [],
+  currentUserName,
   onDeletePool,
   onSkipOrCarryOnSite,
   pendingUndoRequests = [],
@@ -62,7 +68,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   logs = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'queue' | 'incoming_qc' | 'daily_report'>('queue');
-  const [selectedInspector, setSelectedInspector] = useState(inspectors[0]?.name || '');
+  const [selectedInspector, setSelectedInspector] = useState(currentUserName || inspectors[0]?.name || '');
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
   const [uploadedPicture, setUploadedPicture] = useState<string | null>(null);
@@ -156,10 +162,17 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     .slice().sort((a, b) => ((a.qcAt || '') < (b.qcAt || '') ? 1 : -1));
 
   React.useEffect(() => {
+    // Always defer to whoever is actually logged in — this keeps the
+    // Inspector ID locked to the real user even if `inspectors` reloads
+    // from Firestore after this component has already mounted.
+    if (currentUserName) {
+      if (selectedInspector !== currentUserName) setSelectedInspector(currentUserName);
+      return;
+    }
     if (inspectors.length > 0 && !inspectors.some(i => i.name === selectedInspector)) {
       setSelectedInspector(inspectors[0].name);
     }
-  }, [inspectors, selectedInspector]);
+  }, [inspectors, selectedInspector, currentUserName]);
 
   // NOTE: reviewStageId is now set explicitly wherever activePoolId changes
   // (see the pool-list onClick handler and the auto-select effect below).
@@ -353,24 +366,33 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
               Daily Defect Report
             </button>
           </div>
-          <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspector ID:</label>
-            <select
-              value={selectedInspector}
-              onChange={(e) => setSelectedInspector(e.target.value)}
-              className="bg-white border border-slate-200 text-xs text-slate-700 font-bold px-3 py-1.5 cursor-pointer focus:outline-none rounded-md"
-            >
-              {inspectors.length > 0 ? (
-                inspectors.map((inspector) => (
-                  <option key={inspector.id} value={inspector.name}>
-                    {inspector.name} ({inspector.title})
-                  </option>
-                ))
-              ) : (
-                <option value="" disabled>— No inspectors registered yet (add via Planning ▸ Roles) —</option>
-              )}
-            </select>
-          </div>
+          {currentUserName ? (
+            <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspector:</label>
+              <span className="bg-white border border-slate-200 text-xs text-slate-700 font-bold px-3 py-1.5 rounded-md">
+                {currentUserName}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspector ID:</label>
+              <select
+                value={selectedInspector}
+                onChange={(e) => setSelectedInspector(e.target.value)}
+                className="bg-white border border-slate-200 text-xs text-slate-700 font-bold px-3 py-1.5 cursor-pointer focus:outline-none rounded-md"
+              >
+                {inspectors.length > 0 ? (
+                  inspectors.map((inspector) => (
+                    <option key={inspector.id} value={inspector.name}>
+                      {inspector.name} ({inspector.title})
+                    </option>
+                  ))
+                ) : (
+                  <option value="" disabled>— No inspectors registered yet (add via Planning ▸ Roles) —</option>
+                )}
+              </select>
+            </div>
+          )}
           {onRefresh && (
             <button
               onClick={onRefresh}
