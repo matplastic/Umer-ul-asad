@@ -3565,6 +3565,7 @@ export default function App() {
             onRejectStage={handleRejectStage}
             onUndoApproval={handleUndoApproval}
             inspectors={inspectors}
+            currentUserName={loggedInUser?.displayName}
             onDeletePool={handleDeletePool}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
             pendingUndoRequests={pendingUndoRequests}
