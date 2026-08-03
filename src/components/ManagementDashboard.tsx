@@ -1609,17 +1609,21 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         const team = teams.find((t) => t.id === hist.teamId);
         const teamName = team?.name || hist.teamName || (hist.teamId ? hist.teamId.replace(`${stage.id}_`, '').toUpperCase() : 'Unknown Team');
 
-        // Lifetime rejection/defect history for this pool at this stage, regardless of date —
-        // so a pool rejected days ago still shows its defect note here once it later passes.
-        const defectHistory = logs
-          .filter(l => l.type === 'REJECTED' && l.poolNo === p.poolNo && l.stageId === stage.id)
-          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-          .map(l => ({
-            id: l.id,
-            date: l.timestamp ? toLocalDateStr(l.timestamp) : '—',
-            time: l.timestamp ? new Date(l.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—',
-            notes: l.notes || 'No defect notes recorded',
-            inspectorName: l.operatorName || '—',
+        // Every defect logged in QC (via the Defect Panel) for this pool at this stage,
+        // regardless of whether the pool was ultimately passed or rejected, and regardless
+        // of when the defect was logged relative to today's sign-off.
+        const defectHistory = (qcDefects || [])
+          .filter(d => d.poolId === p.id && d.stageId === stage.id)
+          .sort((a, b) => new Date(a.loggedAt).getTime() - new Date(b.loggedAt).getTime())
+          .map(d => ({
+            id: d.id,
+            defectType: d.defectType,
+            severity: d.severity,
+            status: d.status,
+            date: d.loggedAt ? toLocalDateStr(d.loggedAt) : '—',
+            time: d.loggedAt ? new Date(d.loggedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—',
+            notes: d.notes || '',
+            loggedBy: d.loggedBy || '—',
           }));
 
         return {
@@ -4064,17 +4068,29 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               <div className="mt-1.5 bg-rose-50/60 border border-rose-100 rounded-md p-1.5 space-y-1">
                                 <span className="text-[9px] font-black text-rose-600 uppercase tracking-wider flex items-center gap-1">
                                   <AlertTriangle className="h-2.5 w-2.5" />
-                                  Defect History ({dp.defectHistory.length})
+                                  Defect Log ({dp.defectHistory.length})
                                 </span>
                                 {dp.defectHistory.map((d) => (
                                   <div key={d.id} className="text-[10px] text-rose-700 pl-1 border-l-2 border-rose-300 leading-tight py-0.5">
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-mono text-rose-400">{d.date} {d.time}</span>
-                                      {d.inspectorName !== '—' && (
-                                        <span className="text-rose-400">· {d.inspectorName}</span>
-                                      )}
+                                      <span className="font-bold">{d.defectType}</span>
+                                      <span className={`px-1 rounded text-[9px] font-bold uppercase ${
+                                        d.severity === 'critical' ? 'bg-red-100 text-red-700' :
+                                        d.severity === 'major' ? 'bg-orange-100 text-orange-700' :
+                                        'bg-yellow-100 text-yellow-700'
+                                      }`}>{d.severity}</span>
+                                      <span className={`px-1 rounded text-[9px] font-bold uppercase ${
+                                        d.status === 'released' ? 'bg-emerald-100 text-emerald-700' :
+                                        d.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                                        d.status === 'on_hold' ? 'bg-slate-200 text-slate-600' :
+                                        'bg-rose-100 text-rose-700'
+                                      }`}>{d.status.replace('_', ' ')}</span>
                                     </div>
-                                    <div className="italic text-rose-600/90 truncate">{d.notes}</div>
+                                    <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                      <span className="font-mono text-rose-400">{d.date} {d.time}</span>
+                                      {d.loggedBy !== '—' && <span className="text-rose-400">· {d.loggedBy}</span>}
+                                    </div>
+                                    {d.notes && <div className="italic text-rose-600/90 truncate">{d.notes}</div>}
                                   </div>
                                 ))}
                               </div>
