@@ -46,6 +46,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
     return () => clearTimeout(t);
   }, []);
 
+  // Success state: once credentials check out, we hold the user here and
+  // play the "bag opens + welcome" moment before actually handing off to
+  // onLoginSuccess (which swaps the whole screen for the person's portal).
+  const [successUser, setSuccessUser] = useState<AuthUser | null>(null);
+  const [bagOpen, setBagOpen] = useState(false);
+
   const handleLoginSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!username.trim() || !password) {
@@ -56,11 +62,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
     setErrorMsg(null);
     try {
       const user = await loginWithPassword(username.trim(), password);
-      onLoginSuccess(user);
+      setSuccessUser(user);
+      // Let the flap-open animation play, then hand off to the app.
+      requestAnimationFrame(() => setBagOpen(true));
+      setTimeout(() => onLoginSuccess(user), 1500);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Incorrect username or password.');
       setPassword('');
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -89,6 +97,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
           .mat-bob{ animation:matBodyBob 0.5s ease-in-out infinite; }
           .mat-walker.mat-arrived .mat-bob, .mat-walker.mat-arrived .mat-leg, .mat-walker.mat-arrived .mat-arm{ animation-play-state:paused; }
           .mat-bag{ position:absolute; bottom:calc(50% - 26px); width:54px; height:40px; opacity:0; transform:translateX(160px); animation:matBagDrop 0.5s ease-out forwards; animation-delay:2.5s; z-index:4; pointer-events:none; }
+
+          @keyframes matBagFlapOpen{ from{ transform:rotate(0deg); } to{ transform:rotate(-118deg); } }
+          @keyframes matBagGlow{ from{ opacity:0; transform:scale(0.4) translateY(6px); } 60%{ opacity:1; } to{ opacity:0.9; transform:scale(1) translateY(-38px); } }
+          @keyframes matBagPop{ 0%{ transform:translateX(160px) translateY(0) scale(1); } 30%{ transform:translateX(160px) translateY(-6px) scale(1.08); } 100%{ transform:translateX(160px) translateY(-6px) scale(1.08); } }
+          .mat-bag-flap{ transform-origin:20px 12px; transition: transform 0.55s cubic-bezier(.34,1.56,.64,1); }
+          .mat-bag.mat-bag-open{ animation:matBagPop 0.6s ease-out forwards; }
+          .mat-bag.mat-bag-open .mat-bag-flap{ animation:matBagFlapOpen 0.55s cubic-bezier(.34,1.56,.64,1) forwards; animation-delay:0.05s; }
+          .mat-bag-glow{ opacity:0; transform-origin:50% 100%; }
+          .mat-bag.mat-bag-open .mat-bag-glow{ animation:matBagGlow 0.7s ease-out forwards; animation-delay:0.35s; }
+
+          @keyframes matWelcomeIn{ from{ opacity:0; transform:translateY(10px) scale(0.96); } to{ opacity:1; transform:translateY(0) scale(1); } }
+          .mat-welcome-overlay{ animation:matWelcomeIn 0.45s cubic-bezier(.16,1,.3,1) forwards; animation-delay:0.55s; opacity:0; }
         `}</style>
 
         {/* One-time walk-in intro: figure walks to center, sets the bag down,
@@ -115,10 +135,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
             </g>
           </svg>
         </div>
-        <div className="mat-bag">
-          <svg viewBox="0 0 54 40" width="54" height="40">
-            <rect x="2" y="10" width="50" height="28" rx="4" fill="#E7B96A" />
-            <rect x="18" y="2" width="18" height="12" rx="4" fill="none" stroke="#E7B96A" strokeWidth="4" />
+        <div className={`mat-bag${bagOpen ? ' mat-bag-open' : ''}`}>
+          <svg viewBox="0 0 54 60" width="54" height="60" style={{ overflow: 'visible' }}>
+            {/* soft glow that rises out of the bag once it opens */}
+            <ellipse className="mat-bag-glow" cx="27" cy="14" rx="16" ry="12" fill="#6EE7E0" opacity="0.9" style={{ filter: 'blur(6px)' }} />
+            {/* bag body */}
+            <rect x="2" y="30" width="50" height="28" rx="4" fill="#E7B96A" />
+            <rect x="2" y="30" width="50" height="8" rx="4" fill="#D9A852" />
+            {/* handle */}
+            <rect x="18" y="22" width="18" height="12" rx="4" fill="none" stroke="#E7B96A" strokeWidth="4" />
+            {/* flap that swings open like a lid */}
+            <g className="mat-bag-flap">
+              <rect x="4" y="26" width="46" height="8" rx="3" fill="#F3CE8E" />
+            </g>
           </svg>
         </div>
 
@@ -161,6 +190,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
           }}
         >
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-teal-300 via-teal-500 to-amber-400 rounded-t-2xl" />
+
+          {successUser && (
+            <div
+              className="mat-welcome-overlay absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 text-center px-6"
+              style={{
+                background: 'rgba(7,24,21,0.82)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+              }}
+            >
+              <div className="h-14 w-14 rounded-full bg-gradient-to-tr from-teal-400 to-teal-700 flex items-center justify-center shadow-lg shadow-teal-500/30">
+                <User className="h-7 w-7 text-white" />
+              </div>
+              <h3 className="text-xl font-black text-white tracking-tight">
+                Welcome, {successUser.displayName || successUser.username}
+              </h3>
+              <p className="text-xs text-teal-200/80">Opening your {ROLE_LABELS[successUser.role]} portal…</p>
+            </div>
+          )}
 
           <div className="mb-6 space-y-1">
             <h2 className="text-base font-black uppercase text-slate-100 tracking-wider flex items-center gap-2">
