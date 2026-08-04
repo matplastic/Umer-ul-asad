@@ -524,6 +524,18 @@ export default function App() {
   // everything entered from other devices since this copy was cached.
   const cloudHydratedRef = useRef(false);
 
+  // DATA-LOSS FIX (v12): teams specifically needs its OWN verified flag,
+  // separate from cloudHydratedRef. cloudHydratedRef flips true the moment
+  // ANY collection loads (cloud OR local fallback), which is too coarse for
+  // teams: a device that has never cached apex_teams locally falls back to
+  // getInitialData().teams — a hardcoded generic "Team 1 / Team 2" skeleton
+  // — while every OTHER collection loads fine. cloudHydratedRef being true
+  // then wrongly allows a team edit on that device to write the fake
+  // skeleton to Firestore for real. teamsVerifiedRef is only set true when
+  // `teams` holds either real cloud data or a genuine local cache — never
+  // when it holds the generic fallback skeleton.
+  const teamsVerifiedRef = useRef(false);
+
   // DATA-LOSS FIX (v11): drain the pending-write retry queue whenever the
   // browser reports it's back online, and also on a periodic timer as a
   // fallback (the 'online' event is unreliable on some tablets/kiosks —
@@ -610,6 +622,7 @@ export default function App() {
           // Cloud has records. Load them!
           setPools(cloudData.pools);
           setTeams(cloudData.teams);
+          teamsVerifiedRef.current = true;
           setLogs(cloudData.logs);
           setInspectors(cloudData.inspectors);
           setEngineers(cloudData.engineers);
@@ -662,6 +675,7 @@ export default function App() {
           );
           setPools(defaultData.pools);
           setTeams(defaultData.teams);
+          teamsVerifiedRef.current = true; // genuinely empty DB — this IS the real state
           setLogs(defaultData.logs);
           setInspectors(DEFAULT_INSPECTORS);
           setEngineers(DEFAULT_ENGINEERS);
@@ -732,13 +746,18 @@ export default function App() {
         try {
           if (storedTeams) {
             setTeams(JSON.parse(storedTeams));
+            teamsVerifiedRef.current = true;
           } else {
             // Only reached if this device has NEVER cached real team data
-            // before (true first-ever launch). This seeds the structural
-            // skeleton for THIS DEVICE'S DISPLAY ONLY — it is not written
-            // to Firestore here, so it can never silently overwrite real
-            // cloud team data.
-            console.warn('[loadCloudData] No cached teams found on this device — showing structural default skeleton locally only, NOT saved to cloud.');
+            // before (true first-ever launch, or a cleared browser). This
+            // seeds the structural skeleton for THIS DEVICE'S DISPLAY ONLY.
+            // teamsVerifiedRef stays FALSE here — this is the fix: any
+            // attempt to save teams while this flag is false is blocked
+            // (see handleUpdateTeams / saveState below), so the fake
+            // skeleton can never reach Firestore, no matter what else on
+            // this device sets cloudHydratedRef true in the meantime.
+            console.warn('[loadCloudData] No cached teams on this device and cloud unreachable — showing placeholder only. Team edits are blocked until real data loads.');
+            teamsVerifiedRef.current = false;
             setTeams(getInitialData().teams);
           }
         } catch (e) { console.error('Failed to parse cached teams:', e); }
@@ -826,7 +845,7 @@ export default function App() {
       switch (collection) {
         case 'pools':            safeUpdate(setPools, data as Pool[]); break;
         case 'plannedPools':     safeUpdate(setPlannedPools, data as PlannedPool[]); break;
-        case 'teams':            safeUpdate(setTeams, data as Team[]); break;
+        case 'teams':            safeUpdate(setTeams, data as Team[]); teamsVerifiedRef.current = true; break;
         case 'logs':             safeUpdate(setLogs, data as ActivityLog[]); break;
         case 'inspectors':       safeUpdate(setInspectors, data); break;
         case 'engineers':        safeUpdate(setEngineers, data); break;
@@ -1019,6 +1038,15 @@ export default function App() {
     if (updatedMonthlyTargets !== monthlyTargets) changed.monthlyTargets = safeTargets;
     if (updatedEmployees !== employees) changed.employees = safeEmployees;
 
+    // DATA-LOSS FIX (v12): never let a teams write ride along in this batch
+    // while teams is still showing the unverified placeholder skeleton —
+    // strip it out but still save whatever else legitimately changed
+    // (pools, logs, etc.) so shop-floor actions aren't blocked entirely.
+    if (changed.teams && !teamsVerifiedRef.current) {
+      console.warn('[saveState] Blocked teams write — real team data has not loaded yet on this device.');
+      delete changed.teams;
+    }
+
     if (Object.keys(changed).length === 0) return;
 
     if (!cloudHydratedRef.current) {
@@ -1195,6 +1223,18 @@ export default function App() {
   };
 
   const handleUpdateTeams = (updatedTeams: Team[]) => {
+    // DATA-LOSS FIX (v12): refuse to sync teams to Firestore while this
+    // device is still showing the unverified placeholder skeleton (see
+    // teamsVerifiedRef above). Without this check, editing a team during
+    // that brief window — e.g. right after opening the app on a weak
+    // connection — would push the generic "Team 1 / Team 2" list to the
+    // cloud for real, overwriting everyone's actual team roster.
+    if (!teamsVerifiedRef.current) {
+      console.warn('[handleUpdateTeams] Blocked: real team data has not loaded yet on this device. Please wait a moment and try again.');
+      setFirebaseStatus('error');
+      setFirebaseError('Team data is still loading. Please wait a few seconds and try again before editing teams.');
+      return;
+    }
     // DATA-LOSS FIX (v8): this used to call saveState() (a merge-by-id
     // Firestore transaction) AND dbDeleteTeam() (a separate delete
     // transaction) for every edit — two independent transactions racing
