@@ -36,23 +36,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // One-time walk-in intro: the figure walks in, sets the bag on the floor,
-  // then — once it's actually resting on the ground — the bag opens and the
-  // sign-in card grows up out of it. `walkerArrived` just freezes the
-  // limb-swing keyframes once the walk cycle finishes.
-  const [walkerArrived, setWalkerArrived] = useState(false);
-  const [bagOpen, setBagOpen] = useState(false);
   // Splash: show the MAT logo animation for ~3.2 s before revealing the login form.
-  // Set to false when idle-logout occurs so returning users skip it.
+  // Skipped when idle-logout occurs so returning users go straight to the form.
   const [showSplash, setShowSplash] = useState(!idleLoggedOut);
   useEffect(() => {
-    const t1 = setTimeout(() => setWalkerArrived(true), 2600);
-    // Bag lands on the floor at 2.5s + 0.5s drop = ~3.0s. Give it a short
-    // beat sitting closed on the ground, then open it.
-    const t2 = setTimeout(() => setBagOpen(true), 3100);
-    // Hide splash after 3.2 s — all logo animations are done by then.
-    const t3 = idleLoggedOut ? undefined : setTimeout(() => setShowSplash(false), 3200);
-    return () => { clearTimeout(t1); clearTimeout(t2); if (t3) clearTimeout(t3); };
+    if (idleLoggedOut) return;
+    const t = setTimeout(() => setShowSplash(false), 3200);
+    return () => clearTimeout(t);
   }, []);
 
   // Success state: once credentials check out, we hold the user here and
@@ -151,76 +141,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
           @keyframes matAuroraFloat2{ 0%,100%{ transform: translate(0,0) scale(1); } 50%{ transform: translate(-90px,-70px) scale(1.2); } }
           @keyframes matAuroraFloat3{ 0%,100%{ transform: translate(0,0) scale(1) rotate(0deg); } 50%{ transform: translate(-60px,50px) scale(1.1) rotate(20deg); } }
           @keyframes matAuroraFloat4{ 0%,100%{ transform: translate(0,0) scale(1); } 50%{ transform: translate(70px,-40px) scale(1.15); } }
-          @keyframes matCardIn{ 0%{ opacity:0; transform:translateY(180px) scale(0.08); } 55%{ opacity:1; } 100%{ opacity:1; transform:translateY(0) scale(1); } }
+          @keyframes matCardIn{ 0%{ opacity:0; transform:translateY(18px); } 100%{ opacity:1; transform:translateY(0); } }
           .mat-blob{ position:absolute; border-radius:50%; filter:blur(70px); mix-blend-mode:screen; will-change:transform; pointer-events:none; }
 
-          @keyframes matWalkIn{ 0%{ left:-120px; opacity:0; } 10%{ opacity:1; } 75%,100%{ left:calc(50% - 200px); } }
-          @keyframes matLegSwing{ 0%,100%{ transform:rotate(18deg); } 50%{ transform:rotate(-18deg); } }
-          @keyframes matArmSwing{ 0%,100%{ transform:rotate(-14deg); } 50%{ transform:rotate(14deg); } }
-          @keyframes matBodyBob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-4px); } }
-          @keyframes matBagDrop{ from{ opacity:0; transform:translateX(160px) translateY(-14px) scale(0.9); } to{ opacity:1; transform:translateX(160px) translateY(0) scale(1); } }
-          .mat-walker{ position:absolute; bottom:calc(50% - 210px); width:90px; height:210px; left:-120px; animation:matWalkIn 2.6s cubic-bezier(.4,0,.2,1) forwards; pointer-events:none; z-index:4; }
-          .mat-walker svg{ width:100%; height:100%; overflow:visible; }
-          .mat-leg{ transform-origin:50% 0%; animation:matLegSwing 0.5s ease-in-out infinite; }
-          .mat-leg.mat-back{ animation-delay:0.25s; }
-          .mat-arm{ transform-origin:50% 0%; animation:matArmSwing 0.5s ease-in-out infinite; }
-          .mat-arm.mat-back{ animation-delay:0.25s; }
-          .mat-bob{ animation:matBodyBob 0.5s ease-in-out infinite; }
-          .mat-walker.mat-arrived .mat-bob, .mat-walker.mat-arrived .mat-leg, .mat-walker.mat-arrived .mat-arm{ animation-play-state:paused; }
-          .mat-bag{ position:absolute; bottom:calc(50% - 26px); width:54px; height:40px; opacity:0; transform:translateX(160px); animation:matBagDrop 0.5s ease-out forwards; animation-delay:2.5s; z-index:4; pointer-events:none; }
-
-          @keyframes matBagFlapOpen{ from{ transform:rotate(0deg); } to{ transform:rotate(-118deg); } }
-          @keyframes matBagGlow{ from{ opacity:0; transform:scale(0.4) translateY(6px); } 60%{ opacity:1; } to{ opacity:0.9; transform:scale(1) translateY(-38px); } }
-          .mat-bag-flap{ transform-origin:20px 12px; transition: transform 0.55s cubic-bezier(.34,1.56,.64,1); }
-          /* Bag stays put on the floor (translateX(160px), same resting spot
-             the walk-in already dropped it at) — only the flap swings open. */
-          .mat-bag.mat-bag-open .mat-bag-flap{ animation:matBagFlapOpen 0.55s cubic-bezier(.34,1.56,.64,1) forwards; animation-delay:0.05s; }
-          .mat-bag-glow{ opacity:0; transform-origin:50% 100%; }
-          .mat-bag.mat-bag-open .mat-bag-glow{ animation:matBagGlow 0.7s ease-out forwards; animation-delay:0.35s; }
-
           @keyframes matWelcomeIn{ from{ opacity:0; transform:translateY(10px) scale(0.96); } to{ opacity:1; transform:translateY(0) scale(1); } }
-          .mat-welcome-overlay{ animation:matWelcomeIn 0.45s cubic-bezier(.16,1,.3,1) forwards; animation-delay:0.55s; opacity:0; }
+          .mat-welcome-overlay{ animation:matWelcomeIn 0.45s cubic-bezier(.16,1,.3,1) forwards; animation-delay:0.1s; opacity:0; }
         `}</style>
 
-        {/* One-time walk-in intro: figure walks to center, sets the bag down,
-            then the login card unfolds — purely decorative, doesn't affect
-            the actual sign-in form or its handlers below. */}
-        <div className={`mat-walker${walkerArrived ? ' mat-arrived' : ''}`}>
-          <svg viewBox="0 0 90 210">
-            <g className="mat-arm mat-back" style={{ transformOrigin: '50px 70px' }}>
-              <rect x="45" y="70" width="10" height="55" rx="5" fill="#0a3a3c" />
-            </g>
-            <g className="mat-leg mat-back" style={{ transformOrigin: '50px 140px' }}>
-              <rect x="45" y="140" width="12" height="60" rx="6" fill="#062827" />
-            </g>
-            <g className="mat-bob">
-              <g className="mat-leg" style={{ transformOrigin: '38px 140px' }}>
-                <rect x="32" y="140" width="12" height="60" rx="6" fill="#0d4b4d" />
-              </g>
-              <rect x="24" y="55" width="42" height="90" rx="14" fill="#0E7C86" />
-              <circle cx="45" cy="35" r="22" fill="#E8B98C" />
-              <path d="M23 30 a22 22 0 0 1 44 0 q-4 -10 -22 -10 t-22 10z" fill="#3a2a1e" />
-              <g className="mat-arm" style={{ transformOrigin: '34px 70px' }}>
-                <rect x="29" y="70" width="10" height="55" rx="5" fill="#14B8AE" />
-              </g>
-            </g>
-          </svg>
-        </div>
-        <div className={`mat-bag${bagOpen ? ' mat-bag-open' : ''}`}>
-          <svg viewBox="0 0 54 60" width="54" height="60" style={{ overflow: 'visible' }}>
-            {/* soft glow that rises out of the bag once it opens */}
-            <ellipse className="mat-bag-glow" cx="27" cy="14" rx="16" ry="12" fill="#6EE7E0" opacity="0.9" style={{ filter: 'blur(6px)' }} />
-            {/* bag body */}
-            <rect x="2" y="30" width="50" height="28" rx="4" fill="#E7B96A" />
-            <rect x="2" y="30" width="50" height="8" rx="4" fill="#D9A852" />
-            {/* handle */}
-            <rect x="18" y="22" width="18" height="12" rx="4" fill="none" stroke="#E7B96A" strokeWidth="4" />
-            {/* flap that swings open like a lid */}
-            <g className="mat-bag-flap">
-              <rect x="4" y="26" width="46" height="8" rx="3" fill="#F3CE8E" />
-            </g>
-          </svg>
-        </div>
+
 
         {/* Animated aurora background blobs */}
         <div className="mat-blob" style={{ width:520, height:520, top:-120, left:-100, opacity:0.55, background:'radial-gradient(circle at 30% 30%, #14B8AE, transparent 70%)', animation:'matAuroraFloat1 16s ease-in-out infinite' }} />
@@ -254,7 +182,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
             WebkitBackdropFilter: 'blur(22px) saturate(140%)',
             boxShadow: '0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
             animation: 'matCardIn 0.85s cubic-bezier(.16,1,.3,1) both',
-            animationDelay: '3.15s',
+            animationDelay: '0s',
             transformOrigin: '50% 100%',
             opacity: 0,
           }}
