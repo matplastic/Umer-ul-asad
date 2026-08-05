@@ -154,6 +154,8 @@ interface HRPortalProps {
   onAddEmployeesBulk?: (newStaff: Employee[]) => void;
   onDeleteEmployeePunchesByDate?: (date: string) => void;
   currentUserName?: string;
+  /** Called when HR changes the system-wide idle auto-logout duration. */
+  onIdleTimeoutChange?: (minutes: number) => void;
 }
 
 // A staff member currently deployed to a site/factory job away from the
@@ -513,6 +515,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   onAddEmployeesBulk,
   onDeleteEmployeePunchesByDate,
   currentUserName,
+  onIdleTimeoutChange,
 }) => {
   const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('directory');
 
@@ -2692,8 +2695,63 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       });
     };
 
+    // ── Idle timeout setting (reads/writes localStorage key used by App.tsx) ──
+    const savedMin = (() => { try { const v = localStorage.getItem('mat_idle_timeout_min'); const n = v ? parseInt(v,10) : NaN; return (!isNaN(n) && n > 0) ? n : 3; } catch { return 3; } })();
+    const [idleMinutes, setIdleMinutes] = useState<number>(savedMin);
+    const [idleSaved, setIdleSaved] = useState(false);
+    const handleSaveIdleTimeout = () => {
+      const mins = Math.max(1, Math.min(120, idleMinutes));
+      localStorage.setItem('mat_idle_timeout_min', String(mins));
+      onIdleTimeoutChange?.(mins);
+      setIdleMinutes(mins);
+      setIdleSaved(true);
+      setTimeout(() => setIdleSaved(false), 2500);
+    };
+
     return (
       <div className="space-y-5">
+
+        {/* ── System Settings: Idle Auto-Logout ── */}
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-2 bg-amber-100 rounded-xl shrink-0">
+              <svg className="h-4 w-4 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div>
+              <h4 className="text-sm font-black text-amber-900">Auto-Logout Timer</h4>
+              <p className="text-xs text-amber-700">Users are signed out after this many minutes of inactivity. Shop-floor and section-supervisor accounts are always exempt.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 bg-white border border-amber-200 rounded-xl px-3 py-2">
+              <input
+                type="number"
+                min={1}
+                max={120}
+                value={idleMinutes}
+                onChange={e => { setIdleSaved(false); setIdleMinutes(Number(e.target.value)); }}
+                className="w-16 text-sm font-bold text-slate-800 outline-none bg-transparent"
+              />
+              <span className="text-xs text-slate-500 font-medium">minutes</span>
+            </div>
+            <div className="flex gap-2">
+              {[1, 3, 5, 10, 15, 30].map(m => (
+                <button key={m} onClick={() => { setIdleMinutes(m); setIdleSaved(false); }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${idleMinutes === m ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-200 hover:border-amber-400'}`}>
+                  {m}m
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleSaveIdleTimeout}
+              className={`ml-auto px-4 py-2 rounded-xl text-xs font-black transition-all ${idleSaved ? 'bg-emerald-500 text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}
+            >
+              {idleSaved ? '✓ Saved' : 'Save'}
+            </button>
+          </div>
+          {idleSaved && <p className="text-xs text-emerald-700 font-semibold mt-2">✓ New timeout ({idleMinutes} min) saved. Takes effect on next login.</p>}
+        </div>
+
         {/* Freshly-issued credential banner */}
         {revealedPassword && (
           <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-5 flex items-start gap-4">
