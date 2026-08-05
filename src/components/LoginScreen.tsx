@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ViewRole } from '../types';
-import { Factory, User, Lock, ChevronRight, ShieldAlert, Eye, EyeOff } from 'lucide-react';
+import { User, Lock, ChevronRight, ShieldAlert, Eye, EyeOff } from 'lucide-react';
 import { loginWithPassword, type AuthUser } from '../lib/authClient';
+import { MatLogo } from './MatLogo';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: AuthUser) => void;
@@ -160,9 +161,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
       {/* Top Banner */}
       <header className="relative z-10 max-w-6xl w-full mx-auto flex items-center justify-between py-4 border-b border-white/10">
         <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-tr from-teal-400 to-teal-800 p-2.5 rounded-xl shadow-inner text-white">
-            <Factory className="h-6 w-6" />
-          </div>
+          <MatLogo className="h-11 w-auto shrink-0" />
           <div>
             <h1 className="text-lg font-black tracking-tight text-white flex items-center gap-1.5 flex-wrap">
               MAT PLASTIC INDUSTRIES LLC
