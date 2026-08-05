@@ -347,7 +347,8 @@ export default function App() {
 
   // Role-Based Access Control State — backed by a real username/password
   // account (see src/lib/authClient.ts), not a shared department PIN.
-  const [loggedInUser, setLoggedInUser] = useState<AuthUser | null>(() => getStoredUser());
+  // Always require fresh login on every app open — never restore a saved session.
+  const [loggedInUser, setLoggedInUser] = useState<AuthUser | null>(null);
 
   const handleLoginSuccess = (user: AuthUser) => {
     setLoggedInUser(user);
@@ -364,12 +365,16 @@ export default function App() {
     stopPresenceHeartbeat();
   };
 
-  // Idle auto-logout: 30 minutes of no mouse/keyboard/touch/scroll activity
-  // signs the current user out. Runs only while someone is actually logged
-  // in (`enabled` below), so it never fires against the login screen itself.
-  // Shop Floor logins are exempt — those are shared stage tablets meant to
-  // stay signed in for the whole shift, not a single person's session.
-  const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+  // Idle auto-logout: defaults to 3 minutes. HR portal can override this
+  // by writing a number (in minutes) to localStorage key 'mat_idle_timeout_min'.
+  // Shop Floor logins are exempt — shared stage tablets stay signed in all shift.
+  const IDLE_TIMEOUT_MS = (() => {
+    try {
+      const saved = localStorage.getItem('mat_idle_timeout_min');
+      const parsed = saved ? parseInt(saved, 10) : NaN;
+      return (!isNaN(parsed) && parsed > 0) ? parsed * 60 * 1000 : 3 * 60 * 1000;
+    } catch { return 3 * 60 * 1000; }
+  })();
   const IDLE_EXEMPT_ROLES: ViewRole[] = ['stage_worker', 'section_supervisor'];
   const [idleLogoutNotice, setIdleLogoutNotice] = useState(false);
   const idleTimeoutEnabled = !!loggedInUser && !IDLE_EXEMPT_ROLES.includes(loggedInUser.role);
@@ -378,14 +383,10 @@ export default function App() {
     handleLogout();
   });
 
-  // Resume the presence heartbeat on page load/refresh if a session was
-  // already active in localStorage (handleLoginSuccess only fires on a
-  // fresh login, not on a restored session).
+  // Clear any saved session on every app open — users must always log in fresh.
   useEffect(() => {
-    if (loggedInUser) {
-      startPresenceHeartbeat(loggedInUser);
-    }
-    // Only meant to run once on mount against whatever getStoredUser() gave us.
+    logoutUser();
+    stopPresenceHeartbeat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -3712,6 +3713,9 @@ export default function App() {
             onAddEmployeesBulk={handleSaveEmployeesBulk}
             onDeleteEmployeePunchesByDate={handleDeleteEmployeePunchesByDate}
             currentUserName={loggedInUser?.displayName}
+            onIdleTimeoutChange={(minutes: number) => {
+              localStorage.setItem('mat_idle_timeout_min', String(minutes));
+            }}
           />
         )}
 
