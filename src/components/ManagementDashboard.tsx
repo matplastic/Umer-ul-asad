@@ -21,7 +21,7 @@ import {
   Edit2, Plus, Trash2, UserPlus, Check, X, Briefcase, FolderPlus,
   ShieldCheck, ShieldAlert, Activity, Cloud, Loader2, CheckCircle2, HardDrive,
   Lock, Unlock, Info, Calendar, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes,
-  UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat
+  UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck
 } from 'lucide-react';
 
 interface ManagementDashboardProps {
@@ -158,7 +158,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery'>('analytics');
 
   // DERIVED TEAM STATUS (source of truth): a team's own `status`/`activePoolId`
   // fields can drift out of sync with reality (manual edits, dropped writes,
@@ -1506,6 +1506,87 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [forceStageIndex, setForceStageIndex] = useState<number>(0);
   const [forceStageMsg, setForceStageMsg] = useState('');
 
+  // Pool Delivery tab — close out whatever stages are still open (mark each
+  // remaining stage Done or Carry-on-Site) and mark the pool Delivered in
+  // one action, for pools that are basically finished (e.g. only Mosaic or
+  // Lamination left) but need to ship before every last stage is formally
+  // worked through the normal kiosk flow.
+  const [deliverySearchQuery, setDeliverySearchQuery] = useState('');
+  const [deliverySelectedPoolId, setDeliverySelectedPoolId] = useState<string>('');
+  const [deliveryStageChoices, setDeliveryStageChoices] = useState<{ [key: string]: 'DONE' | 'CARRIED_ON_SITE' }>({});
+  const [deliveryMarkedBy, setDeliveryMarkedBy] = useState('');
+  const [deliveryMsg, setDeliveryMsg] = useState('');
+
+  const undeliveredPools = pools.filter(p => !p.isDelivered);
+  const deliveryMatchingPools = undeliveredPools
+    .filter(p => {
+      if (!deliverySearchQuery.trim()) return true;
+      const q = deliverySearchQuery.trim().toLowerCase();
+      return p.poolNo.toLowerCase().includes(q) || p.projectName.toLowerCase().includes(q);
+    })
+    .sort((a, b) => (STAGES.length - a.currentStageIndex) - (STAGES.length - b.currentStageIndex));
+
+  const getRemainingStages = (pool: Pool) => STAGES.filter((s, idx) => {
+    if (idx < pool.currentStageIndex) return false;
+    const hist = pool.stageHistory?.[s.id];
+    if (hist && (hist.status === 'APPROVED' || hist.status === 'SKIPPED' || hist.status === 'CARRIED_ON_SITE')) return false;
+    return true;
+  });
+
+  const deliverySelectedPool = pools.find(p => p.id === deliverySelectedPoolId) || null;
+
+  const loadPoolIntoDelivery = (pool: Pool) => {
+    setDeliverySelectedPoolId(pool.id);
+    const remaining = getRemainingStages(pool);
+    const defaults: { [key: string]: 'DONE' | 'CARRIED_ON_SITE' } = {};
+    remaining.forEach(s => { defaults[s.id] = 'DONE'; });
+    setDeliveryStageChoices(defaults);
+    setDeliveryMsg('');
+  };
+
+  const handleConfirmDelivery = () => {
+    if (!deliverySelectedPool || !onUpdatePool) return;
+    if (!deliveryMarkedBy.trim()) {
+      setDeliveryMsg('Enter who is confirming this delivery first.');
+      return;
+    }
+    const remaining = getRemainingStages(deliverySelectedPool);
+    const nowIso = new Date().toISOString();
+    const updatedStageHistory = { ...deliverySelectedPool.stageHistory };
+    remaining.forEach(s => {
+      const choice = deliveryStageChoices[s.id] || 'DONE';
+      const prevHist = updatedStageHistory[s.id] || { stageId: s.id, status: 'NOT_STARTED', rejectionCount: 0 };
+      updatedStageHistory[s.id] = {
+        ...prevHist,
+        status: choice === 'DONE' ? 'APPROVED' : 'CARRIED_ON_SITE',
+        endTime: prevHist.endTime || nowIso,
+        inspectorId: deliveryMarkedBy.trim(),
+        inspectorNotes: choice === 'DONE'
+          ? (prevHist.inspectorNotes || 'Closed out via Pool Delivery tool')
+          : 'Will be carried on site',
+        inspectionTime: nowIso,
+      };
+    });
+
+    const confirmMsg = `Mark pool [${deliverySelectedPool.poolNo}] as DELIVERED?\n\n` +
+      remaining.map(s => `• ${s.name}: ${deliveryStageChoices[s.id] === 'CARRIED_ON_SITE' ? 'Carry on site' : 'Done'}`).join('\n') +
+      `\n\nThis will close out all remaining stages as shown above and mark the pool delivered.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    onUpdatePool(deliverySelectedPool.id, {
+      stageHistory: updatedStageHistory,
+      currentStageIndex: STAGES.length,
+      completedAt: deliverySelectedPool.completedAt || nowIso,
+      isDelivered: true,
+      deliveredAt: nowIso,
+    });
+
+    setDeliveryMsg('Pool marked as delivered!');
+    setDeliverySelectedPoolId('');
+    setDeliveryStageChoices({});
+    setTimeout(() => setDeliveryMsg(''), 3000);
+  };
+
   const editorMatchingPools = pools.filter(p => {
     if (!editorSearchQuery.trim()) return true;
     const q = editorSearchQuery.trim().toLowerCase();
@@ -2159,6 +2240,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'teams', label: 'Teams Allocation', icon: Users },
               { id: 'team_performance', label: 'Team Performance', icon: TrendingUp, elId: 'tab-mgmt-team-performance' },
               { id: 'shop_floor', label: 'Shop Floor Monitor', icon: HardHat, elId: 'tab-mgmt-shop-floor' },
+              { id: 'pool_delivery', label: 'Pool Delivery', icon: Truck, elId: 'tab-mgmt-pool-delivery' },
               { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
               { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
             ],
@@ -5421,6 +5503,149 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 <p className="text-sm font-bold text-slate-500">No teams set up for this section yet.</p>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'pool_delivery' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
+
+            {/* Left: search + pool list, nearly-finished pools float to top */}
+            <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <Truck className="h-4 w-4 text-blue-500" />
+                Pool Delivery
+              </h3>
+              <p className="text-xs text-slate-400">
+                Pick a pool, close out whatever stages are still open (Done or Carry on site), then confirm delivery. Pools with fewer remaining stages are listed first.
+              </p>
+              <div className="relative">
+                <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={deliverySearchQuery}
+                  onChange={(e) => setDeliverySearchQuery(e.target.value)}
+                  placeholder="Search by pool no. or project name..."
+                  className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+              </div>
+
+              <div className="space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
+                {deliveryMatchingPools.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-8">No undelivered pools match your search.</p>
+                ) : (
+                  deliveryMatchingPools.map((pool) => {
+                    const isSelected = deliverySelectedPoolId === pool.id;
+                    const remainingCount = getRemainingStages(pool).length;
+                    return (
+                      <button
+                        key={pool.id}
+                        onClick={() => loadPoolIntoDelivery(pool)}
+                        className={`w-full text-left p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-2 transition-colors ${
+                          isSelected ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
+                            isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {pool.poolNo}
+                          </span>
+                          <span className="text-xs font-semibold truncate">{pool.projectName}</span>
+                        </span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase shrink-0 ${
+                          isSelected ? 'bg-slate-700 text-teal-300' : remainingCount <= 2 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                        }`}>
+                          {remainingCount} left
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Right: remaining-stage checklist + confirm delivery */}
+            <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+              {!deliverySelectedPool ? (
+                <div className="py-24 text-center">
+                  <Truck className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                  <span className="text-xs text-slate-400">Select a pool from the list to close it out for delivery</span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">
+                        Delivering Pool <span className="font-mono text-blue-600">{deliverySelectedPool.poolNo}</span>
+                      </h4>
+                      <span className="text-xs text-slate-400">{deliverySelectedPool.projectName}</span>
+                    </div>
+                    {deliveryMsg && (
+                      <span className={`text-xs font-bold flex items-center gap-1 ${deliveryMsg.startsWith('Pool marked') ? 'text-emerald-600' : 'text-rose-500'}`}>
+                        {deliveryMsg.startsWith('Pool marked') && <Check className="h-3.5 w-3.5" />} {deliveryMsg}
+                      </span>
+                    )}
+                  </div>
+
+                  {getRemainingStages(deliverySelectedPool).length === 0 ? (
+                    <p className="text-xs text-slate-400 py-4">All stages are already signed off for this pool — just confirm below to mark it delivered.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      <span className="text-xs font-bold text-slate-600">Remaining stages — choose how each was closed out:</span>
+                      {getRemainingStages(deliverySelectedPool).map(s => (
+                        <div key={s.id} className="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-slate-100 bg-slate-50">
+                          <span className="text-xs font-semibold text-slate-700">{s.name}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setDeliveryStageChoices(prev => ({ ...prev, [s.id]: 'DONE' }))}
+                              className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition-colors ${
+                                (deliveryStageChoices[s.id] || 'DONE') === 'DONE'
+                                  ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              Done
+                            </button>
+                            <button
+                              onClick={() => setDeliveryStageChoices(prev => ({ ...prev, [s.id]: 'CARRIED_ON_SITE' }))}
+                              className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition-colors ${
+                                deliveryStageChoices[s.id] === 'CARRIED_ON_SITE'
+                                  ? 'bg-amber-500 text-white border-amber-500'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              Carry on site
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="pt-3 border-t border-slate-100 space-y-2">
+                    <label className="text-xs font-bold text-slate-500 block">Confirmed by</label>
+                    <input
+                      type="text"
+                      value={deliveryMarkedBy}
+                      onChange={(e) => setDeliveryMarkedBy(e.target.value)}
+                      placeholder="Your name"
+                      className="w-full text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <button
+                      onClick={handleConfirmDelivery}
+                      disabled={!onUpdatePool}
+                      className="w-full flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-colors"
+                    >
+                      <Truck className="h-3.5 w-3.5" />
+                      Mark Pool Delivered
+                    </button>
+                    {!onUpdatePool && (
+                      <span className="text-[10px] font-bold text-rose-500">Save is not wired up yet — ask your developer to connect onUpdatePool.</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
