@@ -29,7 +29,7 @@ export const MatLogo: React.FC<{ className?: string }> = ({ className }) => {
                      matlogoGlow 2.6s ease-in-out 1.2s infinite;
         }
       `}</style>
-      <svg viewBox="0 0 512 315" style={{ width: '100%', height: '100%', overflow: 'visible' }} xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox="0 0 512 315" style={{ height: '100%', width: 'auto', aspectRatio: '512 / 315', display: 'block', overflow: 'visible' }} xmlns="http://www.w3.org/2000/svg">
         <g className="matlogo-letters">
           <g className="matlogo-m"><g transform="translate(0.000000,315.000000) scale(0.100000,-0.100000)">
             <path d="M196 1568 c-14 -20 -16 -87 -16 -560 0 -521 1 -538 19 -548 11 -6 87
