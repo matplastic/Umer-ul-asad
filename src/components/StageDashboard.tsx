@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Pool, StageId, Team, StageDefinition } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
-import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw } from 'lucide-react';
+import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw, PauseCircle } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 import { QCDefectBadge, QCDefect } from './QCDefectPanel';
 
@@ -624,7 +624,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                   return (
                     <div 
                       key={pool.id} 
-                      className="p-4 border border-slate-205 border-slate-100 rounded-xl shadow-sm hover:shadow bg-slate-50 hover:bg-slate-50/70 hover:border-slate-300 transition-all flex flex-col justify-between"
+                      className={`p-4 border rounded-xl shadow-sm transition-all flex flex-col justify-between ${
+                        pool.isOnHold
+                          ? 'border-orange-200 bg-orange-50/60 opacity-80'
+                          : 'border-slate-205 border-slate-100 hover:shadow bg-slate-50 hover:bg-slate-50/70 hover:border-slate-300'
+                      }`}
                     >
                       <div>
                         <div className="flex justify-between items-center">
@@ -635,6 +639,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             {pool.poolType && (
                               <span className="font-mono text-[9px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
                                 {pool.poolType}
+                              </span>
+                            )}
+                            {pool.isOnHold && (
+                              <span className="inline-flex items-center gap-1 font-mono text-[9px] font-black text-orange-700 bg-orange-100 border border-orange-300 px-1.5 py-0.5 rounded">
+                                <PauseCircle className="h-3 w-3" /> QC HOLD
                               </span>
                             )}
                           </div>
@@ -660,6 +669,13 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </div>
 
                         <h4 className="text-sm font-bold text-slate-900 mt-2">{pool.projectName}</h4>
+                        {/* QC HOLD notice — floor workers see exactly why this pool can't be claimed */}
+                        {pool.isOnHold && (
+                          <div className="mt-1.5 text-[10.5px] text-orange-800 bg-orange-100 border border-orange-200 rounded px-2 py-1">
+                            <strong>On hold by QC</strong> ({pool.holdInfo?.heldBy || 'Quality'})
+                            {pool.holdInfo?.reason ? ` — ${pool.holdInfo.reason}` : ''}. Cannot be claimed until released.
+                          </div>
+                        )}
                         {/* QC defect badge — visible to floor workers so they know hold status */}
                         {(() => {
                           const poolDefects = qcDefects.filter(d => d.poolId === pool.id && d.stageId === stage.id);
@@ -688,17 +704,26 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </span>
                         
                         <button
-                          disabled={!activeTeam || !!myClaimedPool}
+                          disabled={!activeTeam || !!myClaimedPool || !!pool.isOnHold}
                           onClick={() => onClaimPool(pool.id, activeTeam!.id, stage.id)}
                           className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-all flex items-center gap-1 ${
-                            activeTeam && !myClaimedPool
+                            activeTeam && !myClaimedPool && !pool.isOnHold
                               ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
                               : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                           }`}
-                          title={!activeTeam ? "Select a team first" : myClaimedPool ? "Finish current task first" : "Claim this pool"}
+                          title={pool.isOnHold ? "This pool is on hold by QC" : !activeTeam ? "Select a team first" : myClaimedPool ? "Finish current task first" : "Claim this pool"}
                         >
-                          <span>Claim Task</span>
-                          <ChevronRight className="h-3.5 w-3.5" />
+                          {pool.isOnHold ? (
+                            <>
+                              <PauseCircle className="h-3.5 w-3.5" />
+                              <span>On Hold</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Claim Task</span>
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
