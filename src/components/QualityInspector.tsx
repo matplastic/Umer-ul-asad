@@ -45,6 +45,9 @@ interface QualityInspectorProps {
   onUpdateDefectStatus?: (defectId: string, newStatus: QCDefect['status'], operatorName: string) => void;
   // Daily Defect Report portal (auto-generated from logs + qcDefects)
   logs?: ActivityLog[];
+  // QC Hold: lock a pool at its current stage so no team can claim it.
+  onHoldPool?: (poolId: string, inspectorName: string, reason?: string) => void;
+  onReleaseHold?: (poolId: string, inspectorName: string) => void;
 }
 
 export const QualityInspector: React.FC<QualityInspectorProps> = ({
@@ -66,8 +69,14 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   onLogDefect,
   onUpdateDefectStatus,
   logs = [],
+  onHoldPool,
+  onReleaseHold,
 }) => {
-  const [activeTab, setActiveTab] = useState<'queue' | 'incoming_qc' | 'daily_report'>('queue');
+  const [activeTab, setActiveTab] = useState<'queue' | 'incoming_qc' | 'daily_report' | 'hold_pool'>('queue');
+  const [holdSearch, setHoldSearch] = useState('');
+  const [holdReasonDraft, setHoldReasonDraft] = useState<{ [poolId: string]: string }>({});
+  const [confirmHoldAction, setConfirmHoldAction] = useState<{ poolId: string; poolNo: string; type: 'HOLD' | 'RELEASE' } | null>(null);
+  const heldPoolsList = pools.filter(p => p.isOnHold);
   const [selectedInspector, setSelectedInspector] = useState(currentUserName || inspectors[0]?.name || '');
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
@@ -365,6 +374,20 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             >
               Daily Defect Report
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('hold_pool')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
+                activeTab === 'hold_pool' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Hold / Release Pool
+              {heldPoolsList.length > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-orange-500 text-white text-[9px]">
+                  {heldPoolsList.length}
+                </span>
+              )}
+            </button>
           </div>
           {currentUserName ? (
             <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 p-3 rounded-xl">
@@ -570,6 +593,157 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
               </table>
             </div>
           </div>
+        </div>
+      ) : activeTab === 'hold_pool' ? (
+        <div className="space-y-6 font-sans">
+          {/* Currently Held Pools */}
+          <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+              <div className="text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                <PauseCircle className="h-3.5 w-3.5 text-orange-500" />
+                Pools on Hold ({heldPoolsList.length})
+              </div>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {heldPoolsList.length === 0 && (
+                <div className="text-center text-slate-400 py-10 text-sm">No pools are currently on hold.</div>
+              )}
+              {heldPoolsList.map(pool => {
+                const stageLabel = STAGES.find(s => s.id === pool.holdInfo?.stageAtHold)?.name || pool.holdInfo?.stageAtHold || '—';
+                return (
+                  <div key={pool.id} className="px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-slate-800 text-sm">{pool.poolNo}</span>
+                        <span className="text-xs text-slate-400">{pool.projectName}</span>
+                        <span className="inline-flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">
+                          <PauseCircle className="h-3 w-3" /> On Hold
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        Stage: <span className="font-bold text-slate-700">{stageLabel}</span>
+                        {' · '}Held by <span className="font-bold text-slate-700">{pool.holdInfo?.heldBy}</span>
+                        {' · '}{pool.holdInfo?.heldAt ? new Date(pool.holdInfo.heldAt).toLocaleString() : ''}
+                      </div>
+                      {pool.holdInfo?.reason && (
+                        <div className="text-xs text-slate-500 mt-1 italic">Reason: {pool.holdInfo.reason}</div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setConfirmHoldAction({ poolId: pool.id, poolNo: pool.poolNo, type: 'RELEASE' })}
+                      className="flex items-center gap-1.5 text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl transition-colors self-start md:self-auto"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Release Hold
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Place a new hold */}
+          <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-1.5">
+              <Search className="h-3.5 w-3.5 text-slate-400" />
+              <input
+                value={holdSearch}
+                onChange={(e) => setHoldSearch(e.target.value)}
+                placeholder="Search by Pool No or Project Name..."
+                className="w-full text-xs font-semibold text-slate-700 focus:outline-none"
+              />
+            </div>
+            <div className="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
+              {pools
+                .filter(p => !p.isDelivered)
+                .filter(p => !holdSearch || p.poolNo.toLowerCase().includes(holdSearch.toLowerCase()) || p.projectName.toLowerCase().includes(holdSearch.toLowerCase()))
+                .slice(0, 50)
+                .map(pool => {
+                  const stageLabel = STAGES[pool.currentStageIndex]?.name || '—';
+                  return (
+                    <div key={pool.id} className="px-5 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-slate-800 text-sm">{pool.poolNo}</span>
+                          <span className="text-xs text-slate-400">{pool.projectName}</span>
+                          {pool.isOnHold && (
+                            <span className="inline-flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">
+                              On Hold
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">Current stage: {stageLabel}</div>
+                      </div>
+                      {pool.isOnHold ? (
+                        <button
+                          onClick={() => setConfirmHoldAction({ poolId: pool.id, poolNo: pool.poolNo, type: 'RELEASE' })}
+                          className="flex items-center gap-1.5 text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl transition-colors self-start md:self-auto"
+                        >
+                          Release Hold
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={holdReasonDraft[pool.id] || ''}
+                            onChange={(e) => setHoldReasonDraft(prev => ({ ...prev, [pool.id]: e.target.value }))}
+                            placeholder="Optional reason..."
+                            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-40 focus:outline-none"
+                          />
+                          <button
+                            onClick={() => setConfirmHoldAction({ poolId: pool.id, poolNo: pool.poolNo, type: 'HOLD' })}
+                            className="flex items-center gap-1.5 text-xs font-bold bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 px-3 py-1.5 rounded-xl transition-colors self-start md:self-auto whitespace-nowrap"
+                          >
+                            <PauseCircle className="h-3.5 w-3.5" />
+                            Hold This Pool
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* Inline confirm dialog */}
+          {confirmHoldAction && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+              <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+                <h3 className="text-sm font-black text-slate-800 mb-2">
+                  {confirmHoldAction.type === 'HOLD' ? 'Hold this pool?' : 'Release this hold?'}
+                </h3>
+                <p className="text-xs text-slate-500 mb-5">
+                  {confirmHoldAction.type === 'HOLD'
+                    ? `No team will be able to claim ${confirmHoldAction.poolNo} at its current stage until you release the hold.`
+                    : `${confirmHoldAction.poolNo} will become claimable again by any team.`}
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setConfirmHoldAction(null)}
+                    className="text-xs font-bold text-slate-500 hover:text-slate-800 px-3 py-2 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      const inspectorName = currentUserName || selectedInspector || 'QC';
+                      if (confirmHoldAction.type === 'HOLD') {
+                        onHoldPool?.(confirmHoldAction.poolId, inspectorName, holdReasonDraft[confirmHoldAction.poolId]);
+                      } else {
+                        onReleaseHold?.(confirmHoldAction.poolId, inspectorName);
+                      }
+                      setHoldReasonDraft(prev => ({ ...prev, [confirmHoldAction.poolId]: '' }));
+                      setConfirmHoldAction(null);
+                    }}
+                    className={`text-xs font-black px-4 py-2 rounded-lg text-white ${
+                      confirmHoldAction.type === 'HOLD' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                    }`}
+                  >
+                    {confirmHoldAction.type === 'HOLD' ? 'Confirm Hold' : 'Confirm Release'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
