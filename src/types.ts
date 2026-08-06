@@ -72,6 +72,16 @@ export interface Pool {
   stageHistory: { [key in StageId]: StageHistory };
   isDelivered?: boolean;
   deliveredAt?: string | null;
+  // QC HOLD: when true, no team/kiosk may claim this pool at its current
+  // stage until QC releases it. The pool stays visible on stage boards
+  // (grayed out with a hold badge) — it is never hidden from the list.
+  isOnHold?: boolean;
+  holdInfo?: {
+    heldBy: string;
+    heldAt: string;
+    reason?: string;
+    stageAtHold: string;
+  } | null;
 }
 
 export interface PlannedPool {
