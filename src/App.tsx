@@ -2608,6 +2608,11 @@ export default function App() {
     const team = teamsRef.current.find(t => t.id === teamId);
     if (!team || team.activePoolId) return;
 
+    // QC HOLD GUARD: a pool placed on hold by Quality cannot be claimed by
+    // any team/kiosk at any stage until QC explicitly releases it.
+    const claimTargetPool = poolsRef.current[poolIndex];
+    if (claimTargetPool.isOnHold) return;
+
     // Update pool: assign stage team details
     // SYNC FIX: clone both the pool AND its stageHistory bag before editing.
     // `updatedPools[poolIndex]` was the SAME object as `pools[poolIndex]` —
@@ -2653,6 +2658,76 @@ export default function App() {
     teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs);
+  };
+
+  // 2b. Hold Pool (QC locks a pool at its current stage so no team can
+  // claim it — used e.g. while a defect/rework decision is pending).
+  const handleHoldPool = (poolId: string, inspectorName: string, reason?: string) => {
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
+    if (poolIndex === -1) return;
+
+    const updatedPools = [...poolsRef.current];
+    const pool = { ...updatedPools[poolIndex] };
+    const currentStage = STAGES[pool.currentStageIndex]?.id ?? 'unknown';
+    pool.isOnHold = true;
+    pool.holdInfo = {
+      heldBy: inspectorName,
+      heldAt: new Date().toISOString(),
+      reason: reason || '',
+      stageAtHold: currentStage,
+    };
+    updatedPools[poolIndex] = pool;
+
+    const newLog: ActivityLog = {
+      id: `log_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      poolId: pool.id,
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      stageId: currentStage as StageId,
+      type: 'STAGE_STARTED',
+      teamName: inspectorName,
+      operatorName: inspectorName,
+      notes: `QC HOLD placed on pool at [${currentStage}]${reason ? ` — Reason: ${reason}` : ''}. Pool cannot be claimed until released.`,
+    };
+    const updatedLogs = [...logs, newLog];
+
+    setPools(updatedPools);
+    poolsRef.current = updatedPools;
+    setLogs(updatedLogs);
+    saveState(updatedPools, teams, updatedLogs);
+  };
+
+  // 2c. Release Hold (QC unlocks a pool so teams can claim it again).
+  const handleReleaseHold = (poolId: string, inspectorName: string) => {
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
+    if (poolIndex === -1) return;
+
+    const updatedPools = [...poolsRef.current];
+    const pool = { ...updatedPools[poolIndex] };
+    const heldStage = pool.holdInfo?.stageAtHold || (STAGES[pool.currentStageIndex]?.id ?? 'unknown');
+    pool.isOnHold = false;
+    pool.holdInfo = null;
+    updatedPools[poolIndex] = pool;
+
+    const newLog: ActivityLog = {
+      id: `log_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      poolId: pool.id,
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      stageId: heldStage as StageId,
+      type: 'STAGE_STARTED',
+      teamName: inspectorName,
+      operatorName: inspectorName,
+      notes: `QC HOLD released. Pool is available to be claimed again.`,
+    };
+    const updatedLogs = [...logs, newLog];
+
+    setPools(updatedPools);
+    poolsRef.current = updatedPools;
+    setLogs(updatedLogs);
+    saveState(updatedPools, teams, updatedLogs);
   };
 
   // 3. Start Stage Timer
@@ -3618,6 +3693,8 @@ export default function App() {
             onLogDefect={handleLogDefect}
             onUpdateDefectStatus={handleUpdateDefectStatus}
             logs={logs}
+            onHoldPool={handleHoldPool}
+            onReleaseHold={handleReleaseHold}
           />
         )}
 
