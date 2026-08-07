@@ -1,5 +1,5 @@
 // src/components/SplashScreen.tsx
-// MAT Plastic Industries — Animated splash/login screen (Gray Theme)
+// MAT Plastic Industries — Animated splash/login screen
 // Usage: Show this component on app mount, hide it once auth is ready.
 
 import { useEffect, useState } from "react";
@@ -31,8 +31,8 @@ export default function SplashScreen({
     <div className="mat-splash">
       {/* ── Logo ── */}
       <div className="mat-logo-wrap">
-        <svg viewBox="0 0 512 315" xmlns="http://w3.org" style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
-          {/* White M/T Letters for contrast against Gray Background */}
+        <svg viewBox="0 0 512 315" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
+          {/* Gray M */}
           <g className="mat-letters">
             <g className="mat-letter-m">
               <g transform="translate(0,315) scale(0.1,-0.1)">
@@ -76,8 +76,7 @@ export default function SplashScreen({
           align-items: center;
           justify-content: center;
           gap: 24px;
-          /* NEW GRAY BACKGROUND GRADIENT */
-          background: radial-gradient(1200px 700px at 50% 30%, #3A3F44 0%, #22252A 50%, #111315 100%);
+          background: radial-gradient(1200px 700px at 50% 30%, #0e6a6d 0%, #0B4F52 45%, #06322F 100%);
           font-family: 'Segoe UI', Arial, sans-serif;
           overflow: hidden;
         }
@@ -85,8 +84,8 @@ export default function SplashScreen({
           width: min(88vw, 640px);
         }
 
-        /* ── Letters Changed to Soft White for contrast ── */
-        .mat-letters path { fill: #EAEAEA; }
+        /* ── Letters ── */
+        .mat-letters path { fill: #A0A0A0; }
 
         .mat-letter-m {
           opacity: 0;
