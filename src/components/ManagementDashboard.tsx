@@ -2723,6 +2723,147 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         </ResponsiveContainer>
                       </div>
                     </div>
+
+                    {/* Bottleneck Stage Drill-Down: avg dwell time per stage across all pools */}
+                    {(() => {
+                      const dwellByStage: Record<string, { totalMinutes: number; count: number }> = {};
+                      STAGES.forEach(s => { dwellByStage[s.id] = { totalMinutes: 0, count: 0 }; });
+                      pools.forEach(p => {
+                        STAGES.forEach(s => {
+                          const h = p.stageHistory?.[s.id];
+                          if (h && typeof h.durationMinutes === 'number' && h.durationMinutes > 0) {
+                            dwellByStage[s.id].totalMinutes += h.durationMinutes;
+                            dwellByStage[s.id].count += 1;
+                          }
+                        });
+                      });
+                      const bottleneckRows = STAGES.map(s => {
+                        const d = dwellByStage[s.id];
+                        const avgHrs = d.count > 0 ? (d.totalMinutes / d.count) / 60 : 0;
+                        const stuckNow = pools.filter(p => p.currentStageIndex === STAGES.findIndex(st => st.id === s.id)).length;
+                        return { id: s.id, name: s.name, avgHrs, samples: d.count, stuckNow };
+                      }).sort((a, b) => b.avgHrs - a.avgHrs);
+                      const maxAvg = Math.max(...bottleneckRows.map(r => r.avgHrs), 1);
+                      const worst = bottleneckRows.find(r => r.samples > 0);
+
+                      return (
+                        <div className="bg-slate-50/70 p-6 rounded-xl border border-slate-100 space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/50 pb-3">
+                            <div className="space-y-1">
+                              <span className="text-[11px] font-black text-indigo-900 uppercase tracking-widest block">
+                                Bottleneck Stage Drill-Down
+                              </span>
+                              <p className="text-xs text-slate-500">
+                                Average time pools spend in each stage, based on real stage-completion data. Longest bar = current floor bottleneck.
+                              </p>
+                            </div>
+                            {worst && (
+                              <div className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 shrink-0">
+                                ⚠ Bottleneck: {worst.name} ({worst.avgHrs.toFixed(1)}h avg)
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-2.5">
+                            {bottleneckRows.map(r => (
+                              <div key={r.id} className="space-y-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-bold text-slate-700">{r.name}</span>
+                                  <span className="font-mono text-[11px] text-slate-500">
+                                    {r.samples > 0 ? `${r.avgHrs.toFixed(1)}h avg` : 'no data'} · {r.stuckNow} pool{r.stuckNow === 1 ? '' : 's'} in stage now
+                                  </span>
+                                </div>
+                                <div className="h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${r.avgHrs === maxAvg && r.samples > 0 ? 'bg-rose-500' : 'bg-indigo-400'}`}
+                                    style={{ width: `${r.samples > 0 ? Math.max(4, (r.avgHrs / maxAvg) * 100) : 0}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* QC Defect Heatmap: stage x team defect frequency */}
+                    {(() => {
+                      const defects = (qcDefects || []) as any[];
+                      const teamNameFor = (poolId: string, stageId: string) => {
+                        const pool = pools.find(p => p.id === poolId);
+                        return pool?.stageHistory?.[stageId]?.teamName || 'Unknown Team';
+                      };
+                      const teamCounts: Record<string, number> = {};
+                      defects.forEach(d => {
+                        const t = teamNameFor(d.poolId, d.stageId);
+                        teamCounts[t] = (teamCounts[t] || 0) + 1;
+                      });
+                      const topTeams = Object.entries(teamCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 6)
+                        .map(([name]) => name);
+
+                      const matrix = STAGES.map(s => {
+                        const row = topTeams.map(team => {
+                          return defects.filter(d => d.stageId === s.id && teamNameFor(d.poolId, d.stageId) === team).length;
+                        });
+                        return { stageName: s.name, stageId: s.id, row, total: row.reduce((a, b) => a + b, 0) };
+                      }).filter(r => r.total > 0 || defects.some(d => d.stageId === r.stageId));
+
+                      const maxCell = Math.max(1, ...matrix.flatMap(r => r.row));
+                      const cellColor = (v: number) => {
+                        if (v === 0) return 'bg-slate-100 text-slate-300';
+                        const ratio = v / maxCell;
+                        if (ratio > 0.75) return 'bg-rose-600 text-white';
+                        if (ratio > 0.5) return 'bg-rose-400 text-white';
+                        if (ratio > 0.25) return 'bg-amber-300 text-amber-900';
+                        return 'bg-amber-100 text-amber-800';
+                      };
+
+                      if (topTeams.length === 0) {
+                        return null;
+                      }
+
+                      return (
+                        <div className="bg-slate-50/70 p-6 rounded-xl border border-slate-100 space-y-4">
+                          <div className="space-y-1 border-b border-slate-200/50 pb-3">
+                            <span className="text-[11px] font-black text-indigo-900 uppercase tracking-widest block">
+                              QC Defect Heatmap — Stage × Team
+                            </span>
+                            <p className="text-xs text-slate-500">
+                              Defect counts logged per stage per team (top 6 teams by total defects). Darker red = higher defect frequency.
+                            </p>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-[11px] border-separate" style={{ borderSpacing: '4px' }}>
+                              <thead>
+                                <tr>
+                                  <th className="text-left font-bold text-slate-500 uppercase tracking-wider text-[10px] pb-1 pr-2">Stage</th>
+                                  {topTeams.map(team => (
+                                    <th key={team} className="text-center font-bold text-slate-500 text-[10px] pb-1 px-1 max-w-[80px]">
+                                      <span className="block truncate" title={team}>{team}</span>
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {matrix.map(r => (
+                                  <tr key={r.stageId}>
+                                    <td className="font-bold text-slate-700 pr-2 whitespace-nowrap">{r.stageName}</td>
+                                    {r.row.map((v, i) => (
+                                      <td key={i} className={`text-center font-mono font-bold rounded-md py-1.5 ${cellColor(v)}`}>
+                                        {v || '·'}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
