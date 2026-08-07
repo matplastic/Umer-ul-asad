@@ -161,6 +161,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [defectHeatmapDateFrom, setDefectHeatmapDateFrom] = useState<string>('');
   const [defectHeatmapDateTo, setDefectHeatmapDateTo] = useState<string>('');
   const [defectHeatmapTeamSearch, setDefectHeatmapTeamSearch] = useState<string>('');
+  const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery'>('analytics');
 
   // DERIVED TEAM STATUS (source of truth): a team's own `status`/`activePoolId`
@@ -2797,7 +2798,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         return pool?.stageHistory?.[stageId]?.teamName || 'Unknown Team';
                       };
 
-                      // Apply date range filter (loggedAt is an ISO string) and team name search
+                      // Apply date range filter (loggedAt is an ISO string), stage filter, and team name search
                       const defects = allDefects.filter(d => {
                         if (defectHeatmapDateFrom) {
                           const from = new Date(defectHeatmapDateFrom + 'T00:00:00');
@@ -2807,6 +2808,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           const to = new Date(defectHeatmapDateTo + 'T23:59:59');
                           if (new Date(d.loggedAt) > to) return false;
                         }
+                        if (defectHeatmapStageFilter && d.stageId !== defectHeatmapStageFilter) return false;
                         if (defectHeatmapTeamSearch.trim()) {
                           const teamName = teamNameFor(d.poolId, d.stageId).toLowerCase();
                           if (!teamName.includes(defectHeatmapTeamSearch.trim().toLowerCase())) return false;
@@ -2819,10 +2821,14 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         const t = teamNameFor(d.poolId, d.stageId);
                         teamCounts[t] = (teamCounts[t] || 0) + 1;
                       });
-                      const topTeams = Object.entries(teamCounts)
+
+                      // When a specific stage is selected, rank ALL teams in that stage
+                      // (not just top 6) so the worst offender for that stage is visible.
+                      const allTeamsRanked = Object.entries(teamCounts)
                         .sort((a, b) => b[1] - a[1])
-                        .slice(0, 6)
-                        .map(([name]) => name);
+                        .map(([name, count]) => ({ name, count }));
+
+                      const topTeams = allTeamsRanked.slice(0, 6).map(t => t.name);
 
                       const matrix = STAGES.map(s => {
                         const row = topTeams.map(team => {
@@ -2841,7 +2847,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         return 'bg-amber-100 text-amber-800';
                       };
 
-                      const hasActiveFilters = !!(defectHeatmapDateFrom || defectHeatmapDateTo || defectHeatmapTeamSearch.trim());
+                      const hasActiveFilters = !!(defectHeatmapDateFrom || defectHeatmapDateTo || defectHeatmapTeamSearch.trim() || defectHeatmapStageFilter);
+                      const selectedStageName = STAGES.find(s => s.id === defectHeatmapStageFilter)?.name;
+                      const maxTeamCount = Math.max(1, ...allTeamsRanked.map(t => t.count));
 
                       return (
                         <div className="bg-slate-50/70 p-6 rounded-xl border border-slate-100 space-y-4">
@@ -2855,7 +2863,20 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           </div>
 
                           {/* Filters */}
-                          <div className="flex flex-col sm:flex-row sm:items-end gap-3 pb-1">
+                          <div className="flex flex-col sm:flex-row sm:items-end gap-3 pb-1 flex-wrap">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Stage</label>
+                              <select
+                                value={defectHeatmapStageFilter}
+                                onChange={(e) => setDefectHeatmapStageFilter(e.target.value)}
+                                className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-200 min-w-[160px]"
+                              >
+                                <option value="">All stages</option>
+                                {STAGES.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                            </div>
                             <div className="flex flex-col gap-1">
                               <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">From</label>
                               <input
@@ -2890,6 +2911,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                   setDefectHeatmapDateFrom('');
                                   setDefectHeatmapDateTo('');
                                   setDefectHeatmapTeamSearch('');
+                                  setDefectHeatmapStageFilter('');
                                 }}
                                 className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 px-2 py-1.5"
                               >
@@ -2898,7 +2920,36 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             )}
                           </div>
 
-                          {topTeams.length === 0 ? (
+                          {defectHeatmapStageFilter ? (
+                            // Stage selected: rank ALL teams in that stage so the worst offender is visible.
+                            allTeamsRanked.length === 0 ? (
+                              <div className="text-xs text-slate-400 py-6 text-center">
+                                No defects logged for {selectedStageName} in the selected range.
+                              </div>
+                            ) : (
+                              <div className="space-y-2.5">
+                                <div className="text-[11px] font-bold text-slate-600 pb-1">
+                                  All teams in <span className="text-indigo-700">{selectedStageName}</span>, ranked by defect count
+                                </div>
+                                {allTeamsRanked.map((t, i) => (
+                                  <div key={t.name} className="space-y-1">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className={`font-bold ${i === 0 ? 'text-rose-700' : 'text-slate-700'}`}>
+                                        {i === 0 && '⚠ '}{t.name}
+                                      </span>
+                                      <span className="font-mono text-[11px] text-slate-500">{t.count} defect{t.count === 1 ? '' : 's'}</span>
+                                    </div>
+                                    <div className="h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full ${i === 0 ? 'bg-rose-500' : 'bg-amber-400'}`}
+                                        style={{ width: `${Math.max(4, (t.count / maxTeamCount) * 100)}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          ) : topTeams.length === 0 ? (
                             <div className="text-xs text-slate-400 py-6 text-center">
                               {hasActiveFilters ? 'No defects match the selected filters.' : 'No defect data logged yet.'}
                             </div>
