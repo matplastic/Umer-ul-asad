@@ -1303,12 +1303,12 @@ const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTe
       ) : (
         <div className="space-y-3">
           <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-100 rounded-lg p-2.5">
-            Tick each pool right after filling/testing its skimmer, then send them all to QA in one go — no per-pool timer needed.
+            Tick each pool right after finishing it, then send them all to QA in one go — no per-pool timer needed.
           </p>
 
           {availablePools.length === 0 ? (
             <div className="text-center py-8 bg-slate-50 border border-slate-100 border-dashed rounded-xl">
-              <p className="text-xs font-bold text-slate-500">No pools waiting for Skimmer Test</p>
+              <p className="text-xs font-bold text-slate-500">No pools waiting for {stage.name}</p>
             </div>
           ) : (
             <>
