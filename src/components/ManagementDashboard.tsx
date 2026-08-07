@@ -158,6 +158,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoolId, setSelectedPoolId] = useState<string | null>(null);
+  const [defectHeatmapDateFrom, setDefectHeatmapDateFrom] = useState<string>('');
+  const [defectHeatmapDateTo, setDefectHeatmapDateTo] = useState<string>('');
+  const [defectHeatmapTeamSearch, setDefectHeatmapTeamSearch] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery'>('analytics');
 
   // DERIVED TEAM STATUS (source of truth): a team's own `status`/`activePoolId`
@@ -2788,11 +2791,29 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                     {/* QC Defect Heatmap: stage x team defect frequency */}
                     {(() => {
-                      const defects = (qcDefects || []) as any[];
+                      const allDefects = (qcDefects || []) as any[];
                       const teamNameFor = (poolId: string, stageId: string) => {
                         const pool = pools.find(p => p.id === poolId);
                         return pool?.stageHistory?.[stageId]?.teamName || 'Unknown Team';
                       };
+
+                      // Apply date range filter (loggedAt is an ISO string) and team name search
+                      const defects = allDefects.filter(d => {
+                        if (defectHeatmapDateFrom) {
+                          const from = new Date(defectHeatmapDateFrom + 'T00:00:00');
+                          if (new Date(d.loggedAt) < from) return false;
+                        }
+                        if (defectHeatmapDateTo) {
+                          const to = new Date(defectHeatmapDateTo + 'T23:59:59');
+                          if (new Date(d.loggedAt) > to) return false;
+                        }
+                        if (defectHeatmapTeamSearch.trim()) {
+                          const teamName = teamNameFor(d.poolId, d.stageId).toLowerCase();
+                          if (!teamName.includes(defectHeatmapTeamSearch.trim().toLowerCase())) return false;
+                        }
+                        return true;
+                      });
+
                       const teamCounts: Record<string, number> = {};
                       defects.forEach(d => {
                         const t = teamNameFor(d.poolId, d.stageId);
@@ -2820,9 +2841,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         return 'bg-amber-100 text-amber-800';
                       };
 
-                      if (topTeams.length === 0) {
-                        return null;
-                      }
+                      const hasActiveFilters = !!(defectHeatmapDateFrom || defectHeatmapDateTo || defectHeatmapTeamSearch.trim());
 
                       return (
                         <div className="bg-slate-50/70 p-6 rounded-xl border border-slate-100 space-y-4">
@@ -2831,36 +2850,86 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               QC Defect Heatmap — Stage × Team
                             </span>
                             <p className="text-xs text-slate-500">
-                              Defect counts logged per stage per team (top 6 teams by total defects). Darker red = higher defect frequency.
+                              Defect counts logged per stage per team (top 6 teams by total defects in the selected range). Darker red = higher defect frequency.
                             </p>
                           </div>
 
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-[11px] border-separate" style={{ borderSpacing: '4px' }}>
-                              <thead>
-                                <tr>
-                                  <th className="text-left font-bold text-slate-500 uppercase tracking-wider text-[10px] pb-1 pr-2">Stage</th>
-                                  {topTeams.map(team => (
-                                    <th key={team} className="text-center font-bold text-slate-500 text-[10px] pb-1 px-1 max-w-[80px]">
-                                      <span className="block truncate" title={team}>{team}</span>
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {matrix.map(r => (
-                                  <tr key={r.stageId}>
-                                    <td className="font-bold text-slate-700 pr-2 whitespace-nowrap">{r.stageName}</td>
-                                    {r.row.map((v, i) => (
-                                      <td key={i} className={`text-center font-mono font-bold rounded-md py-1.5 ${cellColor(v)}`}>
-                                        {v || '·'}
-                                      </td>
+                          {/* Filters */}
+                          <div className="flex flex-col sm:flex-row sm:items-end gap-3 pb-1">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">From</label>
+                              <input
+                                type="date"
+                                value={defectHeatmapDateFrom}
+                                onChange={(e) => setDefectHeatmapDateFrom(e.target.value)}
+                                className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">To</label>
+                              <input
+                                type="date"
+                                value={defectHeatmapDateTo}
+                                onChange={(e) => setDefectHeatmapDateTo(e.target.value)}
+                                className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Team name</label>
+                              <input
+                                type="text"
+                                value={defectHeatmapTeamSearch}
+                                onChange={(e) => setDefectHeatmapTeamSearch(e.target.value)}
+                                placeholder="Search team…"
+                                className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-200 w-full"
+                              />
+                            </div>
+                            {hasActiveFilters && (
+                              <button
+                                onClick={() => {
+                                  setDefectHeatmapDateFrom('');
+                                  setDefectHeatmapDateTo('');
+                                  setDefectHeatmapTeamSearch('');
+                                }}
+                                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 px-2 py-1.5"
+                              >
+                                Clear filters
+                              </button>
+                            )}
+                          </div>
+
+                          {topTeams.length === 0 ? (
+                            <div className="text-xs text-slate-400 py-6 text-center">
+                              {hasActiveFilters ? 'No defects match the selected filters.' : 'No defect data logged yet.'}
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-[11px] border-separate" style={{ borderSpacing: '4px' }}>
+                                <thead>
+                                  <tr>
+                                    <th className="text-left font-bold text-slate-500 uppercase tracking-wider text-[10px] pb-1 pr-2">Stage</th>
+                                    {topTeams.map(team => (
+                                      <th key={team} className="text-center font-bold text-slate-500 text-[10px] pb-1 px-1 max-w-[80px]">
+                                        <span className="block truncate" title={team}>{team}</span>
+                                      </th>
                                     ))}
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                                </thead>
+                                <tbody>
+                                  {matrix.map(r => (
+                                    <tr key={r.stageId}>
+                                      <td className="font-bold text-slate-700 pr-2 whitespace-nowrap">{r.stageName}</td>
+                                      {r.row.map((v, i) => (
+                                        <td key={i} className={`text-center font-mono font-bold rounded-md py-1.5 ${cellColor(v)}`}>
+                                          {v || '·'}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
