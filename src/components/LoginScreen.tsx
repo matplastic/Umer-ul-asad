@@ -74,7 +74,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
       <div style={{
         position: 'fixed', inset: 0, zIndex: 9999,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '24px',
-        background: 'radial-gradient(1200px 700px at 50% 30%, #0e6a6d 0%, #0B4F52 45%, #06322F 100%)',
+        background: 'radial-gradient(1200px 700px at 50% 30%, #4a4a4a 0%, #333333 45%, #1a1a1a 100%)',
         fontFamily: "'Segoe UI', Arial, sans-serif", overflow: 'hidden',
       }}>
         <style>{`
@@ -135,7 +135,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
   }
 
   return (
-    <div className="relative min-h-screen flex flex-col justify-between p-4 sm:p-6 md:p-8 font-sans text-slate-100 antialiased selection:bg-teal-500/40 overflow-hidden" style={{ background: 'radial-gradient(120% 120% at 50% 0%, #0c2a28 0%, #071815 55%, #030c0b 100%)' }}>
+    <div className="relative min-h-screen flex flex-col justify-between p-4 sm:p-6 md:p-8 font-sans text-slate-100 antialiased selection:bg-slate-500/40 overflow-hidden" style={{ background: 'radial-gradient(120% 120% at 50% 0%, #2b2b2b 0%, #1a1a1a 55%, #0a0a0a 100%)' }}>
         <style>{`
           @keyframes matAuroraFloat1{ 0%,100%{ transform: translate(0,0) scale(1); } 33%{ transform: translate(80px,60px) scale(1.15); } 66%{ transform: translate(-40px,90px) scale(0.9); } }
           @keyframes matAuroraFloat2{ 0%,100%{ transform: translate(0,0) scale(1); } 50%{ transform: translate(-90px,-70px) scale(1.2); } }
@@ -151,10 +151,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
 
 
         {/* Animated aurora background blobs */}
-        <div className="mat-blob" style={{ width:520, height:520, top:-120, left:-100, opacity:0.55, background:'radial-gradient(circle at 30% 30%, #14B8AE, transparent 70%)', animation:'matAuroraFloat1 16s ease-in-out infinite' }} />
-        <div className="mat-blob" style={{ width:460, height:460, bottom:-140, right:-80, opacity:0.32, background:'radial-gradient(circle at 40% 40%, #E7B96A, transparent 70%)', animation:'matAuroraFloat2 20s ease-in-out infinite' }} />
-        <div className="mat-blob" style={{ width:400, height:400, top:'30%', right:'10%', opacity:0.5, background:'radial-gradient(circle at 50% 50%, #0B4F52, transparent 70%)', animation:'matAuroraFloat3 18s ease-in-out infinite' }} />
-        <div className="mat-blob" style={{ width:340, height:340, bottom:'10%', left:'8%', opacity:0.4, background:'radial-gradient(circle at 50% 50%, #6EE7E0, transparent 70%)', animation:'matAuroraFloat4 14s ease-in-out infinite' }} />
+        <div className="mat-blob" style={{ width:520, height:520, top:-120, left:-100, opacity:0.45, background:'radial-gradient(circle at 30% 30%, #6b6b6b, transparent 70%)', animation:'matAuroraFloat1 16s ease-in-out infinite' }} />
+        <div className="mat-blob" style={{ width:460, height:460, bottom:-140, right:-80, opacity:0.28, background:'radial-gradient(circle at 40% 40%, #8a8a8a, transparent 70%)', animation:'matAuroraFloat2 20s ease-in-out infinite' }} />
+        <div className="mat-blob" style={{ width:400, height:400, top:'30%', right:'10%', opacity:0.4, background:'radial-gradient(circle at 50% 50%, #4a4a4a, transparent 70%)', animation:'matAuroraFloat3 18s ease-in-out infinite' }} />
+        <div className="mat-blob" style={{ width:340, height:340, bottom:'10%', left:'8%', opacity:0.35, background:'radial-gradient(circle at 50% 50%, #9a9a9a, transparent 70%)', animation:'matAuroraFloat4 14s ease-in-out infinite' }} />
 
       {/* Top Banner */}
       <header className="relative z-10 max-w-6xl w-full mx-auto flex items-center justify-between py-4 border-b border-white/10">
@@ -163,7 +163,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
           <div>
             <h1 className="text-lg font-black tracking-tight text-white flex items-center gap-1.5 flex-wrap">
               MAT PLASTIC INDUSTRIES LLC
-              <span className="text-[10px] text-teal-300 font-mono uppercase px-2 py-0.5 bg-white/5 border border-white/10 rounded-full font-bold">
+              <span className="text-[10px] text-slate-300 font-mono uppercase px-2 py-0.5 bg-white/5 border border-white/10 rounded-full font-bold">
                 ERP Secure Gate
               </span>
             </h1>
@@ -187,7 +187,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
             opacity: 0,
           }}
         >
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-teal-300 via-teal-500 to-amber-400 rounded-t-2xl" />
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-slate-400 via-slate-500 to-slate-300 rounded-t-2xl" />
 
           {successUser && (
             <div
@@ -198,19 +198,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
                 WebkitBackdropFilter: 'blur(10px)',
               }}
             >
-              <div className="h-14 w-14 rounded-full bg-gradient-to-tr from-teal-400 to-teal-700 flex items-center justify-center shadow-lg shadow-teal-500/30">
+              <div className="h-14 w-14 rounded-full bg-gradient-to-tr from-slate-400 to-slate-700 flex items-center justify-center shadow-lg shadow-slate-500/30">
                 <User className="h-7 w-7 text-white" />
               </div>
               <h3 className="text-xl font-black text-white tracking-tight">
                 Welcome, {successUser.displayName || successUser.username}
               </h3>
-              <p className="text-xs text-teal-200/80">Opening your {ROLE_LABELS[successUser.role]} portal…</p>
+              <p className="text-xs text-slate-300/80">Opening your {ROLE_LABELS[successUser.role]} portal…</p>
             </div>
           )}
 
           <div className="mb-6 space-y-1">
             <h2 className="text-base font-black uppercase text-slate-100 tracking-wider flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-teal-400 animate-pulse" />
+              <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse" />
               Sign In
             </h2>
             <p className="text-xs text-slate-400">
@@ -228,7 +228,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
           <form onSubmit={handleLoginSubmit} className="flex flex-col gap-4">
             <div className="space-y-1.5">
               <label className="text-[11px] uppercase tracking-wider font-bold text-slate-400">Username</label>
-              <div className="flex items-center gap-2 bg-black/20 border border-white/10 rounded-xl px-3.5 py-3 focus-within:border-teal-400 transition-colors">
+              <div className="flex items-center gap-2 bg-black/20 border border-white/10 rounded-xl px-3.5 py-3 focus-within:border-slate-400 transition-colors">
                 <User className="h-4 w-4 text-slate-500 shrink-0" />
                 <input
                   type="text"
@@ -245,7 +245,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
 
             <div className="space-y-1.5">
               <label className="text-[11px] uppercase tracking-wider font-bold text-slate-400">Password</label>
-              <div className="flex items-center gap-2 bg-black/20 border border-white/10 rounded-xl px-3.5 py-3 focus-within:border-teal-400 transition-colors">
+              <div className="flex items-center gap-2 bg-black/20 border border-white/10 rounded-xl px-3.5 py-3 focus-within:border-slate-400 transition-colors">
                 <Lock className="h-4 w-4 text-slate-500 shrink-0" />
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -276,7 +276,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full h-14 mt-2 rounded-xl bg-gradient-to-r from-teal-500 to-teal-800 hover:from-teal-400 hover:to-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 transition-all duration-150 shadow-lg shadow-teal-500/20 active:scale-[0.98]"
+              className="w-full h-14 mt-2 rounded-xl bg-gradient-to-r from-slate-500 to-slate-800 hover:from-slate-400 hover:to-slate-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 transition-all duration-150 shadow-lg shadow-slate-500/20 active:scale-[0.98]"
             >
               {isSubmitting ? 'Signing in…' : 'Sign In'}
               {!isSubmitting && <ChevronRight className="h-4 w-4" />}
@@ -284,7 +284,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLo
           </form>
 
           <div className="mt-6 bg-black/20 border border-white/10 rounded-xl p-4 flex gap-3 items-start">
-            <ShieldAlert className="h-4 w-4 text-teal-300 shrink-0 mt-0.5" />
+            <ShieldAlert className="h-4 w-4 text-slate-300 shrink-0 mt-0.5" />
             <p className="text-[11px] text-slate-400 leading-relaxed">
               Don't have an account yet? Ask HR or Management to create one for you from the HR Portal's Accounts tab. Every login is tied to a named person and is logged.
             </p>
