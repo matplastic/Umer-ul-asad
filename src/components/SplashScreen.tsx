@@ -76,7 +76,7 @@ export default function SplashScreen({
           align-items: center;
           justify-content: center;
           gap: 24px;
-          background: radial-gradient(1200px 700px at 50% 30%, #0e6a6d 0%, #0B4F52 45%, #06322F 100%);
+          background: radial-gradient(1200px 700px at 50% 30%, #4a4a4a 0%, #333333 45%, #1a1a1a 100%);
           font-family: 'Segoe UI', Arial, sans-serif;
           overflow: hidden;
         }
