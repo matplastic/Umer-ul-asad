@@ -2790,7 +2790,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       );
                     })()}
 
-                    {/* QC Defect Heatmap: stage x team defect frequency */}
+                    {/* QC Defect Heatmap: stage x team defect frequency (logged QC defects + stage rejections, pass or reject) */}
                     {(() => {
                       const allDefects = (qcDefects || []) as any[];
                       const teamNameFor = (poolId: string, stageId: string) => {
@@ -2798,28 +2798,49 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         return pool?.stageHistory?.[stageId]?.teamName || 'Unknown Team';
                       };
 
-                      // Apply date range filter (loggedAt is an ISO string), stage filter, and team name search
-                      const defects = allDefects.filter(d => {
+                      // Build a unified event list: every logged QC defect PLUS every
+                      // rejection recorded on a stage's history — regardless of whether
+                      // the pool ultimately passed or was rejected further down the line.
+                      type HeatEvent = { stageId: string; poolId: string; teamName: string; date: string };
+                      const events: HeatEvent[] = [];
+
+                      allDefects.forEach(d => {
+                        events.push({ stageId: d.stageId, poolId: d.poolId, teamName: teamNameFor(d.poolId, d.stageId), date: d.loggedAt });
+                      });
+
+                      pools.forEach(p => {
+                        STAGES.forEach(s => {
+                          const h = p.stageHistory?.[s.id];
+                          const rc = h?.rejectionCount || 0;
+                          if (rc > 0) {
+                            const eventDate = h?.inspectionTime || h?.endTime || h?.startTime || p.createdAt;
+                            for (let i = 0; i < rc; i++) {
+                              events.push({ stageId: s.id, poolId: p.id, teamName: h?.teamName || 'Unknown Team', date: eventDate });
+                            }
+                          }
+                        });
+                      });
+
+                      // Apply date range filter, stage filter, and team name search
+                      const defects = events.filter(d => {
                         if (defectHeatmapDateFrom) {
                           const from = new Date(defectHeatmapDateFrom + 'T00:00:00');
-                          if (new Date(d.loggedAt) < from) return false;
+                          if (new Date(d.date) < from) return false;
                         }
                         if (defectHeatmapDateTo) {
                           const to = new Date(defectHeatmapDateTo + 'T23:59:59');
-                          if (new Date(d.loggedAt) > to) return false;
+                          if (new Date(d.date) > to) return false;
                         }
                         if (defectHeatmapStageFilter && d.stageId !== defectHeatmapStageFilter) return false;
                         if (defectHeatmapTeamSearch.trim()) {
-                          const teamName = teamNameFor(d.poolId, d.stageId).toLowerCase();
-                          if (!teamName.includes(defectHeatmapTeamSearch.trim().toLowerCase())) return false;
+                          if (!d.teamName.toLowerCase().includes(defectHeatmapTeamSearch.trim().toLowerCase())) return false;
                         }
                         return true;
                       });
 
                       const teamCounts: Record<string, number> = {};
                       defects.forEach(d => {
-                        const t = teamNameFor(d.poolId, d.stageId);
-                        teamCounts[t] = (teamCounts[t] || 0) + 1;
+                        teamCounts[d.teamName] = (teamCounts[d.teamName] || 0) + 1;
                       });
 
                       // When a specific stage is selected, rank ALL teams in that stage
@@ -2832,7 +2853,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                       const matrix = STAGES.map(s => {
                         const row = topTeams.map(team => {
-                          return defects.filter(d => d.stageId === s.id && teamNameFor(d.poolId, d.stageId) === team).length;
+                          return defects.filter(d => d.stageId === s.id && d.teamName === team).length;
                         });
                         return { stageName: s.name, stageId: s.id, row, total: row.reduce((a, b) => a + b, 0) };
                       }).filter(r => r.total > 0 || defects.some(d => d.stageId === r.stageId));
@@ -2858,7 +2879,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               QC Defect Heatmap — Stage × Team
                             </span>
                             <p className="text-xs text-slate-500">
-                              Defect counts logged per stage per team (top 6 teams by total defects in the selected range). Darker red = higher defect frequency.
+                              Combines logged QC defects and stage rejection counts, regardless of whether the pool ultimately passed or was rejected. Top 6 teams by total in the selected range. Darker red = higher frequency.
                             </p>
                           </div>
 
