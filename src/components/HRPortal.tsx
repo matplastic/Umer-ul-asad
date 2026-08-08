@@ -9,6 +9,16 @@ import {
   Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
+
+// Common nationalities for the UAE workforce — shown as datalist suggestions
+// on the passport form. Free text is still allowed, this is just for speed.
+const PASSPORT_COUNTRIES = [
+  'India', 'Pakistan', 'Bangladesh', 'Nepal', 'Sri Lanka', 'Philippines',
+  'Egypt', 'Sudan', 'Jordan', 'Syria', 'Lebanon', 'Yemen',
+  'UAE', 'Saudi Arabia', 'Oman', 'Kuwait', 'Bahrain', 'Qatar',
+  'Indonesia', 'Ethiopia', 'Kenya', 'Uganda', 'Nigeria',
+  'China', 'United Kingdom', 'United States', 'South Africa', 'Morocco', 'Tunisia',
+].sort();
 import { EmployeeAttendanceReport } from './EmployeeAttendanceReport';
 import {
   listUserAccounts, createUserAccount, updateUserAccount,
@@ -522,7 +532,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   companyList,
   onSaveCompanies,
 }) => {
-  const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('directory');
+  const [activeTab, setActiveTab] = useState<'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('directory');
 
   // ── A4 print/PDF report state (Absent / Accident / Medical reports) ──
   const [printReport, setPrintReport] = useState<{
@@ -755,6 +765,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         nonPunching: editEmp.nonPunching || false,
         companyName: editEmp.companyName || null,
         visaExpiryDate: editEmp.visaExpiryDate || null,
+        passportNumber: editEmp.passportNumber || null,
+        passportCountry: editEmp.passportCountry || null,
+        passportIssueDate: editEmp.passportIssueDate || null,
+        passportExpiryDate: editEmp.passportExpiryDate || null,
         createdAt: editEmp.createdAt || new Date().toISOString(),
       });
       setShowForm(false);
@@ -972,6 +986,51 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                 </div>
+                <div className="col-span-2 pt-1 border-t border-slate-100">
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-wider mt-2 mb-1">Passport Details</p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Passport Number</label>
+                  <input
+                    type="text"
+                    value={editEmp?.passportNumber || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, passportNumber: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Country / Nationality</label>
+                  <input
+                    type="text"
+                    list="passport-country-list"
+                    value={editEmp?.passportCountry || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, passportCountry: e.target.value }))}
+                    placeholder="e.g. India, Pakistan..."
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                  <datalist id="passport-country-list">
+                    {PASSPORT_COUNTRIES.map(c => <option key={c} value={c} />)}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Passport Issue Date</label>
+                  <input
+                    type="date"
+                    value={editEmp?.passportIssueDate || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, passportIssueDate: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Passport Expiry Date</label>
+                  <input
+                    type="date"
+                    value={editEmp?.passportExpiryDate || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, passportExpiryDate: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div className="col-span-2 border-t border-slate-100 pt-2" />
                 <div className="col-span-2">
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Notes</label>
                   <textarea
@@ -1093,8 +1152,293 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // ATTENDANCE TAB
+  // PASSPORTS TAB
   // ─────────────────────────────────────────────────────────────────────────────
+  const PASSPORT_ALERT_DAYS = 182; // ~6 months
+  const PassportsTab = () => {
+    const [search, setSearch] = useState('');
+    const [countryFilter, setCountryFilter] = useState('All');
+    const [companyFilter, setCompanyFilter] = useState('All');
+    const [statusFilter, setStatusFilter] = useState<'All' | 'Expired' | 'Expiring' | 'Missing' | 'Valid'>('All');
+    const [showAlert, setShowAlert] = useState(true);
+    const [editEmp, setEditEmp] = useState<Partial<Employee> | null>(null);
+    const [showPassportForm, setShowPassportForm] = useState(false);
+
+    const baseCompanyList = companyList && companyList.length > 0 ? companyList : [...COMPANIES];
+
+    const countries = useMemo(() => [
+      'All',
+      ...Array.from(new Set(employees.map(e => e.passportCountry).filter(Boolean) as string[])).sort(),
+    ], [employees]);
+
+    const companiesForFilter = useMemo(() => [
+      'All',
+      ...Array.from(new Set([...baseCompanyList, ...employees.map(e => e.companyName).filter(Boolean) as string[]])),
+    ], [baseCompanyList, employees]);
+
+    const getPassportStatus = (dateStr?: string | null): { label: string; cls: string; daysLeft: number | null } => {
+      if (!dateStr) return { label: 'Missing', cls: 'bg-slate-100 text-slate-500 border-slate-200', daysLeft: null };
+      const expiry = new Date(dateStr);
+      if (isNaN(expiry.getTime())) return { label: 'Missing', cls: 'bg-slate-100 text-slate-500 border-slate-200', daysLeft: null };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysLeft < 0) return { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200', daysLeft };
+      if (daysLeft < PASSPORT_ALERT_DAYS) return { label: `${daysLeft}d left`, cls: 'bg-amber-50 text-amber-700 border-amber-200', daysLeft };
+      return { label: 'Valid', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', daysLeft };
+    };
+
+    const passportAlerts = useMemo(() => {
+      return employees
+        .map(e => ({ emp: e, status: getPassportStatus(e.passportExpiryDate) }))
+        .filter(x => x.status.daysLeft !== null && x.status.daysLeft < PASSPORT_ALERT_DAYS)
+        .sort((a, b) => (a.status.daysLeft as number) - (b.status.daysLeft as number));
+    }, [employees]);
+
+    const filtered = useMemo(() => employees.filter(e => {
+      const matchSearch = e.name.toLowerCase().includes(search.toLowerCase()) ||
+        (e.passportNumber || '').toLowerCase().includes(search.toLowerCase());
+      const matchCountry = countryFilter === 'All' || e.passportCountry === countryFilter;
+      const matchCompany = companyFilter === 'All' || e.companyName === companyFilter;
+      const status = getPassportStatus(e.passportExpiryDate).label;
+      const matchStatus =
+        statusFilter === 'All' ||
+        (statusFilter === 'Expiring' ? (status !== 'Expired' && status !== 'Missing' && status !== 'Valid') : status === statusFilter);
+      return matchSearch && matchCountry && matchCompany && matchStatus;
+    }), [search, countryFilter, companyFilter, statusFilter, employees]);
+
+    return (
+      <div className="space-y-4">
+        {/* Passport Expiry Alert */}
+        {passportAlerts.length > 0 && showAlert && (
+          <div className="bg-rose-50 border border-rose-200 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-rose-100/60">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
+                <p className="text-sm font-bold text-rose-800">
+                  {passportAlerts.length} passport{passportAlerts.length === 1 ? '' : 's'} expired or expiring within 6 months
+                </p>
+              </div>
+              <button onClick={() => setShowAlert(false)} className="text-rose-400 hover:text-rose-700">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto divide-y divide-rose-100">
+              {passportAlerts.map(({ emp, status }) => (
+                <div key={emp.id} className="flex items-center justify-between px-4 py-2.5 hover:bg-rose-100/40">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{emp.name}</p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {emp.id} · {emp.passportCountry || 'Country unknown'}{emp.passportNumber ? ` · ${emp.passportNumber}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500">{emp.passportExpiryDate ? fmtDate(emp.passportExpiryDate) : '—'}</p>
+                      <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full border ${status.cls}`}>
+                        {status.label}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => { setEditEmp(emp); setShowPassportForm(true); }}
+                      className="text-xs font-bold text-violet-600 hover:text-violet-800 whitespace-nowrap"
+                    >
+                      Update
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Toolbar */}
+        <div className="flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex gap-2 flex-1 min-w-0 flex-wrap">
+            <div className="relative flex-1 max-w-sm min-w-[180px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                placeholder="Search name or passport no..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <select
+              value={countryFilter}
+              onChange={e => setCountryFilter(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+            >
+              {countries.map(c => <option key={c}>{c}</option>)}
+            </select>
+            <select
+              value={companyFilter}
+              onChange={e => setCompanyFilter(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+            >
+              {companiesForFilter.map(c => <option key={c}>{c}</option>)}
+            </select>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value as any)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+            >
+              <option value="All">All Statuses</option>
+              <option value="Expired">Expired</option>
+              <option value="Expiring">Expiring (&lt; 6mo)</option>
+              <option value="Valid">Valid</option>
+              <option value="Missing">Missing</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                {['Badge', 'Name', 'Company', 'Passport No.', 'Country', 'Issue Date', 'Expiry Date', 'Status', 'Actions'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.length === 0 ? (
+                <tr><td colSpan={9} className="text-center py-12 text-slate-400 text-sm">No employees found</td></tr>
+              ) : filtered.map(emp => {
+                const status = getPassportStatus(emp.passportExpiryDate);
+                return (
+                  <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-slate-500">{emp.id}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-full bg-violet-100 text-violet-700 font-black text-xs flex items-center justify-center shrink-0">
+                          {emp.name.charAt(0).toUpperCase()}
+                        </div>
+                        <p className="font-semibold text-slate-800">{emp.name}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {emp.companyName
+                        ? <span className="bg-slate-100 text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full">{emp.companyName}</span>
+                        : <span className="text-slate-300 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-600">{emp.passportNumber || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{emp.passportCountry || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{emp.passportIssueDate ? fmtDate(emp.passportIssueDate) : '—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{emp.passportExpiryDate ? fmtDate(emp.passportExpiryDate) : '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full border ${status.cls}`}>
+                        {status.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => { setEditEmp(emp); setShowPassportForm(true); }}
+                        className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                        title="Edit passport details"
+                      ><Edit2 className="h-4 w-4" /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-slate-400">{filtered.length} of {employees.length} employees</p>
+
+        {/* Edit Passport Modal (reuses the same employee record) */}
+        {showPassportForm && editEmp && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-800">Passport Details — {editEmp.name}</h3>
+                <button onClick={() => { setShowPassportForm(false); setEditEmp(null); }}>
+                  <X className="h-5 w-5 text-slate-400 hover:text-slate-600" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Passport Number</label>
+                  <input
+                    type="text"
+                    value={editEmp?.passportNumber || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, passportNumber: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Country / Nationality</label>
+                  <input
+                    type="text"
+                    list="passport-country-list"
+                    value={editEmp?.passportCountry || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, passportCountry: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Issue Date</label>
+                  <input
+                    type="date"
+                    value={editEmp?.passportIssueDate || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, passportIssueDate: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Expiry Date</label>
+                  <input
+                    type="date"
+                    value={editEmp?.passportExpiryDate || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, passportExpiryDate: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    if (!editEmp?.id || !editEmp?.name || !editEmp?.department) return;
+                    onSaveEmployee({
+                      id: editEmp.id,
+                      name: editEmp.name,
+                      department: editEmp.department,
+                      role: editEmp.role ?? null,
+                      email: editEmp.email ?? null,
+                      phone: editEmp.phone ?? null,
+                      notes: editEmp.notes ?? null,
+                      nonPunching: editEmp.nonPunching ?? false,
+                      companyName: editEmp.companyName ?? null,
+                      visaExpiryDate: editEmp.visaExpiryDate ?? null,
+                      passportNumber: editEmp.passportNumber || null,
+                      passportCountry: editEmp.passportCountry || null,
+                      passportIssueDate: editEmp.passportIssueDate || null,
+                      passportExpiryDate: editEmp.passportExpiryDate || null,
+                      createdAt: editEmp.createdAt || new Date().toISOString(),
+                    });
+                    setShowPassportForm(false);
+                    setEditEmp(null);
+                  }}
+                  className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+                >
+                  <Save className="h-4 w-4" /> Save
+                </button>
+                <button
+                  onClick={() => { setShowPassportForm(false); setEditEmp(null); }}
+                  className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+
   const AttendanceTab = () => {
     const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
     const [empFilter, setEmpFilter] = useState('All');
@@ -3359,6 +3703,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
   const tabs = [
     { id: 'directory', label: 'Directory', icon: <Users className="h-4 w-4" /> },
+    { id: 'passports', label: 'Passports', icon: <FileText className="h-4 w-4" /> },
     { id: 'attendance', label: 'Attendance', icon: <Clock className="h-4 w-4" /> },
     { id: 'payroll', label: 'Payroll', icon: <DollarSign className="h-4 w-4" /> },
     { id: 'leave', label: 'Leave', icon: <CalendarOff className="h-4 w-4" /> },
@@ -3382,6 +3727,17 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       if (isNaN(expiry.getTime())) return false;
       const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       return daysLeft < 61;
+    }).length;
+  }, [employees]);
+  const passportExpiringCount = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return employees.filter(e => {
+      if (!e.passportExpiryDate) return false;
+      const expiry = new Date(e.passportExpiryDate);
+      if (isNaN(expiry.getTime())) return false;
+      const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return daysLeft < 182;
     }).length;
   }, [employees]);
 
@@ -3414,6 +3770,14 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 {visaExpiringCount} Visa{visaExpiringCount === 1 ? '' : 's'} Expiring
               </button>
             )}
+            {passportExpiringCount > 0 && (
+              <button
+                onClick={() => setActiveTab('passports')}
+                className="bg-orange-50 text-orange-700 text-xs font-bold px-3 py-1.5 rounded-full border border-orange-200 animate-pulse hover:bg-orange-100 transition-colors"
+              >
+                {passportExpiringCount} Passport{passportExpiringCount === 1 ? '' : 's'} Expiring
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -3444,6 +3808,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
       {/* Tab Content */}
       {activeTab === 'directory' && <DirectoryTab />}
+      {activeTab === 'passports' && <PassportsTab />}
       {activeTab === 'attendance' && <AttendanceTab />}
       {activeTab === 'payroll' && <PayrollTab />}
       {activeTab === 'leave' && <LeaveTab />}
