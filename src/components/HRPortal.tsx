@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Employee, EmployeePunch, ViewRole } from '../types';
+import { Employee, EmployeePunch, ViewRole, COMPANIES } from '../types';
 import {
   Users, Clock, DollarSign, CalendarOff, AlertTriangle, BarChart2,
   Plus, Search, Trash2, Edit2, CheckCircle, XCircle, Check,
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
-  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange
+  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import { EmployeeAttendanceReport } from './EmployeeAttendanceReport';
@@ -156,6 +156,9 @@ interface HRPortalProps {
   currentUserName?: string;
   /** Called when HR changes the system-wide idle auto-logout duration. */
   onIdleTimeoutChange?: (minutes: number) => void;
+  /** Editable list of company / visa-sponsor names, synced via Firestore. */
+  companyList?: string[];
+  onSaveCompanies?: (list: string[]) => void;
 }
 
 // A staff member currently deployed to a site/factory job away from the
@@ -516,6 +519,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   onDeleteEmployeePunchesByDate,
   currentUserName,
   onIdleTimeoutChange,
+  companyList,
+  onSaveCompanies,
 }) => {
   const [activeTab, setActiveTab] = useState<'directory' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('directory');
 
@@ -665,17 +670,65 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   const DirectoryTab = () => {
     const [search, setSearch] = useState('');
     const [deptFilter, setDeptFilter] = useState('All');
+    const [companyFilter, setCompanyFilter] = useState('All');
     const [editEmp, setEditEmp] = useState<Partial<Employee> | null>(null);
     const [showForm, setShowForm] = useState(false);
+    const [showManageCompanies, setShowManageCompanies] = useState(false);
+    const [newCompanyName, setNewCompanyName] = useState('');
+
+    // Base list = whatever HR has saved (starts from the built-in COMPANIES
+    // the first time, then grows/shrinks as HR edits it from this tab).
+    const baseCompanyList = companyList && companyList.length > 0 ? companyList : [...COMPANIES];
 
     const departments = useMemo(() => ['All', ...Array.from(new Set(employees.map(e => e.department)))], []);
+    // Company list = the editable baseCompanyList plus any custom/legacy
+    // values already saved on employees (so nothing gets hidden by the filter,
+    // even if it was later removed from the managed list).
+    const companies = useMemo(() => [
+      'All',
+      ...Array.from(new Set([...baseCompanyList, ...employees.map(e => e.companyName).filter(Boolean) as string[]])),
+    ], [baseCompanyList, employees]);
+
+    const handleAddCompany = () => {
+      const name = newCompanyName.trim();
+      if (!name) return;
+      if (baseCompanyList.some(c => c.toLowerCase() === name.toLowerCase())) {
+        setNewCompanyName('');
+        return;
+      }
+      onSaveCompanies?.([...baseCompanyList, name]);
+      setNewCompanyName('');
+    };
+
+    const handleRemoveCompany = (name: string) => {
+      const inUse = employees.some(e => e.companyName === name);
+      if (inUse && !window.confirm(`"${name}" is still assigned to one or more employees. Remove it from the list anyway? (Existing employees keep it, it just won't be selectable for new ones.)`)) {
+        return;
+      }
+      onSaveCompanies?.(baseCompanyList.filter(c => c !== name));
+    };
 
     const filtered = useMemo(() => employees.filter(e => {
       const matchSearch = e.name.toLowerCase().includes(search.toLowerCase()) ||
         (e.role || '').toLowerCase().includes(search.toLowerCase());
       const matchDept = deptFilter === 'All' || e.department === deptFilter;
-      return matchSearch && matchDept;
-    }), [search, deptFilter]);
+      const matchCompany = companyFilter === 'All' || e.companyName === companyFilter;
+      return matchSearch && matchDept && matchCompany;
+    }), [search, deptFilter, companyFilter]);
+
+    // Visa status helper: flags employees whose visa has expired or is
+    // expiring within 30 days, so it's visible at a glance in the directory.
+    const getVisaStatus = (dateStr?: string | null): { label: string; cls: string } | null => {
+      if (!dateStr) return null;
+      const expiry = new Date(dateStr);
+      if (isNaN(expiry.getTime())) return null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysLeft < 0) return { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200' };
+      if (daysLeft <= 30) return { label: `${daysLeft}d left`, cls: 'bg-amber-50 text-amber-700 border-amber-200' };
+      return { label: 'Valid', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    };
 
     const handleSave = () => {
       if (!editEmp?.name || !editEmp?.department) return;
@@ -688,6 +741,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         phone: editEmp.phone || null,
         notes: editEmp.notes || null,
         nonPunching: editEmp.nonPunching || false,
+        companyName: editEmp.companyName || null,
+        visaExpiryDate: editEmp.visaExpiryDate || null,
         createdAt: editEmp.createdAt || new Date().toISOString(),
       });
       setShowForm(false);
@@ -715,14 +770,90 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             >
               {departments.map(d => <option key={d}>{d}</option>)}
             </select>
+            <select
+              value={companyFilter}
+              onChange={e => setCompanyFilter(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+            >
+              {companies.map(c => <option key={c}>{c}</option>)}
+            </select>
           </div>
-          <button
-            onClick={() => { setEditEmp({}); setShowForm(true); }}
-            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors"
-          >
-            <Plus className="h-4 w-4" /> Add Employee
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowManageCompanies(true)}
+              className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm font-bold px-4 py-2 rounded-lg transition-colors"
+            >
+              <Building2 className="h-4 w-4" /> Manage Companies
+            </button>
+            <button
+              onClick={() => { setEditEmp({}); setShowForm(true); }}
+              className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors"
+            >
+              <Plus className="h-4 w-4" /> Add Employee
+            </button>
+          </div>
         </div>
+
+        {/* Manage Companies Modal */}
+        {showManageCompanies && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-slate-800">Manage Companies</h3>
+                <button onClick={() => setShowManageCompanies(false)}>
+                  <X className="h-5 w-5 text-slate-400 hover:text-slate-600" />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500">
+                Add or remove companies (visa sponsors) here — no code changes needed. Updates sync to every device automatically.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCompanyName}
+                  onChange={e => setNewCompanyName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAddCompany(); }}
+                  placeholder="e.g. MAT Fiber Solutions LLC"
+                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+                <button
+                  onClick={handleAddCompany}
+                  className="bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-1"
+                >
+                  <Plus className="h-4 w-4" /> Add
+                </button>
+              </div>
+              <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg">
+                {baseCompanyList.length === 0 ? (
+                  <p className="text-center py-8 text-slate-400 text-sm">No companies yet — add one above.</p>
+                ) : baseCompanyList.map(c => {
+                  const count = employees.filter(e => e.companyName === c).length;
+                  return (
+                    <div key={c} className="flex items-center justify-between px-3 py-2.5">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-700">{c}</p>
+                        <p className="text-[11px] text-slate-400">{count} employee{count === 1 ? '' : 's'}</p>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveCompany(c)}
+                        className="text-slate-300 hover:text-rose-600 transition-colors"
+                        title="Remove company"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setShowManageCompanies(false)}
+                className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Employee Form Modal */}
         {showForm && (
@@ -766,6 +897,26 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     />
                   </div>
                 ))}
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Company (Visa Sponsor)</label>
+                  <select
+                    value={editEmp?.companyName || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, companyName: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                  >
+                    <option value="">Select Company</option>
+                    {baseCompanyList.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Visa Expiry Date</label>
+                  <input
+                    type="date"
+                    value={editEmp?.visaExpiryDate || ''}
+                    onChange={e => setEditEmp(prev => ({ ...prev, visaExpiryDate: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
                 <div className="col-span-2">
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Notes</label>
                   <textarea
@@ -809,15 +960,17 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                {['Badge', 'Name', 'Department', 'Role', 'Contact', 'Joined', 'Actions'].map(h => (
+                {['Badge', 'Name', 'Department', 'Company', 'Role', 'Contact', 'Visa Expiry', 'Joined', 'Actions'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-slate-400 text-sm">No employees found</td></tr>
-              ) : filtered.map(emp => (
+                <tr><td colSpan={9} className="text-center py-12 text-slate-400 text-sm">No employees found</td></tr>
+              ) : filtered.map(emp => {
+                const visaStatus = getVisaStatus(emp.visaExpiryDate);
+                return (
                 <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs font-bold text-slate-500">{emp.id}</td>
                   <td className="px-4 py-3">
@@ -834,6 +987,11 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   <td className="px-4 py-3">
                     <span className="bg-violet-50 text-violet-700 text-xs font-bold px-2 py-0.5 rounded-full">{emp.department}</span>
                   </td>
+                  <td className="px-4 py-3">
+                    {emp.companyName
+                      ? <span className="bg-slate-100 text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full">{emp.companyName}</span>
+                      : <span className="text-slate-300 text-xs">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-slate-600">
                     {emp.role || '—'}
                     {emp.nonPunching && (
@@ -843,6 +1001,18 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   <td className="px-4 py-3 text-slate-500 text-xs">
                     <div>{emp.email || '—'}</div>
                     <div>{emp.phone || '—'}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {emp.visaExpiryDate ? (
+                      <div>
+                        <div className="text-slate-600">{fmtDate(emp.visaExpiryDate)}</div>
+                        {visaStatus && (
+                          <span className={`inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${visaStatus.cls}`}>
+                            {visaStatus.label}
+                          </span>
+                        )}
+                      </div>
+                    ) : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-4 py-3 text-slate-400 text-xs">{fmtDate(emp.createdAt)}</td>
                   <td className="px-4 py-3">
@@ -858,7 +1028,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     </div>
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>
