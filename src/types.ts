@@ -219,7 +219,25 @@ export interface Employee {
   // machine). Always excluded from the absent list/report regardless of
   // whether an attendance sheet shows a punch for them.
   nonPunching?: boolean | null;
+  // Visa sponsor company. We run 5+ group companies and some staff are
+  // sponsored under a different company than the one they physically work
+  // for, so this is tracked separately from `department`.
+  companyName?: string | null;
+  // Visa expiry date (ISO string, e.g. "2026-04-30"). Used to flag
+  // employees whose visa is expiring soon / already expired.
+  visaExpiryDate?: string | null;
 }
+
+// Keep this list in sync with the group's actual company names. Centralized
+// here so the Directory form dropdown and the Directory filter dropdown
+// always show the same set of companies.
+export const COMPANIES = [
+  'MAT Plastic Industries LLC',
+  'Company 2',
+  'Company 3',
+  'Company 4',
+  'Company 5',
+] as const;
 
 export interface EmployeePunch {
   id: string;
