@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch } from './types';
+import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, COMPANIES } from './types';
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
@@ -37,6 +37,7 @@ import {
   dbDeleteMonthlyTarget,
   dbSaveEmployee,
   dbDeleteEmployee,
+  dbSaveCompanies,
   dbSyncTeams,
   reconcileTeamsForRestore,
   flushPendingWrites,
@@ -144,6 +145,19 @@ export default function App() {
       } catch (e) {}
     }
     return DEFAULT_EMPLOYEES;
+  });
+
+  // Editable company/visa-sponsor list — starts from the built-in COMPANIES
+  // list, but can be extended (or trimmed) from the Directory tab. Synced to
+  // Firestore under 'companies' so every device sees the same list.
+  const [companyList, setCompanyList] = useState<string[]>(() => {
+    const raw = localStorage.getItem('apex_companies');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return [...COMPANIES];
   });
 
   const [trolleys, setTrolleys] = useState<TrolleyProduction[]>(() => {
@@ -857,6 +871,7 @@ export default function App() {
         case 'recycleBin':       safeUpdate(setRecycleBin, data as RecycleBinItem[]); break;
         case 'employeePunches':  safeUpdate(setEmployeePunches, data as EmployeePunch[]); break;
         case 'qcDefects':        safeUpdate(setQcDefects, data as QCDefect[]); break;
+        case 'companies':        safeUpdate(setCompanyList, data as string[]); break;
       }
       // Keep localStorage hot-cache in sync so offline reload starts with fresh data
       const lsKey = 'apex_' + collection.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
@@ -1096,6 +1111,15 @@ export default function App() {
     setEmployees(updated);
     saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, updated);
     dbSaveEmployee(employee).catch(console.error);
+  };
+
+  // Add/remove a company from the editable visa-sponsor company list.
+  // Keeps existing employees' companyName untouched even if removed from
+  // the list (their badge simply becomes a "legacy" value still shown).
+  const handleSaveCompanies = (list: string[]) => {
+    setCompanyList(list);
+    try { localStorage.setItem('apex_companies', JSON.stringify(list)); } catch {}
+    dbSaveCompanies(list).catch(console.error);
   };
 
   const handleDeleteEmployee = (id: string) => {
@@ -3786,6 +3810,8 @@ export default function App() {
             employeePunches={employeePunches}
             onSaveEmployee={handleSaveEmployee}
             onDeleteEmployee={handleDeleteEmployee}
+            companyList={companyList}
+            onSaveCompanies={handleSaveCompanies}
             onAddEmployeePunchesBulk={handleSaveEmployeePunchesBulk}
             onAddEmployeesBulk={handleSaveEmployeesBulk}
             onDeleteEmployeePunchesByDate={handleDeleteEmployeePunchesByDate}
