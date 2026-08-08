@@ -329,6 +329,40 @@ export interface MaterialRequest {
   createdAt: string;
 }
 
+// Office / site / equipment item requests raised by a Factory Supervisor —
+// separate from Material Requests (stock consumables from Store). Goes to
+// the manager for email approval, then the supervisor can print a purchase
+// order for the purchaser and later attach the bill/invoice once bought.
+// Mirrors HRPurchaseRequest in HRPortal.tsx.
+export interface SupervisorPurchaseRequest {
+  id: string;
+  // Items submitted together from one supervisor "cart" share a batchId +
+  // one approvalToken, so the manager gets ONE email with per-item Approve/
+  // Reject for the whole batch instead of a separate email per item.
+  batchId?: string | null;
+  itemName: string;
+  category: 'Tools' | 'Equipment' | 'Site' | 'Other';
+  qty: number;
+  unit: string;
+  estimatedCost?: number | null;
+  // Actual amount paid, entered alongside the bill once bought — spending
+  // totals use this over estimatedCost whenever it's been filled in.
+  actualCost?: number | null;
+  purpose?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  requestedByName: string;
+  requestedAt: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  approvalToken: string;
+  decidedByName?: string | null;
+  decisionNotes?: string | null;
+  decidedAt?: string | null;
+  billFileName?: string | null;
+  billDataUrl?: string | null;
+  billUploadedAt?: string | null;
+}
+
 export interface IncomingMaterial {
   id: string;
   materialId: string;
