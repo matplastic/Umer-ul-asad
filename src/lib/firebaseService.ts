@@ -32,6 +32,7 @@ export function subscribeToLiveState(
     'hrMedicals',
     'hrSiteDeployed',
     'hrPurchaseRequests',
+    'supervisorPurchaseRequests',
     'qcDefects',
   ];
   const unsubs: Unsubscribe[] = collections.map(name =>
@@ -2701,5 +2702,37 @@ export async function dbSendHRPurchaseRequestEmail(batch: {
     });
   } catch (err) {
     console.warn('[dbSendHRPurchaseRequestEmail] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
+  }
+}
+
+// --- Factory Supervisor: Purchase Requests (tools / equipment / site items) ---
+// Same lightweight approval flow as HR's Purchase Requests, scoped to the
+// Factory Supervisor Portal: a supervisor requests an item, the manager gets
+// an email with Approve/Reject, and once approved the supervisor can print a
+// purchase order for the purchaser and later attach the bill/invoice.
+export async function dbFetchSupervisorPurchaseRequests(): Promise<any[]> {
+  return getFirestoreDocArray('supervisorPurchaseRequests');
+}
+export async function dbSaveSupervisorPurchaseRequests(requests: any[]): Promise<void> {
+  await setFirestoreDocArray('supervisorPurchaseRequests', requests, true);
+}
+
+// Fire-and-forget call to the Netlify Function that emails the manager about
+// a batch of Factory Supervisor purchase requests (one email, per-item
+// approve/reject on the manager's side). Safe to call even when email isn't
+// configured — it just no-ops server-side.
+export async function dbSendSupervisorPurchaseRequestEmail(batch: {
+  batchId?: string; id?: string; approvalToken: string; requestedByName: string; purpose?: string | null;
+  sectionName?: string | null;
+  items: { id: string; itemName: string; category: string; qty: number; unit: string; estimatedCost?: number | null }[];
+}): Promise<void> {
+  try {
+    await fetch('/.netlify/functions/send-supervisor-purchase-request-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(batch),
+    });
+  } catch (err) {
+    console.warn('[dbSendSupervisorPurchaseRequestEmail] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
   }
 }
