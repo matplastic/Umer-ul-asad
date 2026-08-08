@@ -717,18 +717,30 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     }), [search, deptFilter, companyFilter]);
 
     // Visa status helper: flags employees whose visa has expired or is
-    // expiring within 30 days, so it's visible at a glance in the directory.
-    const getVisaStatus = (dateStr?: string | null): { label: string; cls: string } | null => {
+    // expiring within 61 days, so it's visible at a glance in the directory.
+    const VISA_ALERT_DAYS = 61;
+    const getVisaStatus = (dateStr?: string | null): { label: string; cls: string; daysLeft: number } | null => {
       if (!dateStr) return null;
       const expiry = new Date(dateStr);
       if (isNaN(expiry.getTime())) return null;
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysLeft < 0) return { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200' };
-      if (daysLeft <= 30) return { label: `${daysLeft}d left`, cls: 'bg-amber-50 text-amber-700 border-amber-200' };
-      return { label: 'Valid', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+      if (daysLeft < 0) return { label: 'Expired', cls: 'bg-rose-50 text-rose-700 border-rose-200', daysLeft };
+      if (daysLeft < VISA_ALERT_DAYS) return { label: `${daysLeft}d left`, cls: 'bg-amber-50 text-amber-700 border-amber-200', daysLeft };
+      return { label: 'Valid', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', daysLeft };
     };
+
+    // Employees whose visa is expired or expiring within VISA_ALERT_DAYS,
+    // sorted most-urgent first (expired, then soonest-expiring).
+    const visaAlerts = useMemo(() => {
+      return employees
+        .map(e => ({ emp: e, status: getVisaStatus(e.visaExpiryDate) }))
+        .filter((x): x is { emp: Employee; status: { label: string; cls: string; daysLeft: number } } => !!x.status && x.status.daysLeft < VISA_ALERT_DAYS)
+        .sort((a, b) => a.status.daysLeft - b.status.daysLeft);
+    }, [employees]);
+
+    const [showVisaAlert, setShowVisaAlert] = useState(true);
 
     const handleSave = () => {
       if (!editEmp?.name || !editEmp?.department) return;
@@ -751,6 +763,49 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
     return (
       <div className="space-y-4">
+        {/* Visa Expiry Alert */}
+        {visaAlerts.length > 0 && showVisaAlert && (
+          <div className="bg-rose-50 border border-rose-200 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-rose-100/60">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
+                <p className="text-sm font-bold text-rose-800">
+                  {visaAlerts.length} visa{visaAlerts.length === 1 ? '' : 's'} expired or expiring within 61 days
+                </p>
+              </div>
+              <button onClick={() => setShowVisaAlert(false)} className="text-rose-400 hover:text-rose-700">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto divide-y divide-rose-100">
+              {visaAlerts.map(({ emp, status }) => (
+                <div key={emp.id} className="flex items-center justify-between px-4 py-2.5 hover:bg-rose-100/40">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{emp.name}</p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {emp.id} · {emp.department}{emp.companyName ? ` · ${emp.companyName}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500">{fmtDate(emp.visaExpiryDate)}</p>
+                      <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full border ${status.cls}`}>
+                        {status.label}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => { setEditEmp(emp); setShowForm(true); }}
+                      className="text-xs font-bold text-violet-600 hover:text-violet-800 whitespace-nowrap"
+                    >
+                      Update
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Toolbar */}
         <div className="flex flex-wrap gap-3 items-center justify-between">
           <div className="flex gap-2 flex-1 min-w-0">
@@ -3317,6 +3372,18 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
   const pendingLeaveCount = leaves.filter(l => l.status === 'Pending').length;
   const pendingPurchaseCount = purchaseRequests.filter(r => r.status === 'Pending').length;
+  // Visa alerts shown at header level too, so it's visible without opening Directory.
+  const visaExpiringCount = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return employees.filter(e => {
+      if (!e.visaExpiryDate) return false;
+      const expiry = new Date(e.visaExpiryDate);
+      if (isNaN(expiry.getTime())) return false;
+      const daysLeft = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return daysLeft < 61;
+    }).length;
+  }, [employees]);
 
   return (
     <div className="space-y-6">
@@ -3338,6 +3405,14 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <span className="bg-amber-50 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full border border-amber-200 animate-pulse">
                 {pendingLeaveCount} Leave Pending
               </span>
+            )}
+            {visaExpiringCount > 0 && (
+              <button
+                onClick={() => setActiveTab('directory')}
+                className="bg-rose-50 text-rose-700 text-xs font-bold px-3 py-1.5 rounded-full border border-rose-200 animate-pulse hover:bg-rose-100 transition-colors"
+              >
+                {visaExpiringCount} Visa{visaExpiringCount === 1 ? '' : 's'} Expiring
+              </button>
             )}
           </div>
         </div>
