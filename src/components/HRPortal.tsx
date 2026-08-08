@@ -197,6 +197,317 @@ const fmtDate = (iso: string) =>
 const fmtCurrency = (n: number) =>
   new Intl.NumberFormat('en-AE', { style: 'currency', currency: 'AED', maximumFractionDigits: 0 }).format(n);
 
+// Normalizes a raw Excel/CSV cell into an ISO "YYYY-MM-DD" date string.
+// Handles Excel serial date numbers as well as DD/MM/YYYY, MM/DD/YYYY and
+// YYYY-MM-DD text formats.
+const normalizeExcelDate = (raw: string): string => {
+  if (!raw) return '';
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '';
+  if (!isNaN(Number(trimmed)) && Number(trimmed) > 30000) {
+    const d = XLSX.SSF.parse_date_code(Number(trimmed));
+    return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+  }
+  const parts = trimmed.split(/[-\/]/);
+  if (parts.length === 3) {
+    if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  }
+  return trimmed;
+};
+
+const findColIdx = (headers: string[], candidates: string[]): number =>
+  headers.findIndex(h => candidates.some(c => h === c || h.includes(c)));
+
+// Fields on Employee that the Excel import can fill (directory + passport).
+// key = Employee field, label = shown in the preview table.
+const IMPORT_FIELDS: { key: keyof Employee; label: string; isDate?: boolean }[] = [
+  { key: 'department', label: 'Department' },
+  { key: 'role', label: 'Role' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'companyName', label: 'Company' },
+  { key: 'visaExpiryDate', label: 'Visa Expiry', isDate: true },
+  { key: 'passportNumber', label: 'Passport No.' },
+  { key: 'passportCountry', label: 'Passport Country' },
+  { key: 'passportIssueDate', label: 'Passport Issue', isDate: true },
+  { key: 'passportExpiryDate', label: 'Passport Expiry', isDate: true },
+  { key: 'notes', label: 'Notes' },
+];
+
+interface ImportPreviewRow {
+  key: string; // badge id used for React key
+  action: 'update' | 'add';
+  employee: Employee; // final merged/new employee to save
+  changedFields: string[]; // labels of fields that will be filled in (update) or all filled (add)
+}
+
+// ─── Shared Excel Import Modal (Employee Directory + Passport details) ────────
+// Adds brand-new employees fully from the sheet, and for employees already in
+// the system only fills in fields that are currently EMPTY — it never
+// overwrites data that's already there.
+const EmployeeExcelImportModal = ({ employees, onImport, onClose }: {
+  employees: Employee[];
+  onImport: (rows: Employee[]) => void;
+  onClose: () => void;
+}) => {
+  const [dragActive, setDragActive] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [preview, setPreview] = useState<ImportPreviewRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  const buildPreview = (rawHeaders: string[], rows: string[][]) => {
+    const headers = rawHeaders.map(h => String(h || '').trim().toLowerCase().replace(/[\s_\-\.]/g, ''));
+    const badgeIdx = findColIdx(headers, ['badgenumber', 'badge', 'id', 'employeeno', 'employeeid']);
+    const nameIdx = findColIdx(headers, ['employeename', 'name', 'employee']);
+    const deptIdx = findColIdx(headers, ['department', 'dept']);
+    const roleIdx = findColIdx(headers, ['role', 'designation', 'jobtitle', 'position']);
+    const emailIdx = findColIdx(headers, ['email']);
+    const phoneIdx = findColIdx(headers, ['phone', 'mobile', 'contact']);
+    const companyIdx = findColIdx(headers, ['company', 'companyname', 'visasponsor', 'sponsor']);
+    const visaExpIdx = findColIdx(headers, ['visaexpiry', 'visaexpirydate', 'visaexp']);
+    const passNoIdx = findColIdx(headers, ['passportnumber', 'passportno', 'passport']);
+    const passCountryIdx = findColIdx(headers, ['passportcountry', 'nationality', 'country']);
+    const passIssueIdx = findColIdx(headers, ['passportissuedate', 'passportissue', 'issuedate']);
+    const passExpIdx = findColIdx(headers, ['passportexpirydate', 'passportexpiry', 'passportexp', 'expirydate']);
+    const notesIdx = findColIdx(headers, ['notes', 'remarks']);
+
+    if (badgeIdx === -1 && nameIdx === -1) {
+      setError('Unable to map columns. Please make sure the sheet has a "Badge/ID" and/or "Name" column.');
+      return;
+    }
+
+    const previewRows: ImportPreviewRow[] = [];
+    const seenInFile = new Set<string>();
+
+    rows.forEach((cells, i) => {
+      if (!cells || cells.length === 0) return;
+      const get = (idx: number) => (idx !== -1 && cells[idx] !== undefined ? String(cells[idx]).trim() : '');
+      const rawBadge = get(badgeIdx);
+      const rawName = get(nameIdx);
+      if (!rawBadge && !rawName) return;
+      // Skip an accidental repeated header row.
+      if (rawBadge.toLowerCase() === 'badge' || rawName.toLowerCase() === 'name') return;
+
+      const dedupeKey = (rawBadge || rawName).toLowerCase();
+      if (seenInFile.has(dedupeKey)) return;
+      seenInFile.add(dedupeKey);
+
+      const matched = employees.find(emp =>
+        (rawBadge && emp.id.toLowerCase() === rawBadge.toLowerCase()) ||
+        (rawName && emp.name.toLowerCase().replace(/\s/g, '') === rawName.toLowerCase().replace(/\s/g, ''))
+      );
+
+      const incoming: Partial<Employee> = {
+        department: get(deptIdx) || undefined,
+        role: get(roleIdx) || undefined,
+        email: get(emailIdx) || undefined,
+        phone: get(phoneIdx) || undefined,
+        companyName: get(companyIdx) || undefined,
+        visaExpiryDate: get(visaExpIdx) ? normalizeExcelDate(get(visaExpIdx)) : undefined,
+        passportNumber: get(passNoIdx) || undefined,
+        passportCountry: get(passCountryIdx) || undefined,
+        passportIssueDate: get(passIssueIdx) ? normalizeExcelDate(get(passIssueIdx)) : undefined,
+        passportExpiryDate: get(passExpIdx) ? normalizeExcelDate(get(passExpIdx)) : undefined,
+        notes: get(notesIdx) || undefined,
+      };
+
+      if (matched) {
+        // Existing employee: only fill fields that are CURRENTLY empty.
+        const changedFields: string[] = [];
+        const merged: Employee = { ...matched };
+        IMPORT_FIELDS.forEach(({ key, label }) => {
+          const current = (matched as any)[key];
+          const isEmpty = current === null || current === undefined || String(current).trim() === '';
+          const incomingVal = (incoming as any)[key];
+          if (isEmpty && incomingVal) {
+            (merged as any)[key] = incomingVal;
+            changedFields.push(label);
+          }
+        });
+        if (changedFields.length > 0) {
+          previewRows.push({ key: matched.id, action: 'update', employee: merged, changedFields });
+        }
+      } else {
+        // New employee: needs at least a name; department defaults if missing.
+        if (!rawName) return;
+        const newEmp: Employee = {
+          id: rawBadge || uid(),
+          name: rawName,
+          department: incoming.department || 'Production',
+          role: incoming.role || null,
+          email: incoming.email || null,
+          phone: incoming.phone || null,
+          notes: incoming.notes || null,
+          nonPunching: false,
+          companyName: incoming.companyName || null,
+          visaExpiryDate: incoming.visaExpiryDate || null,
+          passportNumber: incoming.passportNumber || null,
+          passportCountry: incoming.passportCountry || null,
+          passportIssueDate: incoming.passportIssueDate || null,
+          passportExpiryDate: incoming.passportExpiryDate || null,
+          createdAt: new Date().toISOString(),
+        };
+        previewRows.push({
+          key: newEmp.id,
+          action: 'add',
+          employee: newEmp,
+          changedFields: IMPORT_FIELDS.filter(f => (incoming as any)[f.key]).map(f => f.label),
+        });
+      }
+    });
+
+    setPreview(previewRows);
+    setError(null);
+  };
+
+  const handleFile = (f: File) => {
+    setFileName(f.name);
+    setError(null);
+    setDone(null);
+    const ext = f.name.split('.').pop()?.toLowerCase();
+    const reader = new FileReader();
+    if (ext === 'xlsx' || ext === 'xls') {
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const wb = XLSX.read(data, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          if (rows.length < 2) { setError('The selected Excel file is empty.'); return; }
+          const headerRowIdx = rows.findIndex(r => r && r.length > 0);
+          buildPreview(rows[headerRowIdx].map((h: any) => String(h || '')), rows.slice(headerRowIdx + 1));
+        } catch (err: any) {
+          setError('Failed to process Excel file: ' + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(f);
+    } else {
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        if (!text) { setError('The selected file is empty or unreadable.'); return; }
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { setError('File has no content rows.'); return; }
+        const delim = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
+        const parseLine = (line: string) => {
+          const out: string[] = []; let cur = ''; let inside = false;
+          for (const ch of line) {
+            if (ch === '"' || ch === "'") inside = !inside;
+            else if (ch === delim && !inside) { out.push(cur.trim().replace(/^['"]|['"]$/g, '')); cur = ''; }
+            else cur += ch;
+          }
+          out.push(cur.trim().replace(/^['"]|['"]$/g, ''));
+          return out;
+        };
+        buildPreview(parseLine(lines[0]), lines.slice(1).map(parseLine));
+      };
+      reader.readAsText(f);
+    }
+  };
+
+  const confirmImport = () => {
+    if (!preview || preview.length === 0) return;
+    onImport(preview.map(r => r.employee));
+    const updated = preview.filter(r => r.action === 'update').length;
+    const added = preview.filter(r => r.action === 'add').length;
+    setDone(`Done — ${updated} existing employee${updated === 1 ? '' : 's'} filled in, ${added} new employee${added === 1 ? '' : 's'} added.`);
+    setTimeout(onClose, 2500);
+  };
+
+  const updateCount = preview?.filter(r => r.action === 'update').length || 0;
+  const addCount = preview?.filter(r => r.action === 'add').length || 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-slate-800 flex items-center gap-2">
+            <UploadCloud className="h-4 w-4 text-violet-600" /> Import Employee &amp; Passport Details
+          </h3>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400 hover:text-slate-600" /></button>
+        </div>
+
+        {!preview ? (
+          <>
+            <p className="text-xs text-slate-500">
+              Existing employees (matched by Badge/ID or Name) only get their <strong>missing</strong> fields filled in — nothing already saved gets overwritten. Rows that don't match anyone become new employees.
+            </p>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(e) => { e.preventDefault(); setDragActive(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
+              onClick={() => document.getElementById('hr_directory_import_input')?.click()}
+              className={`border-2 border-dashed rounded-xl py-8 text-center cursor-pointer transition-colors ${dragActive ? 'border-violet-500 bg-violet-50' : 'border-slate-200 hover:border-violet-300'}`}
+            >
+              <input
+                id="hr_directory_import_input" type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+              />
+              <UploadCloud className="h-6 w-6 text-slate-300 mx-auto mb-2" />
+              <p className="text-xs font-semibold text-slate-500">Drop the Excel/CSV file here, or click to browse</p>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Columns: Badge/ID, Name, Department, Role, Email, Phone, Company, Visa Expiry, Passport Number, Passport Country, Passport Issue Date, Passport Expiry Date, Notes
+              </p>
+            </div>
+            {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
+          </>
+        ) : done ? (
+          <div className="text-center py-8">
+            <CheckCircle className="h-10 w-10 text-emerald-500 mx-auto mb-3" />
+            <p className="text-sm font-bold text-slate-700">{done}</p>
+          </div>
+        ) : (
+          <>
+            <div className="bg-slate-50 rounded-lg p-3 text-xs flex flex-wrap gap-x-4 gap-y-1 items-center">
+              <span>File: <span className="font-mono font-bold text-slate-700">{fileName}</span></span>
+              <span className="text-amber-700 font-bold">{updateCount} to update</span>
+              <span className="text-emerald-700 font-bold">{addCount} to add</span>
+            </div>
+            {preview.length === 0 ? (
+              <p className="text-center py-8 text-slate-400 text-sm">Nothing to import — every row already matches complete existing records.</p>
+            ) : (
+              <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                {preview.map(row => (
+                  <div key={row.key} className="px-3 py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 truncate">
+                        {row.employee.name}
+                        <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full border align-middle ${row.action === 'add' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                          {row.action === 'add' ? 'New' : 'Update'}
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-slate-400 truncate">{row.employee.id}</p>
+                      {row.changedFields.length > 0 && (
+                        <p className="text-[11px] text-slate-500 mt-0.5">Fills: {row.changedFields.join(', ')}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={confirmImport}
+                disabled={preview.length === 0}
+                className="flex-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-bold py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+              >
+                <Save className="h-4 w-4" /> Confirm Import
+              </button>
+              <button
+                onClick={() => { setPreview(null); setFileName(null); }}
+                className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Back
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 // Stat card
@@ -684,6 +995,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [editEmp, setEditEmp] = useState<Partial<Employee> | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [showManageCompanies, setShowManageCompanies] = useState(false);
+    const [showImportModal, setShowImportModal] = useState(false);
     const [newCompanyName, setNewCompanyName] = useState('');
 
     // Base list = whatever HR has saved (starts from the built-in COMPANIES
@@ -849,6 +1161,12 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm font-bold px-4 py-2 rounded-lg transition-colors"
+            >
+              <UploadCloud className="h-4 w-4" /> Import Excel
+            </button>
+            <button
               onClick={() => setShowManageCompanies(true)}
               className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm font-bold px-4 py-2 rounded-lg transition-colors"
             >
@@ -862,6 +1180,14 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             </button>
           </div>
         </div>
+
+        {showImportModal && (
+          <EmployeeExcelImportModal
+            employees={employees}
+            onImport={(rows) => onAddEmployeesBulk?.(rows)}
+            onClose={() => setShowImportModal(false)}
+          />
+        )}
 
         {/* Manage Companies Modal */}
         {showManageCompanies && (
@@ -1163,6 +1489,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [showAlert, setShowAlert] = useState(true);
     const [editEmp, setEditEmp] = useState<Partial<Employee> | null>(null);
     const [showPassportForm, setShowPassportForm] = useState(false);
+    const [showImportModal, setShowImportModal] = useState(false);
 
     const baseCompanyList = companyList && companyList.length > 0 ? companyList : [...COMPANIES];
 
@@ -1290,7 +1617,21 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <option value="Missing">Missing</option>
             </select>
           </div>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm font-bold px-4 py-2 rounded-lg transition-colors"
+          >
+            <UploadCloud className="h-4 w-4" /> Import Excel
+          </button>
         </div>
+
+        {showImportModal && (
+          <EmployeeExcelImportModal
+            employees={employees}
+            onImport={(rows) => onAddEmployeesBulk?.(rows)}
+            onClose={() => setShowImportModal(false)}
+          />
+        )}
 
         {/* Table */}
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
