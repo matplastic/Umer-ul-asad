@@ -34,6 +34,7 @@ export function subscribeToLiveState(
     'hrPurchaseRequests',
     'supervisorPurchaseRequests',
     'qcDefects',
+    'companies',
   ];
   const unsubs: Unsubscribe[] = collections.map(name =>
     onSnapshot(
@@ -739,6 +740,14 @@ export async function dbSaveEmployee(employee: Employee) {
     console.error('dbSaveEmployee failed:', error);
     throw error;
   }
+}
+
+// 2.1b Company list (visa sponsor companies) — a simple string array stored
+// as its own Firestore doc so it stays in sync across every device and can
+// be edited from the Directory tab without ever touching code.
+export async function dbSaveCompanies(list: string[]) {
+  await setFirestoreDocArray('companies', list as any[], true);
+  return { success: true, companies: list };
 }
 
 export async function dbDeleteEmployee(id: string) {
