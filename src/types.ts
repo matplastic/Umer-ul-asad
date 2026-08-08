@@ -226,6 +226,11 @@ export interface Employee {
   // Visa expiry date (ISO string, e.g. "2026-04-30"). Used to flag
   // employees whose visa is expiring soon / already expired.
   visaExpiryDate?: string | null;
+  // ── Passport details ──
+  passportNumber?: string | null;
+  passportCountry?: string | null; // nationality / issuing country
+  passportIssueDate?: string | null;
+  passportExpiryDate?: string | null;
 }
 
 // Keep this list in sync with the group's actual company names. Centralized
