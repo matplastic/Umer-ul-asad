@@ -59,6 +59,90 @@ export function subscribeToLiveState(
   return () => unsubs.forEach(u => { try { u(); } catch {} });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PERMANENT ACTIVITY LOG ARCHIVE
+//
+// The 'logs' document under system_state is a ROLLING CACHE, deliberately
+// trimmed to the most recent 200 entries on every save (see dbSaveLog,
+// saveEntireStateToFirestore, saveChangedCollectionsToFirestore below) so
+// that single document never exceeds Firestore's 1MB document size limit.
+// That trimming means anything older than the last 200 QC actions was being
+// permanently discarded — old data was NOT being kept.
+//
+// This archive fixes that WITHOUT touching Firestore rules and WITHOUT a new
+// top-level collection: it reuses the exact same system_state/{docName}
+// array-document pattern that 'logs', 'pools', 'teams', etc. already use and
+// are already permitted to write under today's rules. The only difference is
+// the archive is split into one document PER MONTH (e.g. "logsArchive_2026-08")
+// instead of everything in one document, so no single document ever grows
+// past a few hundred KB no matter how much history piles up — and nothing
+// inside a month's document is ever trimmed or removed, only appended to.
+// ─────────────────────────────────────────────────────────────────────────────
+function archiveShardName(timestampISO: string): string {
+  // '2026-08-10T09:15:00.000Z' -> 'logsArchive_2026-08'
+  return `logsArchive_${timestampISO.slice(0, 7)}`;
+}
+
+// Best-effort archive write. Never throws — if it fails (e.g. brief network
+// hiccup), the primary log save (rolling 200-entry cache) still succeeds and
+// this entry just isn't archived yet; the actual QC action is unaffected.
+// Safe to call repeatedly with overlapping logs — dedupes by log.id so
+// nothing is ever double-counted.
+export async function dbArchiveActivityLogs(logsToArchive: ActivityLog[]): Promise<void> {
+  const valid = logsToArchive.filter(l => !!l.id && !!l.timestamp);
+  if (!valid.length) return;
+
+  // Group by month so each month is exactly one transaction, regardless of
+  // how many logs are being archived in this call.
+  const byMonth = new Map<string, ActivityLog[]>();
+  for (const log of valid) {
+    const shard = archiveShardName(log.timestamp);
+    if (!byMonth.has(shard)) byMonth.set(shard, []);
+    byMonth.get(shard)!.push(log);
+  }
+
+  for (const [shardName, monthLogs] of byMonth) {
+    try {
+      await updateFirestoreDocArray(shardName, (current: any[]) => {
+        const existingIds = new Set(current.map((l: any) => l.id));
+        const toAdd = monthLogs.filter(l => !existingIds.has(l.id));
+        if (toAdd.length === 0) return current; // already archived, nothing new to add
+        return [...current, ...toAdd]; // append-only — never trimmed, never removed
+      });
+    } catch (err) {
+      console.warn(`[dbArchiveActivityLogs] failed to archive to '${shardName}' (primary log save is unaffected):`, err);
+    }
+  }
+}
+
+// Fetches the FULL, permanent history for a date range — not limited to the
+// last 200 entries. start/end are local date strings 'YYYY-MM-DD', inclusive.
+export async function dbFetchActivityLogsInRange(startDate: string, endDate: string): Promise<ActivityLog[]> {
+  try {
+    const months: string[] = [];
+    const [sy, sm] = startDate.slice(0, 7).split('-').map(Number);
+    const [ey, em] = endDate.slice(0, 7).split('-').map(Number);
+    let y = sy, m = sm;
+    while (y < ey || (y === ey && m <= em)) {
+      months.push(`${y}-${String(m).padStart(2, '0')}`);
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+
+    const results = await Promise.all(
+      months.map(month => getFirestoreDocArray(`logsArchive_${month}`))
+    );
+    const all = results.flat() as ActivityLog[];
+    return all.filter(l => {
+      const d = l.timestamp.slice(0, 10);
+      return d >= startDate && d <= endDate;
+    });
+  } catch (err) {
+    console.warn('[dbFetchActivityLogsInRange] archive read failed:', err);
+    return [];
+  }
+}
+
 // Direct client firestore document read utilities.
 // NOTE: this version is tolerant of transient errors — it returns [] instead of
 // throwing so the UI doesn't crash on a brief network hiccup. It is used for
@@ -423,6 +507,7 @@ export async function saveEntireStateToFirestore(
     // NOTE: trolleys, recycleBin, employeePunches are managed by their own fine-grained
     // db functions and must NOT be overwritten here — only update what was explicitly passed
     // Use allowEmpty=false (default) on all collections — never accidentally wipe real data
+    dbArchiveActivityLogs(logsList); // permanent archive, never trimmed — fire-and-forget
     await Promise.all([
       setFirestoreDocArray('pools', poolsList),
       setFirestoreDocArray('plannedPools', plannedPoolsList),
@@ -675,6 +760,7 @@ export async function saveChangedCollectionsToFirestore(
     // logs are an append/trim timeline, not id-keyed records — merging them
     // by id doesn't apply, so keep the direct trimmed write for logs.
     if (name === 'logs') {
+      dbArchiveActivityLogs(data); // permanent archive, never trimmed — fire-and-forget
       const trimmed = data.slice(-200);
       return updateFirestoreDocArray(name, () => trimmed);
     }
@@ -1171,6 +1257,10 @@ export async function dbSaveTeam(team: Team) {
 
 // 6. Fine-grained operations: Audit Activity logs
 export async function dbSaveLog(log: ActivityLog) {
+  // Permanent archive write — never trimmed, never overwritten. Fire-and-forget
+  // so a slow/failed archive write never blocks or breaks the actual QC action.
+  dbArchiveActivityLogs([log]);
+
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
     await updateFirestoreDocArray('logs', (arr) => {
