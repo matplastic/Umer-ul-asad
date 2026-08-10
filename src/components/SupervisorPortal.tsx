@@ -500,10 +500,19 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     ));
   };
 
+  // Prints ONE combined PO for every Approved item that shares this request's
+  // batchId (i.e. everything submitted together in the same "New Purchase
+  // Request" cart), skipping any items from that same batch that were
+  // Rejected. Falls back to a single-row PO for older requests with no
+  // batchId.
   const pPrintPO = (r: SupervisorPurchaseRequest) => {
+    const siblings = r.batchId
+      ? purchaseRequests.filter(x => x.batchId === r.batchId && x.status === 'Approved')
+      : [r];
+    const latestDecision = siblings.reduce((latest, x) => (!latest || (x.decidedAt || '') > (latest.decidedAt || '')) ? x : latest, siblings[0]);
     exportTablePdf({
       title: 'Purchase Order',
-      subtitle: `Request ID: ${r.id}  •  Approved ${r.decidedAt ? fmtDate(r.decidedAt) : ''} by ${r.decidedByName || ''}`,
+      subtitle: `${siblings.length > 1 ? `Batch of ${siblings.length} items` : `Request ID: ${r.id}`}  •  Approved ${latestDecision?.decidedAt ? fmtDate(latestDecision.decidedAt) : ''} by ${latestDecision?.decidedByName || ''}`,
       columns: [
         { header: 'Item', dataKey: 'item' },
         { header: 'Category', dataKey: 'category' },
@@ -512,12 +521,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
         { header: 'Purpose', dataKey: 'purpose' },
         { header: 'Requested By', dataKey: 'by' },
       ],
-      rows: [{
-        item: r.itemName, category: r.category, qty: `${r.qty} ${r.unit}`,
-        cost: r.actualCost ? r.actualCost.toFixed(2) : r.estimatedCost ? r.estimatedCost.toFixed(2) : '—',
-        purpose: r.purpose || '—', by: r.requestedByName,
-      }],
-      filename: `Purchase_Order_${r.id}`,
+      rows: siblings.map(x => ({
+        item: x.itemName, category: x.category, qty: `${x.qty} ${x.unit}`,
+        cost: x.actualCost ? x.actualCost.toFixed(2) : x.estimatedCost ? x.estimatedCost.toFixed(2) : '—',
+        purpose: x.purpose || '—', by: x.requestedByName,
+      })),
+      filename: `Purchase_Order_${r.batchId || r.id}`,
       orientation: 'portrait',
       deptLine: `Factory Supervisor Portal — ${r.sectionName || sectionName}`,
     });
@@ -1047,7 +1056,19 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                 <div className="text-center text-slate-500 text-sm py-16 border border-dashed border-slate-800 rounded-xl">No purchase requests yet.</div>
               ) : (
                 <div className="grid gap-3">
-                  {purchaseFiltered.map(r => (
+                  {(() => {
+                    // Only show the "Print PO" button on the FIRST Approved
+                    // item of each batch — clicking it prints every Approved
+                    // item from that batch as one combined PO, so we don't
+                    // repeat the same button (and same PDF) per line item.
+                    const seenPOBatches = new Set<string>();
+                    return purchaseFiltered.map(r => {
+                      let showPrintPO = r.status === 'Approved';
+                      if (showPrintPO && r.batchId) {
+                        if (seenPOBatches.has(r.batchId)) showPrintPO = false;
+                        else seenPOBatches.add(r.batchId);
+                      }
+                      return (
                     <div key={r.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -1081,9 +1102,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                           )}
                           {r.status === 'Approved' && (
                             <>
-                              <button onClick={() => pPrintPO(r)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1 cursor-pointer">
-                                <Printer className="h-3.5 w-3.5" /> Print PO
-                              </button>
+                              {showPrintPO && (
+                                <button onClick={() => pPrintPO(r)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1 cursor-pointer">
+                                  <Printer className="h-3.5 w-3.5" /> {r.batchId ? 'Print PO (Batch)' : 'Print PO'}
+                                </button>
+                              )}
                               <button
                                 onClick={() => { setPBillTargetId(r.id); setPBillForm({ actualCost: r.actualCost ? String(r.actualCost) : '', file: null }); }}
                                 className="text-xs font-bold px-3 py-1.5 rounded-lg bg-orange-950/40 hover:bg-orange-900/40 text-orange-400 border border-orange-800 flex items-center gap-1 cursor-pointer"
@@ -1095,7 +1118,9 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                         </div>
                       </div>
                     </div>
-                  ))}
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </>
