@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
 import { STAGES } from '../data/mockData';
-import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState } from '../lib/firebaseService';
+import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
 import { listUserAccounts, updateUserAccount, type AuthUser } from '../lib/authClient';
@@ -1724,8 +1724,29 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     return { start: teamSearchCustomStart, end: teamSearchCustomEnd };
   })();
 
+  // Pull the FULL permanent history for the selected range from the archive
+  // (not the local `logs` prop, which is capped to the last 200 entries).
+  // This is what lets Team Search reach back further than the recent cache.
+  const [teamSearchArchiveLogs, setTeamSearchArchiveLogs] = useState<ActivityLog[]>([]);
+  const [teamSearchArchiveLoading, setTeamSearchArchiveLoading] = useState(false);
+
+  useEffect(() => {
+    if (!teamSearchSelectedTeam) { setTeamSearchArchiveLogs([]); return; }
+    let cancelled = false;
+    setTeamSearchArchiveLoading(true);
+    dbFetchActivityLogsInRange(teamSearchRange.start, teamSearchRange.end)
+      .then(rows => { if (!cancelled) setTeamSearchArchiveLogs(rows); })
+      .finally(() => { if (!cancelled) setTeamSearchArchiveLoading(false); });
+    return () => { cancelled = true; };
+  }, [teamSearchSelectedTeam?.id, teamSearchRange.start, teamSearchRange.end]);
+
+  // Fall back to the local (recent-only) `logs` prop if the archive hasn't
+  // returned anything yet for this range — e.g. right after upgrading, before
+  // older entries have had a chance to be archived, so the tab isn't blank.
+  const teamSearchSourceLogs = teamSearchArchiveLogs.length > 0 ? teamSearchArchiveLogs : logs;
+
   const teamSearchLogs = teamSearchSelectedTeam
-    ? logs.filter(l => {
+    ? teamSearchSourceLogs.filter(l => {
         if (l.type !== 'APPROVED' && l.type !== 'REJECTED') return false;
         const matchesTeam = l.teamId ? l.teamId === teamSearchSelectedTeam.id : l.teamName === teamSearchSelectedTeam.name;
         if (!matchesTeam) return false;
@@ -5190,6 +5211,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {teamSearchArchiveLoading && (
+                  <p className="text-[10px] text-slate-400 font-bold flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Pulling full history from the archive…
+                  </p>
+                )}
 
                 {/* Full detail list */}
                 {teamSearchLogs.length === 0 ? (
