@@ -553,17 +553,31 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     });
   };
 
+  // One bill/receipt usually covers the whole batch (e.g. one shop invoice
+  // for gloves + welding rod + mask bought together), so uploading it
+  // attaches the SAME file to every Approved item in the batch. The total
+  // amount paid is split evenly across those items so Spending totals
+  // (which sum actualCost per item) still add up to what was actually paid.
   const pHandleBillUpload = (r: SupervisorPurchaseRequest) => {
     if (!pBillForm.file) return;
+    const siblings = r.batchId
+      ? purchaseRequests.filter(x => x.batchId === r.batchId && x.status === 'Approved')
+      : [r];
+    const total = pBillForm.actualCost ? Number(pBillForm.actualCost) : null;
+    const share = total !== null ? Math.round((total / siblings.length) * 100) / 100 : null;
+    const siblingIds = new Set(siblings.map(x => x.id));
     const reader = new FileReader();
     reader.onload = () => {
-      savePurchaseRequests(purchaseRequests.map(x => x.id === r.id
+      const billDataUrl = reader.result as string;
+      const billFileName = pBillForm.file!.name;
+      const billUploadedAt = new Date().toISOString();
+      savePurchaseRequests(purchaseRequests.map(x => siblingIds.has(x.id)
         ? {
             ...x,
-            billFileName: pBillForm.file!.name,
-            billDataUrl: reader.result as string,
-            billUploadedAt: new Date().toISOString(),
-            actualCost: pBillForm.actualCost ? Number(pBillForm.actualCost) : x.actualCost,
+            billFileName,
+            billDataUrl,
+            billUploadedAt,
+            actualCost: share !== null ? share : x.actualCost,
           }
         : x
       ));
@@ -1057,16 +1071,17 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               ) : (
                 <div className="grid gap-3">
                   {(() => {
-                    // Only show the "Print PO" button on the FIRST Approved
-                    // item of each batch — clicking it prints every Approved
-                    // item from that batch as one combined PO, so we don't
-                    // repeat the same button (and same PDF) per line item.
-                    const seenPOBatches = new Set<string>();
+                    // Only show the "Print PO" / "Upload Bill" actions on the
+                    // FIRST Approved item of each batch — clicking either one
+                    // applies to every Approved item sharing that batchId (one
+                    // combined PO, one bill covering the whole batch), so we
+                    // don't repeat the same buttons per line item.
+                    const seenBatches = new Set<string>();
                     return purchaseFiltered.map(r => {
-                      let showPrintPO = r.status === 'Approved';
-                      if (showPrintPO && r.batchId) {
-                        if (seenPOBatches.has(r.batchId)) showPrintPO = false;
-                        else seenPOBatches.add(r.batchId);
+                      let showBatchActions = r.status === 'Approved';
+                      if (showBatchActions && r.batchId) {
+                        if (seenBatches.has(r.batchId)) showBatchActions = false;
+                        else seenBatches.add(r.batchId);
                       }
                       return (
                     <div key={r.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
@@ -1100,18 +1115,16 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                               <button onClick={() => pDecide(r.id, 'Rejected')} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/40 text-rose-400 border border-rose-800 cursor-pointer">Reject</button>
                             </>
                           )}
-                          {r.status === 'Approved' && (
+                          {r.status === 'Approved' && showBatchActions && (
                             <>
-                              {showPrintPO && (
-                                <button onClick={() => pPrintPO(r)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1 cursor-pointer">
-                                  <Printer className="h-3.5 w-3.5" /> {r.batchId ? 'Print PO (Batch)' : 'Print PO'}
-                                </button>
-                              )}
+                              <button onClick={() => pPrintPO(r)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1 cursor-pointer">
+                                <Printer className="h-3.5 w-3.5" /> {r.batchId ? 'Print PO (Batch)' : 'Print PO'}
+                              </button>
                               <button
                                 onClick={() => { setPBillTargetId(r.id); setPBillForm({ actualCost: r.actualCost ? String(r.actualCost) : '', file: null }); }}
                                 className="text-xs font-bold px-3 py-1.5 rounded-lg bg-orange-950/40 hover:bg-orange-900/40 text-orange-400 border border-orange-800 flex items-center gap-1 cursor-pointer"
                               >
-                                <Paperclip className="h-3.5 w-3.5" /> {r.billFileName ? 'Replace Bill' : 'Upload Bill'}
+                                <Paperclip className="h-3.5 w-3.5" /> {r.billFileName ? 'Replace Bill' : (r.batchId ? 'Upload Bill (Batch)' : 'Upload Bill')}
                               </button>
                             </>
                           )}
@@ -1208,25 +1221,43 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           {pBillTargetId && (() => {
             const targetReq = purchaseRequests.find(x => x.id === pBillTargetId);
             if (!targetReq) return null;
+            const batchSiblings = targetReq.batchId
+              ? purchaseRequests.filter(x => x.batchId === targetReq.batchId && x.status === 'Approved')
+              : [targetReq];
+            const isBatch = batchSiblings.length > 1;
             return (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-black text-white flex items-center gap-2"><Receipt className="h-5 w-5 text-orange-400" /> Upload Bill</h3>
+                    <h3 className="font-black text-white flex items-center gap-2"><Receipt className="h-5 w-5 text-orange-400" /> Upload Bill{isBatch ? ' (Batch)' : ''}</h3>
                     <button onClick={() => { setPBillTargetId(null); setPBillForm({ actualCost: '', file: null }); }}><X className="h-5 w-5 text-slate-400" /></button>
                   </div>
-                  <p className="text-xs text-slate-400">{targetReq.itemName} — {targetReq.qty} {targetReq.unit}</p>
+                  {isBatch ? (
+                    <div>
+                      <p className="text-xs text-slate-400 mb-1">This bill covers {batchSiblings.length} approved items:</p>
+                      <ul className="text-xs text-slate-300 list-disc list-inside space-y-0.5">
+                        {batchSiblings.map(x => <li key={x.id}>{x.itemName} — {x.qty} {x.unit}</li>)}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">{targetReq.itemName} — {targetReq.qty} {targetReq.unit}</p>
+                  )}
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">Actual Amount Paid (AED)</label>
+                    <label className="text-xs font-semibold text-slate-400 block mb-1">{isBatch ? 'Total Amount Paid (AED)' : 'Actual Amount Paid (AED)'}</label>
                     <input type="number" min={0} value={pBillForm.actualCost} onChange={e => setPBillForm(p => ({ ...p, actualCost: e.target.value }))}
                       placeholder={targetReq.estimatedCost ? `Estimated: ${targetReq.estimatedCost}` : 'e.g. 450'}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
-                    <p className="text-[10px] text-slate-500 mt-1">This is what Spending totals use — enter the real amount from the bill for accurate tracking.</p>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      {isBatch
+                        ? 'This is what Spending totals use — enter the full amount from the bill; it will be split evenly across the items above.'
+                        : 'This is what Spending totals use — enter the real amount from the bill for accurate tracking.'}
+                    </p>
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-400 block mb-1">Bill / Receipt (image or PDF)</label>
                     <input type="file" accept="image/*,.pdf" onChange={e => setPBillForm(p => ({ ...p, file: e.target.files?.[0] || null }))}
                       className="w-full text-sm text-slate-300" />
+                    {isBatch && <p className="text-[10px] text-slate-500 mt-1">The same file will be attached to all {batchSiblings.length} items above.</p>}
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button onClick={() => pHandleBillUpload(targetReq)} disabled={!pBillForm.file}
