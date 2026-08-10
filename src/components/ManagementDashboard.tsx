@@ -162,7 +162,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [defectHeatmapDateTo, setDefectHeatmapDateTo] = useState<string>('');
   const [defectHeatmapTeamSearch, setDefectHeatmapTeamSearch] = useState<string>('');
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery'>('analytics');
 
   // DERIVED TEAM STATUS (source of truth): a team's own `status`/`activePoolId`
   // fields can drift out of sync with reality (manual edits, dropped writes,
@@ -1683,6 +1683,63 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     reject: perfLogs.filter(l => l.type === 'REJECTED').length,
   };
 
+  // Team Search tab — search any team by name, filter by day/week/month/custom range,
+  // see total pools passed, total rejected, and the full list of pool-level details.
+  const [teamSearchQuery, setTeamSearchQuery] = useState<string>('');
+  const [teamSearchSelectedId, setTeamSearchSelectedId] = useState<string>('');
+  const [teamSearchRangeMode, setTeamSearchRangeMode] = useState<'day' | 'week' | 'month' | 'custom'>('week');
+  const [teamSearchDate, setTeamSearchDate] = useState<string>(todayStr);
+  const [teamSearchMonth, setTeamSearchMonth] = useState<string>(todayStr.slice(0, 7));
+  const [teamSearchCustomStart, setTeamSearchCustomStart] = useState<string>(todayStr);
+  const [teamSearchCustomEnd, setTeamSearchCustomEnd] = useState<string>(todayStr);
+
+  const teamSearchMatches = teamSearchQuery.trim()
+    ? teams.filter(t => t.name.toLowerCase().includes(teamSearchQuery.trim().toLowerCase()))
+    : [];
+
+  const teamSearchSelectedTeam = teams.find(t => t.id === teamSearchSelectedId) || null;
+
+  // Resolve the active [startDate, endDate] (inclusive, local YYYY-MM-DD strings) for the chosen range mode.
+  const teamSearchRange = (() => {
+    if (teamSearchRangeMode === 'day') {
+      return { start: teamSearchDate, end: teamSearchDate };
+    }
+    if (teamSearchRangeMode === 'week') {
+      const anchor = new Date(teamSearchDate + 'T00:00:00');
+      const dayOfWeek = anchor.getDay(); // 0 = Sunday
+      const start = new Date(anchor);
+      start.setDate(anchor.getDate() - dayOfWeek);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return { start: fmt(start), end: fmt(end) };
+    }
+    if (teamSearchRangeMode === 'month') {
+      const [y, m] = teamSearchMonth.split('-').map(Number);
+      const start = `${teamSearchMonth}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
+      const end = `${teamSearchMonth}-${String(lastDay).padStart(2, '0')}`;
+      return { start, end };
+    }
+    return { start: teamSearchCustomStart, end: teamSearchCustomEnd };
+  })();
+
+  const teamSearchLogs = teamSearchSelectedTeam
+    ? logs.filter(l => {
+        if (l.type !== 'APPROVED' && l.type !== 'REJECTED') return false;
+        const matchesTeam = l.teamId ? l.teamId === teamSearchSelectedTeam.id : l.teamName === teamSearchSelectedTeam.name;
+        if (!matchesTeam) return false;
+        const d = toLocalDateStr(l.timestamp);
+        return d >= teamSearchRange.start && d <= teamSearchRange.end;
+      }).sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    : [];
+
+  const teamSearchStage = teamSearchSelectedTeam ? STAGES.find(s => s.id === teamSearchSelectedTeam.stageId) : undefined;
+  const teamSearchPassCount = teamSearchLogs.filter(l => l.type === 'APPROVED').length;
+  const teamSearchRejectCount = teamSearchLogs.filter(l => l.type === 'REJECTED').length;
+  // Distinct pools this team actually made/passed (not just sign-off count) in the range.
+  const teamSearchDistinctPoolsPassed = new Set(teamSearchLogs.filter(l => l.type === 'APPROVED').map(l => l.poolId)).size;
+
   const stageDailyProgress = STAGES.map((stage) => {
     const donePools = pools
       .filter((p) => {
@@ -2243,6 +2300,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             tabs: [
               { id: 'teams', label: 'Teams Allocation', icon: Users },
               { id: 'team_performance', label: 'Team Performance', icon: TrendingUp, elId: 'tab-mgmt-team-performance' },
+              { id: 'team_search', label: 'Team Search', icon: Search, elId: 'tab-mgmt-team-search' },
               { id: 'shop_floor', label: 'Shop Floor Monitor', icon: HardHat, elId: 'tab-mgmt-shop-floor' },
               { id: 'pool_delivery', label: 'Pool Delivery', icon: Truck, elId: 'tab-mgmt-pool-delivery' },
               { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
@@ -4977,6 +5035,201 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-xs text-amber-700">
                 <strong>{unattributedPerfLogs.length}</strong> sign-off{unattributedPerfLogs.length === 1 ? '' : 's'} in this {perfMode === 'daily' ? 'date' : 'month'} couldn't be matched to a team (older records made before team tracking was added to the log). These are included in the totals above but not in the per-team table.
               </div>
+            )}
+
+          </div>
+        )}
+
+        {activeTab === 'team_search' && (
+          <div className="space-y-6 animate-fadeIn">
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <Search className="h-4 w-4 text-blue-500" />
+                Team Search
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 mb-4">
+                Search a team by name, pick a date range, and see how many pools they made and how many were rejected.
+              </p>
+
+              {/* Team name search */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={teamSearchQuery}
+                  onChange={(e) => { setTeamSearchQuery(e.target.value); setTeamSearchSelectedId(''); }}
+                  placeholder="Type a team name…"
+                  className="w-full text-sm border border-slate-200 rounded-xl px-4 py-2.5 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                />
+                {teamSearchQuery.trim() && !teamSearchSelectedId && (
+                  <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                    {teamSearchMatches.length === 0 ? (
+                      <div className="px-4 py-3 text-xs text-slate-400">No teams match "{teamSearchQuery}"</div>
+                    ) : (
+                      teamSearchMatches.map(t => {
+                        const s = STAGES.find(st => st.id === t.stageId);
+                        return (
+                          <button
+                            key={t.id}
+                            onClick={() => { setTeamSearchSelectedId(t.id); setTeamSearchQuery(t.name); }}
+                            className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-center justify-between gap-2 cursor-pointer"
+                          >
+                            <span className="text-sm font-bold text-slate-800">{t.name}</span>
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: s?.color || '#94a3b8' }}>
+                              {s?.name || t.stageId}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Date range controls */}
+              <div className="flex flex-wrap items-center gap-2 mt-4">
+                <div className="flex bg-slate-100 rounded-xl p-1">
+                  {(['day', 'week', 'month', 'custom'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setTeamSearchRangeMode(mode)}
+                      className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors capitalize ${
+                        teamSearchRangeMode === mode ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                      }`}
+                    >
+                      {mode === 'day' ? 'Day' : mode === 'week' ? 'Week' : mode === 'month' ? 'Month' : 'Custom'}
+                    </button>
+                  ))}
+                </div>
+
+                {(teamSearchRangeMode === 'day' || teamSearchRangeMode === 'week') && (
+                  <>
+                    <input
+                      type="date"
+                      value={teamSearchDate}
+                      onChange={(e) => setTeamSearchDate(e.target.value)}
+                      className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <button
+                      onClick={() => setTeamSearchDate(todayStr)}
+                      className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                    >
+                      Today
+                    </button>
+                  </>
+                )}
+                {teamSearchRangeMode === 'month' && (
+                  <>
+                    <input
+                      type="month"
+                      value={teamSearchMonth}
+                      onChange={(e) => setTeamSearchMonth(e.target.value)}
+                      className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <button
+                      onClick={() => setTeamSearchMonth(todayStr.slice(0, 7))}
+                      className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                    >
+                      This Month
+                    </button>
+                  </>
+                )}
+                {teamSearchRangeMode === 'custom' && (
+                  <>
+                    <input
+                      type="date"
+                      value={teamSearchCustomStart}
+                      onChange={(e) => setTeamSearchCustomStart(e.target.value)}
+                      className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                    <span className="text-xs text-slate-400 font-bold">to</span>
+                    <input
+                      type="date"
+                      value={teamSearchCustomEnd}
+                      onChange={(e) => setTeamSearchCustomEnd(e.target.value)}
+                      className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+
+            {!teamSearchSelectedTeam ? (
+              <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl">
+                <Search className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-bold text-slate-500">Search and pick a team above to see their pool count and rejections.</p>
+              </div>
+            ) : (
+              <>
+                {/* Summary strip */}
+                <div className="bg-slate-900 text-white rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                      {teamSearchSelectedTeam.name} · {teamSearchStage?.name || teamSearchSelectedTeam.stageId} · {teamSearchRange.start} to {teamSearchRange.end}
+                    </p>
+                    <p className="text-2xl font-extrabold mt-1">{teamSearchDistinctPoolsPassed} pool{teamSearchDistinctPoolsPassed === 1 ? '' : 's'} made</p>
+                  </div>
+                  <div className="flex gap-6">
+                    <div className="text-center px-3">
+                      <span className="block text-xl font-bold text-emerald-400">{teamSearchPassCount}</span>
+                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Passed</span>
+                    </div>
+                    <div className="text-center px-3">
+                      <span className="block text-xl font-bold text-rose-400">{teamSearchRejectCount}</span>
+                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Rejected</span>
+                    </div>
+                    <div className="text-center px-3">
+                      <span className="block text-xl font-bold text-white">{teamSearchPassCount + teamSearchRejectCount}</span>
+                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Total sign-offs</span>
+                    </div>
+                    <div className="text-center px-3">
+                      <span className="block text-xl font-bold text-slate-200">
+                        {teamSearchPassCount + teamSearchRejectCount > 0 ? Math.round((teamSearchPassCount / (teamSearchPassCount + teamSearchRejectCount)) * 100) : 0}%
+                      </span>
+                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Pass Rate</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Full detail list */}
+                {teamSearchLogs.length === 0 ? (
+                  <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl">
+                    <AlertCircle className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-slate-500">No sign-offs found for {teamSearchSelectedTeam.name} in this range.</p>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-slate-400 font-bold bg-slate-50/60">
+                          <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px]">Date &amp; Time</th>
+                          <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px]">Pool No.</th>
+                          <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px]">Project</th>
+                          <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px]">Result</th>
+                          <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px]">Inspector</th>
+                          <th className="py-3 px-4 font-mono uppercase tracking-widest text-[10px]">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {teamSearchLogs.map(l => (
+                          <tr key={l.id} className="hover:bg-slate-50/55 transition-colors">
+                            <td className="py-3 px-4 text-slate-500 whitespace-nowrap">{new Date(l.timestamp).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                            <td className="py-3 px-4 font-bold text-slate-800">{l.poolNo}</td>
+                            <td className="py-3 px-4 text-slate-600">{l.projectName}</td>
+                            <td className="py-3 px-4">
+                              <span className={`text-[9px] font-black px-2 py-0.5 rounded-full text-white ${l.type === 'APPROVED' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                                {l.type === 'APPROVED' ? 'PASSED' : 'REJECTED'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-slate-500">{l.operatorName}</td>
+                            <td className="py-3 px-4 text-slate-400">{l.notes || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
 
           </div>
