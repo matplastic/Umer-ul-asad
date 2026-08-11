@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
 import { STAGES } from '../data/mockData';
@@ -2301,8 +2302,16 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </div>
       )}
 
-      {/* Tabs navigation — grouped by function so placement reads as organized, not a random row */}
-      <div className="bg-white rounded-[var(--radius-card)] border border-neutral-200 p-4 space-y-4">
+      {/* Tabs navigation — grouped by function, ERP-style with an animated sliding active pill per group */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+        className="relative bg-white rounded-[var(--radius-card)] border border-neutral-200 p-5 space-y-5 overflow-hidden"
+      >
+        {/* subtle top accent bar for a "system chrome" feel */}
+        <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-teal-500 via-slate-800 to-teal-500 opacity-70" />
+
         {([
           {
             group: 'Overview',
@@ -2339,33 +2348,48 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             ],
           },
         ] as const).map((section, i) => (
-          <div key={section.group}>
-            {i > 0 && <div className="h-px bg-neutral-100 -mx-4 mb-4" />}
-            <span className="text-[11px] font-medium text-neutral-400 block mb-2">{section.group}</span>
+          <div key={section.group} className="relative">
+            {i > 0 && <div className="h-px bg-neutral-100 -mx-5 mb-4" />}
+            <div className="flex items-center gap-2 mb-2.5">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: i === 0 ? '#0f766e' : i === 1 ? '#334155' : '#94a3b8' }}
+              />
+              <span className="text-[10.5px] font-bold text-neutral-400 uppercase tracking-[0.12em]">{section.group}</span>
+              <span className="text-[10px] text-neutral-300 font-medium">· {section.tabs.length}</span>
+            </div>
+
             <div className="flex flex-wrap gap-1.5">
               {section.tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
                 return (
-                  <button
+                  <motion.button
                     key={tab.id}
                     id={(tab as any).elId}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`py-2 px-3.5 rounded-[var(--radius-control)] text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors ${
-                      isActive
-                        ? 'bg-neutral-900 text-white'
-                        : 'bg-neutral-50 text-neutral-600 hover:bg-neutral-100'
+                    whileHover={{ y: isActive ? 0 : -1 }}
+                    whileTap={{ scale: 0.97 }}
+                    className={`relative py-2 px-3.5 rounded-[var(--radius-control)] text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors duration-150 ${
+                      isActive ? 'text-white' : 'text-neutral-600 hover:bg-neutral-50'
                     }`}
                   >
-                    <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
-                    {tab.label}
-                  </button>
+                    {isActive && (
+                      <motion.span
+                        layoutId={`nav-active-pill-${section.group}`}
+                        transition={{ type: 'spring', stiffness: 520, damping: 38 }}
+                        className="absolute inset-0 rounded-[var(--radius-control)] bg-gradient-to-br from-slate-800 to-neutral-950 shadow-md shadow-slate-900/25"
+                      />
+                    )}
+                    <Icon className={`relative z-10 h-3.5 w-3.5 ${isActive ? 'text-teal-400' : 'text-neutral-400'}`} />
+                    <span className="relative z-10">{tab.label}</span>
+                  </motion.button>
                 );
               })}
             </div>
           </div>
         ))}
-      </div>
+      </motion.div>
 
       {/* Panels viewport */}
       <div className="grid grid-cols-1 gap-6">
