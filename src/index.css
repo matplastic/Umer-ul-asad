@@ -91,3 +91,24 @@
   --shadow-elevation-2: 0 4px 6px -1px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.06);
   --shadow-elevation-3: 0 10px 15px -3px rgb(15 23 42 / 0.10), 0 4px 6px -4px rgb(15 23 42 / 0.08);
 }
+
+/* Print-only mode: when body has .printing-kpi-report, hide everything
+   except the element marked .kpi-print-area so "Print Report" only
+   outputs the Month-to-Date KPI & Section OEE Tracker card, not the
+   whole dashboard. Toggled on/off around window.print() calls. */
+body.printing-kpi-report > * {
+  visibility: hidden;
+}
+body.printing-kpi-report .kpi-print-area,
+body.printing-kpi-report .kpi-print-area * {
+  visibility: visible;
+}
+body.printing-kpi-report .kpi-print-area {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+}
+body.printing-kpi-report .kpi-print-hide {
+  display: none !important;
+}
