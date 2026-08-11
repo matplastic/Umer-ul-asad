@@ -22,7 +22,7 @@ import {
   Edit2, Plus, Trash2, UserPlus, Check, X, Briefcase, FolderPlus,
   ShieldCheck, ShieldAlert, Activity, Cloud, Loader2, CheckCircle2, HardDrive,
   Lock, Unlock, Info, Calendar, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes,
-  UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck
+  UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck, Printer
 } from 'lucide-react';
 
 interface ManagementDashboardProps {
@@ -2499,7 +2499,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             </div>
 
             {/* Monthly KPI Targets comparison (start of month planner vs end of month OEE achievements) */}
-            <div className="lg:col-span-12 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
+            <div id="kpi-oee-tracker-card" className="kpi-print-area lg:col-span-12 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-50 pb-4">
                 <div className="space-y-1">
                   <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
@@ -2511,30 +2511,55 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   </p>
                 </div>
 
-                {/* Dropdown for Month Selection */}
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-205 border-slate-200 rounded-xl px-3 py-1.5 self-start md:self-center">
-                  <span className="text-xs text-slate-500 font-bold">Billing/Target Month:</span>
-                  <select
-                    value={selectedTargetMonthId}
-                    onChange={(e) => setSelectedTargetMonthId(e.target.value)}
-                    className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                <div className="flex items-center gap-2 self-start md:self-center kpi-print-hide">
+                  {/* Dropdown for Month Selection */}
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-205 border-slate-200 rounded-xl px-3 py-1.5">
+                    <span className="text-xs text-slate-500 font-bold">Billing/Target Month:</span>
+                    <select
+                      value={selectedTargetMonthId}
+                      onChange={(e) => setSelectedTargetMonthId(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                    >
+                      {(() => {
+                        const currentMonthId = new Date().toISOString().slice(0, 7);
+                        const hasCurrentMonth = monthlyTargets.some(t => t.id === currentMonthId);
+                        const currentMonthName = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                        // Build a full list of selectable months: every month that
+                        // has a saved target, plus the current month if it's not
+                        // among them yet, so the picker always covers "this month"
+                        // even before Planning has declared a target for it.
+                        const allMonthIds = Array.from(new Set([
+                          ...monthlyTargets.map(t => t.id),
+                          ...(hasCurrentMonth ? [] : [currentMonthId]),
+                        ])).sort((a, b) => b.localeCompare(a));
+                        return allMonthIds.map(id => {
+                          const known = monthlyTargets.find(t => t.id === id);
+                          const label = known ? known.monthName : (id === currentMonthId ? `${currentMonthName} (no target set)` : id);
+                          return <option key={id} value={id}>{label}</option>;
+                        });
+                      })()}
+                    </select>
+                  </div>
+
+                  {/* Print just this KPI/OEE card, not the whole dashboard */}
+                  <button
+                    onClick={() => {
+                      document.body.classList.add('printing-kpi-report');
+                      const cleanup = () => {
+                        document.body.classList.remove('printing-kpi-report');
+                        window.removeEventListener('afterprint', cleanup);
+                      };
+                      window.addEventListener('afterprint', cleanup);
+                      // Fallback in case afterprint doesn't fire on some browsers
+                      setTimeout(cleanup, 3000);
+                      window.print();
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer"
+                    title="Print this KPI & OEE report"
                   >
-                    {(() => {
-                      const currentMonthId = new Date().toISOString().slice(0, 7);
-                      const hasCurrentMonth = monthlyTargets.some(t => t.id === currentMonthId);
-                      const currentMonthName = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                      return (
-                        <>
-                          {!hasCurrentMonth && (
-                            <option value={currentMonthId}>{currentMonthName} (no target set)</option>
-                          )}
-                          {monthlyTargets.map(t => (
-                            <option key={t.id} value={t.id}>{t.monthName}</option>
-                          ))}
-                        </>
-                      );
-                    })()}
-                  </select>
+                    <Printer className="h-3.5 w-3.5" />
+                    Print
+                  </button>
                 </div>
               </div>
 
@@ -2561,11 +2586,21 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   notes: 'Default projection parameters.'
                 };
 
-                // Dynamic Actual calculation helper by StageId
+                // Dynamic Actual calculation helper by StageId — scoped to the
+                // selected Billing/Target Month. Previously this counted every
+                // pool that had ever passed the stage regardless of when, so
+                // switching the month dropdown never changed the actuals. Now
+                // it only counts pools whose stageHistory entry for this stage
+                // actually completed (endTime) within the selected month.
                 const getActualForStage = (stageId: StageId) => {
                   const idx = STAGES.findIndex(s => s.id === stageId);
                   if (idx === -1) return 0;
-                  return pools.filter(p => p.currentStageIndex > idx).length;
+                  return pools.filter(p => {
+                    if (p.currentStageIndex <= idx) return false;
+                    const endTime = p.stageHistory?.[stageId]?.endTime;
+                    if (!endTime) return false;
+                    return endTime.slice(0, 7) === selectedTargetMonthId;
+                  }).length;
                 };
 
                 const actualSteelFab = getActualForStage('steel_fabrication');
@@ -2581,8 +2616,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 const actualGroutingTarget = getActualForStage('grouting');
                 const actualAcrylicTarget = getActualForStage('acrylic');
 
-                // Main Target achieved
-                const mainProduced = pools.filter(p => p.currentStageIndex >= STAGES.length).length;
+                // Main Target achieved — also scoped to the selected month,
+                // using the pool's final completedAt timestamp.
+                const mainProduced = pools.filter(p => {
+                  if (p.currentStageIndex < STAGES.length) return false;
+                  const completedMonth = p.completedAt ? p.completedAt.slice(0, 7) : null;
+                  return completedMonth === selectedTargetMonthId;
+                }).length;
                 const mainPercentage = Math.round((mainProduced / (activeTarget.mainTarget || 1)) * 100);
 
                 // Actual OEE Calculation Formula
