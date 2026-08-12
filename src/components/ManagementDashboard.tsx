@@ -2307,7 +2307,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-        className="relative bg-neutral-100 rounded-[var(--radius-card)] border border-neutral-200 p-5 space-y-5 overflow-hidden"
+        className="relative bg-neutral-400 rounded-[var(--radius-card)] border border-neutral-200 p-5 space-y-5 overflow-hidden"
       >
         {/* subtle top accent bar for a "system chrome" feel */}
         <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-teal-500 via-slate-500 to-teal-500 opacity-70" />
