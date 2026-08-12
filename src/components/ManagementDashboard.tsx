@@ -2307,10 +2307,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-        className="relative bg-neutral-400 rounded-[var(--radius-card)] border border-neutral-200 p-5 space-y-5 overflow-hidden"
+        className="relative bg-white rounded-[var(--radius-card)] border border-neutral-200 p-5 space-y-5 overflow-hidden"
       >
         {/* subtle top accent bar for a "system chrome" feel */}
-        <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-teal-500 via-slate-500 to-teal-500 opacity-70" />
+        <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-teal-500 via-slate-800 to-teal-500 opacity-70" />
 
         {([
           {
@@ -2371,7 +2371,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     whileHover={{ y: isActive ? 0 : -1 }}
                     whileTap={{ scale: 0.97 }}
                     className={`relative py-2 px-3.5 rounded-[var(--radius-control)] text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors duration-150 ${
-                      isActive ? 'text-white' : 'text-neutral-600 hover:bg-white'
+                      isActive ? 'text-white' : 'text-neutral-600 hover:bg-neutral-50'
                     }`}
                   >
                     {isActive && (
