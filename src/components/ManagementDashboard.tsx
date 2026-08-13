@@ -2675,41 +2675,60 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             {/* Custom stage statistics bento card bar charts */}
-            <div className="lg:col-span-8 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-              <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center gap-1.5">
-                <BarChart2 className="h-4.5 w-4.5 text-blue-500" />
-                Line Section Throughput & Efficiency
-              </h3>
+            <div className="lg:col-span-8 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3.5 mb-4">
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                    <BarChart2 className="h-4.5 w-4.5 text-blue-500" />
+                    Line Section Throughput & Efficiency
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Live active load and rejection rate per production stage.</p>
+                </div>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider bg-slate-50 border border-slate-100 px-2 py-1 rounded-full shrink-0">
+                  {stageStats.length} stages
+                </span>
+              </div>
 
-              <div className="space-y-4 pt-2">
+              <div className="space-y-2">
                 {stageStats.map(({ stage, activeCount, rejections, avgDuration }) => (
-                  <div key={stage.id} className="space-y-1.5">
-                    <div className="flex justify-between items-center text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 rounded-full inline-block" style={{ backgroundColor: stage.color }} />
-                        <span className="font-bold text-slate-800">{stage.name}</span>
+                  <div
+                    key={stage.id}
+                    className="rounded-xl border border-slate-100 px-4 py-3 hover:border-slate-200 hover:bg-slate-50/40 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
+                        <span className="font-bold text-slate-800 text-[13px] truncate">{stage.name}</span>
                       </div>
-                      <div className="text-slate-550 text-slate-500 flex gap-4">
-                        <span>Current Active: <strong className="text-slate-800">{activeCount}</strong></span>
-                        <span>Avg (Min): <strong className="text-slate-800">{avgDuration || '—'}</strong></span>
-                        <span>Rejections: <strong className="text-rose-600">{rejections}</strong></span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-50 text-slate-600 border border-slate-100 whitespace-nowrap">
+                          {activeCount} active
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-50 text-slate-600 border border-slate-100 whitespace-nowrap">
+                          {avgDuration || '—'} min avg
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${
+                          rejections > 0 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                        }`}>
+                          {rejections} rework
+                        </span>
                       </div>
                     </div>
-                    
+
                     {/* Visual Bar */}
-                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden flex">
-                      <div 
-                        className="h-full rounded-l"
-                        style={{ 
-                          backgroundColor: stage.color, 
+                    <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex">
+                      <div
+                        className="h-full rounded-l-full"
+                        style={{
+                          backgroundColor: stage.color,
                           width: `${totalPools > 0 ? (activeCount / totalPools) * 100 : 0}%`,
                           minWidth: activeCount > 0 ? '4px' : '0px'
                         }}
                       />
                       {rejections > 0 && (
-                        <div 
+                        <div
                           className="h-full bg-rose-400"
-                          style={{ 
+                          style={{
                             width: `${totalPools > 0 ? (rejections / totalPools) * 15 : 0}%`,
                             minWidth: '4px'
                           }}
@@ -2723,47 +2742,42 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             </div>
 
             {/* Side summary panel */}
-            <div className="lg:col-span-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-              <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest border-b border-slate-50 pb-2">
+            <div className="lg:col-span-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+              <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-3.5 mb-4 flex items-center gap-2">
+                <Activity className="h-4.5 w-4.5 text-indigo-500" />
                 Factory Health Index
               </h3>
 
-              <div className="space-y-4 divide-y divide-slate-50 pt-2">
-                
-                <div className="pb-3 flex justify-between items-center">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-bold text-slate-800">Quality Inspection Rate</span>
-                    <span className="text-[10px] text-slate-400 block">Ratio of passes vs rework holds</span>
+              <div className="space-y-2.5">
+
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-slate-800 block">Quality Inspection Rate</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">Ratio of passes vs rework holds</span>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xl font-black text-emerald-600 font-mono">
-                      {totalRejections === 0 ? '100%' : `${Math.round(((totalPools + 2) / (totalPools + totalRejections + 2)) * 100)}%`}
-                    </span>
-                  </div>
+                  <span className="text-lg font-black text-emerald-600 font-mono shrink-0">
+                    {totalRejections === 0 ? '100%' : `${Math.round(((totalPools + 2) / (totalPools + totalRejections + 2)) * 100)}%`}
+                  </span>
                 </div>
 
-                <div className="py-3 flex justify-between items-center">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-bold text-slate-800">Backlog Rate</span>
-                    <span className="text-[10px] text-slate-400 block">Pools in early structural stages</span>
+                <div className="rounded-xl border border-amber-100 bg-amber-50/40 px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-slate-800 block">Backlog Rate</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">Pools in early structural stages</span>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xl font-black text-amber-600 font-mono">
-                      {pools.length > 0 ? `${Math.round((pools.filter(p => p.currentStageIndex <= 2).length / pools.length) * 100)}%` : '0%'}
-                    </span>
-                  </div>
+                  <span className="text-lg font-black text-amber-600 font-mono shrink-0">
+                    {pools.length > 0 ? `${Math.round((pools.filter(p => p.currentStageIndex <= 2).length / pools.length) * 100)}%` : '0%'}
+                  </span>
                 </div>
 
-                <div className="py-3 flex justify-between items-center">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-bold text-slate-800">Critical Stage Blockages</span>
-                    <span className="text-[10px] text-slate-450 block text-slate-400">Stages with over 2 rejections</span>
+                <div className="rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-slate-800 block">Critical Stage Blockages</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">Stages with over 2 rejections</span>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xs font-black text-rose-500 font-mono tracking-wider bg-rose-50 px-2.5 py-1 rounded border border-rose-100 uppercase">
-                      {stageStats.some(s => s.rejections > 1) ? 'PLUMBING' : 'HEALTHY'}
-                    </span>
-                  </div>
+                  <span className="text-[10px] font-black text-rose-600 font-mono tracking-wider bg-white px-2.5 py-1 rounded-lg border border-rose-200 uppercase shrink-0">
+                    {stageStats.some(s => s.rejections > 1) ? 'PLUMBING' : 'HEALTHY'}
+                  </span>
                 </div>
 
               </div>
