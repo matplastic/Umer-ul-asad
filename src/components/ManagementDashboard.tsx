@@ -2503,17 +2503,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-50 pb-4">
                 <div className="space-y-1">
                   <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5 text-indigo-650 text-indigo-600" />
+                    <TrendingUp className="h-5 w-5 text-indigo-600" />
                     Month-to-Date KPI & Section OEE Tracker
                   </h3>
-                  <p className="text-xs text-slate-450 text-slate-500">
+                  <p className="text-xs text-slate-500">
                     Comparing target quotas declared in the Planning Department at the start of the month against actual shop floor completions in real time.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2 self-start md:self-center kpi-print-hide">
                   {/* Dropdown for Month Selection */}
-                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-205 border-slate-200 rounded-xl px-3 py-1.5">
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
                     <span className="text-xs text-slate-500 font-bold">Billing/Target Month:</span>
                     <select
                       value={selectedTargetMonthId}
@@ -2632,9 +2632,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                 const sections = [
                   { name: 'Steel Fabrication', target: activeTarget.steelFabricationTarget || 100, actual: actualSteelFab, color: 'text-blue-600', progressColor: 'bg-blue-600' },
-                  { name: 'Steel Primer', target: activeTarget.steelPrimerTarget || 100, actual: actualSteelPrimer, color: 'text-indigo-650 text-indigo-600', progressColor: 'bg-indigo-600' },
+                  { name: 'Steel Primer', target: activeTarget.steelPrimerTarget || 100, actual: actualSteelPrimer, color: 'text-indigo-600', progressColor: 'bg-indigo-600' },
                   { name: 'Plumbing Pre-fit', target: activeTarget.plumbingTarget || 100, actual: actualPlumbingTarget, color: 'text-orange-600', progressColor: 'bg-orange-600' },
-                  { name: 'Chemical Cladding', target: activeTarget.claddingTarget || 100, actual: actualCladdingTarget, color: 'text-cyan-605 text-cyan-600', progressColor: 'bg-cyan-600' },
+                  { name: 'Chemical Cladding', target: activeTarget.claddingTarget || 100, actual: actualCladdingTarget, color: 'text-cyan-600', progressColor: 'bg-cyan-600' },
                   { name: 'Skimmer Fitting', target: (activeTarget as any).skimmerFittingTarget || 110, actual: actualSkimmerFitting, color: 'text-orange-600', progressColor: 'bg-orange-600' },
                   { name: 'Structural Lamination', target: activeTarget.laminationTarget || 100, actual: actualLamination, color: 'text-pink-600', progressColor: 'bg-pink-600' },
                   { name: 'Mechanical Fittings', target: activeTarget.mechanicalFittingTarget || 100, actual: actualMechanical, color: 'text-violet-600', progressColor: 'bg-violet-600' },
@@ -2661,7 +2661,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       <div className="bg-slate-50 p-5 rounded-xl border border-slate-100 flex flex-col justify-between">
                         <div>
                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Overall Equipment Effectiveness (OEE)</span>
-                          <span className="text-xs text-slate-504 text-slate-500 block mt-0.5">Target: <strong>{activeTarget.targetOee}%</strong> | Actual Floor</span>
+                          <span className="text-xs text-slate-500 block mt-0.5">Target: <strong>{activeTarget.targetOee}%</strong> | Actual Floor</span>
                         </div>
                         <div className="flex items-baseline gap-2.5 mt-3">
                           <span className="text-4xl font-black font-mono text-indigo-700 tracking-tight">{actualOeeVal}%</span>
@@ -2693,11 +2693,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       <div className="bg-indigo-50/40 p-5 rounded-xl border border-indigo-100/40 flex flex-col justify-between text-xs">
                         <div>
                           <span className="text-[10px] font-black text-indigo-900 uppercase tracking-widest block">Strategic Planning Notes</span>
-                          <p className="text-slate-650 text-slate-600 mt-2 italic leading-relaxed">
+                          <p className="text-slate-600 mt-2 italic leading-relaxed">
                             "{activeTarget.notes || 'High efficiency operational target rules are applied for active shop terminals.'}"
                           </p>
                         </div>
-                        <div className="pt-2 text-[10px] text-indigo-705 font-medium flex items-center gap-1">
+                        <div className="pt-2 text-[10px] text-indigo-700 font-medium flex items-center gap-1">
                           <Info className="h-3.5 w-3.5 shrink-0" />
                           <span>Declared in Planning Department</span>
                         </div>
@@ -2705,27 +2705,54 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     </div>
 
                     {/* Section Targets Progress lists */}
-                    <div className="bg-slate-50/50 p-6 rounded-xl border border-slate-100 space-y-4">
-                      <span className="text-[11px] font-black text-slate-450 uppercase tracking-widest block border-b border-slate-200/50 pb-2">
-                        Individual Sections & Workshops targets performance ratio
-                      </span>
+                    <div className="bg-slate-50/50 p-6 rounded-xl border border-slate-100">
+                      <div className="flex items-center justify-between border-b border-slate-200/70 pb-3 mb-5">
+                        <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+                          Individual Sections & Workshops — Target Performance Ratio
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-400">
+                          {sections.length} stations tracked
+                        </span>
+                      </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 pt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
                         {sections.map(sec => {
                           const percent = Math.round((sec.actual / (sec.target || 1)) * 100);
+                          const capped = Math.min(100, percent);
+                          const isMet = percent >= 100;
+                          const isNear = !isMet && percent >= 75;
+                          const statusColor = isMet ? 'text-emerald-600' : isNear ? 'text-amber-600' : 'text-slate-400';
                           return (
-                            <div key={sec.name} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className={`font-bold ${sec.color}`}>{sec.name}</span>
-                                <span className="font-mono text-slate-600 text-[11px] font-bold">
-                                  {sec.actual} / <strong>{sec.target}</strong> ({percent}%)
+                            <div
+                              key={sec.name}
+                              className="bg-white rounded-xl border border-slate-150 border-slate-200/70 px-4 py-3.5 flex flex-col gap-2.5 hover:border-slate-300 transition-colors"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`h-2 w-2 rounded-full shrink-0 ${sec.progressColor}`} />
+                                  <span className="text-xs font-bold text-slate-700 truncate" title={sec.name}>
+                                    {sec.name}
+                                  </span>
+                                </div>
+                                <span className={`text-[11px] font-black font-mono shrink-0 ${statusColor}`}>
+                                  {percent}%
                                 </span>
                               </div>
-                              <div className="h-2.5 bg-slate-200 rounded-full overflow-hidden flex">
-                                <div 
-                                  className={`h-full rounded-full transition-all duration-500 ${sec.progressColor}`} 
-                                  style={{ width: `${Math.min(100, percent)}%` }} 
+
+                              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-500 ${sec.progressColor}`}
+                                  style={{ width: `${capped}%` }}
                                 />
+                              </div>
+
+                              <div className="flex items-center justify-between text-[10.5px] text-slate-400 font-medium">
+                                <span className="font-mono">
+                                  <span className="text-slate-700 font-bold">{sec.actual}</span> / {sec.target} units
+                                </span>
+                                <span className={`font-bold uppercase tracking-wide ${statusColor}`}>
+                                  {isMet ? 'On Target' : isNear ? 'Near Target' : 'Behind'}
+                                </span>
                               </div>
                             </div>
                           );
@@ -2740,7 +2767,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           <span className="text-[11px] font-black text-indigo-900 uppercase tracking-widest block">
                             Monthly OEE Trend & Performance Index
                           </span>
-                          <p className="text-xs text-slate-450 text-slate-500">
+                          <p className="text-xs text-slate-500">
                             Analyzing target OEE quotas vs actual floor efficiency metrics over consecutive operational months.
                           </p>
                         </div>
