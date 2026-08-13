@@ -191,6 +191,14 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 
   // Expanded projects dictionary for Dashboard breakdown
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  // Drill-down modal: which project/type/orientation bucket is being inspected
+  // on the Dashboard's "Project Portfolio Design Auditing" table. null = closed.
+  const [drillDown, setDrillDown] = useState<{
+    projectName: string;
+    poolType?: string; // undefined = all types in the project (used for Mirror/Normal column clicks)
+    orientation?: PoolOrientation; // undefined = both orientations
+    label: string; // human-readable heading for the modal
+  } | null>(null);
 
   // Inline edit state for project name correction
   const [editProjectId, setEditProjectId] = useState<string | null>(null);
@@ -1272,6 +1280,25 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
     };
   }, [plannedPools, pools]);
 
+  // Resolves the pools matching the currently open drill-down bucket (project +
+  // optional pool type + optional orientation), each enriched with its live
+  // stage/progress from poolProgressMap so the modal can show real-time status.
+  const drillDownPools = useMemo(() => {
+    if (!drillDown) return [];
+    return plannedPools
+      .filter(p => {
+        if (p.projectName !== drillDown.projectName) return false;
+        if (drillDown.poolType && (p.poolType || 'Type 1') !== drillDown.poolType) return false;
+        if (drillDown.orientation && p.orientation !== drillDown.orientation) return false;
+        return true;
+      })
+      .map(p => ({
+        pool: p,
+        progress: poolLiveProgressMap[p.id] || { currentStageName: 'Queued', progressPercent: 0, isCompleted: false }
+      }))
+      .sort((a, b) => a.pool.poolNo.localeCompare(b.pool.poolNo, undefined, { numeric: true }));
+  }, [drillDown, plannedPools, poolLiveProgressMap]);
+
   // BUGFIX: the Inventory Registry previously only ever listed `plannedPools`
   // (pool codes pre-registered here in Planning). Any pool that was created
   // directly on the shop floor / Direct Stage Portal — i.e. it exists in the
@@ -1691,12 +1718,28 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                             </td>
                             <td className="py-4 px-4 font-mono font-medium">{stats.total}</td>
                             <td className="py-4 px-4">
-                              <span className="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded font-mono">
+                              <span
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setDrillDown({ projectName: projName, orientation: 'Mirror', label: `${projName} — Mirror Orientation` });
+                                }}
+                                className="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded font-mono cursor-pointer hover:bg-indigo-100 transition-colors"
+                                title="Click to view all Mirror-orientation pools"
+                              >
                                 {stats.mirror} ({stats.total > 0 ? Math.round((stats.mirror / stats.total) * 100) : 0}%)
                               </span>
                             </td>
                             <td className="py-4 px-4 font-mono text-slate-505">
-                              {stats.normal} ({stats.total > 0 ? Math.round((stats.normal / stats.total) * 100) : 0}%)
+                              <span
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setDrillDown({ projectName: projName, orientation: 'Normal', label: `${projName} — Normal Orientation` });
+                                }}
+                                className="cursor-pointer hover:text-slate-800 hover:underline transition-colors"
+                                title="Click to view all Normal-orientation pools"
+                              >
+                                {stats.normal} ({stats.total > 0 ? Math.round((stats.normal / stats.total) * 100) : 0}%)
+                              </span>
                             </td>
                             <td className="py-4 px-4 text-slate-400 font-mono">{stats.planned}</td>
                             <td className="py-4 px-4 font-mono text-cyan-600 font-bold">{stats.released}</td>
@@ -1728,7 +1771,12 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                   </div>
                                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pt-1">
                                     {Object.entries(stats.types).map(([typeName, tStat]) => (
-                                      <div key={typeName} className="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs flex flex-col justify-between">
+                                      <div
+                                        key={typeName}
+                                        onClick={() => setDrillDown({ projectName: projName, poolType: typeName, label: `${projName} — ${typeName}` })}
+                                        className="bg-white p-3 rounded-xl border border-slate-200/60 shadow-xs flex flex-col justify-between cursor-pointer hover:border-indigo-300 hover:shadow-sm transition-all"
+                                        title="Click to view all pools of this type"
+                                      >
                                         <div>
                                           <span className="bg-indigo-50 text-indigo-700 font-black text-[9.5px] px-1.5 py-0.5 rounded uppercase tracking-wider block w-fit">
                                             {typeName}
@@ -1738,11 +1786,17 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                                           </div>
                                         </div>
                                         <div className="space-y-1 mt-2 pt-1.5 border-t border-slate-50 text-[10px]">
-                                          <div className="flex justify-between font-bold text-indigo-600">
+                                          <div
+                                            onClick={e => { e.stopPropagation(); setDrillDown({ projectName: projName, poolType: typeName, orientation: 'Mirror', label: `${projName} — ${typeName} — Mirror` }); }}
+                                            className="flex justify-between font-bold text-indigo-600 hover:bg-indigo-50 rounded px-1 -mx-1 transition-colors"
+                                          >
                                             <span>Mirror (R):</span>
                                             <span>{tStat.mirror}</span>
                                           </div>
-                                          <div className="flex justify-between font-medium text-slate-500">
+                                          <div
+                                            onClick={e => { e.stopPropagation(); setDrillDown({ projectName: projName, poolType: typeName, orientation: 'Normal', label: `${projName} — ${typeName} — Normal` }); }}
+                                            className="flex justify-between font-medium text-slate-500 hover:bg-slate-50 rounded px-1 -mx-1 transition-colors"
+                                          >
                                             <span>Normal (L):</span>
                                             <span>{tStat.normal}</span>
                                           </div>
@@ -4143,6 +4197,90 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 {directStageSelect === 'delivered' && <CheckCircle className="h-2.5 w-2.5" />}
                 {directStageSelect === 'delivered' ? '🚚 Delivered' : '🏁 Produced'}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PROJECT PORTFOLIO DASHBOARD — POOL TYPE / ORIENTATION DRILL-DOWN MODAL */}
+      {drillDown && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+          onClick={() => setDrillDown(null)}
+        >
+          <div
+            className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col animate-scaleUp"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-100 shrink-0">
+              <div className="flex items-start gap-3">
+                <div className="bg-indigo-50 p-2.5 rounded-xl text-indigo-600 shrink-0">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 font-sans tracking-wide">
+                    {drillDown.label}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {drillDownPools.length} pool{drillDownPools.length !== 1 ? 's' : ''} matched — current stage & progress shown live
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDrillDown(null)}
+                className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg p-1.5 shrink-0 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1">
+              {drillDownPools.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  No pools found in this bucket.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] font-bold sticky top-0">
+                    <tr>
+                      <th className="py-2.5 px-5">Pool No.</th>
+                      <th className="py-2.5 px-3">Orientation</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3">Current Stage</th>
+                      <th className="py-2.5 px-5 text-right">Progress</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {drillDownPools.map(({ pool, progress }) => (
+                      <tr key={pool.id} className="hover:bg-slate-50/70">
+                        <td className="py-2.5 px-5 font-bold text-slate-800 font-mono">{pool.poolNo}</td>
+                        <td className="py-2.5 px-3">
+                          <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
+                            pool.orientation === 'Mirror' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {pool.orientation}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-slate-500">{pool.status}</td>
+                        <td className="py-2.5 px-3 text-slate-600">{progress.currentStageName}</td>
+                        <td className="py-2.5 px-5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className={`font-bold ${progress.isCompleted ? 'text-emerald-600' : 'text-slate-700'}`}>
+                              {progress.progressPercent}%
+                            </span>
+                            <div className="w-14 bg-slate-100 h-2 rounded-full overflow-hidden hidden sm:inline-block">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${progress.isCompleted ? 'bg-emerald-500' : 'bg-cyan-500'}`}
+                                style={{ width: `${progress.progressPercent}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
