@@ -171,6 +171,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // click-a-stat -> see pool numbers pattern. null = closed.
   const [statDrillDown, setStatDrillDown] = useState<'active' | 'completed' | 'rejections' | 'teams' | null>(null);
 
+  // Which sub-view is showing inside the Analytics / Bottlenecks tab. This
+  // tab accumulated five distinct reports over time (throughput, KPI/OEE,
+  // activity ledger, workforce, pool registry) that used to all render in one
+  // long stacked scroll — now split into sub-tabs so each report gets its
+  // own focused screen instead of competing for attention.
+  const [analyticsSubTab, setAnalyticsSubTab] = useState<'overview' | 'kpi_oee' | 'ledger' | 'workforce' | 'registry'>('overview');
+
   // Which department row's drill-down modal is open in the "Active workloads
   // by Employee Assignment Department" panel (null = closed). Stores the
   // department name so the modal can re-resolve live pools/teams for it.
@@ -2672,8 +2679,39 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
         {/* Tab 1: Analytics/Summary Dashboard */}
         {activeTab === 'analytics' && (
+          <div className="space-y-6">
+
+            {/* Analytics sub-navigation — splits the five reports that used
+                to stack in one long scroll into focused, switchable views */}
+            <div className="flex flex-wrap gap-2 bg-slate-50 border border-slate-100 rounded-2xl p-1.5">
+              {([
+                { id: 'overview', label: 'Overview', icon: BarChart2 },
+                { id: 'kpi_oee', label: 'KPI & Section OEE', icon: TrendingUp },
+                { id: 'ledger', label: 'Activity Ledger', icon: Activity },
+                { id: 'workforce', label: 'Workforce', icon: Users },
+                { id: 'registry', label: 'Pool Registry', icon: Layers },
+              ] as const).map(sub => {
+                const Icon = sub.icon;
+                const isActive = analyticsSubTab === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    onClick={() => setAnalyticsSubTab(sub.id)}
+                    className={`relative flex-1 min-w-[130px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                      isActive ? 'bg-white text-slate-800 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-white/60'
+                    }`}
+                  >
+                    <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
+                    {sub.label}
+                  </button>
+                );
+              })}
+            </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
+            {analyticsSubTab === 'overview' && (
+              <>
             {/* Custom stage statistics bento card bar charts */}
             <div className="lg:col-span-8 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3.5 mb-4">
@@ -2782,7 +2820,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
               </div>
             </div>
+              </>
+            )}
 
+            {analyticsSubTab === 'kpi_oee' && (
+            <>
             {/* Monthly KPI Targets comparison (start of month planner vs end of month OEE achievements) */}
             <div id="kpi-oee-tracker-card" className="kpi-print-area lg:col-span-12 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-50 pb-4">
@@ -3464,7 +3506,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 );
               })()}
             </div>
+            </>
+            )}
 
+            {analyticsSubTab === 'ledger' && (
+            <>
             {/* Daily Production Records Date-wise Checker */}
             <div className="lg:col-span-12 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-50 pb-4">
@@ -3780,7 +3826,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 );
               })()}
             </div>
+            </>
+            )}
 
+            {analyticsSubTab === 'workforce' && (
+            <>
             {/* Departmental Workloads & Employee Assignments + Employee/Team of the Year Nominations */}
             <div className="lg:col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-6">
               
@@ -4318,7 +4368,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               </div>
 
             </div>
+            </>
+            )}
 
+          </div>
           </div>
         )}
 
@@ -5714,7 +5767,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         )}
 
-        {activeTab === 'analytics' && (
+        {activeTab === 'analytics' && analyticsSubTab === 'registry' && (
           <MonthlyKPIDashboard
             pools={pools}
             plannedPools={plannedPools}
