@@ -1194,9 +1194,46 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
     return map;
   }, [plannedPools, pools]);
 
+  // BUGFIX: the Inventory Registry previously only ever listed `plannedPools`
+  // (pool codes pre-registered here in Planning). Any pool that was created
+  // directly on the shop floor / Direct Stage Portal — i.e. it exists in the
+  // live `pools` collection but has no PlannedPool record pointing at it via
+  // releasedPoolId — was silently excluded from the registry, even though it
+  // is actively sitting in a shop stage right now. We now detect those
+  // "orphan" live pools and fold them into the registry as synthetic entries
+  // (prefixed id `live-...`) so every pool on the floor is visible here.
+  const orphanLivePools = useMemo(() => {
+    const linkedLivePoolIds = new Set(
+      plannedPools.filter(p => p.releasedPoolId).map(p => p.releasedPoolId as string)
+    );
+    return pools.filter(p => !linkedLivePoolIds.has(p.id));
+  }, [pools, plannedPools]);
+
+  const combinedRegistryPools = useMemo(() => {
+    const synthetic: PlannedPool[] = orphanLivePools.map(p => ({
+      id: `live-${p.id}`,
+      projectName: p.projectName,
+      poolNo: p.poolNo,
+      orientation: p.orientation,
+      dimensions: p.dimensions,
+      shape: p.shape,
+      poolType: p.poolType,
+      drawingUrl: p.drawingUrl,
+      status: p.completedAt ? 'COMPLETED' : 'RELEASED',
+      releasedPoolId: p.id,
+      notes: p.notes,
+      createdAt: p.createdAt,
+    }));
+    return [...plannedPools, ...synthetic];
+  }, [plannedPools, orphanLivePools]);
+
   // Dashboard Aggregator Data
+  // Now sourced from `combinedRegistryPools` (Planning pre-registrations PLUS
+  // orphan pools created directly on the shop floor via Direct Stage Portal
+  // or the Engineer Portal), so the dashboard reflects every pool in the
+  // system — not just the ones pre-planned here.
   const dashboardStats = useMemo(() => {
-    const total = plannedPools.length;
+    const total = combinedRegistryPools.length;
     let mirrorCount = 0;
     let normalCount = 0;
     let countPlanned = 0;
@@ -1213,7 +1250,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       types: Record<string, { total: number; normal: number; mirror: number }>;
     }> = {};
 
-    plannedPools.forEach(p => {
+    combinedRegistryPools.forEach(p => {
       // General orientation stats
       if (p.orientation === 'Mirror') mirrorCount++;
       else normalCount++;
@@ -1278,14 +1315,14 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       countCompleted,
       projectStats
     };
-  }, [plannedPools, pools]);
+  }, [combinedRegistryPools, pools]);
 
   // Resolves the pools matching the currently open drill-down bucket (project +
   // optional pool type + optional orientation), each enriched with its live
-  // stage/progress from poolProgressMap so the modal can show real-time status.
+  // stage/progress from poolLiveProgressMap so the modal can show real-time status.
   const drillDownPools = useMemo(() => {
     if (!drillDown) return [];
-    return plannedPools
+    return combinedRegistryPools
       .filter(p => {
         if (p.projectName !== drillDown.projectName) return false;
         if (drillDown.poolType && (p.poolType || 'Type 1') !== drillDown.poolType) return false;
@@ -1297,40 +1334,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
         progress: poolLiveProgressMap[p.id] || { currentStageName: 'Queued', progressPercent: 0, isCompleted: false }
       }))
       .sort((a, b) => a.pool.poolNo.localeCompare(b.pool.poolNo, undefined, { numeric: true }));
-  }, [drillDown, plannedPools, poolLiveProgressMap]);
-
-  // BUGFIX: the Inventory Registry previously only ever listed `plannedPools`
-  // (pool codes pre-registered here in Planning). Any pool that was created
-  // directly on the shop floor / Direct Stage Portal — i.e. it exists in the
-  // live `pools` collection but has no PlannedPool record pointing at it via
-  // releasedPoolId — was silently excluded from the registry, even though it
-  // is actively sitting in a shop stage right now. We now detect those
-  // "orphan" live pools and fold them into the registry as synthetic entries
-  // (prefixed id `live-...`) so every pool on the floor is visible here.
-  const orphanLivePools = useMemo(() => {
-    const linkedLivePoolIds = new Set(
-      plannedPools.filter(p => p.releasedPoolId).map(p => p.releasedPoolId as string)
-    );
-    return pools.filter(p => !linkedLivePoolIds.has(p.id));
-  }, [pools, plannedPools]);
-
-  const combinedRegistryPools = useMemo(() => {
-    const synthetic: PlannedPool[] = orphanLivePools.map(p => ({
-      id: `live-${p.id}`,
-      projectName: p.projectName,
-      poolNo: p.poolNo,
-      orientation: p.orientation,
-      dimensions: p.dimensions,
-      shape: p.shape,
-      poolType: p.poolType,
-      drawingUrl: p.drawingUrl,
-      status: p.completedAt ? 'COMPLETED' : 'RELEASED',
-      releasedPoolId: p.id,
-      notes: p.notes,
-      createdAt: p.createdAt,
-    }));
-    return [...plannedPools, ...synthetic];
-  }, [plannedPools, orphanLivePools]);
+  }, [drillDown, combinedRegistryPools, poolLiveProgressMap]);
 
   // Filter and search calculations
   const filteredPlannedPools = useMemo(() => {
