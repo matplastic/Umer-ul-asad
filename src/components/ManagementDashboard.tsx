@@ -3690,159 +3690,171 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       Correlating registered staff counts with real-time active building loads per shop floor workshop.
                     </p>
                   </div>
-                  <span className="text-[10px] uppercase font-mono font-black text-indigo-650 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full inline-block">
+                  <span className="text-[10px] uppercase font-mono font-black text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full inline-block">
                     Operational Matrix
                   </span>
                 </div>
 
                 {(() => {
+                  // Departments now mirror the actual shop-floor stage names 1:1
+                  // (STAGES is the same source of truth the floor boards and the
+                  // Section OEE tracker use), so a name/color change on the floor
+                  // automatically reflects here — no more hand-maintained duplicate
+                  // list drifting out of sync. Planning is intentionally excluded:
+                  // it's a pre-floor queue, not a staffed workshop.
+                  const STAGE_META: Record<string, { badge: string; description: string }> = {
+                    steel_fabrication: { badge: '🛠️', description: 'Primary metallic shell welding & forming' },
+                    steel_primer: { badge: '🎨', description: 'Anticorrosive sandblast & paint primers' },
+                    plumbing: { badge: '💧', description: 'Internal pipe networks & pressure lines' },
+                    cladding: { badge: '🧪', description: 'Resin seal coats & outer gel protection' },
+                    skimmer_fitting: { badge: '🚰', description: 'Skimmer box installation & seal prep' },
+                    lamination: { badge: '🧱', description: 'Glass reinforcement layers hand lay-up' },
+                    mechanical_fitting: { badge: '⚙️', description: 'Valves, returns & structural framing fit' },
+                    skimmer_test: { badge: '🔧', description: 'Pressure & leak testing of skimmer boxes' },
+                    door_cutting: { badge: '🧩', description: 'Italian tile design layout & finishing' },
+                    mosaic: { badge: '🧽', description: 'Grout lines & joint sealing finish' },
+                    grouting: { badge: '✂️', description: 'Access panel & deck cut-outs' },
+                    acrylic: { badge: '🪟', description: 'Seaside panoramic viewing seals curing' },
+                  };
+
                   const FACTORY_DEPARTMENTS = [
-                    { name: 'Planning', badge: '📋', color: 'indigo', stages: [], description: 'Engineering, releasing & backlog routing' },
-                    { name: 'Steel Fabrication', badge: '🛠️', color: 'blue', stages: ['steel_fabrication'], description: 'Primary metallic shell welding & forming' },
-                    { name: 'Steel Primer', badge: '🎨', color: 'amber', stages: ['steel_primer'], description: 'Anticorrosive sandblast & paint primers' },
-                    { name: 'Chemical Cladding', badge: '🧪', color: 'purple', stages: ['cladding'], description: 'Resin seal coats & outer gel protection' },
-                    { name: 'Skimmer Fitting & Test', badge: '🚰', color: 'orange', stages: ['skimmer_fitting', 'skimmer_test'], description: 'Skimmer components installation & pressure seals' },
-                    { name: 'Structural Lamination', badge: '🧱', color: 'pink', stages: ['lamination'], description: 'Glass reinforcement layers hand lay-up' },
-                    { name: 'Mechanical Fittings', badge: '⚙️', color: 'rose', stages: ['mechanical_fitting'], description: 'Valves, returns, and structural framing fit' },
-                    { name: 'Plumbing Pre-fit', badge: '💧', color: 'cyan', stages: ['plumbing'], description: 'Internal pipe networks & testing lines' },
-                    { name: 'Cosmetic Mosaic', badge: '🏁', color: 'emerald', stages: ['mosaic'], description: 'Italian tile design layout & finishing' },
-                    { name: 'Acrylic Window Fit', badge: '🪟', color: 'violet', stages: ['acrylic'], description: 'Seaside panoramic viewing seals curing' },
-                    { name: 'Quality Control', badge: '🔍', color: 'rose', description: 'Inspection sign-off clearances & rework holds' },
-                    { name: 'Factory Management', badge: '🚀', color: 'slate', description: 'Operations coordination & shift scheduling' }
+                    ...STAGES.map(stage => ({
+                      name: stage.name,
+                      badge: STAGE_META[stage.id]?.badge || '🏭',
+                      description: STAGE_META[stage.id]?.description || 'Shop floor production stage',
+                      hexColor: stage.color,
+                      stages: [stage.id],
+                      isOversight: false,
+                    })),
+                    { name: 'Quality Control', badge: '🔍', description: 'Inspection sign-off clearances & rework holds', hexColor: '#f43f5e', stages: [] as string[], isOversight: true },
+                    { name: 'Factory Management', badge: '🚀', description: 'Operations coordination & shift scheduling', hexColor: '#64748b', stages: [] as string[], isOversight: true },
                   ];
 
                   return (
-                    <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto pr-2 space-y-1.5 pt-1">
-                      {FACTORY_DEPARTMENTS.map(dept => {
-                        // 1. Headcount & Roster
-                        const deptWorkers = employees.filter(emp => emp.department === dept.name);
-                        
-                        // 2. Active Pools Load Code
-                        let activeCount = 0;
-                        let activePoolDetails: string[] = [];
+                    <div className="space-y-3">
+                      {/* Column headers — pinned once, so every row below aligns to the same grid instead of re-labeling per row */}
+                      <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_170px_150px] gap-4 px-3 text-[9.5px] font-black text-slate-400 uppercase tracking-wider">
+                        <span>Department</span>
+                        <span>Assigned Personnel</span>
+                        <span className="text-right">Department Load</span>
+                      </div>
 
-                        if (dept.name === 'Quality Control') {
-                          // Awaiting inspection in any active stage context
-                          const qcPools = pools.filter(p => {
-                            if (p.currentStageIndex >= STAGES.length) return false;
-                            const stId = STAGES[p.currentStageIndex].id;
-                            return p.stageHistory[stId]?.status === 'PENDING_INSPECTION';
-                          });
-                          activeCount = qcPools.length;
-                          activePoolDetails = qcPools.map(p => p.poolNo);
-                        } else if (dept.name === 'Planning') {
-                          // Standard release waiting queue - Pools currently in state index 0 and status not started or idle,
-                          // or let's say pools that have not completed first stage or are planned but not yet released
-                          const planningPools = pools.filter(p => p.currentStageIndex === 0 && p.stageHistory['steel_fabrication']?.status === 'NOT_STARTED');
-                          activeCount = planningPools.length;
-                          activePoolDetails = planningPools.map(p => p.poolNo);
-                        } else if (dept.name === 'Factory Management') {
-                          // Oversight over all non-completed pools
-                          const ongoing = pools.filter(p => p.currentStageIndex < STAGES.length);
-                          activeCount = ongoing.length;
-                          activePoolDetails = ongoing.map(p => p.poolNo);
-                        } else {
-                          // Map stages
-                          const ongoingDept = pools.filter(p => {
-                            if (p.currentStageIndex >= STAGES.length) return false;
-                            const curStageId = STAGES[p.currentStageIndex].id;
-                            return dept.stages.includes(curStageId as any);
-                          });
-                          activeCount = ongoingDept.length;
-                          activePoolDetails = ongoingDept.map(p => p.poolNo);
-                        }
+                      <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto pr-1">
+                        {FACTORY_DEPARTMENTS.map((dept, idx) => {
+                          // 1. Headcount & Roster
+                          const deptWorkers = employees.filter(emp => emp.department === dept.name);
 
-                        // Colors maps
-                        let colorClasses = 'border-slate-100 bg-slate-50 text-slate-705';
-                        let pillClass = 'bg-slate-100 text-slate-750 text-slate-800';
-                        if (dept.color === 'indigo') {
-                          colorClasses = 'border-indigo-100 bg-indigo-50/40 text-indigo-800';
-                          pillClass = 'bg-indigo-100 text-indigo-800 border-indigo-200/50';
-                        } else if (dept.color === 'blue') {
-                          colorClasses = 'border-blue-100 bg-blue-50/40 text-blue-800';
-                          pillClass = 'bg-blue-100 text-blue-800 border-blue-200/50';
-                        } else if (dept.color === 'amber') {
-                          colorClasses = 'border-amber-100 bg-amber-50/40 text-amber-800';
-                          pillClass = 'bg-amber-100 text-amber-800 border-amber-200/50';
-                        } else if (dept.color === 'purple') {
-                          colorClasses = 'border-purple-100 bg-purple-50/40 text-purple-800';
-                          pillClass = 'bg-purple-100 text-purple-800 border-purple-200/50';
-                        } else if (dept.color === 'pink') {
-                          colorClasses = 'border-pink-100 bg-pink-50/40 text-pink-800';
-                          pillClass = 'bg-pink-100 text-pink-800 border-pink-200/50';
-                        } else if (dept.color === 'rose') {
-                          colorClasses = 'border-rose-100 bg-rose-50/40 text-rose-800';
-                          pillClass = 'bg-rose-105 text-rose-800 border-rose-200/50';
-                        } else if (dept.color === 'cyan') {
-                          colorClasses = 'border-cyan-100 bg-cyan-50/40 text-cyan-800';
-                          pillClass = 'bg-cyan-100 text-cyan-800 border-cyan-200/50';
-                        } else if (dept.color === 'emerald') {
-                          colorClasses = 'border-emerald-100 bg-emerald-50/40 text-emerald-800';
-                          pillClass = 'bg-emerald-100 text-emerald-800 border-emerald-200/50';
-                        } else if (dept.color === 'violet') {
-                          colorClasses = 'border-violet-100 bg-violet-50/40 text-violet-800';
-                          pillClass = 'bg-violet-100 text-violet-800 border-violet-200/50';
-                        }
+                          // 2. Active Pools Load Code
+                          let activeCount = 0;
+                          let activePoolDetails: string[] = [];
 
-                        return (
-                          <div key={dept.name} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                            <div className="space-y-1 shrink-0 max-w-xs">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-sm">{dept.badge}</span>
-                                <h4 className="font-extrabold text-slate-800">{dept.name}</h4>
-                              </div>
-                              <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                                {dept.description}
-                              </p>
-                            </div>
+                          if (dept.name === 'Quality Control') {
+                            // Awaiting inspection in any active stage context
+                            const qcPools = pools.filter(p => {
+                              if (p.currentStageIndex >= STAGES.length) return false;
+                              const stId = STAGES[p.currentStageIndex].id;
+                              return p.stageHistory[stId]?.status === 'PENDING_INSPECTION';
+                            });
+                            activeCount = qcPools.length;
+                            activePoolDetails = qcPools.map(p => p.poolNo);
+                          } else if (dept.name === 'Factory Management') {
+                            // Oversight over all non-completed pools
+                            const ongoing = pools.filter(p => p.currentStageIndex < STAGES.length);
+                            activeCount = ongoing.length;
+                            activePoolDetails = ongoing.map(p => p.poolNo);
+                          } else {
+                            // Map stages
+                            const ongoingDept = pools.filter(p => {
+                              if (p.currentStageIndex >= STAGES.length) return false;
+                              const curStageId = STAGES[p.currentStageIndex].id;
+                              return dept.stages.includes(curStageId as any);
+                            });
+                            activeCount = ongoingDept.length;
+                            activePoolDetails = ongoingDept.map(p => p.poolNo);
+                          }
 
-                            {/* Headcount Bubble Roster */}
-                            <div className="flex flex-col space-y-1">
-                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Personnel</span>
-                              <div className="flex items-center gap-1.5">
-                                {deptWorkers.length > 0 ? (
-                                  <div className="flex -space-x-1.5 overflow-hidden">
-                                    {deptWorkers.map((worker) => {
-                                      const init = worker.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0, 2);
-                                      return (
-                                        <div 
-                                          key={worker.id}
-                                          className="h-6 w-6 rounded-full bg-slate-200 border border-white text-[9px] font-black text-slate-700 font-mono flex items-center justify-center cursor-help shrink-0 shadow-xs"
-                                          title={`${worker.name} (${worker.role || 'Operator'})`}
-                                        >
-                                          {init}
-                                        </div>
-                                      );
-                                    })}
-                                    <span className="text-[10px] font-black text-slate-600 pl-2 font-mono flex items-center shrink-0">
-                                      ({deptWorkers.length})
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <span className="text-[9px] bg-amber-50 text-amber-700 font-black border border-amber-100 px-2 py-0.5 rounded-full inline-block uppercase">
-                                    ⚠️ staff gap
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                          // Stage floor colors come straight from STAGES (same hex
+                          // used on the floor boards & Section OEE tracker), so
+                          // this list visually matches the rest of the app instead
+                          // of a separately hand-picked palette.
+                          const c = dept.hexColor;
 
-                            {/* Department Workload Display */}
-                            <div className="flex flex-col items-start sm:items-end text-left sm:text-right gap-1 shrink-0">
-                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Department Load</span>
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-[10.5px] font-black px-2 pb-0.5 pt-0.5 rounded border ${colorClasses}`}>
-                                  {activeCount} Active {activeCount === 1 ? 'Pool' : 'Pools'}
-                                </span>
-                              </div>
-                              {activePoolDetails.length > 0 && (
-                                <p className="text-[9.5px] text-slate-500 font-bold font-mono">
-                                  {activePoolDetails.slice(0, 4).join(', ')}{activePoolDetails.length > 4 ? '...' : ''}
-                                </p>
+                          // First oversight row (Quality Control) gets a section
+                          // divider above it, visually separating real shop-floor
+                          // stages from cross-cutting oversight functions.
+                          const isFirstOversight = dept.isOversight && FACTORY_DEPARTMENTS[idx - 1]?.isOversight === false;
+
+                          return (
+                            <React.Fragment key={dept.name}>
+                              {isFirstOversight && (
+                                <div className="flex items-center gap-2 px-3 pt-4 pb-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Oversight functions</span>
+                                  <span className="flex-1 h-px bg-slate-100" />
+                                </div>
                               )}
-                            </div>
-                          </div>
-                        );
-                      })}
+                              <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_170px_150px] gap-2 sm:gap-4 items-center px-3 py-3.5 rounded-lg hover:bg-slate-50/80 transition-colors">
+                                {/* Department identity */}
+                                <div className="flex items-start gap-2.5 min-w-0">
+                                  <span
+                                    className="h-8 w-8 rounded-lg border flex items-center justify-center text-sm shrink-0"
+                                    style={{ backgroundColor: `${c}14`, borderColor: `${c}40` }}
+                                  >
+                                    {dept.badge}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <h4 className="font-bold text-slate-800 text-[13px] leading-tight truncate">{dept.name}</h4>
+                                    <p className="text-[10.5px] text-slate-400 font-medium leading-snug mt-0.5">
+                                      {dept.description}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Headcount Bubble Roster */}
+                                <div className="flex items-center sm:justify-start">
+                                  {deptWorkers.length > 0 ? (
+                                    <div className="flex items-center -space-x-1.5">
+                                      {deptWorkers.slice(0, 5).map((worker) => {
+                                        const init = worker.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+                                        return (
+                                          <div
+                                            key={worker.id}
+                                            className="h-7 w-7 rounded-full bg-white border-2 border-slate-100 text-[9.5px] font-black text-slate-600 font-mono flex items-center justify-center cursor-help shrink-0 shadow-sm"
+                                            title={`${worker.name} (${worker.role || 'Operator'})`}
+                                          >
+                                            {init}
+                                          </div>
+                                        );
+                                      })}
+                                      <span className="text-[10.5px] font-bold text-slate-500 pl-2.5 font-mono flex items-center shrink-0">
+                                        {deptWorkers.length} staff
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] bg-slate-50 text-slate-400 font-semibold border border-slate-200 border-dashed px-2 py-1 rounded-lg inline-flex items-center gap-1">
+                                      <Users className="h-3 w-3" /> Unstaffed
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Department Workload Display */}
+                                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-1">
+                                  <span
+                                    className="text-[11px] font-black px-2.5 py-1 rounded-lg border whitespace-nowrap"
+                                    style={{ backgroundColor: `${c}14`, borderColor: `${c}40`, color: c }}
+                                  >
+                                    {activeCount} {activeCount === 1 ? 'Pool' : 'Pools'}
+                                  </span>
+                                  {activePoolDetails.length > 0 && (
+                                    <p className="text-[9.5px] text-slate-400 font-bold font-mono text-right">
+                                      {activePoolDetails.slice(0, 3).join(', ')}{activePoolDetails.length > 3 ? ` +${activePoolDetails.length - 3}` : ''}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })()}
