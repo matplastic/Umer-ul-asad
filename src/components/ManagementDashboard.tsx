@@ -2567,10 +2567,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-        className="relative bg-white rounded-[var(--radius-card)] border border-neutral-200 p-5 space-y-5 overflow-hidden"
+        className="relative bg-white rounded-[var(--radius-card)] border border-neutral-200 p-5 pt-6 space-y-6 overflow-hidden"
       >
-        {/* subtle top accent bar for a "system chrome" feel */}
-        <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-teal-500 via-slate-800 to-teal-500 opacity-70" />
+        {/* subtle top accent bar for a "system chrome" feel — inset slightly so
+            it doesn't collide with the card's own rounded corners */}
+        <div className="absolute top-0 left-5 right-5 h-[3px] rounded-b-full bg-gradient-to-r from-teal-500 via-slate-700 to-teal-500 opacity-70" />
 
         {([
           {
@@ -2609,17 +2610,25 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           },
         ] as const).map((section, i) => (
           <div key={section.group} className="relative">
-            {i > 0 && <div className="h-px bg-neutral-100 -mx-5 mb-4" />}
-            <div className="flex items-center gap-2 mb-2.5">
+            {i > 0 && <div className="h-px bg-neutral-100 -mx-5 mb-5" />}
+            <div className="flex items-center gap-2.5 mb-3">
               <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: i === 0 ? '#0f766e' : i === 1 ? '#334155' : '#94a3b8' }}
-              />
-              <span className="text-[10.5px] font-bold text-neutral-400 uppercase tracking-[0.12em]">{section.group}</span>
-              <span className="text-[10px] text-neutral-300 font-medium">· {section.tabs.length}</span>
+                className="h-6 w-6 rounded-lg flex items-center justify-center shrink-0"
+                style={{ backgroundColor: i === 0 ? '#0f766e14' : i === 1 ? '#33415514' : '#94a3b814' }}
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: i === 0 ? '#0f766e' : i === 1 ? '#334155' : '#94a3b8' }}
+                />
+              </span>
+              <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-[0.12em]">{section.group}</span>
+              <span className="text-[9.5px] font-bold text-neutral-400 bg-neutral-100 rounded-full px-1.5 py-px leading-tight">
+                {section.tabs.length}
+              </span>
+              <span className="flex-1 h-px bg-neutral-100 ml-1" aria-hidden="true" />
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               {section.tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -2630,8 +2639,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     onClick={() => setActiveTab(tab.id)}
                     whileHover={{ y: isActive ? 0 : -1 }}
                     whileTap={{ scale: 0.97 }}
-                    className={`relative py-2 px-3.5 rounded-[var(--radius-control)] text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors duration-150 ${
-                      isActive ? 'text-white' : 'text-neutral-600 hover:bg-neutral-50'
+                    className={`relative py-2 px-3.5 rounded-[var(--radius-control)] text-xs font-semibold flex items-center gap-2 cursor-pointer transition-colors duration-150 border ${
+                      isActive
+                        ? 'text-white border-transparent'
+                        : 'text-neutral-600 border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'
                     }`}
                   >
                     {isActive && (
@@ -2641,8 +2652,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         className="absolute inset-0 rounded-[var(--radius-control)] bg-gradient-to-br from-slate-800 to-neutral-950 shadow-md shadow-slate-900/25"
                       />
                     )}
-                    <Icon className={`relative z-10 h-3.5 w-3.5 ${isActive ? 'text-teal-400' : 'text-neutral-400'}`} />
-                    <span className="relative z-10">{tab.label}</span>
+                    <Icon className={`relative z-10 h-3.5 w-3.5 shrink-0 ${isActive ? 'text-teal-400' : 'text-neutral-400'}`} />
+                    <span className="relative z-10 whitespace-nowrap">{tab.label}</span>
                   </motion.button>
                 );
               })}
