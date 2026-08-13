@@ -171,6 +171,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // click-a-stat -> see pool numbers pattern. null = closed.
   const [statDrillDown, setStatDrillDown] = useState<'active' | 'completed' | 'rejections' | 'teams' | null>(null);
 
+  // Which department row's drill-down modal is open in the "Active workloads
+  // by Employee Assignment Department" panel (null = closed). Stores the
+  // department name so the modal can re-resolve live pools/teams for it.
+  const [deptDrillDown, setDeptDrillDown] = useState<string | null>(null);
+
   // DERIVED TEAM STATUS (source of truth): a team's own `status`/`activePoolId`
   // fields can drift out of sync with reality (manual edits, dropped writes,
   // or the dual-stage-parallel release bug). The real source of truth is
@@ -1935,6 +1940,82 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     teams: { label: 'Assigned teams rate', icon: Users, iconBg: 'bg-neutral-100', iconColor: 'text-neutral-600' },
   } as const;
 
+  // Departments for the "Active workloads by Employee Assignment Department"
+  // panel mirror the shop-floor stage names 1:1 (STAGES is the same source
+  // of truth the floor boards and Section OEE tracker use), so a name/color
+  // change on the floor automatically reflects here. Hoisted to component
+  // scope (rather than declared inside the panel's render) so the drill-down
+  // modal can resolve the same department metadata by name.
+  const DEPT_STAGE_META: Record<string, { badge: string; description: string }> = {
+    steel_fabrication: { badge: '🛠️', description: 'Primary metallic shell welding & forming' },
+    steel_primer: { badge: '🎨', description: 'Anticorrosive sandblast & paint primers' },
+    plumbing: { badge: '💧', description: 'Internal pipe networks & pressure lines' },
+    cladding: { badge: '🧪', description: 'Resin seal coats & outer gel protection' },
+    skimmer_fitting: { badge: '🚰', description: 'Skimmer box installation & seal prep' },
+    lamination: { badge: '🧱', description: 'Glass reinforcement layers hand lay-up' },
+    mechanical_fitting: { badge: '⚙️', description: 'Valves, returns & structural framing fit' },
+    skimmer_test: { badge: '🔧', description: 'Pressure & leak testing of skimmer boxes' },
+    door_cutting: { badge: '🧩', description: 'Italian tile design layout & finishing' },
+    mosaic: { badge: '🧽', description: 'Grout lines & joint sealing finish' },
+    grouting: { badge: '✂️', description: 'Access panel & deck cut-outs' },
+    acrylic: { badge: '🪟', description: 'Seaside panoramic viewing seals curing' },
+  };
+
+  const FACTORY_DEPARTMENTS = React.useMemo(() => [
+    ...STAGES.map(stage => ({
+      name: stage.name,
+      badge: DEPT_STAGE_META[stage.id]?.badge || '🏭',
+      description: DEPT_STAGE_META[stage.id]?.description || 'Shop floor production stage',
+      hexColor: stage.color,
+      stageIds: [stage.id] as string[],
+      isOversight: false,
+    })),
+    { name: 'Quality Control', badge: '🔍', description: 'Inspection sign-off clearances & rework holds', hexColor: '#f43f5e', stageIds: [] as string[], isOversight: true },
+    { name: 'Factory Management', badge: '🚀', description: 'Operations coordination & shift scheduling', hexColor: '#64748b', stageIds: [] as string[], isOversight: true },
+  ], []);
+
+  // Resolves the live pools AND the teams currently doing the work for a
+  // given department row — used by both the summary panel (compact preview)
+  // and the drill-down modal (full list). Teams are matched by their fixed
+  // stageId (not the free-text employee.department field), so "Assigned
+  // Personnel" always reflects who is actually on the floor working, not
+  // just who HR has on record for that department.
+  const resolveDeptWorkload = React.useCallback((dept: typeof FACTORY_DEPARTMENTS[number]) => {
+    let workPools: Pool[] = [];
+
+    if (dept.name === 'Quality Control') {
+      workPools = pools.filter(p => {
+        if (p.currentStageIndex >= STAGES.length) return false;
+        const stId = STAGES[p.currentStageIndex].id;
+        return p.stageHistory[stId]?.status === 'PENDING_INSPECTION';
+      });
+    } else if (dept.name === 'Factory Management') {
+      workPools = pools.filter(p => p.currentStageIndex < STAGES.length);
+    } else {
+      workPools = pools.filter(p => {
+        if (p.currentStageIndex >= STAGES.length) return false;
+        const curStageId = STAGES[p.currentStageIndex].id;
+        return dept.stageIds.includes(curStageId as any);
+      });
+    }
+    workPools = [...workPools].sort((a, b) => a.poolNo.localeCompare(b.poolNo, undefined, { numeric: true }));
+
+    // Teams: real crews whose fixed stageId falls in this department. QC and
+    // Factory Management aren't stage-bound teams, so they fall back to the
+    // employee roster (inspectors / management staff on record).
+    const deptTeams = dept.stageIds.length > 0
+      ? teams.filter(t => dept.stageIds.includes(t.stageId as any))
+      : [];
+    const busyTeams = deptTeams.filter(t => isTeamBusy(t.id));
+    const idleTeams = deptTeams.filter(t => !isTeamBusy(t.id));
+
+    const deptEmployees = dept.stageIds.length === 0
+      ? employees.filter(emp => emp.department === dept.name)
+      : [];
+
+    return { workPools, deptTeams, busyTeams, idleTeams, deptEmployees };
+  }, [pools, teams, employees, isTeamBusy, STAGES, FACTORY_DEPARTMENTS]);
+
   // Action Handlers for Setup Directory
   const handleAddNewInspector = (e: React.FormEvent) => {
     e.preventDefault();
@@ -3696,40 +3777,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </div>
 
                 {(() => {
-                  // Departments now mirror the actual shop-floor stage names 1:1
-                  // (STAGES is the same source of truth the floor boards and the
-                  // Section OEE tracker use), so a name/color change on the floor
-                  // automatically reflects here — no more hand-maintained duplicate
-                  // list drifting out of sync. Planning is intentionally excluded:
-                  // it's a pre-floor queue, not a staffed workshop.
-                  const STAGE_META: Record<string, { badge: string; description: string }> = {
-                    steel_fabrication: { badge: '🛠️', description: 'Primary metallic shell welding & forming' },
-                    steel_primer: { badge: '🎨', description: 'Anticorrosive sandblast & paint primers' },
-                    plumbing: { badge: '💧', description: 'Internal pipe networks & pressure lines' },
-                    cladding: { badge: '🧪', description: 'Resin seal coats & outer gel protection' },
-                    skimmer_fitting: { badge: '🚰', description: 'Skimmer box installation & seal prep' },
-                    lamination: { badge: '🧱', description: 'Glass reinforcement layers hand lay-up' },
-                    mechanical_fitting: { badge: '⚙️', description: 'Valves, returns & structural framing fit' },
-                    skimmer_test: { badge: '🔧', description: 'Pressure & leak testing of skimmer boxes' },
-                    door_cutting: { badge: '🧩', description: 'Italian tile design layout & finishing' },
-                    mosaic: { badge: '🧽', description: 'Grout lines & joint sealing finish' },
-                    grouting: { badge: '✂️', description: 'Access panel & deck cut-outs' },
-                    acrylic: { badge: '🪟', description: 'Seaside panoramic viewing seals curing' },
-                  };
-
-                  const FACTORY_DEPARTMENTS = [
-                    ...STAGES.map(stage => ({
-                      name: stage.name,
-                      badge: STAGE_META[stage.id]?.badge || '🏭',
-                      description: STAGE_META[stage.id]?.description || 'Shop floor production stage',
-                      hexColor: stage.color,
-                      stages: [stage.id],
-                      isOversight: false,
-                    })),
-                    { name: 'Quality Control', badge: '🔍', description: 'Inspection sign-off clearances & rework holds', hexColor: '#f43f5e', stages: [] as string[], isOversight: true },
-                    { name: 'Factory Management', badge: '🚀', description: 'Operations coordination & shift scheduling', hexColor: '#64748b', stages: [] as string[], isOversight: true },
-                  ];
-
                   return (
                     <div className="space-y-3">
                       {/* Column headers — pinned once, so every row below aligns to the same grid instead of re-labeling per row */}
@@ -3741,37 +3788,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                       <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto pr-1">
                         {FACTORY_DEPARTMENTS.map((dept, idx) => {
-                          // 1. Headcount & Roster
-                          const deptWorkers = employees.filter(emp => emp.department === dept.name);
-
-                          // 2. Active Pools Load Code
-                          let activeCount = 0;
-                          let activePoolDetails: string[] = [];
-
-                          if (dept.name === 'Quality Control') {
-                            // Awaiting inspection in any active stage context
-                            const qcPools = pools.filter(p => {
-                              if (p.currentStageIndex >= STAGES.length) return false;
-                              const stId = STAGES[p.currentStageIndex].id;
-                              return p.stageHistory[stId]?.status === 'PENDING_INSPECTION';
-                            });
-                            activeCount = qcPools.length;
-                            activePoolDetails = qcPools.map(p => p.poolNo);
-                          } else if (dept.name === 'Factory Management') {
-                            // Oversight over all non-completed pools
-                            const ongoing = pools.filter(p => p.currentStageIndex < STAGES.length);
-                            activeCount = ongoing.length;
-                            activePoolDetails = ongoing.map(p => p.poolNo);
-                          } else {
-                            // Map stages
-                            const ongoingDept = pools.filter(p => {
-                              if (p.currentStageIndex >= STAGES.length) return false;
-                              const curStageId = STAGES[p.currentStageIndex].id;
-                              return dept.stages.includes(curStageId as any);
-                            });
-                            activeCount = ongoingDept.length;
-                            activePoolDetails = ongoingDept.map(p => p.poolNo);
-                          }
+                          const { workPools, deptTeams, busyTeams, deptEmployees } = resolveDeptWorkload(dept);
+                          const activeCount = workPools.length;
+                          const activePoolDetails = workPools.map(p => p.poolNo);
 
                           // Stage floor colors come straight from STAGES (same hex
                           // used on the floor boards & Section OEE tracker), so
@@ -3784,6 +3803,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           // stages from cross-cutting oversight functions.
                           const isFirstOversight = dept.isOversight && FACTORY_DEPARTMENTS[idx - 1]?.isOversight === false;
 
+                          // Personnel shown: real teams doing the work for stage
+                          // rows (busy ones first), employee roster for the two
+                          // oversight rows that have no fixed team.
+                          const hasTeams = deptTeams.length > 0;
+                          const rosterEmpty = hasTeams ? deptTeams.length === 0 : deptEmployees.length === 0;
+
                           return (
                             <React.Fragment key={dept.name}>
                               {isFirstOversight && (
@@ -3792,7 +3817,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                   <span className="flex-1 h-px bg-slate-100" />
                                 </div>
                               )}
-                              <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_170px_150px] gap-2 sm:gap-4 items-center px-3 py-3.5 rounded-lg hover:bg-slate-50/80 transition-colors">
+                              <div
+                                onClick={() => setDeptDrillDown(dept.name)}
+                                className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_170px_150px] gap-2 sm:gap-4 items-center px-3 py-3.5 rounded-lg hover:bg-slate-50/80 transition-colors cursor-pointer"
+                              >
                                 {/* Department identity */}
                                 <div className="flex items-start gap-2.5 min-w-0">
                                   <span
@@ -3809,26 +3837,29 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Headcount Bubble Roster */}
-                                <div className="flex items-center sm:justify-start">
-                                  {deptWorkers.length > 0 ? (
-                                    <div className="flex items-center -space-x-1.5">
-                                      {deptWorkers.slice(0, 5).map((worker) => {
-                                        const init = worker.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-                                        return (
-                                          <div
-                                            key={worker.id}
-                                            className="h-7 w-7 rounded-full bg-white border-2 border-slate-100 text-[9.5px] font-black text-slate-600 font-mono flex items-center justify-center cursor-help shrink-0 shadow-sm"
-                                            title={`${worker.name} (${worker.role || 'Operator'})`}
+                                {/* Assigned Personnel — real teams currently on this stage (busy ones first) */}
+                                <div className="flex items-center sm:justify-start min-w-0">
+                                  {!rosterEmpty ? (
+                                    hasTeams ? (
+                                      <div className="flex flex-wrap items-center gap-1">
+                                        {[...busyTeams, ...deptTeams.filter(t => !isTeamBusy(t.id))].slice(0, 2).map(t => (
+                                          <span
+                                            key={t.id}
+                                            title={isTeamBusy(t.id) ? `${t.name} — working` : `${t.name} — idle`}
+                                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md truncate max-w-[90px] ${
+                                              isTeamBusy(t.id) ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-50 text-slate-400 border border-slate-200'
+                                            }`}
                                           >
-                                            {init}
-                                          </div>
-                                        );
-                                      })}
-                                      <span className="text-[10.5px] font-bold text-slate-500 pl-2.5 font-mono flex items-center shrink-0">
-                                        {deptWorkers.length} staff
-                                      </span>
-                                    </div>
+                                            {t.name}
+                                          </span>
+                                        ))}
+                                        {deptTeams.length > 2 && (
+                                          <span className="text-[9.5px] font-bold text-slate-400">+{deptTeams.length - 2} more</span>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <span className="text-[10.5px] font-bold text-slate-500 font-mono">{deptEmployees.length} staff</span>
+                                    )
                                   ) : (
                                     <span className="text-[10px] bg-slate-50 text-slate-400 font-semibold border border-slate-200 border-dashed px-2 py-1 rounded-lg inline-flex items-center gap-1">
                                       <Users className="h-3 w-3" /> Unstaffed
@@ -3859,6 +3890,120 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   );
                 })()}
               </div>
+
+              {/* DEPARTMENT DRILL-DOWN MODAL — click any department row above to
+                  see every pool currently on that stage plus the exact teams
+                  doing the work, same click-to-drill-down pattern used for the
+                  KPI stat cards and the Planning Department. */}
+              {deptDrillDown && (() => {
+                const dept = FACTORY_DEPARTMENTS.find(d => d.name === deptDrillDown);
+                if (!dept) return null;
+                const { workPools, deptTeams, deptEmployees } = resolveDeptWorkload(dept);
+                const hasTeams = deptTeams.length > 0;
+                const c = dept.hexColor;
+                return (
+                  <div
+                    className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+                    onClick={() => setDeptDrillDown(null)}
+                  >
+                    <div
+                      className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col animate-scaleUp"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-100 shrink-0">
+                        <div className="flex items-start gap-3">
+                          <div className="h-10 w-10 rounded-xl border flex items-center justify-center text-base shrink-0" style={{ backgroundColor: `${c}14`, borderColor: `${c}40` }}>
+                            {dept.badge}
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-black text-slate-800 tracking-wide">{dept.name}</h3>
+                            <p className="text-[11px] text-slate-400 mt-0.5">{dept.description}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setDeptDrillDown(null)}
+                          className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg p-1.5 shrink-0 cursor-pointer"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {/* Team / personnel roster */}
+                      <div className="px-5 py-4 border-b border-slate-100 shrink-0">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2">
+                          {hasTeams ? `Teams (${deptTeams.length})` : `Personnel (${deptEmployees.length})`}
+                        </span>
+                        {hasTeams ? (
+                          deptTeams.length === 0 ? (
+                            <p className="text-xs text-slate-400">No teams configured for this stage yet.</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {deptTeams.map(t => (
+                                <span
+                                  key={t.id}
+                                  className={`text-[11px] font-bold px-2 py-1 rounded-lg border ${
+                                    isTeamBusy(t.id) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-500 border-slate-200'
+                                  }`}
+                                >
+                                  {t.name} <span className="opacity-60 font-medium">· {isTeamBusy(t.id) ? 'Working' : 'Idle'}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )
+                        ) : deptEmployees.length === 0 ? (
+                          <p className="text-xs text-slate-400">No employees on record for this department yet.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {deptEmployees.map(e => (
+                              <span key={e.id} className="text-[11px] font-bold px-2 py-1 rounded-lg border bg-slate-50 text-slate-600 border-slate-200">
+                                {e.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Pool list */}
+                      <div className="px-5 pt-3 pb-1 shrink-0">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                          {workPools.length} pool{workPools.length !== 1 ? 's' : ''} currently on this stage
+                        </span>
+                      </div>
+                      <div className="overflow-y-auto flex-1">
+                        {workPools.length === 0 ? (
+                          <div className="p-8 text-center text-slate-400 text-xs">No pools currently on this stage.</div>
+                        ) : (
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] font-semibold sticky top-0">
+                              <tr>
+                                <th className="py-2.5 px-5">Pool No.</th>
+                                <th className="py-2.5 px-3">Project</th>
+                                <th className="py-2.5 px-3">Team assigned</th>
+                                <th className="py-2.5 px-5 text-right">Stage status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {workPools.map(p => {
+                                const stId = p.currentStageIndex < STAGES.length ? STAGES[p.currentStageIndex].id : null;
+                                const hist = stId ? p.stageHistory[stId] : null;
+                                const assignedTeam = hist?.teamId ? teams.find(t => t.id === hist.teamId) : null;
+                                return (
+                                  <tr key={p.id} className="hover:bg-slate-50/70">
+                                    <td className="py-2.5 px-5 font-semibold text-slate-800 font-mono">{p.poolNo}</td>
+                                    <td className="py-2.5 px-3 text-slate-600">{p.projectName}</td>
+                                    <td className="py-2.5 px-3 text-slate-600">{assignedTeam?.name || '—'}</td>
+                                    <td className="py-2.5 px-5 text-right font-mono text-slate-500">{hist?.status || '—'}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Nomination Portal: Employee/Team of the Year & Section KPI Awards */}
               <div className="lg:col-span-5 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between space-y-5">
