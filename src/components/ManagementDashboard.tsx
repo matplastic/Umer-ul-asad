@@ -165,6 +165,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery'>('analytics');
 
+  // KPI stat-card drill-down modal: which bucket ("Active in fabrication",
+  // "Despatched and clear", "Total rework holds", "Assigned teams rate") is
+  // currently being inspected, mirroring the Planning Department's
+  // click-a-stat -> see pool numbers pattern. null = closed.
+  const [statDrillDown, setStatDrillDown] = useState<'active' | 'completed' | 'rejections' | 'teams' | null>(null);
+
   // DERIVED TEAM STATUS (source of truth): a team's own `status`/`activePoolId`
   // fields can drift out of sync with reality (manual edits, dropped writes,
   // or the dual-stage-parallel release bug). The real source of truth is
@@ -1888,6 +1894,47 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     return acc + (Object.values(pool.stageHistory) as any[]).reduce((sum, h) => sum + (h.rejectionCount || 0), 0);
   }, 0);
 
+  // Pools that currently have at least one stage with a recorded rejection —
+  // backs the "Total rework holds" stat card drill-down.
+  const rejectedPools = dateFilteredPools.filter(p =>
+    (Object.values(p.stageHistory) as any[]).some(h => (h.rejectionCount || 0) > 0)
+  );
+
+  // Live team -> current pool assignment, for the "Assigned teams rate"
+  // drill-down. A team counts as assigned to whichever pool/stage its
+  // stageHistory entry is actively IN_PROGRESS / PENDING_INSPECTION /
+  // REJECTED on right now.
+  const teamAssignments = React.useMemo(() => {
+    const map = new Map<string, { pool: Pool; stageId: StageId }>();
+    for (const p of pools) {
+      for (const stageId of Object.keys(p.stageHistory) as StageId[]) {
+        const hist = p.stageHistory[stageId];
+        if (hist?.teamId && (hist.status === 'IN_PROGRESS' || hist.status === 'PENDING_INSPECTION' || hist.status === 'REJECTED')) {
+          map.set(hist.teamId, { pool: p, stageId });
+        }
+      }
+    }
+    return map;
+  }, [pools]);
+
+  // Resolves the pool list (or team roster) behind whichever stat card was
+  // clicked, so the drill-down modal can render it. Sorted by pool number.
+  const statDrillDownPools = React.useMemo(() => {
+    if (!statDrillDown || statDrillDown === 'teams') return [];
+    const source =
+      statDrillDown === 'active' ? activePools :
+      statDrillDown === 'completed' ? completedPools :
+      rejectedPools;
+    return [...source].sort((a, b) => a.poolNo.localeCompare(b.poolNo, undefined, { numeric: true }));
+  }, [statDrillDown, activePools, completedPools, rejectedPools]);
+
+  const statDrillDownMeta = {
+    active: { label: 'Active in fabrication', icon: Layers, iconBg: 'bg-primary-50', iconColor: 'text-primary-600' },
+    completed: { label: 'Despatched and clear', icon: TrendingUp, iconBg: 'bg-success-50', iconColor: 'text-success-600' },
+    rejections: { label: 'Total rework holds', icon: ThumbsDown, iconBg: 'bg-danger-50', iconColor: 'text-danger-600' },
+    teams: { label: 'Assigned teams rate', icon: Users, iconBg: 'bg-neutral-100', iconColor: 'text-neutral-600' },
+  } as const;
+
   // Action Handlers for Setup Directory
   const handleAddNewInspector = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2091,7 +2138,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       {/* KPI Stats cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-        <div className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)]">
+        <div
+          onClick={() => setStatDrillDown('active')}
+          className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)] cursor-pointer"
+        >
           <div className="bg-primary-50 p-3 rounded-[var(--radius-control)] text-primary-600 transition-colors group-hover:bg-primary-100">
             <Layers className="h-5 w-5" />
           </div>
@@ -2101,7 +2151,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         </div>
 
-        <div className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)]">
+        <div
+          onClick={() => setStatDrillDown('completed')}
+          className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)] cursor-pointer"
+        >
           <div className="bg-success-50 p-3 rounded-[var(--radius-control)] text-success-600 transition-colors group-hover:bg-success-100">
             <TrendingUp className="h-5 w-5" />
           </div>
@@ -2111,7 +2164,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         </div>
 
-        <div className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)]">
+        <div
+          onClick={() => setStatDrillDown('rejections')}
+          className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)] cursor-pointer"
+        >
           <div className="bg-danger-50 p-3 rounded-[var(--radius-control)] text-danger-600 transition-colors group-hover:bg-danger-100">
             <ThumbsDown className="h-5 w-5" />
           </div>
@@ -2121,7 +2177,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         </div>
 
-        <div className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)]">
+        <div
+          onClick={() => setStatDrillDown('teams')}
+          className="group bg-white p-5 rounded-[var(--radius-card)] border border-neutral-200 flex items-center gap-4 transition-all hover:border-neutral-300 hover:shadow-[var(--shadow-elevation-1)] cursor-pointer"
+        >
           <div className="bg-neutral-100 p-3 rounded-[var(--radius-control)] text-neutral-600 transition-colors group-hover:bg-neutral-200">
             <Users className="h-5 w-5" />
           </div>
@@ -2285,7 +2344,127 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </div>
       </div>
 
-      {/* Utility bar: sync status + refresh, sits above the tab row so it never gets caught in tab wrapping */}
+      {/* KPI STAT CARD DRILL-DOWN MODAL — click a stat above to see the exact
+          pools (or teams) behind that number, same pattern as the Planning
+          Department's project/type drill-down. */}
+      {statDrillDown && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+          onClick={() => setStatDrillDown(null)}
+        >
+          <div
+            className="bg-white rounded-2xl border border-neutral-200 shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col animate-scaleUp"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 p-5 border-b border-neutral-100 shrink-0">
+              <div className="flex items-start gap-3">
+                <div className={`${statDrillDownMeta[statDrillDown].iconBg} p-2.5 rounded-xl ${statDrillDownMeta[statDrillDown].iconColor} shrink-0`}>
+                  {React.createElement(statDrillDownMeta[statDrillDown].icon, { className: 'h-5 w-5' })}
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-neutral-800 tracking-wide">
+                    {statDrillDownMeta[statDrillDown].label}
+                  </h3>
+                  <p className="text-[11px] text-neutral-400 mt-0.5">
+                    {statDrillDown === 'teams'
+                      ? `${teams.filter(t => isTeamBusy(t.id)).length} of ${teams.length} teams currently assigned`
+                      : `${statDrillDownPools.length} pool${statDrillDownPools.length !== 1 ? 's' : ''} matched — current stage shown live`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setStatDrillDown(null)}
+                className="text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded-lg p-1.5 shrink-0 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1">
+              {statDrillDown === 'teams' ? (
+                teams.length === 0 ? (
+                  <div className="p-8 text-center text-neutral-400 text-xs">No teams configured.</div>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-neutral-50 text-neutral-500 uppercase tracking-wider text-[10px] font-semibold sticky top-0">
+                      <tr>
+                        <th className="py-2.5 px-5">Team</th>
+                        <th className="py-2.5 px-3">Status</th>
+                        <th className="py-2.5 px-3">Assigned pool</th>
+                        <th className="py-2.5 px-5 text-right">Working on stage</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-100">
+                      {[...teams]
+                        .sort((a, b) => Number(isTeamBusy(b.id)) - Number(isTeamBusy(a.id)) || a.name.localeCompare(b.name))
+                        .map(t => {
+                          const assignment = teamAssignments.get(t.id);
+                          const busy = isTeamBusy(t.id);
+                          const stageName = assignment ? STAGES.find(s => s.id === assignment.stageId)?.name : null;
+                          return (
+                            <tr key={t.id} className="hover:bg-neutral-50/70">
+                              <td className="py-2.5 px-5 font-semibold text-neutral-800">{t.name}</td>
+                              <td className="py-2.5 px-3">
+                                <span className={`font-semibold px-1.5 py-0.5 rounded text-[10px] uppercase ${
+                                  busy ? 'bg-danger-50 text-danger-600' : 'bg-success-50 text-success-600'
+                                }`}>
+                                  {busy ? 'Busy' : 'Idle'}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-neutral-600">
+                                {assignment ? assignment.pool.poolNo : '—'}
+                              </td>
+                              <td className="py-2.5 px-5 text-right text-neutral-500">
+                                {stageName || '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                )
+              ) : statDrillDownPools.length === 0 ? (
+                <div className="p-8 text-center text-neutral-400 text-xs">No pools found in this bucket.</div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-neutral-50 text-neutral-500 uppercase tracking-wider text-[10px] font-semibold sticky top-0">
+                    <tr>
+                      <th className="py-2.5 px-5">Pool No.</th>
+                      <th className="py-2.5 px-3">Project</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-5 text-right">Current stage</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-100">
+                    {statDrillDownPools.map(p => {
+                      const currentStageName = p.currentStageIndex >= STAGES.length
+                        ? 'Delivered / Complete'
+                        : STAGES[p.currentStageIndex]?.name || 'Unknown';
+                      const currentStageColor = p.currentStageIndex >= STAGES.length
+                        ? '#10b981'
+                        : STAGES[p.currentStageIndex]?.color || '#94a3b8';
+                      return (
+                        <tr key={p.id} className="hover:bg-neutral-50/70">
+                          <td className="py-2.5 px-5 font-semibold text-neutral-800 font-mono">{p.poolNo}</td>
+                          <td className="py-2.5 px-3 text-neutral-600">{p.projectName}</td>
+                          <td className="py-2.5 px-3 font-mono text-neutral-500">{p.status}</td>
+                          <td className="py-2.5 px-5 text-right">
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: currentStageColor }}>
+                              {currentStageName}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {onRefreshAll && (
         <div className="flex items-center justify-end gap-3 px-1">
           {lastSyncTime && !isFullSyncing && (
