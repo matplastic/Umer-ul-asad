@@ -178,7 +178,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // storage location, HS code, or category.
   const [inventorySearch, setInventorySearch] = useState('');
   // Which of the 3 inventory portals is showing: MEP / Civil / Other / All.
-  const [invGroupTab, setInvGroupTab] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
+  const [invGroupTab, setInvGroupTab] = useState<'mep' | 'civil' | 'other' | 'all' | 'key'>('all');
   // Same MEP / Civil / Other split, applied to the Reports tab (Consumption
   // Log + Stock Ledger) so Store can look at each portal's consumption
   // separately too.
@@ -1121,7 +1121,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
           </div>
 
-          {/* Inventory portal switch: MEP / Civil / Other run as separate views */}
+          {/* Inventory portal switch: MEP / Civil / Other run as separate views;
+              Key Materials is a cross-cutting filter (any material starred as
+              critical, regardless of portal) so it gets its own amber accent
+              to read as "a different kind of filter" rather than a 4th portal. */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
             {(['all', 'mep', 'civil', 'other'] as const).map(g => {
               const count = g === 'all' ? materials.length : materials.filter(m => materialGroup(m) === g).length;
@@ -1136,6 +1139,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 </button>
               );
             })}
+            <span className="w-px h-5 bg-slate-800 mx-1" aria-hidden="true" />
+            <button
+              onClick={() => setInvGroupTab(prev => (prev === 'key' ? 'all' : 'key'))}
+              data-testid="inv-group-key"
+              title="Show only materials starred as Key Materials"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${
+                invGroupTab === 'key'
+                  ? 'bg-amber-500 border-amber-500 text-slate-900'
+                  : 'bg-slate-900 border-amber-800/60 text-amber-400 hover:text-amber-300 hover:border-amber-700'
+              }`}
+            >
+              <Star className={`h-3.5 w-3.5 ${invGroupTab === 'key' ? 'fill-slate-900' : 'fill-amber-400'}`} />
+              Key Materials <span className="opacity-70">({materials.filter(isMaterialCritical).length})</span>
+            </button>
           </div>
 
           {/* Inventory report export — Total Incoming/Consumed follow the period bar above; Current Stock is always the live shelf balance */}
@@ -1169,7 +1186,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <tbody>
                 {filteredMaterials
                   .filter(m => sectionFilter === '__blank__' ? !m.section : true)
-                  .filter(m => invGroupTab === 'all' ? true : materialGroup(m) === invGroupTab)
+                  .filter(m => invGroupTab === 'all' ? true : invGroupTab === 'key' ? isMaterialCritical(m) : materialGroup(m) === invGroupTab)
                   .map(m => {
                     const inv = analytics?.inventoryReport?.find((r: any) => r.materialId === m.id);
                     const grp = materialGroup(m);
@@ -1206,9 +1223,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   })}
               </tbody>
             </table>
-            {filteredMaterials.filter(m => invGroupTab === 'all' ? true : materialGroup(m) === invGroupTab).length === 0 && (
+            {filteredMaterials.filter(m => invGroupTab === 'all' ? true : invGroupTab === 'key' ? isMaterialCritical(m) : materialGroup(m) === invGroupTab).length === 0 && (
               <div className="text-center text-slate-500 text-sm py-10">
-                {inventorySearch ? `No materials match "${inventorySearch}".` : `No ${invGroupTab === 'all' ? '' : GROUP_LABELS[invGroupTab] + ' '}materials found. Add materials above or upload Excel.`}
+                {inventorySearch ? `No materials match "${inventorySearch}".` : `No ${invGroupTab === 'all' ? '' : invGroupTab === 'key' ? 'Key ' : GROUP_LABELS[invGroupTab] + ' '}materials found. Add materials above or upload Excel.`}
               </div>
             )}
           </div>
