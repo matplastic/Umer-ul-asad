@@ -1307,6 +1307,78 @@ export default function App() {
     saveState(updatedPools, teams, updatedLogs, inspectors, engineers);
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // LIVE SYNC FIX: keep "All Projects Portal" (projectsSummary) automatically
+  // up to date with real production activity. Previously projectsSummary only
+  // ever synced via the manual form on that tab and via "Direct Stage & Status
+  // Updater" overrides — so a project spawned through Create/Batch Spawner,
+  // and normal shop-floor stage approvals, never showed up or updated there.
+  // This helper recomputes totals for the given project name(s) straight from
+  // the live `pools` array and merges the result into projectsSummary, so any
+  // handler that creates/advances/removes a pool can call it to keep the
+  // portal accurate without requiring manual re-entry.
+  // ─────────────────────────────────────────────────────────────────────────
+  const syncProjectSummaries = (
+    projectNames: string[],
+    updatedPools: Pool[],
+    baseProjectsSummary: ProjectSummary[]
+  ): ProjectSummary[] => {
+    let updatedProjects = [...baseProjectsSummary];
+    const uniqueNames = Array.from(new Set(projectNames.filter(Boolean)));
+
+    uniqueNames.forEach((projectName) => {
+      const projectPools = updatedPools.filter(
+        p => p.projectName.toLowerCase() === projectName.toLowerCase()
+      );
+
+      const existingIndex = updatedProjects.findIndex(
+        p => p.projectName.toLowerCase() === projectName.toLowerCase()
+      );
+
+      // If every pool for this project has been removed/scrapped and there's
+      // no existing manual record to preserve, there's nothing to sync.
+      if (projectPools.length === 0 && existingIndex === -1) return;
+
+      const producedCount = projectPools.filter(p => p.currentStageIndex >= STAGES.length).length;
+      const deliveredCount = projectPools.filter(p => p.isDelivered).length;
+
+      if (existingIndex >= 0) {
+        const existing = updatedProjects[existingIndex];
+        // Never shrink the total below what's actually been spawned — an
+        // admin-set target can still exceed the live pool count, but the
+        // live pool count is always the floor.
+        const nextTotal = Math.max(existing.totalPools, projectPools.length);
+        const updatedRec: ProjectSummary = {
+          ...existing,
+          totalPools: nextTotal,
+          producedPools: producedCount,
+          deliveredPools: deliveredCount,
+          remainingPools: Math.max(0, nextTotal - deliveredCount)
+        };
+        updatedProjects[existingIndex] = updatedRec;
+        dbSaveProjectSummary(updatedRec).catch(console.error);
+      } else {
+        const firstPool = projectPools[0];
+        const newRec: ProjectSummary = {
+          id: 'proj-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+          projectName,
+          orientation: firstPool.orientation,
+          poolType: firstPool.poolType || 'Type 3',
+          totalPools: projectPools.length,
+          producedPools: producedCount,
+          deliveredPools: deliveredCount,
+          remainingPools: Math.max(0, projectPools.length - deliveredCount),
+          notes: 'Auto-tracked from live production pools',
+          createdAt: new Date().toISOString()
+        };
+        updatedProjects.push(newRec);
+        dbSaveProjectSummary(newRec).catch(console.error);
+      }
+    });
+
+    return updatedProjects;
+  };
+
   const handleDirectOverridePool = (
     poolSpec: {
       id?: string;
@@ -1989,11 +2061,14 @@ export default function App() {
       p => !(p.poolNo === targetPool.poolNo && p.projectName === targetPool.projectName)
     );
 
+    const updatedProjects = syncProjectSummaries([targetPool.projectName], updatedPools, projectsSummary);
+
     setPools(updatedPools);
     setTeams(updatedTeams);
     setLogs(updatedLogs);
     setPlannedPools(updatedPlannedPools);
-    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers);
+    setProjectsSummary(updatedProjects);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlannedPools, updatedProjects);
     await dbDeletePool(poolId).catch(console.error);
 
     // Remove any leftover planned-pool record(s) for this poolNo/project so
@@ -2180,10 +2255,12 @@ export default function App() {
 
     const updatedPools = [...pools, newPool];
     const updatedLogs = [...logs, newLog];
+    const updatedProjects = syncProjectSummaries([spec.projectName], updatedPools, projectsSummary);
 
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teams, updatedLogs, inspectors, engineers);
+    setProjectsSummary(updatedProjects);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, plannedPools, updatedProjects);
   };
 
   const handleCreatePoolBatch = (
@@ -2236,10 +2313,12 @@ export default function App() {
 
     const updatedPools = [...pools, ...newPools];
     const updatedLogs = [...logs, newLog];
+    const updatedProjects = syncProjectSummaries([projectName], updatedPools, projectsSummary);
 
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teams, updatedLogs);
+    setProjectsSummary(updatedProjects);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, plannedPools, updatedProjects);
   };
 
   // ==========================================
@@ -3017,13 +3096,15 @@ export default function App() {
     };
 
     const updatedLogs = [...logs, newLog];
+    const updatedProjects = syncProjectSummaries([pool.projectName], updatedPools, projectsSummary);
 
     setPools(updatedPools);
     poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setTeams(updatedTeams);
     teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
-    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans);
+    setProjectsSummary(updatedProjects);
+    saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans, updatedProjects);
   };
 
   // 6. Reject Stage (Sends pool back for rework)
