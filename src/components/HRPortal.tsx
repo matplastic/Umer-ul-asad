@@ -9,6 +9,11 @@ import {
   Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
+import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
+import {
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip as RechartsTooltip, Legend
+} from 'recharts';
 
 // Common nationalities for the UAE workforce — shown as datalist suggestions
 // on the passport form. Free text is still allowed, this is just for speed.
@@ -1861,6 +1866,58 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       });
     };
 
+    // ── Date-wise attendance trend chart ──
+    // Re-runs the same daily breakdown logic (present / unexplained absent /
+    // leave / medical / site deployment) for each day in the selected
+    // window, plus the constant headcount and manual/non-punching staff
+    // count, so managers can see the shape of attendance over time instead
+    // of only ever looking at one day at a time. Site Deployment is a live
+    // roster (not date-stamped in the data model), so historical days reuse
+    // today's deployment list rather than a true historical snapshot.
+    const [trendRangeDays, setTrendRangeDays] = useState<7 | 14 | 30>(14);
+    const manualStaffCount = useMemo(() => employees.filter(e => e.nonPunching).length, [employees]);
+    const deployedIdSet = useMemo(() => new Set(siteDeployed.map(d => d.employeeId)), [siteDeployed]);
+
+    const attendanceTrend = useMemo(() => {
+      const days: {
+        date: string; label: string; present: number; absent: number;
+        leave: number; medical: number; deployment: number; manual: number; total: number;
+      }[] = [];
+
+      for (let i = trendRangeDays - 1; i >= 0; i--) {
+        const d = new Date(dateFilter);
+        d.setDate(d.getDate() - i);
+        const iso = d.toISOString().slice(0, 10);
+
+        const presentIdsForDate = new Set(
+          employeePunches.filter(p => p.date === iso && p.punchType === 'IN').map(p => p.employeeId)
+        );
+        const leaveIdsForDate = new Set(
+          leaves.filter(l => l.status === 'Approved' && iso >= l.fromDate && iso <= l.toDate).map(l => l.employeeId)
+        );
+        const medicalIdsForDate = new Set(medicals.filter(m => m.date === iso).map(m => m.employeeId));
+
+        const absenteesForDate = employees.filter(e => !presentIdsForDate.has(e.id) && !e.nonPunching && !deployedIdSet.has(e.id));
+        const unexplainedForDate = absenteesForDate.filter(e => !leaveIdsForDate.has(e.id) && !medicalIdsForDate.has(e.id));
+        const onLeaveForDate = absenteesForDate.filter(e => leaveIdsForDate.has(e.id)).length;
+        const onMedicalForDate = absenteesForDate.filter(e => medicalIdsForDate.has(e.id)).length;
+        const deployedTodayForDate = employees.filter(e => deployedIdSet.has(e.id) && !presentIdsForDate.has(e.id)).length;
+
+        days.push({
+          date: iso,
+          label: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+          present: presentIdsForDate.size,
+          absent: unexplainedForDate.length,
+          leave: onLeaveForDate,
+          medical: onMedicalForDate,
+          deployment: deployedTodayForDate,
+          manual: manualStaffCount,
+          total: employees.length,
+        });
+      }
+      return days;
+    }, [dateFilter, trendRangeDays, employees, employeePunches, leaves, medicals, deployedIdSet, manualStaffCount]);
+
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap gap-3 items-center">
@@ -1931,6 +1988,54 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           />
         ) : (
         <>
+        {/* Date-wise attendance trend */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                <BarChart2 className="h-4 w-4 text-violet-600" />
+                Date-wise Attendance Trend
+              </h4>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Present, absent, leave, medical, site deployment & manual-punch staff, ending {fmtDate(dateFilter)}.
+              </p>
+            </div>
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+              {([7, 14, 30] as const).map(n => (
+                <button
+                  key={n}
+                  onClick={() => setTrendRangeDays(n)}
+                  className={`px-3 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors ${
+                    trendRangeDays === n ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {n}D
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={280}>
+            <ComposedChart data={attendanceTrend} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={chartAxisDefaults.gridStroke} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: chartAxisDefaults.axisStroke }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10.5, fill: chartAxisDefaults.axisStroke }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <RechartsTooltip
+                contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }}
+                labelFormatter={(label, payload) => payload?.[0]?.payload?.date ? fmtDate(payload[0].payload.date) : label}
+              />
+              <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600 }} iconType="circle" iconSize={8} />
+              <Bar dataKey="present" name="Present" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="leave" name="On Leave" stackId="a" fill="#f59e0b" />
+              <Bar dataKey="medical" name="Medical" stackId="a" fill="#6366f1" />
+              <Bar dataKey="deployment" name="Site Deployment" stackId="a" fill="#0ea5e9" />
+              <Bar dataKey="absent" name="Absent" stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+              <Line type="monotone" dataKey="total" name="Total Employees" stroke="#334155" strokeWidth={2} strokeDasharray="4 3" dot={false} />
+              <Line type="monotone" dataKey="manual" name="Manual-Punch Staff" stroke="#94a3b8" strokeWidth={2} strokeDasharray="2 2" dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+
         <AttendanceUploadPanel
           employees={employees}
           selectedDate={dateFilter}
