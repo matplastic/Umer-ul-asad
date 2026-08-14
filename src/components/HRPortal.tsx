@@ -15,6 +15,16 @@ import {
   CartesianGrid, Tooltip as RechartsTooltip, Legend
 } from 'recharts';
 
+// Local (not UTC) date/month strings. Plain `new Date().toISOString().slice(0,10)`
+// converts to UTC first, which rolls the date back a day for timezones ahead
+// of UTC (UAE is UTC+4) during local early-morning hours, and was also the
+// cause of Sundays landing on the wrong bar/tick in the attendance trend
+// charts. Always use these instead of toISOString() for "just the date".
+const localDateStr = (d: Date = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const localMonthStr = (d: Date = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
 // Common nationalities for the UAE workforce — shown as datalist suggestions
 // on the passport form. Free text is still allowed, this is just for speed.
 const PASSPORT_COUNTRIES = [
@@ -1786,7 +1796,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
 
   const AttendanceTab = () => {
-    const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
+    const [dateFilter, setDateFilter] = useState(localDateStr());
     const [empFilter, setEmpFilter] = useState('All');
     const [attSubTab, setAttSubTab] = useState<'daily' | 'deployment' | 'employeeReport' | 'trends'>('daily');
 
@@ -1893,7 +1903,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       for (let i = trendRangeDays - 1; i >= 0; i--) {
         const d = new Date(dateFilter + 'T00:00:00');
         d.setDate(d.getDate() - i);
-        const iso = d.toISOString().slice(0, 10);
+        const iso = localDateStr(d);
         const isHoliday = d.getDay() === 0; // Sunday — standing company holiday
 
         const presentIdsForDate = new Set(
@@ -2253,7 +2263,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   const PayrollTab = () => {
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState<Partial<PayrollRecord>>({});
-    const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7));
+    const [monthFilter, setMonthFilter] = useState(localMonthStr());
 
     const filtered = payroll.filter(p => p.month === monthFilter);
     const totalNet = filtered.reduce((s, p) => s + p.netSalary, 0);
@@ -2753,14 +2763,14 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       return Object.entries(map).sort((a, b) => b[1] - a[1]);
     }, []);
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = localDateStr();
     const todayPunches = employeePunches.filter(p => p.date === todayStr);
     const todayPresent = new Set(todayPunches.filter(p => p.punchType === 'IN').map(p => p.employeeId)).size;
 
     const pendingLeaves = leaves.filter(l => l.status === 'Pending').length;
     const approvedLeaves = leaves.filter(l => l.status === 'Approved').length;
 
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = localMonthStr();
     const monthPayroll = payroll.filter(p => p.month === currentMonth);
     const totalPayroll = monthPayroll.reduce((s, p) => s + p.netSalary, 0);
 
@@ -2844,7 +2854,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   // ─────────────────────────────────────────────────────────────────────────────
   const AccidentsTab = () => {
     const [showForm, setShowForm] = useState(false);
-    const [form, setForm] = useState<Partial<AccidentReport>>({ status: 'Open', date: new Date().toISOString().slice(0, 10) });
+    const [form, setForm] = useState<Partial<AccidentReport>>({ status: 'Open', date: localDateStr() });
     const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Under Investigation' | 'Closed'>('All');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
@@ -2872,7 +2882,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       };
       saveAccidents([record, ...accidents]);
       setShowForm(false);
-      setForm({ status: 'Open', date: new Date().toISOString().slice(0, 10) });
+      setForm({ status: 'Open', date: localDateStr() });
     };
 
     const updateStatus = (id: string, status: AccidentReport['status']) => {
@@ -3028,7 +3038,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   // ─────────────────────────────────────────────────────────────────────────────
   const MedicalTab = () => {
     const [showForm, setShowForm] = useState(false);
-    const [form, setForm] = useState<Partial<MedicalRecord>>({ date: new Date().toISOString().slice(0, 10) });
+    const [form, setForm] = useState<Partial<MedicalRecord>>({ date: localDateStr() });
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [search, setSearch] = useState('');
@@ -3046,7 +3056,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       const emp = employees.find(e => e.id === form.employeeId);
       const record: MedicalRecord = {
         id: uid(),
-        date: form.date || new Date().toISOString().slice(0, 10),
+        date: form.date || localDateStr(),
         employeeId: form.employeeId,
         employeeName: emp?.name || '',
         disease: form.disease,
@@ -3056,7 +3066,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       };
       saveMedicals([record, ...medicals]);
       setShowForm(false);
-      setForm({ date: new Date().toISOString().slice(0, 10) });
+      setForm({ date: localDateStr() });
     };
 
     return (
@@ -3215,8 +3225,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const spendDate = (r: HRPurchaseRequest) => (r.billUploadedAt || r.decidedAt || r.requestedAt).slice(0, 10);
     const spendAmount = (r: HRPurchaseRequest) => r.actualCost ?? r.estimatedCost ?? 0;
     const spendable = purchaseRequests.filter(r => r.status === 'Approved' && spendAmount(r));
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const weekAgoStr = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const todayStr = localDateStr();
+    const weekAgoStr = localDateStr(new Date(Date.now() - 7 * 86400000));
     const monthStr = todayStr.slice(0, 7);
     const dailyTotal = spendable.filter(r => spendDate(r) === todayStr).reduce((s, r) => s + spendAmount(r), 0);
     const weeklyTotal = spendable.filter(r => spendDate(r) >= weekAgoStr).reduce((s, r) => s + spendAmount(r), 0);
