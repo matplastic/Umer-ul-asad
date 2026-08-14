@@ -1124,11 +1124,49 @@ export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [],
   const docRef = doc(clientDb, 'system_state', 'teams');
   let updatedArr: any[] = [];
 
+  // DATA-LOSS FIX (v13): content-based last-resort guard, independent of
+  // teamsVerifiedRef / timing.
+  //
+  // Every previous fix (v7–v12, see comments above) closed a specific TIMING
+  // race that let the hardcoded generic skeleton ("Steel Fabrication - Team
+  // 1", "Team 2", ...) reach Firestore while real team data was still
+  // loading on some device. Each one was a real, valid fix — but each was
+  // also scoped to the exact race it was written for. If any future code
+  // path (or a caller we haven't audited) ever calls dbSyncTeams with that
+  // same generic skeleton again, none of the timing fixes would catch it,
+  // because they all live upstream of this function.
+  //
+  // This check instead looks at CONTENT, right where the write actually
+  // happens: generateDefaultTeams() produces a very distinctive, exact shape
+  // — every id is "<stageId>_t<n>" and every name is "<Stage Name> - Team
+  // <n>". A real, in-use team roster (renamed teams, custom codes, teams
+  // added/removed over time) essentially never matches that shape for every
+  // single entry. So: if what we're about to write is a full generic
+  // skeleton, AND the server's current live copy already holds real data
+  // that ISN'T a generic skeleton, refuse the write and keep the server
+  // copy — no matter which code path or which earlier guard failed to catch
+  // it.
+  const isGenericSkeletonTeam = (t: any) =>
+    typeof t?.id === 'string' && typeof t?.name === 'string' &&
+    /^[a-z_]+_t\d+$/.test(t.id) && / - Team \d+$/.test(t.name);
+  const isGenericSkeletonArray = (arr: any[]) => arr.length > 0 && arr.every(isGenericSkeletonTeam);
+
   await runTransaction(clientDb, async (transaction) => {
     const snap = await transaction.get(docRef);
     const current: any[] = snap.exists() && Array.isArray(snap.data()?.data)
       ? snap.data()!.data
       : [];
+
+    if (isGenericSkeletonArray(localTeams) && current.length > 0 && !isGenericSkeletonArray(current)) {
+      console.error(
+        '[dbSyncTeams] BLOCKED: incoming team list looks like the auto-generated ' +
+        'generic skeleton, but Firestore already holds real, customized team data. ' +
+        'Refusing to overwrite — this write did not happen. If this fires, please ' +
+        'reload the page fully before editing teams again.'
+      );
+      updatedArr = current;
+      return;
+    }
 
     const removedSet = new Set(removedIds);
     const localById = new Map(localTeams.map((t) => [t?.id, t]));
