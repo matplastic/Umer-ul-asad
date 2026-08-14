@@ -1841,9 +1841,14 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       () => employees.filter(e => !presentIds.has(e.id) && !e.nonPunching && !deployedIds.has(e.id)),
       [employees, dateFilter, dayPunches, siteDeployed]
     );
+    // Sunday is a standing company holiday — nobody who didn't punch in
+    // should be flagged as absent that day, same rule payroll already
+    // applies (Sunday OT multiplier implies Sunday isn't a normal work day).
+    const isSelectedDateSunday = new Date(dateFilter + 'T00:00:00').getDay() === 0;
     // "Absent" now excludes anyone with an approved leave covering this date
     // or a medical record dated this day — those are explained, not unexplained.
-    const unexplainedAbsentees = absentees.filter(e => !leaveByEmployee[e.id] && !medicalByEmployee[e.id]);
+    // On a Sunday, the whole day is explained by the holiday itself.
+    const unexplainedAbsentees = isSelectedDateSunday ? [] : absentees.filter(e => !leaveByEmployee[e.id] && !medicalByEmployee[e.id]);
     const totalAbsent = unexplainedAbsentees.length;
     const totalOnLeave = absentees.filter(e => leaveByEmployee[e.id]).length;
     const totalOnMedical = absentees.filter(e => medicalByEmployee[e.id]).length;
@@ -1882,12 +1887,14 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       const days: {
         date: string; label: string; present: number; absent: number;
         leave: number; medical: number; deployment: number; manual: number; total: number;
+        isHoliday: boolean;
       }[] = [];
 
       for (let i = trendRangeDays - 1; i >= 0; i--) {
-        const d = new Date(dateFilter);
+        const d = new Date(dateFilter + 'T00:00:00');
         d.setDate(d.getDate() - i);
         const iso = d.toISOString().slice(0, 10);
+        const isHoliday = d.getDay() === 0; // Sunday — standing company holiday
 
         const presentIdsForDate = new Set(
           employeePunches.filter(p => p.date === iso && p.punchType === 'IN').map(p => p.employeeId)
@@ -1898,7 +1905,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         const medicalIdsForDate = new Set(medicals.filter(m => m.date === iso).map(m => m.employeeId));
 
         const absenteesForDate = employees.filter(e => !presentIdsForDate.has(e.id) && !e.nonPunching && !deployedIdSet.has(e.id));
-        const unexplainedForDate = absenteesForDate.filter(e => !leaveIdsForDate.has(e.id) && !medicalIdsForDate.has(e.id));
+        // On a Sunday, nobody who skipped punching is "absent" — the holiday
+        // itself explains it, same rule as the single-day summary above.
+        const unexplainedForDate = isHoliday ? [] : absenteesForDate.filter(e => !leaveIdsForDate.has(e.id) && !medicalIdsForDate.has(e.id));
         const onLeaveForDate = absenteesForDate.filter(e => leaveIdsForDate.has(e.id)).length;
         const onMedicalForDate = absenteesForDate.filter(e => medicalIdsForDate.has(e.id)).length;
         const deployedTodayForDate = employees.filter(e => deployedIdSet.has(e.id) && !presentIdsForDate.has(e.id)).length;
@@ -1913,6 +1922,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           deployment: deployedTodayForDate,
           manual: manualStaffCount,
           total: employees.length,
+          isHoliday,
         });
       }
       return days;
@@ -1935,6 +1945,11 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             {empNames.map(n => <option key={n}>{n}</option>)}
           </select>
           <div className="flex gap-3 ml-auto items-center flex-wrap">
+            {isSelectedDateSunday && (
+              <span className="bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                <CalendarOff className="h-3.5 w-3.5" /> Sunday — Holiday
+              </span>
+            )}
             <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-full border border-emerald-200">
               ✓ Present: {totalPresent}
             </span>
@@ -1989,52 +2004,132 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         ) : (
         <>
         {/* Date-wise attendance trend */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <div>
-              <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                <BarChart2 className="h-4 w-4 text-violet-600" />
-                Date-wise Attendance Trend
-              </h4>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Present, absent, leave, medical, site deployment & manual-punch staff, ending {fmtDate(dateFilter)}.
-              </p>
-            </div>
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
-              {([7, 14, 30] as const).map(n => (
-                <button
-                  key={n}
-                  onClick={() => setTrendRangeDays(n)}
-                  className={`px-3 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors ${
-                    trendRangeDays === n ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {n}D
-                </button>
-              ))}
-            </div>
-          </div>
+        {(() => {
+          const workingDays = attendanceTrend.filter(d => !d.isHoliday);
+          const avgAttendanceRate = workingDays.length > 0
+            ? Math.round(workingDays.reduce((sum, d) => sum + (d.total > 0 ? (d.present / d.total) * 100 : 0), 0) / workingDays.length)
+            : 0;
+          const totalAbsencesInRange = attendanceTrend.reduce((sum, d) => sum + d.absent, 0);
+          const holidaysInRange = attendanceTrend.filter(d => d.isHoliday).length;
 
-          <ResponsiveContainer width="100%" height={280}>
-            <ComposedChart data={attendanceTrend} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={chartAxisDefaults.gridStroke} vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: chartAxisDefaults.axisStroke }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10.5, fill: chartAxisDefaults.axisStroke }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <RechartsTooltip
-                contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12 }}
-                labelFormatter={(label, payload) => payload?.[0]?.payload?.date ? fmtDate(payload[0].payload.date) : label}
-              />
-              <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600 }} iconType="circle" iconSize={8} />
-              <Bar dataKey="present" name="Present" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="leave" name="On Leave" stackId="a" fill="#f59e0b" />
-              <Bar dataKey="medical" name="Medical" stackId="a" fill="#6366f1" />
-              <Bar dataKey="deployment" name="Site Deployment" stackId="a" fill="#0ea5e9" />
-              <Bar dataKey="absent" name="Absent" stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} />
-              <Line type="monotone" dataKey="total" name="Total Employees" stroke="#334155" strokeWidth={2} strokeDasharray="4 3" dot={false} />
-              <Line type="monotone" dataKey="manual" name="Manual-Punch Staff" stroke="#94a3b8" strokeWidth={2} strokeDasharray="2 2" dot={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+          const TrendTooltip = ({ active, payload }: any) => {
+            if (!active || !payload || !payload.length) return null;
+            const row = payload[0]?.payload;
+            if (!row) return null;
+            const items = [
+              { key: 'present', label: 'Present', color: '#10b981' },
+              { key: 'leave', label: 'On Leave', color: '#f59e0b' },
+              { key: 'medical', label: 'Medical', color: '#6366f1' },
+              { key: 'deployment', label: 'Site Deployment', color: '#0ea5e9' },
+              { key: 'absent', label: 'Absent', color: '#f43f5e' },
+            ];
+            const attendanceRate = row.total > 0 ? Math.round((row.present / row.total) * 100) : 0;
+            return (
+              <div className="bg-white border border-slate-200 rounded-xl px-3.5 py-3 shadow-lg min-w-[190px]">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-black text-slate-800">{fmtDate(row.date)}</span>
+                  {row.isHoliday && (
+                    <span className="text-[9px] font-black text-white bg-slate-700 rounded-full px-2 py-0.5 uppercase tracking-wide">Holiday</span>
+                  )}
+                </div>
+                {row.isHoliday ? (
+                  <p className="text-[11px] text-slate-500">Sunday — standing company holiday.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {items.map(it => (
+                      <div key={it.key} className="flex items-center justify-between text-[11px]">
+                        <span className="flex items-center gap-1.5 font-semibold text-slate-500">
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: it.color }} />
+                          {it.label}
+                        </span>
+                        <span className="font-black text-slate-800 font-mono">{(row as any)[it.key]}</span>
+                      </div>
+                    ))}
+                    <div className="border-t border-slate-100 mt-1.5 pt-1.5 flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-slate-400">Attendance Rate</span>
+                      <span className="font-black text-teal-700">{attendanceRate}%</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          };
+
+          const TrendTick = (props: any) => {
+            const { x, y, payload } = props;
+            const row = attendanceTrend.find(d => d.label === payload.value);
+            const isHoliday = !!row?.isHoliday;
+            return (
+              <g transform={`translate(${x},${y})`}>
+                <text x={0} y={0} dy={12} textAnchor="middle" fontSize={10.5} fontWeight={isHoliday ? 800 : 500} fill={isHoliday ? '#94a3b8' : '#64748b'}>
+                  {payload.value}
+                </text>
+                {isHoliday && (
+                  <text x={0} y={0} dy={24} textAnchor="middle" fontSize={8} fontWeight={800} fill="#cbd5e1" letterSpacing={0.5}>HOL</text>
+                )}
+              </g>
+            );
+          };
+
+          return (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+                <div>
+                  <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                    <BarChart2 className="h-4.5 w-4.5 text-violet-600" />
+                    Date-wise Attendance Trend
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Present, absent, leave, medical, site deployment & manual-punch staff, ending {fmtDate(dateFilter)}. Sundays observed as a standing company holiday.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg shrink-0">
+                  {([7, 14, 30] as const).map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setTrendRangeDays(n)}
+                      className={`px-3 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors ${
+                        trendRangeDays === n ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {n}D
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Quick-read summary chips for the selected window */}
+              <div className="flex flex-wrap gap-2 mb-5">
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-teal-50 text-teal-700 border border-teal-100">
+                  {avgAttendanceRate}% avg attendance
+                </span>
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100">
+                  {totalAbsencesInRange} absences flagged
+                </span>
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200">
+                  {holidaysInRange} Sunday{holidaysInRange !== 1 ? 's' : ''} in range
+                </span>
+              </div>
+
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={attendanceTrend} margin={{ top: 4, right: 8, left: -18, bottom: 4 }} barCategoryGap="28%">
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartAxisDefaults.gridStroke} vertical={false} />
+                  <XAxis dataKey="label" tick={<TrendTick />} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} interval={trendRangeDays > 14 ? 'preserveStartEnd' : 0} />
+                  <YAxis tick={{ fontSize: 10.5, fill: chartAxisDefaults.axisStroke }} axisLine={false} tickLine={false} allowDecimals={false} width={32} />
+                  <RechartsTooltip content={<TrendTooltip />} cursor={{ fill: '#f8fafc' }} />
+                  <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingTop: 12 }} iconType="circle" iconSize={8} />
+                  <Bar dataKey="present" name="Present" stackId="a" fill="#10b981" />
+                  <Bar dataKey="leave" name="On Leave" stackId="a" fill="#f59e0b" />
+                  <Bar dataKey="medical" name="Medical" stackId="a" fill="#6366f1" />
+                  <Bar dataKey="deployment" name="Site Deployment" stackId="a" fill="#0ea5e9" />
+                  <Bar dataKey="absent" name="Absent" stackId="a" fill="#f43f5e" radius={[3, 3, 0, 0]} />
+                  <Line type="monotone" dataKey="total" name="Total Employees" stroke="#334155" strokeWidth={2} strokeDasharray="4 3" dot={false} activeDot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="manual" name="Manual-Punch Staff" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="2 2" dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        })()}
 
         <AttendanceUploadPanel
           employees={employees}
@@ -2045,13 +2140,20 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           onDeleteEmployeePunchesByDate={onDeleteEmployeePunchesByDate}
         />
 
+        {isSelectedDateSunday && (
+          <div className="bg-slate-50 rounded-xl border border-slate-200 px-4 py-3 flex items-center gap-2.5 text-xs font-bold text-slate-600">
+            <CalendarOff className="h-4 w-4 text-slate-400" />
+            Sunday — standing company holiday. Anyone who didn't punch in today is not counted as absent.
+          </div>
+        )}
+
         {totalDeployedToday > 0 && (
           <div className="bg-sky-50/60 rounded-xl border border-sky-200 px-4 py-2.5 flex items-center gap-2 text-xs font-bold text-sky-700">
             <MapPin className="h-3.5 w-3.5" /> {totalDeployedToday} staff on Site/Factory Deployment today — excluded from the absent list below. <button onClick={() => setAttSubTab('deployment')} className="underline cursor-pointer">View list</button>
           </div>
         )}
 
-        {absentees.length > 0 && (
+        {!isSelectedDateSunday && absentees.length > 0 && (
           <div className="bg-rose-50/60 rounded-xl border border-rose-200 overflow-hidden">
             <div className="px-4 py-2.5 flex items-center justify-between border-b border-rose-200">
               <h4 className="text-xs font-bold text-rose-700 uppercase tracking-wider">Absentees — {fmtDate(dateFilter)}</h4>
