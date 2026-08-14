@@ -28,13 +28,13 @@ export const DEFECT_TYPES: { category: string; items: string[] }[] = [
   {
     category: 'Surface Defects',
     items: [
-      'Scratch / Scuff Mark',
-      'Sink Mark',
-      'Weld Line / Knit Line',
-      'Silver Streaks / Splay Marks',
-      'Surface Burn Marks',
-      'Orange Peel Texture',
-      'Delamination / Peeling',
+      'Lappage',
+      'Broken tiles',
+      'Alignment',
+      'Glue marks',
+      'Lines not matching',
+      'Tiles without proper glue',
+      'Missing mosaic,
     ],
   },
   {
