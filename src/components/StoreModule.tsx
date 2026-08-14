@@ -515,7 +515,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     await dbSaveCompanyAsset(asset);
     await dbDeleteMaterial(m.id);
     loadAll(true);
-    setTab('assets');
+    // Intentionally stay on the current Inventory tab — only the item moves
+    // to Company Assets, the person shouldn't be redirected away mid-task.
   };
 
   const adjustStock = async (id: string) => {
