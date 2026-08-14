@@ -1677,13 +1677,39 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   };
 
   // Team Performance tab
-  const [perfMode, setPerfMode] = useState<'daily' | 'monthly'>('daily');
+  const [perfMode, setPerfMode] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('daily');
   const [perfDate, setPerfDate] = useState<string>(todayStr);
   const [perfMonth, setPerfMonth] = useState<string>(todayStr.slice(0, 7));
+  // Monday of the selected week (ISO date string)
+  const [perfWeekStart, setPerfWeekStart] = useState<string>(() => {
+    const d = new Date(todayStr + 'T00:00:00');
+    const day = d.getDay(); // 0=Sun..6=Sat
+    const diff = day === 0 ? -6 : 1 - day; // back up to Monday
+    d.setDate(d.getDate() + diff);
+    return d.toISOString().slice(0, 10);
+  });
+  const [perfYear, setPerfYear] = useState<string>(todayStr.slice(0, 4));
+
+  const perfWeekEnd = React.useMemo(() => {
+    const d = new Date(perfWeekStart + 'T00:00:00');
+    d.setDate(d.getDate() + 6);
+    return d.toISOString().slice(0, 10);
+  }, [perfWeekStart]);
+
+  const shiftPerfWeek = (deltaWeeks: number) => {
+    const d = new Date(perfWeekStart + 'T00:00:00');
+    d.setDate(d.getDate() + deltaWeeks * 7);
+    setPerfWeekStart(d.toISOString().slice(0, 10));
+  };
 
   const perfLogs = logs.filter(l => {
     if (l.type !== 'APPROVED' && l.type !== 'REJECTED') return false;
     if (perfMode === 'daily') return toLocalDateStr(l.timestamp) === perfDate;
+    if (perfMode === 'weekly') {
+      const d = toLocalDateStr(l.timestamp);
+      return d >= perfWeekStart && d <= perfWeekEnd;
+    }
+    if (perfMode === 'yearly') return l.timestamp.slice(0, 4) === perfYear;
     return l.timestamp.slice(0, 7) === perfMonth;
   });
 
@@ -5443,7 +5469,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   See how many pools each section team passed vs rejected, either for one day or for a full month.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex bg-slate-100 rounded-xl p-1">
                   <button
                     onClick={() => setPerfMode('daily')}
@@ -5454,12 +5480,28 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     Day-wise
                   </button>
                   <button
+                    onClick={() => setPerfMode('weekly')}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                      perfMode === 'weekly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                    }`}
+                  >
+                    Week-wise
+                  </button>
+                  <button
                     onClick={() => setPerfMode('monthly')}
                     className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
                       perfMode === 'monthly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
                     }`}
                   >
                     Month-wise
+                  </button>
+                  <button
+                    onClick={() => setPerfMode('yearly')}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                      perfMode === 'yearly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                    }`}
+                  >
+                    Year-wise
                   </button>
                 </div>
                 {perfMode === 'daily' ? (
@@ -5477,7 +5519,49 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       Today
                     </button>
                   </>
-                ) : (
+                ) : perfMode === 'weekly' ? (
+                  <>
+                    <button
+                      onClick={() => shiftPerfWeek(-1)}
+                      className="text-xs font-bold px-2.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                      title="Previous week"
+                    >
+                      ‹
+                    </button>
+                    <input
+                      type="date"
+                      value={perfWeekStart}
+                      onChange={(e) => {
+                        const d = new Date(e.target.value + 'T00:00:00');
+                        const day = d.getDay();
+                        const diff = day === 0 ? -6 : 1 - day;
+                        d.setDate(d.getDate() + diff);
+                        setPerfWeekStart(d.toISOString().slice(0, 10));
+                      }}
+                      className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                      title="Pick any date — snaps to that week's Monday"
+                    />
+                    <button
+                      onClick={() => shiftPerfWeek(1)}
+                      className="text-xs font-bold px-2.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                      title="Next week"
+                    >
+                      ›
+                    </button>
+                    <button
+                      onClick={() => {
+                        const d = new Date(todayStr + 'T00:00:00');
+                        const day = d.getDay();
+                        const diff = day === 0 ? -6 : 1 - day;
+                        d.setDate(d.getDate() + diff);
+                        setPerfWeekStart(d.toISOString().slice(0, 10));
+                      }}
+                      className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                    >
+                      This Week
+                    </button>
+                  </>
+                ) : perfMode === 'monthly' ? (
                   <>
                     <input
                       type="month"
@@ -5492,6 +5576,38 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       This Month
                     </button>
                   </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setPerfYear(String(Number(perfYear) - 1))}
+                      className="text-xs font-bold px-2.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                      title="Previous year"
+                    >
+                      ‹
+                    </button>
+                    <select
+                      value={perfYear}
+                      onChange={(e) => setPerfYear(e.target.value)}
+                      className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    >
+                      {Array.from({ length: 6 }, (_, i) => Number(todayStr.slice(0, 4)) - 4 + i).map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => setPerfYear(String(Number(perfYear) + 1))}
+                      className="text-xs font-bold px-2.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                      title="Next year"
+                    >
+                      ›
+                    </button>
+                    <button
+                      onClick={() => setPerfYear(todayStr.slice(0, 4))}
+                      className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+                    >
+                      This Year
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -5502,6 +5618,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
                   {perfMode === 'daily'
                     ? new Date(perfDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+                    : perfMode === 'weekly'
+                    ? `${new Date(perfWeekStart + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${new Date(perfWeekEnd + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                    : perfMode === 'yearly'
+                    ? `Year ${perfYear}`
                     : new Date(perfMonth + '-01T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
                 </p>
                 <p className="text-2xl font-extrabold mt-1">{perfTotals.pass + perfTotals.reject} total QC sign-offs</p>
@@ -5522,7 +5642,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             {perfByTeam.length === 0 ? (
               <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl">
                 <TrendingUp className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm font-bold text-slate-500">No QC sign-offs recorded for this {perfMode === 'daily' ? 'date' : 'month'}.</p>
+                <p className="text-sm font-bold text-slate-500">
+                  No QC sign-offs recorded for this {perfMode === 'daily' ? 'date' : perfMode === 'weekly' ? 'week' : perfMode === 'yearly' ? 'year' : 'month'}.
+                </p>
               </div>
             ) : (
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -5559,7 +5681,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
             {unattributedPerfLogs.length > 0 && (
               <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-xs text-amber-700">
-                <strong>{unattributedPerfLogs.length}</strong> sign-off{unattributedPerfLogs.length === 1 ? '' : 's'} in this {perfMode === 'daily' ? 'date' : 'month'} couldn't be matched to a team (older records made before team tracking was added to the log). These are included in the totals above but not in the per-team table.
+                <strong>{unattributedPerfLogs.length}</strong> sign-off{unattributedPerfLogs.length === 1 ? '' : 's'} in this {perfMode === 'daily' ? 'date' : perfMode === 'weekly' ? 'week' : perfMode === 'yearly' ? 'year' : 'month'} couldn't be matched to a team (older records made before team tracking was added to the log). These are included in the totals above but not in the per-team table.
               </div>
             )}
 
