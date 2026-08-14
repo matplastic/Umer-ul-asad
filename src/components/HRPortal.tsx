@@ -1788,7 +1788,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   const AttendanceTab = () => {
     const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
     const [empFilter, setEmpFilter] = useState('All');
-    const [attSubTab, setAttSubTab] = useState<'daily' | 'deployment' | 'employeeReport'>('daily');
+    const [attSubTab, setAttSubTab] = useState<'daily' | 'deployment' | 'employeeReport' | 'trends'>('daily');
 
     const empNames = useMemo(() => ['All', ...Array.from(new Set(employeePunches.map(p => p.employeeName)))], []);
 
@@ -1978,6 +1978,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors ${attSubTab === 'daily' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}
           >Daily Attendance</button>
           <button
+            onClick={() => setAttSubTab('trends')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors flex items-center gap-1.5 ${attSubTab === 'trends' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}
+          ><BarChart2 className="h-3.5 w-3.5" /> Attendance Trends</button>
+          <button
             onClick={() => setAttSubTab('deployment')}
             className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors flex items-center gap-1.5 ${attSubTab === 'deployment' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-500'}`}
           ><MapPin className="h-3.5 w-3.5" /> Site Deployment ({siteDeployed.length})</button>
@@ -2001,139 +2005,138 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             siteDeployed={siteDeployed}
             saveSiteDeployed={saveSiteDeployed}
           />
-        ) : (
-        <>
-        {/* Date-wise attendance trend */}
-        {(() => {
-          const workingDays = attendanceTrend.filter(d => !d.isHoliday);
-          const avgAttendanceRate = workingDays.length > 0
-            ? Math.round(workingDays.reduce((sum, d) => sum + (d.total > 0 ? ((d.present + d.deployment) / d.total) * 100 : 0), 0) / workingDays.length)
-            : 0;
-          const totalAbsencesInRange = attendanceTrend.reduce((sum, d) => sum + d.absent, 0);
-          const holidaysInRange = attendanceTrend.filter(d => d.isHoliday).length;
+        ) : attSubTab === 'trends' ? (
+          /* Date-wise attendance trend — small multiples, one focused chart
+             per metric, instead of one crowded stacked bar chart trying to
+             show everything at once. */
+          (() => {
+            const workingDays = attendanceTrend.filter(d => !d.isHoliday);
+            const avgAttendanceRate = workingDays.length > 0
+              ? Math.round(workingDays.reduce((sum, d) => sum + (d.total > 0 ? ((d.present + d.deployment) / d.total) * 100 : 0), 0) / workingDays.length)
+              : 0;
+            const totalAbsencesInRange = attendanceTrend.reduce((sum, d) => sum + d.absent, 0);
+            const holidaysInRange = attendanceTrend.filter(d => d.isHoliday).length;
 
-          const TrendTooltip = ({ active, payload }: any) => {
-            if (!active || !payload || !payload.length) return null;
-            const row = payload[0]?.payload;
-            if (!row) return null;
-            const items = [
-              { key: 'present', label: 'Present', color: '#10b981' },
-              { key: 'leave', label: 'On Leave', color: '#f59e0b' },
-              { key: 'medical', label: 'Medical', color: '#6366f1' },
-              { key: 'deployment', label: 'Site Deployment', color: '#0ea5e9' },
-              { key: 'absent', label: 'Absent', color: '#f43f5e' },
-            ];
-            // Site-deployed staff are working (just off-site, away from the
-            // badge machine), so they count toward the attendance rate the
-            // same as a punched-in employee would.
-            const attendanceRate = row.total > 0 ? Math.round(((row.present + row.deployment) / row.total) * 100) : 0;
-            return (
-              <div className="bg-white border border-slate-200 rounded-xl px-3.5 py-3 shadow-lg min-w-[190px]">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-black text-slate-800">{fmtDate(row.date)}</span>
-                  {row.isHoliday && (
-                    <span className="text-[9px] font-black text-white bg-slate-700 rounded-full px-2 py-0.5 uppercase tracking-wide">Holiday</span>
+            const MiniTick = (props: any) => {
+              const { x, y, payload } = props;
+              const row = attendanceTrend.find(d => d.label === payload.value);
+              const isHoliday = !!row?.isHoliday;
+              return (
+                <g transform={`translate(${x},${y})`}>
+                  <text x={0} y={0} dy={11} textAnchor="middle" fontSize={9.5} fontWeight={isHoliday ? 800 : 500} fill={isHoliday ? '#cbd5e1' : '#94a3b8'}>
+                    {payload.value}
+                  </text>
+                </g>
+              );
+            };
+
+            const MiniTooltip = ({ active, payload, unit }: any) => {
+              if (!active || !payload || !payload.length) return null;
+              const row = payload[0]?.payload;
+              if (!row) return null;
+              return (
+                <div className="bg-white border border-slate-200 rounded-lg px-3 py-2 shadow-lg">
+                  <div className="text-[10.5px] font-black text-slate-800">{fmtDate(row.date)}</div>
+                  {row.isHoliday ? (
+                    <div className="text-[10px] text-slate-400 font-semibold">Sunday holiday</div>
+                  ) : (
+                    <div className="text-[11px] font-black" style={{ color: payload[0].color }}>{payload[0].value} {unit}</div>
                   )}
                 </div>
-                {row.isHoliday ? (
-                  <p className="text-[11px] text-slate-500">Sunday — standing company holiday.</p>
-                ) : (
-                  <div className="space-y-1">
-                    {items.map(it => (
-                      <div key={it.key} className="flex items-center justify-between text-[11px]">
-                        <span className="flex items-center gap-1.5 font-semibold text-slate-500">
-                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: it.color }} />
-                          {it.label}
-                        </span>
-                        <span className="font-black text-slate-800 font-mono">{(row as any)[it.key]}</span>
-                      </div>
-                    ))}
-                    <div className="border-t border-slate-100 mt-1.5 pt-1.5 flex items-center justify-between text-[11px]">
-                      <span className="font-bold text-slate-400">Attendance Rate</span>
-                      <span className="font-black text-teal-700">{attendanceRate}%</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          };
+              );
+            };
 
-          const TrendTick = (props: any) => {
-            const { x, y, payload } = props;
-            const row = attendanceTrend.find(d => d.label === payload.value);
-            const isHoliday = !!row?.isHoliday;
+            // One compact chart card per metric — same underlying trend data,
+            // each rendered on its own axis so the numbers never compete.
+            const metricCards: { key: 'present' | 'absent' | 'leave' | 'medical' | 'deployment' | 'manual'; label: string; unit: string; color: string; type: 'bar' | 'line' }[] = [
+              { key: 'present', label: 'Present', unit: 'staff', color: '#10b981', type: 'bar' },
+              { key: 'absent', label: 'Absent', unit: 'staff', color: '#f43f5e', type: 'bar' },
+              { key: 'leave', label: 'On Leave', unit: 'staff', color: '#f59e0b', type: 'bar' },
+              { key: 'medical', label: 'Medical', unit: 'staff', color: '#6366f1', type: 'bar' },
+              { key: 'deployment', label: 'Site Deployment', unit: 'staff', color: '#0ea5e9', type: 'bar' },
+              { key: 'manual', label: 'Manual-Punch Staff', unit: 'staff', color: '#94a3b8', type: 'line' },
+            ];
+
             return (
-              <g transform={`translate(${x},${y})`}>
-                <text x={0} y={0} dy={12} textAnchor="middle" fontSize={10.5} fontWeight={isHoliday ? 800 : 500} fill={isHoliday ? '#94a3b8' : '#64748b'}>
-                  {payload.value}
-                </text>
-                {isHoliday && (
-                  <text x={0} y={0} dy={24} textAnchor="middle" fontSize={8} fontWeight={800} fill="#cbd5e1" letterSpacing={0.5}>HOL</text>
-                )}
-              </g>
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                      <BarChart2 className="h-4.5 w-4.5 text-violet-600" />
+                      Attendance Trends
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      One focused chart per metric, ending {fmtDate(dateFilter)}. Sundays observed as a standing company holiday.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg shrink-0">
+                    {([7, 14, 30] as const).map(n => (
+                      <button
+                        key={n}
+                        onClick={() => setTrendRangeDays(n)}
+                        className={`px-3 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors ${
+                          trendRangeDays === n ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        {n}D
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-teal-50 text-teal-700 border border-teal-100">
+                    {avgAttendanceRate}% avg attendance
+                  </span>
+                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100">
+                    {totalAbsencesInRange} absences flagged
+                  </span>
+                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200">
+                    {holidaysInRange} Sunday{holidaysInRange !== 1 ? 's' : ''} in range
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {metricCards.map(metric => {
+                    const latest = attendanceTrend[attendanceTrend.length - 1];
+                    const latestVal = latest ? (latest as any)[metric.key] : 0;
+                    return (
+                      <div key={metric.key} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: metric.color }} />
+                            {metric.label}
+                          </span>
+                          <span className="text-sm font-black text-slate-800 font-mono">{latestVal}</span>
+                        </div>
+                        <ResponsiveContainer width="100%" height={120}>
+                          {metric.type === 'bar' ? (
+                            <ComposedChart data={attendanceTrend} margin={{ top: 2, right: 2, left: -30, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke={chartAxisDefaults.gridStroke} vertical={false} />
+                              <XAxis dataKey="label" tick={<MiniTick />} axisLine={false} tickLine={false} interval={trendRangeDays > 10 ? 'preserveStartEnd' : 0} />
+                              <YAxis tick={{ fontSize: 9.5, fill: chartAxisDefaults.axisStroke }} axisLine={false} tickLine={false} allowDecimals={false} width={26} />
+                              <RechartsTooltip content={<MiniTooltip unit={metric.unit} />} cursor={{ fill: '#f8fafc' }} />
+                              <Bar dataKey={metric.key} fill={metric.color} radius={[3, 3, 0, 0]} />
+                            </ComposedChart>
+                          ) : (
+                            <ComposedChart data={attendanceTrend} margin={{ top: 2, right: 2, left: -30, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke={chartAxisDefaults.gridStroke} vertical={false} />
+                              <XAxis dataKey="label" tick={<MiniTick />} axisLine={false} tickLine={false} interval={trendRangeDays > 10 ? 'preserveStartEnd' : 0} />
+                              <YAxis tick={{ fontSize: 9.5, fill: chartAxisDefaults.axisStroke }} axisLine={false} tickLine={false} allowDecimals={false} width={26} />
+                              <RechartsTooltip content={<MiniTooltip unit={metric.unit} />} cursor={{ stroke: metric.color, strokeDasharray: '3 3' }} />
+                              <Line type="monotone" dataKey={metric.key} stroke={metric.color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                            </ComposedChart>
+                          )}
+                        </ResponsiveContainer>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             );
-          };
-
-          return (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
-                <div>
-                  <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                    <BarChart2 className="h-4.5 w-4.5 text-violet-600" />
-                    Date-wise Attendance Trend
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Present, absent, leave, medical, site deployment & manual-punch staff, ending {fmtDate(dateFilter)}. Sundays observed as a standing company holiday.
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg shrink-0">
-                  {([7, 14, 30] as const).map(n => (
-                    <button
-                      key={n}
-                      onClick={() => setTrendRangeDays(n)}
-                      className={`px-3 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors ${
-                        trendRangeDays === n ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      {n}D
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Quick-read summary chips for the selected window */}
-              <div className="flex flex-wrap gap-2 mb-5">
-                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-teal-50 text-teal-700 border border-teal-100">
-                  {avgAttendanceRate}% avg attendance
-                </span>
-                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100">
-                  {totalAbsencesInRange} absences flagged
-                </span>
-                <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200">
-                  {holidaysInRange} Sunday{holidaysInRange !== 1 ? 's' : ''} in range
-                </span>
-              </div>
-
-              <ResponsiveContainer width="100%" height={300}>
-                <ComposedChart data={attendanceTrend} margin={{ top: 4, right: 8, left: -18, bottom: 4 }} barCategoryGap="28%">
-                  <CartesianGrid strokeDasharray="3 3" stroke={chartAxisDefaults.gridStroke} vertical={false} />
-                  <XAxis dataKey="label" tick={<TrendTick />} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} interval={trendRangeDays > 14 ? 'preserveStartEnd' : 0} />
-                  <YAxis tick={{ fontSize: 10.5, fill: chartAxisDefaults.axisStroke }} axisLine={false} tickLine={false} allowDecimals={false} width={32} />
-                  <RechartsTooltip content={<TrendTooltip />} cursor={{ fill: '#f8fafc' }} />
-                  <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingTop: 12 }} iconType="circle" iconSize={8} />
-                  <Bar dataKey="present" name="Present" stackId="a" fill="#10b981" />
-                  <Bar dataKey="leave" name="On Leave" stackId="a" fill="#f59e0b" />
-                  <Bar dataKey="medical" name="Medical" stackId="a" fill="#6366f1" />
-                  <Bar dataKey="deployment" name="Site Deployment" stackId="a" fill="#0ea5e9" />
-                  <Bar dataKey="absent" name="Absent" stackId="a" fill="#f43f5e" radius={[3, 3, 0, 0]} />
-                  <Line type="monotone" dataKey="total" name="Total Employees" stroke="#334155" strokeWidth={2} strokeDasharray="4 3" dot={false} activeDot={{ r: 4 }} />
-                  <Line type="monotone" dataKey="manual" name="Manual-Punch Staff" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="2 2" dot={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          );
-        })()}
-
+          })()
+        ) : (
+        <>
         <AttendanceUploadPanel
           employees={employees}
           selectedDate={dateFilter}
