@@ -2007,7 +2007,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         {(() => {
           const workingDays = attendanceTrend.filter(d => !d.isHoliday);
           const avgAttendanceRate = workingDays.length > 0
-            ? Math.round(workingDays.reduce((sum, d) => sum + (d.total > 0 ? (d.present / d.total) * 100 : 0), 0) / workingDays.length)
+            ? Math.round(workingDays.reduce((sum, d) => sum + (d.total > 0 ? ((d.present + d.deployment) / d.total) * 100 : 0), 0) / workingDays.length)
             : 0;
           const totalAbsencesInRange = attendanceTrend.reduce((sum, d) => sum + d.absent, 0);
           const holidaysInRange = attendanceTrend.filter(d => d.isHoliday).length;
@@ -2023,7 +2023,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               { key: 'deployment', label: 'Site Deployment', color: '#0ea5e9' },
               { key: 'absent', label: 'Absent', color: '#f43f5e' },
             ];
-            const attendanceRate = row.total > 0 ? Math.round((row.present / row.total) * 100) : 0;
+            // Site-deployed staff are working (just off-site, away from the
+            // badge machine), so they count toward the attendance rate the
+            // same as a punched-in employee would.
+            const attendanceRate = row.total > 0 ? Math.round(((row.present + row.deployment) / row.total) * 100) : 0;
             return (
               <div className="bg-white border border-slate-200 rounded-xl px-3.5 py-3 shadow-lg min-w-[190px]">
                 <div className="flex items-center justify-between mb-1.5">
