@@ -5,6 +5,10 @@ import {
   BarChart2, TrendingUp, Calendar, Layers, CheckCircle,
   Truck, GitCompare, ChevronLeft, ChevronRight, Filter
 } from 'lucide-react';
+import {
+  ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend,
+  BarChart, Bar as RBar, XAxis, YAxis, CartesianGrid,
+} from 'recharts';
 
 interface MonthlyKPIDashboardProps {
   pools: Pool[];
@@ -144,6 +148,27 @@ export const MonthlyKPIDashboard: React.FC<MonthlyKPIDashboardProps> = ({ pools,
   }), [pools, allMonths]);
 
   const maxTrend = Math.max(...trend.map(t => t.registered), 1);
+
+  // Chart-ready data (mirrors the cards/lists above, same filters applied)
+  const orientationPieData = useMemo(() => ([
+    { name: 'Normal', value: normalCount, color: '#3b82f6' },
+    { name: 'Mirror', value: mirrorCount, color: '#a855f7' },
+  ].filter(d => d.value > 0)), [normalCount, mirrorCount]);
+
+  const projectChartData = useMemo(() => projectBreakdown.map(([proj, stat]) => ({
+    project: proj.length > 12 ? proj.slice(0, 12) + '…' : proj,
+    fullName: proj,
+    Normal: stat.normal,
+    Mirror: stat.mirror,
+    Completed: stat.completed,
+  })), [projectBreakdown]);
+
+  const stageChartData = useMemo(() => stageBreakdown.map(s => ({
+    stage: s.name,
+    Active: s.inStage,
+    Done: s.completed,
+    Rejected: s.rejected,
+  })), [stageBreakdown]);
 
   return (
     <div className="space-y-6">
@@ -340,6 +365,84 @@ export const MonthlyKPIDashboard: React.FC<MonthlyKPIDashboardProps> = ({ pools,
           </div>
         </div>
       )}
+
+      {/* ── Graph View (same data & filters as above) ─────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Normal vs Mirror Pie */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <GitCompare className="h-4 w-4 text-slate-500" />
+            <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider">Normal vs Mirror (Chart)</h3>
+            <span className="ml-auto text-xs text-slate-400">{fmtMonth(selectedMonth)}</span>
+          </div>
+          {orientationPieData.length === 0 ? (
+            <p className="text-slate-400 text-sm py-10 text-center">No data for this selection</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={orientationPieData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={55}
+                  outerRadius={85}
+                  paddingAngle={2}
+                  label={({ name, value, percent }) => `${name}: ${value} (${((percent ?? 0) * 100).toFixed(0)}%)`}
+                >
+                  {orientationPieData.map((entry, idx) => (
+                    <Cell key={idx} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* By Project Bar Chart */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+          <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider mb-2">By Project (Chart)</h3>
+          {projectChartData.length === 0 ? (
+            <p className="text-slate-400 text-sm py-10 text-center">No pools registered this month</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={projectChartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="project" tick={{ fontSize: 10 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                <Tooltip
+                  formatter={(value: number, name: string) => [value, name]}
+                  labelFormatter={(_label, payload) => payload?.[0]?.payload?.fullName ?? _label}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <RBar dataKey="Normal" stackId="a" fill="#60a5fa" radius={[0, 0, 0, 0]} />
+                <RBar dataKey="Mirror" stackId="a" fill="#c084fc" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      {/* By Stage Bar Chart */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+        <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider mb-2">By Stage (Chart)</h3>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={stageChartData} margin={{ top: 8, right: 8, left: -20, bottom: 40 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis dataKey="stage" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" interval={0} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <RBar dataKey="Active" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+            <RBar dataKey="Done" fill="#10b981" radius={[4, 4, 0, 0]} />
+            <RBar dataKey="Rejected" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
 
     </div>
   );
