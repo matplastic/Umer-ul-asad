@@ -520,9 +520,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   };
 
   const adjustStock = async (id: string) => {
-    const delta = prompt('Enter quantity to add to stock (use a negative number to correct downward):');
-    if (delta === null || delta === '') return;
-    await dbAdjustMaterialStock(id, Number(delta));
+    const mat = materials.find(m => m.id === id);
+    const currentQty = mat?.currentStock || 0;
+    const input = prompt(`Enter the new stock quantity (currently ${currentQty} ${mat?.unit || ''}):`, String(currentQty));
+    if (input === null || input.trim() === '') return;
+    const newQty = Number(input);
+    if (Number.isNaN(newQty)) {
+      alert('Please enter a valid number.');
+      return;
+    }
+    // dbAdjustMaterialStock takes a DELTA (added to currentStock), so we
+    // compute the delta from what the person actually typed — the new
+    // total — instead of asking them to do that math themselves.
+    const delta = newQty - currentQty;
+    await dbAdjustMaterialStock(id, delta);
     loadAll(true);
   };
 
