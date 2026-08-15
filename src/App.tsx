@@ -890,6 +890,62 @@ export default function App() {
       }
     };
   }, []);
+
+  // ONE-TIME BACKFILL: projects that were created before the projectsSummary
+  // sync existed on handleCreatePool/handleCreatePoolBatch (e.g. Tiger,
+  // Skyros, Miami) have pools in `pools`/`plannedPools` but no row in
+  // `projectsSummary`, so they never showed up in the "All Projects Portal"
+  // (that table reads exclusively from projectsSummary). This runs once
+  // real data has loaded and adds any missing project rows.
+  const projectsBackfillRef = useRef(false);
+  useEffect(() => {
+    if (projectsBackfillRef.current) return;
+    if (!cloudHydratedRef.current) return;
+    if (pools.length === 0 && plannedPools.length === 0) return;
+
+    const allProjNames = Array.from(new Set([
+      ...pools.map(p => p.projectName.toLowerCase()),
+      ...plannedPools.map(p => p.projectName.toLowerCase())
+    ]));
+    const missingProjNames = allProjNames.filter(
+      proj => !projectsSummary.some(s => s.projectName.toLowerCase() === proj)
+    );
+
+    if (missingProjNames.length === 0) {
+      projectsBackfillRef.current = true;
+      return;
+    }
+
+    const updatedProjects = [...projectsSummary];
+    missingProjNames.forEach(proj => {
+      const projectPools = pools.filter(p => p.projectName.toLowerCase() === proj);
+      const totalPlanned = plannedPools.filter(p => p.projectName.toLowerCase() === proj).length;
+      const producedCount = projectPools.filter(p => p.currentStageIndex >= STAGES.length).length;
+      const deliveredCount = projectPools.filter(p => p.isDelivered).length;
+      const totalCount = Math.max(1, projectPools.length + totalPlanned);
+      const samplePool = projectPools[0] || plannedPools.find(p => p.projectName.toLowerCase() === proj);
+
+      const newProjRec: ProjectSummary = {
+        id: 'proj-' + Date.now() + '_' + Math.random().toString(36).substring(2, 5),
+        projectName: samplePool?.projectName || proj,
+        orientation: (samplePool as any)?.orientation || 'Normal',
+        poolType: (samplePool as any)?.poolType || 'Type 3',
+        totalPools: totalCount,
+        producedPools: producedCount,
+        deliveredPools: deliveredCount,
+        remainingPools: Math.max(0, totalCount - deliveredCount),
+        notes: `Backfilled into All Projects Portal registry`,
+        createdAt: new Date().toISOString()
+      };
+      updatedProjects.push(newProjRec);
+      dbSaveProjectSummary(newProjRec).catch(console.error);
+    });
+
+    projectsBackfillRef.current = true;
+    setProjectsSummary(updatedProjects);
+    saveState(pools, teams, logs, inspectors, engineers, plannedPools, updatedProjects);
+  }, [pools, plannedPools, projectsSummary]);
+
   const handleGoogleSignIn = async () => {
     try {
       setAuthNotification(null);
@@ -2181,9 +2237,49 @@ export default function App() {
     const updatedPools = [...pools, newPool];
     const updatedLogs = [...logs, newLog];
 
+    // Keep the "All Projects Portal" registry (projectsSummary) in sync.
+    // Without this, pools created through the normal registration flow
+    // (as opposed to the Direct Override admin tool) never show up in
+    // that portal, since it reads exclusively from projectsSummary.
+    const projectPools = updatedPools.filter(p => p.projectName.toLowerCase() === newPool.projectName.toLowerCase());
+    const existingProjectIndex = projectsSummary.findIndex(p => p.projectName.toLowerCase() === newPool.projectName.toLowerCase());
+    const updatedProjects = [...projectsSummary];
+    const producedCount = projectPools.filter(p => p.currentStageIndex >= STAGES.length).length;
+    const deliveredCount = projectPools.filter(p => p.isDelivered).length;
+
+    if (existingProjectIndex >= 0) {
+      const existingProject = projectsSummary[existingProjectIndex];
+      const nextTotal = Math.max(projectPools.length, existingProject.totalPools);
+      const updatedProjRec: ProjectSummary = {
+        ...existingProject,
+        totalPools: nextTotal,
+        producedPools: producedCount,
+        deliveredPools: deliveredCount,
+        remainingPools: Math.max(0, nextTotal - deliveredCount)
+      };
+      updatedProjects[existingProjectIndex] = updatedProjRec;
+      dbSaveProjectSummary(updatedProjRec).catch(console.error);
+    } else {
+      const newProjRec: ProjectSummary = {
+        id: 'proj-' + Date.now(),
+        projectName: newPool.projectName,
+        orientation: newPool.orientation,
+        poolType: newPool.poolType || 'Type 3',
+        totalPools: Math.max(1, projectPools.length),
+        producedPools: producedCount,
+        deliveredPools: deliveredCount,
+        remainingPools: Math.max(0, Math.max(1, projectPools.length) - deliveredCount),
+        notes: `Auto-created via pool registration`,
+        createdAt: new Date().toISOString()
+      };
+      updatedProjects.push(newProjRec);
+      dbSaveProjectSummary(newProjRec).catch(console.error);
+    }
+
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teams, updatedLogs, inspectors, engineers);
+    setProjectsSummary(updatedProjects);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, plannedPools, updatedProjects);
   };
 
   const handleCreatePoolBatch = (
@@ -2237,9 +2333,47 @@ export default function App() {
     const updatedPools = [...pools, ...newPools];
     const updatedLogs = [...logs, newLog];
 
+    // Keep the "All Projects Portal" registry (projectsSummary) in sync —
+    // same reasoning as handleCreatePool above.
+    const projectPools = updatedPools.filter(p => p.projectName.toLowerCase() === projectName.toLowerCase());
+    const existingProjectIndex = projectsSummary.findIndex(p => p.projectName.toLowerCase() === projectName.toLowerCase());
+    const updatedProjects = [...projectsSummary];
+    const producedCount = projectPools.filter(p => p.currentStageIndex >= STAGES.length).length;
+    const deliveredCount = projectPools.filter(p => p.isDelivered).length;
+
+    if (existingProjectIndex >= 0) {
+      const existingProject = projectsSummary[existingProjectIndex];
+      const nextTotal = Math.max(projectPools.length, existingProject.totalPools);
+      const updatedProjRec: ProjectSummary = {
+        ...existingProject,
+        totalPools: nextTotal,
+        producedPools: producedCount,
+        deliveredPools: deliveredCount,
+        remainingPools: Math.max(0, nextTotal - deliveredCount)
+      };
+      updatedProjects[existingProjectIndex] = updatedProjRec;
+      dbSaveProjectSummary(updatedProjRec).catch(console.error);
+    } else {
+      const newProjRec: ProjectSummary = {
+        id: 'proj-' + Date.now(),
+        projectName,
+        orientation,
+        poolType: poolType || 'Type 3',
+        totalPools: Math.max(1, projectPools.length),
+        producedPools: producedCount,
+        deliveredPools: deliveredCount,
+        remainingPools: Math.max(0, Math.max(1, projectPools.length) - deliveredCount),
+        notes: `Auto-created via batch pool registration`,
+        createdAt: timestamp
+      };
+      updatedProjects.push(newProjRec);
+      dbSaveProjectSummary(newProjRec).catch(console.error);
+    }
+
     setPools(updatedPools);
     setLogs(updatedLogs);
-    saveState(updatedPools, teams, updatedLogs);
+    setProjectsSummary(updatedProjects);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, plannedPools, updatedProjects);
   };
 
   // ==========================================
