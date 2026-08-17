@@ -1,6 +1,6 @@
 import { signOut as firebaseSignOut, signInAnonymously } from 'firebase/auth';
-import { auth, app } from './googleDrive';
-import { getFirestore, doc, getDoc, runTransaction } from 'firebase/firestore';
+import { auth, clientDb } from './googleDrive';
+import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import { getApiUrl } from './firebaseService';
 import type { ViewRole } from '../types';
 
@@ -94,8 +94,6 @@ export function validatePasswordStrength(password: string): string | null {
 }
 
 // ─── Firestore-direct account store ──────────────────────────────────────────
-
-const clientDb = getFirestore(app);
 
 // Many Firestore security-rule setups require `request.auth != null` for any
 // read/write, including on the account list itself. This username/password
