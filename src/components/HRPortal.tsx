@@ -194,8 +194,27 @@ interface SiteDeployedEntry {
   employeeId: string;
   employeeName: string;
   deployedAt: string;
+  returnedAt?: string; // set when staff comes back — keeps the record as
+  // history instead of deleting it, so past dates still know they were
+  // deployed (and therefore not absent) between deployedAt and returnedAt.
   note?: string;
 }
+
+// True if an entry covers the given yyyy-mm-dd date, i.e. the employee was
+// away on-site that day. deployedAt/returnedAt are full ISO timestamps —
+// only the date portion is compared so the deployment day itself and the
+// return day itself both count correctly.
+const isDeployedOnDate = (entry: SiteDeployedEntry, dateStr: string) => {
+  const startDate = entry.deployedAt.slice(0, 10);
+  if (dateStr < startDate) return false;
+  if (entry.returnedAt) {
+    const endDate = entry.returnedAt.slice(0, 10);
+    // The return day itself is back-at-factory, so it no longer counts as
+    // deployed — exclude dates on/after the return date.
+    if (dateStr >= endDate) return false;
+  }
+  return true;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -787,8 +806,15 @@ const SiteDeploymentPanel = ({
 }) => {
   const [pickId, setPickId] = useState('');
   const [note, setNote] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
 
-  const available = employees.filter(e => !siteDeployed.some(d => d.employeeId === e.id));
+  // Only currently-away staff count as "deployed" for picking/availability —
+  // returned entries are kept only as history.
+  const activeDeployed = siteDeployed.filter(d => !d.returnedAt);
+  const historyDeployed = siteDeployed.filter(d => d.returnedAt)
+    .sort((a, b) => (b.returnedAt || '').localeCompare(a.returnedAt || ''));
+
+  const available = employees.filter(e => !activeDeployed.some(d => d.employeeId === e.id));
 
   const add = () => {
     if (!pickId) return;
@@ -801,15 +827,23 @@ const SiteDeploymentPanel = ({
     setPickId(''); setNote('');
   };
 
-  const remove = (id: string) => saveSiteDeployed(siteDeployed.filter(d => d.id !== id));
+  // IMPORTANT: this used to delete the record outright, which erased any
+  // trace that the person had ever been deployed. Because Attendance has no
+  // other date-stamped record of a site trip, every day of that trip would
+  // then read back as absent once the entry was gone. Instead, mark it
+  // returned (soft-remove) — Attendance still knows to exclude the dates
+  // between deployedAt and returnedAt from the absent list, and normal
+  // badge-based tracking resumes from returnedAt onward.
+  const markReturned = (id: string) =>
+    saveSiteDeployed(siteDeployed.map(d => d.id === id ? { ...d, returnedAt: new Date().toISOString() } : d));
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
       <h4 className="text-xs font-black text-slate-700 uppercase tracking-wide flex items-center gap-2">
-        <MapPin className="h-4 w-4 text-sky-600" /> Site / Factory Deployment ({siteDeployed.length})
+        <MapPin className="h-4 w-4 text-sky-600" /> Site / Factory Deployment ({activeDeployed.length})
       </h4>
       <p className="text-[11px] text-slate-400">
-        Add staff sent to a site or another factory here — they'll be removed from the absent list while listed. Remove them once they're back and normal attendance tracking resumes.
+        Add staff sent to a site or another factory here — they're excluded from the absent list for every day they're listed. Mark them returned once they're back; past days stay correctly explained instead of turning into absences.
       </p>
 
       <div className="flex flex-wrap gap-2 items-center">
@@ -823,20 +857,41 @@ const SiteDeploymentPanel = ({
         </button>
       </div>
 
-      {siteDeployed.length > 0 && (
+      {activeDeployed.length > 0 && (
         <div className="divide-y divide-slate-100 border border-slate-100 rounded-lg overflow-hidden">
-          {siteDeployed.map(d => (
+          {activeDeployed.map(d => (
             <div key={d.id} className="flex items-center justify-between px-3 py-2 text-sm">
               <div>
                 <span className="font-semibold text-slate-800">{d.employeeName}</span>
                 {d.note && <span className="text-xs text-slate-400 ml-2">{d.note}</span>}
                 <span className="text-[10px] text-slate-300 ml-2">since {fmtDate(d.deployedAt)}</span>
               </div>
-              <button onClick={() => remove(d.id)} className="text-rose-400 hover:text-rose-600 cursor-pointer" title="Remove — resumes normal attendance tracking">
-                <X className="h-4 w-4" />
+              <button onClick={() => markReturned(d.id)} className="text-rose-400 hover:text-rose-600 cursor-pointer text-[11px] font-bold flex items-center gap-1" title="Mark returned — resumes normal attendance tracking from today">
+                <X className="h-4 w-4" /> Mark returned
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {historyDeployed.length > 0 && (
+        <div>
+          <button onClick={() => setShowHistory(s => !s)} className="text-[11px] text-slate-400 underline cursor-pointer">
+            {showHistory ? 'Hide' : 'Show'} deployment history ({historyDeployed.length})
+          </button>
+          {showHistory && (
+            <div className="mt-2 divide-y divide-slate-100 border border-slate-100 rounded-lg overflow-hidden">
+              {historyDeployed.map(d => (
+                <div key={d.id} className="flex items-center justify-between px-3 py-2 text-xs text-slate-500">
+                  <div>
+                    <span className="font-semibold text-slate-700">{d.employeeName}</span>
+                    {d.note && <span className="ml-2 text-slate-400">{d.note}</span>}
+                  </div>
+                  <span className="text-[10px] text-slate-300">{fmtDate(d.deployedAt)} → {fmtDate(d.returnedAt!)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1822,8 +1877,13 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const totalPresent = summary.filter(s => s.status === 'Present').length;
 
     // Staff on the Site/Factory Deployment list are away from the badge
-    // machine on legitimate work, not absent — skip them entirely.
-    const deployedIds = new Set(siteDeployed.map(d => d.employeeId));
+    // machine on legitimate work, not absent — skip them entirely. This is
+    // date-aware (covers deployedAt..returnedAt) rather than just "currently
+    // on the live list", so a past date stays correctly excluded even after
+    // the person has been marked returned.
+    const deployedIds = new Set(
+      siteDeployed.filter(d => isDeployedOnDate(d, dateFilter)).map(d => d.employeeId)
+    );
 
     // Approved leave covering this date, and a medical record dated this
     // day, both explain an absence rather than leaving it unexplained.
@@ -1886,12 +1946,11 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     // leave / medical / site deployment) for each day in the selected
     // window, plus the constant headcount and manual/non-punching staff
     // count, so managers can see the shape of attendance over time instead
-    // of only ever looking at one day at a time. Site Deployment is a live
-    // roster (not date-stamped in the data model), so historical days reuse
-    // today's deployment list rather than a true historical snapshot.
+    // of only ever looking at one day at a time. Site Deployment entries are
+    // date-stamped (deployedAt..returnedAt), so each historical day computes
+    // its own deployed set instead of reusing today's live roster.
     const [trendRangeDays, setTrendRangeDays] = useState<7 | 14 | 30>(14);
     const manualStaffCount = useMemo(() => employees.filter(e => e.nonPunching).length, [employees]);
-    const deployedIdSet = useMemo(() => new Set(siteDeployed.map(d => d.employeeId)), [siteDeployed]);
 
     const attendanceTrend = useMemo(() => {
       const days: {
@@ -1913,14 +1972,17 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           leaves.filter(l => l.status === 'Approved' && iso >= l.fromDate && iso <= l.toDate).map(l => l.employeeId)
         );
         const medicalIdsForDate = new Set(medicals.filter(m => m.date === iso).map(m => m.employeeId));
+        const deployedIdsForDate = new Set(
+          siteDeployed.filter(d => isDeployedOnDate(d, iso)).map(d => d.employeeId)
+        );
 
-        const absenteesForDate = employees.filter(e => !presentIdsForDate.has(e.id) && !e.nonPunching && !deployedIdSet.has(e.id));
+        const absenteesForDate = employees.filter(e => !presentIdsForDate.has(e.id) && !e.nonPunching && !deployedIdsForDate.has(e.id));
         // On a Sunday, nobody who skipped punching is "absent" — the holiday
         // itself explains it, same rule as the single-day summary above.
         const unexplainedForDate = isHoliday ? [] : absenteesForDate.filter(e => !leaveIdsForDate.has(e.id) && !medicalIdsForDate.has(e.id));
         const onLeaveForDate = absenteesForDate.filter(e => leaveIdsForDate.has(e.id)).length;
         const onMedicalForDate = absenteesForDate.filter(e => medicalIdsForDate.has(e.id)).length;
-        const deployedTodayForDate = employees.filter(e => deployedIdSet.has(e.id) && !presentIdsForDate.has(e.id)).length;
+        const deployedTodayForDate = employees.filter(e => deployedIdsForDate.has(e.id) && !presentIdsForDate.has(e.id)).length;
 
         days.push({
           date: iso,
@@ -1936,7 +1998,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         });
       }
       return days;
-    }, [dateFilter, trendRangeDays, employees, employeePunches, leaves, medicals, deployedIdSet, manualStaffCount]);
+    }, [dateFilter, trendRangeDays, employees, employeePunches, leaves, medicals, siteDeployed, manualStaffCount]);
 
     return (
       <div className="space-y-4">
