@@ -20,6 +20,35 @@ const getFirebaseConfig = () => ({
 export const app = initializeApp(getFirebaseConfig());
 export const auth = getAuth(app);
 
+// ─────────────────────────────────────────────────────────────────────────
+// SHARED FIRESTORE CLIENT — single source of truth
+//
+// THE BUG: firebaseService.ts, authClient.ts and presence.ts each called
+// their own `getFirestore(app)`. That's harmless on its own, BUT it meant
+// nobody ever called `initializeFirestore(app, {...})` with long-polling
+// options BEFORE the first `getFirestore(app)` ran. Once any code calls
+// plain `getFirestore(app)`, Firestore locks in its default transport
+// (WebChannel over HTTP/3-QUIC) for that app instance — after that,
+// calling `initializeFirestore` anywhere else throws
+// "Firestore has already been started". So the QUIC long-polling fallback
+// could never actually take effect, no matter which file it was added to.
+//
+// On factory-floor networks that block/throttle QUIC (common with
+// corporate proxies, some routers, and mobile hotspots), `onSnapshot`
+// connects to Firestore but then just sits there — no error thrown, no
+// data, no live updates. It LOOKS like "sync isn't working" because from
+// the app's point of view, nothing failed; it's just silently stalled.
+//
+// THE FIX: initialize Firestore exactly once, HERE, before any other file
+// gets a chance to call plain getFirestore(app) first — and force long
+// polling instead of trying to "auto-detect" it (auto-detect still starts
+// with a QUIC probe that can hang on some of these networks).
+// ─────────────────────────────────────────────────────────────────────────
+import { initializeFirestore } from 'firebase/firestore';
+export const clientDb = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
+
 // Request Google Drive scopes
 const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/drive');
