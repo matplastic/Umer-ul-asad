@@ -8,7 +8,21 @@ import { Employee, EmployeePunch } from '../types';
 // arrays the Report Portal already fetches — only the fields below are read.
 interface LeaveLike { employeeId: string; status: string; fromDate: string; toDate: string; }
 interface MedicalLike { employeeId: string; date: string; }
-interface DeployedLike { employeeId: string; }
+interface DeployedLike { employeeId: string; deployedAt: string; returnedAt?: string; }
+
+// Mirrors HRPortal's isDeployedOnDate: true if the entry covers the given
+// yyyy-mm-dd date. Comparing only the date portion of deployedAt/returnedAt
+// keeps a past trip correctly marked "Deployed" for its dates even after the
+// person has since been marked returned (the record is history, not deleted).
+function isDeployedOnDate(entry: DeployedLike, dateStr: string): boolean {
+  const startDate = entry.deployedAt.slice(0, 10);
+  if (dateStr < startDate) return false;
+  if (entry.returnedAt) {
+    const endDate = entry.returnedAt.slice(0, 10);
+    if (dateStr >= endDate) return false;
+  }
+  return true;
+}
 
 interface EmployeeAttendanceReportProps {
   employees: Employee[];
@@ -94,7 +108,10 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
   };
 
   const employee = employees.find(e => e.id === employeeId) || null;
-  const deployedIds = useMemo(() => new Set(siteDeployed.map(d => d.employeeId)), [siteDeployed]);
+  const deployedEntriesForEmp = useMemo(
+    () => siteDeployed.filter(d => d.employeeId === employeeId),
+    [siteDeployed, employeeId]
+  );
 
   const approvedLeavesForEmp = useMemo(
     () => leaves.filter(l => l.employeeId === employeeId && l.status === 'Approved'),
@@ -127,7 +144,7 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
       if (isSunday) {
         return { date, dayName, status: 'Holiday' as DayStatus };
       }
-      if (deployedIds.has(employeeId)) {
+      if (deployedEntriesForEmp.some(d => isDeployedOnDate(d, date))) {
         return { date, dayName, status: 'Deployed' as DayStatus };
       }
       const onLeave = approvedLeavesForEmp.some(l => date >= l.fromDate && date <= l.toDate);
@@ -139,7 +156,7 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
       }
       return { date, dayName, status: 'Absent' as DayStatus };
     });
-  }, [employeeId, range, punchesForEmp, deployedIds, approvedLeavesForEmp, medicalsForEmp]);
+  }, [employeeId, range, punchesForEmp, deployedEntriesForEmp, approvedLeavesForEmp, medicalsForEmp]);
 
   const summary = useMemo(() => {
     const counts: Record<DayStatus, number> = { Present: 0, Absent: 0, 'On Leave': 0, Medical: 0, Deployed: 0, Holiday: 0 };
