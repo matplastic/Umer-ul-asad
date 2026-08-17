@@ -1,8 +1,9 @@
-import { auth, app } from './googleDrive.ts';
-import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
+import { auth, app, clientDb } from './googleDrive.ts';
+import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog } from '../types';
-
-const clientDb = getFirestore(app);
+// NOTE: clientDb now comes from googleDrive.ts, which is the ONLY place
+// Firestore is initialized (via initializeFirestore with long-polling
+// forced on). Do NOT call getFirestore(app) here — see googleDrive.ts.
 
 // ──────────────────────────────────────────────────────────────────────────────
 // REAL-TIME LIVE SYNC (Firestore onSnapshot)
