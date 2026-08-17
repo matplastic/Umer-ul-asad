@@ -1,5 +1,5 @@
-import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { app } from './googleDrive';
+import { doc, setDoc, deleteDoc, collection, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { clientDb } from './googleDrive';
 import type { AuthUser } from './authClient';
 
 // ─── "Who's online" presence tracking ───────────────────────────────────────
@@ -9,7 +9,6 @@ import type { AuthUser } from './authClient';
 // lets the UI recover automatically from crashed tabs, closed laptops, or
 // lost network, none of which reliably fire a logout/unload event.
 
-const clientDb = getFirestore(app);
 const PRESENCE_COLLECTION = 'presence';
 
 const HEARTBEAT_MS = 45_000;      // how often we refresh our own presence doc
