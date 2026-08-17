@@ -1131,19 +1131,6 @@ export default function App() {
     const changedIds: Record<string, string[]> = {};
     if (changed.teams) changedIds.teams = findChangedIds(teams, safeTeams);
     if (changed.pools) changedIds.pools = findChangedIds(pools, safePools);
-    // BUGFIX: these were previously left out of changedIds, which made
-    // mergeByIdScoped() silently fall back to the old broad mergeById() for
-    // every write touching these collections — letting a stale tab's WHOLE
-    // local copy win for every id it held, not just the record actually
-    // changed. This is what caused actions like releasing a pool (which
-    // saves plannedPools alongside pools) to appear to revert a few minutes
-    // later on other devices.
-    if (changed.plannedPools) changedIds.plannedPools = findChangedIds(plannedPools, safePlanned);
-    if (changed.projectsSummary) changedIds.projectsSummary = findChangedIds(projectsSummary, safeProjects);
-    if (changed.monthlyTargets) changedIds.monthlyTargets = findChangedIds(monthlyTargets, safeTargets);
-    if (changed.employees) changedIds.employees = findChangedIds(employees, safeEmployees);
-    if (changed.inspectors) changedIds.inspectors = findChangedIds(inspectors, safeInspectors);
-    if (changed.engineers) changedIds.engineers = findChangedIds(engineers, safeEngineers);
 
     saveChangedCollectionsToFirestore(changed, changedIds)
       .then((result) => {
