@@ -1702,7 +1702,42 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setPerfWeekStart(d.toISOString().slice(0, 10));
   };
 
-  const perfLogs = logs.filter(l => {
+  // The date range the current perf view needs, so we know how far back to
+  // pull from the permanent archive (see note below).
+  const perfRange = React.useMemo(() => {
+    if (perfMode === 'daily') return { start: perfDate, end: perfDate };
+    if (perfMode === 'weekly') return { start: perfWeekStart, end: perfWeekEnd };
+    if (perfMode === 'yearly') return { start: `${perfYear}-01-01`, end: `${perfYear}-12-31` };
+    const [y, m] = perfMonth.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return { start: `${perfMonth}-01`, end: `${perfMonth}-${String(lastDay).padStart(2, '0')}` };
+  }, [perfMode, perfDate, perfWeekStart, perfWeekEnd, perfYear, perfMonth]);
+
+  // BUGFIX: Team Performance used to filter straight off the `logs` prop,
+  // which is a ROLLING CACHE capped to the most recent 200 activity entries
+  // company-wide (see firebaseService.ts). On a busy factory with several
+  // teams each logging multiple stage sign-offs per pool, that 200-entry cap
+  // can be exhausted in a day or two — so a week-wise or month-wise view
+  // only ever saw whatever slice of the month happened to still be in that
+  // recent window, making a team that actually passed 24+ pools in a month
+  // show as few as 3-4. Team Search already solved this by reading from the
+  // permanent monthly archive instead; do the same here.
+  const [perfArchiveLogs, setPerfArchiveLogs] = useState<ActivityLog[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    dbFetchActivityLogsInRange(perfRange.start, perfRange.end)
+      .then(rows => { if (!cancelled) setPerfArchiveLogs(rows); })
+      .catch(() => { if (!cancelled) setPerfArchiveLogs([]); });
+    return () => { cancelled = true; };
+  }, [perfRange.start, perfRange.end]);
+
+  // Fall back to the local (recent-only) `logs` prop if the archive hasn't
+  // returned anything yet for this range — e.g. right after upgrading,
+  // before older entries have had a chance to be archived, so the tab isn't
+  // blank while the archive fetch is in flight or empty.
+  const perfSourceLogs = perfArchiveLogs.length > 0 ? perfArchiveLogs : logs;
+
+  const perfLogs = perfSourceLogs.filter(l => {
     if (l.type !== 'APPROVED' && l.type !== 'REJECTED') return false;
     if (perfMode === 'daily') return toLocalDateStr(l.timestamp) === perfDate;
     if (perfMode === 'weekly') {
