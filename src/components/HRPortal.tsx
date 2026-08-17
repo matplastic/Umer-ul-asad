@@ -807,6 +807,11 @@ const SiteDeploymentPanel = ({
   const [pickId, setPickId] = useState('');
   const [note, setNote] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  // Backdating support — lets you log a trip that already happened (e.g. to
+  // correct a past date range that got wrongly marked Absent) instead of
+  // only ever starting "now". Leave "To" empty to add them as currently away.
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   // Only currently-away staff count as "deployed" for picking/availability —
   // returned entries are kept only as history.
@@ -820,11 +825,15 @@ const SiteDeploymentPanel = ({
     if (!pickId) return;
     const emp = employees.find(e => e.id === pickId);
     if (!emp) return;
+    // fromDate/toDate default to "today" / "still away" when left blank, so
+    // this still works exactly like before for a normal same-day add.
+    const deployedAt = fromDate ? new Date(fromDate + 'T00:00:00').toISOString() : new Date().toISOString();
+    const returnedAt = toDate ? new Date(toDate + 'T00:00:00').toISOString() : undefined;
     saveSiteDeployed([
-      { id: uid(), employeeId: emp.id, employeeName: emp.name, deployedAt: new Date().toISOString(), note: note.trim() || undefined },
+      { id: uid(), employeeId: emp.id, employeeName: emp.name, deployedAt, returnedAt, note: note.trim() || undefined },
       ...siteDeployed,
     ]);
-    setPickId(''); setNote('');
+    setPickId(''); setNote(''); setFromDate(''); setToDate('');
   };
 
   // IMPORTANT: this used to delete the record outright, which erased any
@@ -855,6 +864,17 @@ const SiteDeploymentPanel = ({
         <button onClick={add} disabled={!pickId} className="bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer">
           <Plus className="h-3.5 w-3.5" /> Add
         </button>
+      </div>
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex items-center gap-1.5 text-xs">
+          <label className="text-slate-400 font-semibold">From</label>
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm" />
+        </div>
+        <div className="flex items-center gap-1.5 text-xs">
+          <label className="text-slate-400 font-semibold">To (optional)</label>
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm" />
+        </div>
+        <span className="text-[10px] text-slate-400">Leave both blank to start them as deployed today. Fill both in to log a past trip that's already over — useful for backfilling a trip that got recorded wrong.</span>
       </div>
 
       {activeDeployed.length > 0 && (
