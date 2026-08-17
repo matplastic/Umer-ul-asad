@@ -4,6 +4,28 @@ import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Em
 
 const clientDb = getFirestore(app);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED GUARD: detect the auto-generated generic team skeleton
+// ("Steel Fabrication - Team 1", id "<stageId>_t<n>", etc.) that
+// getInitialData() hands out as a structural placeholder before real team
+// data has loaded. A real, in-use team roster (renamed teams, custom codes,
+// teams added/removed over time) essentially never matches this exact shape
+// for every single entry.
+//
+// This was previously defined ONLY inside dbSyncTeams, so that was the only
+// write path protected against overwriting real teams with the skeleton.
+// saveEntireStateToFirestore (used on cold-start / "cloud looks empty")
+// called setFirestoreDocArray('teams', ...) directly with no equivalent
+// check — its only guard was "refuse an EMPTY array", and the skeleton is
+// not empty, so it sailed straight through and overwrote real team data.
+// Hoisted here so every write path can share the same check.
+// ─────────────────────────────────────────────────────────────────────────────
+const isGenericSkeletonTeam = (t: any): boolean =>
+  typeof t?.id === 'string' && typeof t?.name === 'string' &&
+  /^[a-z_]+_t\d+$/.test(t.id) && / - Team \d+$/.test(t.name);
+export const isGenericSkeletonTeamArray = (arr: any[]): boolean =>
+  Array.isArray(arr) && arr.length > 0 && arr.every(isGenericSkeletonTeam);
+
 // ──────────────────────────────────────────────────────────────────────────────
 // REAL-TIME LIVE SYNC (Firestore onSnapshot)
 // Subscribes to all `system_state` documents. Any change on PC-A is pushed
@@ -470,6 +492,49 @@ export async function getEntireStateFromFirestore() {
   }
 }
 
+// DATA-LOSS FIX (v14): saveEntireStateToFirestore's teams write used to go
+// straight through setFirestoreDocArray('teams', teamsList) — a plain
+// setDoc with only an "empty array" guard. The generic skeleton
+// (getInitialData()'s placeholder "Team 1 / Team 2" list) is NOT empty, so
+// that guard never caught it. dbSyncTeams (the normal Team-edit write path)
+// already refused to let the skeleton overwrite real data via
+// isGenericSkeletonTeamArray — but saveEntireStateToFirestore, which fires
+// whenever App.tsx's cold-start check decides "the cloud looks empty" (e.g.
+// a slow/incomplete Firestore read on first load after the app has been
+// idle), had no equivalent check and could silently seed the skeleton over
+// a real team roster with zero warning.
+//
+// THE FIX: before writing teamsList here, read what's actually live in
+// Firestore. If the incoming list is the generic skeleton AND Firestore
+// already holds real (non-skeleton) team data, refuse the write and keep
+// the live data — mirroring exactly what dbSyncTeams already does.
+async function saveTeamsGuardingSkeleton(teamsList: Team[]): Promise<void> {
+  if (isGenericSkeletonTeamArray(teamsList)) {
+    let existing: any[];
+    try {
+      existing = await getFirestoreDocArrayStrict('teams');
+    } catch (checkErr) {
+      // Same fail-safe principle as setFirestoreDocArray's empty-write guard:
+      // if we can't verify what's live, we must NOT assume it's safe to
+      // overwrite with the skeleton. Refuse the write.
+      console.error('[saveTeamsGuardingSkeleton] Safety check failed — refusing skeleton write to avoid risking real team data:', checkErr);
+      return;
+    }
+    if (existing.length > 0 && !isGenericSkeletonTeamArray(existing)) {
+      console.error(
+        '[saveTeamsGuardingSkeleton] BLOCKED: about to write the generic ' +
+        'auto-generated team skeleton, but Firestore already holds real, ' +
+        'customized team data. Refusing to overwrite — this write did not ' +
+        'happen. If this fires, the app cold-start logic incorrectly ' +
+        'believed the cloud was empty; check the network on the device ' +
+        'that triggered this.'
+      );
+      return;
+    }
+  }
+  await setFirestoreDocArray('teams', teamsList);
+}
+
 // 2. Full deep reset/seeding of Postgres database (on reset or mock seed trigger)
 export async function saveEntireStateToFirestore(
   poolsList: Pool[],
@@ -511,7 +576,7 @@ export async function saveEntireStateToFirestore(
     await Promise.all([
       setFirestoreDocArray('pools', poolsList),
       setFirestoreDocArray('plannedPools', plannedPoolsList),
-      setFirestoreDocArray('teams', teamsList),
+      saveTeamsGuardingSkeleton(teamsList),
       setFirestoreDocArray('logs', logsList.slice(-200)),
       setFirestoreDocArray('inspectors', inspectorsList),
       setFirestoreDocArray('engineers', engineersList),
@@ -1146,18 +1211,13 @@ export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [],
   // that ISN'T a generic skeleton, refuse the write and keep the server
   // copy — no matter which code path or which earlier guard failed to catch
   // it.
-  const isGenericSkeletonTeam = (t: any) =>
-    typeof t?.id === 'string' && typeof t?.name === 'string' &&
-    /^[a-z_]+_t\d+$/.test(t.id) && / - Team \d+$/.test(t.name);
-  const isGenericSkeletonArray = (arr: any[]) => arr.length > 0 && arr.every(isGenericSkeletonTeam);
-
   await runTransaction(clientDb, async (transaction) => {
     const snap = await transaction.get(docRef);
     const current: any[] = snap.exists() && Array.isArray(snap.data()?.data)
       ? snap.data()!.data
       : [];
 
-    if (isGenericSkeletonArray(localTeams) && current.length > 0 && !isGenericSkeletonArray(current)) {
+    if (isGenericSkeletonTeamArray(localTeams) && current.length > 0 && !isGenericSkeletonTeamArray(current)) {
       console.error(
         '[dbSyncTeams] BLOCKED: incoming team list looks like the auto-generated ' +
         'generic skeleton, but Firestore already holds real, customized team data. ' +
