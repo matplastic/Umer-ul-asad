@@ -5,6 +5,56 @@ import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Em
 // Firestore is initialized (via initializeFirestore with long-polling
 // forced on). Do NOT call getFirestore(app) here — see googleDrive.ts.
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DOCUMENT SHARDING (fixes: "Document ... exceeds the maximum allowed size of
+// 1,048,576 bytes")
+//
+// THE BUG: every collection (pools, teams, logs, employees, ...) was stored
+// as ONE Firestore document — system_state/{name} — holding the entire array
+// as a single JSON blob. Firestore hard-caps a document at 1 MiB. 'pools'
+// grew past that limit (it holds full QC/stage/defect history per pool), so
+// EVERY write to it started failing with exactly that error — which means
+// EVERY onSnapshot listener for 'pools' stopped receiving updates too. That's
+// what looked like "snapshot sync not working": it wasn't the listener, it
+// was that nothing could be written anymore.
+//
+// THE FIX: collections listed in SHARD_COUNTS are split across N sibling
+// documents (system_state/{name}__s0 ... {name}__s{N-1}) instead of one.
+// Items are distributed by `index % N`, so as the array grows the shards
+// grow evenly together rather than one shard filling up first. Every read,
+// write, transaction, and live listener below is shard-aware — callers
+// elsewhere in the app (App.tsx, dbSavePool, etc.) don't know or care;
+// they still just get/set one logical array per collection name.
+//
+// To fix another collection that hits this same limit later, just add it
+// here with a shard count — nothing else needs to change.
+// ─────────────────────────────────────────────────────────────────────────────
+const SHARD_COUNTS: Record<string, number> = {
+  pools: 8,
+};
+
+function shardCountFor(docName: string): number {
+  return SHARD_COUNTS[docName] || 1;
+}
+
+function shardDocNamesFor(docName: string): string[] {
+  const n = shardCountFor(docName);
+  if (n <= 1) return [docName];
+  return Array.from({ length: n }, (_, i) => `${docName}__s${i}`);
+}
+
+// Split a full array into N shard arrays by index % N. Deterministic, so the
+// same item always lands in a predictable shard as the array is re-split on
+// every write (order within the merged array from readShardedArrays is not
+// guaranteed to match insertion order — callers already treat these as sets
+// keyed by `id`, never relying on array order).
+function splitIntoShards(data: any[], n: number): any[][] {
+  if (n <= 1) return [data];
+  const shards: any[][] = Array.from({ length: n }, () => []);
+  data.forEach((item, i) => shards[i % n].push(item));
+  return shards;
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // REAL-TIME LIVE SYNC (Firestore onSnapshot)
 // Subscribes to all `system_state` documents. Any change on PC-A is pushed
@@ -37,26 +87,70 @@ export function subscribeToLiveState(
     'qcDefects',
     'companies',
   ];
-  const unsubs: Unsubscribe[] = collections.map(name =>
-    onSnapshot(
-      doc(clientDb, 'system_state', name),
-      snap => {
-        if (snap.exists()) {
-          const raw = snap.data();
-          const data = Array.isArray(raw?.data) ? raw.data : [];
-          callback({ collection: name, data });
-        }
-        // BUGFIX: when the Firestore document does NOT exist (collection not yet
-        // created on this device), do NOT fire callback with data:[]. Firing an
-        // empty array would overwrite real local state with nothing, causing
-        // visible "data loss" right after login on a fresh device or when a
-        // single collection happens to be missing in Firestore. Stay silent
-        // instead — the next write will create the doc and trigger a real
-        // snapshot.
-      },
-      err => console.warn(`[liveSync] ${name} subscription error:`, err)
-    )
-  );
+
+  const unsubs: Unsubscribe[] = [];
+
+  collections.forEach(name => {
+    const shardNames = shardDocNamesFor(name);
+
+    if (shardNames.length === 1) {
+      // Unsharded path — identical behavior to before.
+      unsubs.push(
+        onSnapshot(
+          doc(clientDb, 'system_state', name),
+          snap => {
+            if (snap.exists()) {
+              const raw = snap.data();
+              const data = Array.isArray(raw?.data) ? raw.data : [];
+              callback({ collection: name, data });
+            }
+            // BUGFIX: when the Firestore document does NOT exist (collection not yet
+            // created on this device), do NOT fire callback with data:[]. Firing an
+            // empty array would overwrite real local state with nothing, causing
+            // visible "data loss" right after login on a fresh device or when a
+            // single collection happens to be missing in Firestore. Stay silent
+            // instead — the next write will create the doc and trigger a real
+            // snapshot.
+          },
+          err => console.warn(`[liveSync] ${name} subscription error:`, err)
+        )
+      );
+      return;
+    }
+
+    // Sharded path — listen to every shard doc independently, keep the last
+    // known contents of each shard in memory, and fire the callback with the
+    // MERGED array whenever any single shard changes. This is what lets a
+    // sharded collection still look like one live array to the rest of the
+    // app, exactly like the unsharded path above.
+    const shardCache: any[][] = shardNames.map(() => []);
+    const shardSeen: boolean[] = shardNames.map(() => false);
+
+    shardNames.forEach((shardDocName, i) => {
+      unsubs.push(
+        onSnapshot(
+          doc(clientDb, 'system_state', shardDocName),
+          snap => {
+            if (snap.exists()) {
+              const raw = snap.data();
+              shardCache[i] = Array.isArray(raw?.data) ? raw.data : [];
+            } else {
+              shardCache[i] = [];
+            }
+            shardSeen[i] = true;
+            // Wait until every shard has reported at least once before the
+            // first callback, so we never fire a partial/incomplete merge
+            // (e.g. only 2 of 8 shards loaded) that looks like data loss.
+            if (shardSeen.every(Boolean)) {
+              callback({ collection: name, data: shardCache.flat() });
+            }
+          },
+          err => console.warn(`[liveSync] ${shardDocName} (shard of '${name}') subscription error:`, err)
+        )
+      );
+    });
+  });
+
   return () => unsubs.forEach(u => { try { u(); } catch {} });
 }
 
@@ -150,13 +244,26 @@ export async function dbFetchActivityLogsInRange(startDate: string, endDate: str
 // normal reads (loading data to show on screen), NOT for the empty-write
 // safety check below. See getFirestoreDocArrayStrict for that.
 async function getFirestoreDocArray(docName: string): Promise<any[]> {
+  const shardNames = shardDocNamesFor(docName);
   try {
-    const docRef = doc(clientDb, 'system_state', docName);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
+    if (shardNames.length === 1) {
+      const docRef = doc(clientDb, 'system_state', docName);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const resp = snap.data();
+        return Array.isArray(resp?.data) ? resp.data : [];
+      }
+      return [];
+    }
+    // Sharded read: fetch all shards in parallel and merge.
+    const snaps = await Promise.all(
+      shardNames.map(sn => getDoc(doc(clientDb, 'system_state', sn)))
+    );
+    return snaps.flatMap(snap => {
+      if (!snap.exists()) return [];
       const resp = snap.data();
       return Array.isArray(resp?.data) ? resp.data : [];
-    }
+    });
   } catch (err) {
     console.warn(`Direct client Firestore fetch warning for '${docName}':`, err);
   }
@@ -179,13 +286,27 @@ async function getFirestoreDocArray(docName: string): Promise<any[]> {
 // instead of assuming the collection is empty. Fail safe, not fail open.
 // ─────────────────────────────────────────────────────────────────────────────
 async function getFirestoreDocArrayStrict(docName: string): Promise<any[]> {
-  const docRef = doc(clientDb, 'system_state', docName);
-  const snap = await getDoc(docRef);
-  if (snap.exists()) {
+  const shardNames = shardDocNamesFor(docName);
+  if (shardNames.length === 1) {
+    const docRef = doc(clientDb, 'system_state', docName);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const resp = snap.data();
+      return Array.isArray(resp?.data) ? resp.data : [];
+    }
+    return [];
+  }
+  // Sharded strict read — deliberately does NOT catch errors (see the
+  // function-level note above this one): if any shard read fails, the error
+  // must propagate so callers refuse to treat a failed check as "empty".
+  const snaps = await Promise.all(
+    shardNames.map(sn => getDoc(doc(clientDb, 'system_state', sn)))
+  );
+  return snaps.flatMap(snap => {
+    if (!snap.exists()) return [];
     const resp = snap.data();
     return Array.isArray(resp?.data) ? resp.data : [];
-  }
-  return [];
+  });
 }
 
 // Recursively removes undefined values — Firestore rejects them
@@ -224,8 +345,19 @@ async function setFirestoreDocArray(docName: string, data: any[], allowEmpty: bo
         return;
       }
     }
-    const docRef = doc(clientDb, 'system_state', docName);
-    await setDoc(docRef, { data: removeUndefined(data) });
+    const shardNames = shardDocNamesFor(docName);
+    if (shardNames.length === 1) {
+      const docRef = doc(clientDb, 'system_state', docName);
+      await setDoc(docRef, { data: removeUndefined(data) });
+      return;
+    }
+    // Sharded write: split the array across N docs so no single document
+    // can hit Firestore's 1 MiB limit.
+    const cleaned = removeUndefined(data);
+    const shards = splitIntoShards(cleaned, shardNames.length);
+    await Promise.all(
+      shardNames.map((sn, i) => setDoc(doc(clientDb, 'system_state', sn), { data: shards[i] }))
+    );
   } catch (err) {
     console.error(`Direct client Firestore write error for '${docName}':`, err);
     throw err;
@@ -267,17 +399,23 @@ async function updateFirestoreDocArrays(
   allowEmpty: Record<string, boolean> = {},
 ): Promise<Record<string, any[]>> {
   const docNames = Object.keys(updates);
-  const docRefs = docNames.map((name) => doc(clientDb, 'system_state', name));
+  // Each logical collection may map to 1 or N shard doc refs.
+  const shardNamesByCollection = docNames.map((name) => shardDocNamesFor(name));
+  const docRefsByCollection = shardNamesByCollection.map((shardNames) =>
+    shardNames.map((sn) => doc(clientDb, 'system_state', sn))
+  );
   const results: Record<string, any[]> = {};
 
   await runTransaction(clientDb, async (transaction) => {
     // All reads first (Firestore transaction rule: reads before writes).
     const currents: Record<string, any[]> = {};
     for (let i = 0; i < docNames.length; i++) {
-      const snap = await transaction.get(docRefs[i]);
-      currents[docNames[i]] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
+      const snaps = await Promise.all(docRefsByCollection[i].map((ref) => transaction.get(ref)));
+      currents[docNames[i]] = snaps.flatMap((snap) =>
+        snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : []
+      );
     }
-    // Then apply every update function and write every doc.
+    // Then apply every update function and write every doc (or shard set).
     for (let i = 0; i < docNames.length; i++) {
       const name = docNames[i];
       const current = currents[name];
@@ -288,7 +426,10 @@ async function updateFirestoreDocArrays(
         continue;
       }
       results[name] = updated;
-      transaction.set(docRefs[i], { data: removeUndefined(updated) });
+      const refs = docRefsByCollection[i];
+      const cleaned = removeUndefined(updated);
+      const shards = splitIntoShards(cleaned, refs.length);
+      refs.forEach((ref, j) => transaction.set(ref, { data: shards[j] }));
     }
   });
 
@@ -296,16 +437,19 @@ async function updateFirestoreDocArrays(
 }
 
 async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) => any[], allowEmpty: boolean = false): Promise<any[]> {
-  const docRef = doc(clientDb, 'system_state', docName);
+  const shardNames = shardDocNamesFor(docName);
+  const docRefs = shardNames.map(sn => doc(clientDb, 'system_state', sn));
   let updatedArr: any[] = [];
 
   try {
     await runTransaction(clientDb, async (transaction) => {
-      const snap = await transaction.get(docRef);
-      // Read current array inside the transaction (atomic read)
-      const current: any[] = snap.exists() && Array.isArray(snap.data()?.data)
-        ? snap.data()!.data
-        : [];
+      // Read every shard first (Firestore transaction rule: all reads before
+      // any write). For an unsharded collection this is just the one doc,
+      // identical to the old behavior.
+      const snaps = await Promise.all(docRefs.map(ref => transaction.get(ref)));
+      const current: any[] = snaps.flatMap(snap =>
+        snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : []
+      );
 
       // Apply the caller's update function
       updatedArr = updateFn([...current]);
@@ -323,8 +467,13 @@ async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) =
       }
 
       // Write back atomically — if another device wrote between our read and
-      // this write, Firestore will abort and retry the whole transaction
-      transaction.set(docRef, { data: removeUndefined(updatedArr) });
+      // this write, Firestore will abort and retry the whole transaction.
+      // For sharded collections, re-split the FULL updated array across all
+      // shard docs every time — this is what keeps every shard comfortably
+      // under the 1 MiB limit no matter how the array grows or shrinks.
+      const cleaned = removeUndefined(updatedArr);
+      const shards = splitIntoShards(cleaned, docRefs.length);
+      docRefs.forEach((ref, i) => transaction.set(ref, { data: shards[i] }));
     });
   } catch (err) {
     console.error(`[updateFirestoreDocArray] Transaction failed for '${docName}':`, err);
