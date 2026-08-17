@@ -1,0 +1,60 @@
+/*
+  Metal Embossed Button / Tab styles
+  ------------------------------------------------------------------------
+  Drop this into src/index.css (or import separately) and apply the
+  .btn-metal class to any <button>. Add .active for the pressed/selected
+  tab state.
+
+  Example:
+    <button class="btn-metal">Planning</button>
+    <button class="btn-metal active">Store</button>
+    <button class="btn-metal">HR</button>
+  ------------------------------------------------------------------------
+*/
+
+.btn-metal {
+  background: linear-gradient(180deg, #f6f7f9 0%, #e2e4e8 100%);
+  color: #4a4f57;
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 24px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow:
+    0 3px 5px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.btn-metal:hover {
+  filter: brightness(1.04);
+  transform: translateY(-2px);
+  box-shadow:
+    0 6px 10px rgba(0, 0, 0, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.btn-metal:active {
+  transform: translateY(0);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.btn-metal.active {
+  color: #3a3e45;
+  background: linear-gradient(180deg, #e8eaed 0%, #d3d6db 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.15),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.btn-metal:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
