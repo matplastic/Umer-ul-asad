@@ -1702,7 +1702,42 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setPerfWeekStart(d.toISOString().slice(0, 10));
   };
 
-  const perfLogs = logs.filter(l => {
+  // The date range the current perf view needs, so we know how far back to
+  // pull from the permanent archive (see note below).
+  const perfRange = React.useMemo(() => {
+    if (perfMode === 'daily') return { start: perfDate, end: perfDate };
+    if (perfMode === 'weekly') return { start: perfWeekStart, end: perfWeekEnd };
+    if (perfMode === 'yearly') return { start: `${perfYear}-01-01`, end: `${perfYear}-12-31` };
+    const [y, m] = perfMonth.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return { start: `${perfMonth}-01`, end: `${perfMonth}-${String(lastDay).padStart(2, '0')}` };
+  }, [perfMode, perfDate, perfWeekStart, perfWeekEnd, perfYear, perfMonth]);
+
+  // BUGFIX: Team Performance used to filter straight off the `logs` prop,
+  // which is a ROLLING CACHE capped to the most recent 200 activity entries
+  // company-wide (see firebaseService.ts). On a busy factory with several
+  // teams each logging multiple stage sign-offs per pool, that 200-entry cap
+  // can be exhausted in a day or two — so a week-wise or month-wise view
+  // only ever saw whatever slice of the month happened to still be in that
+  // recent window, making a team that actually passed 24+ pools in a month
+  // show as few as 3-4. Team Search already solved this by reading from the
+  // permanent monthly archive instead; do the same here.
+  const [perfArchiveLogs, setPerfArchiveLogs] = useState<ActivityLog[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    dbFetchActivityLogsInRange(perfRange.start, perfRange.end)
+      .then(rows => { if (!cancelled) setPerfArchiveLogs(rows); })
+      .catch(() => { if (!cancelled) setPerfArchiveLogs([]); });
+    return () => { cancelled = true; };
+  }, [perfRange.start, perfRange.end]);
+
+  // Fall back to the local (recent-only) `logs` prop if the archive hasn't
+  // returned anything yet for this range — e.g. right after upgrading,
+  // before older entries have had a chance to be archived, so the tab isn't
+  // blank while the archive fetch is in flight or empty.
+  const perfSourceLogs = perfArchiveLogs.length > 0 ? perfArchiveLogs : logs;
+
+  const perfLogs = perfSourceLogs.filter(l => {
     if (l.type !== 'APPROVED' && l.type !== 'REJECTED') return false;
     if (perfMode === 'daily') return toLocalDateStr(l.timestamp) === perfDate;
     if (perfMode === 'weekly') {
@@ -2647,11 +2682,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             <div className="flex items-center gap-2.5 mb-3">
               <span
                 className="h-6 w-6 rounded-lg flex items-center justify-center shrink-0"
-                style={{ backgroundColor: i === 0 ? '#0f766e14' : i === 1 ? '#33415514' : '#78716c14' }}
+                style={{ backgroundColor: i === 0 ? '#0f766e14' : i === 1 ? '#33415514' : '#94a3b814' }}
               >
                 <span
                   className="h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: i === 0 ? '#0f766e' : i === 1 ? '#334155' : '#78716c' }}
+                  style={{ backgroundColor: i === 0 ? '#0f766e' : i === 1 ? '#334155' : '#94a3b8' }}
                 />
               </span>
               <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-[0.12em]">{section.group}</span>
@@ -2665,58 +2700,27 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               {section.tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
-                // Each button's icon chip is tinted with its GROUP's accent
-                // color (the same teal / slate / gray used by the section
-                // dot above) — so at a glance, which cluster a button
-                // belongs to is legible from the button itself, not just
-                // its position under a heading.
-                const accent = i === 0 ? '#0f766e' : i === 1 ? '#334155' : '#78716c';
                 return (
                   <motion.button
                     key={tab.id}
                     id={(tab as any).elId}
                     onClick={() => setActiveTab(tab.id)}
-                    whileHover={{ y: isActive ? 0 : -2 }}
+                    whileHover={{ y: isActive ? 0 : -1 }}
                     whileTap={{ scale: 0.97 }}
-                    style={{
-                      borderColor: isActive ? 'transparent' : `${accent}30`,
-                      boxShadow: isActive
-                        ? `0 6px 16px -4px ${accent}55, inset 0 1px 0 0 rgba(255,255,255,0.12)`
-                        : `0 1px 2px 0 rgba(15,23,42,0.04)`,
-                    }}
-                    className={`group relative py-2 pl-2.5 pr-3.5 rounded-[var(--radius-control)] text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all duration-150 border overflow-hidden ${
+                    className={`relative py-2 px-3.5 rounded-[var(--radius-control)] text-xs font-semibold flex items-center gap-2 cursor-pointer transition-colors duration-150 border ${
                       isActive
-                        ? 'text-white'
-                        : 'text-neutral-600 bg-white hover:bg-white'
+                        ? 'text-white border-transparent'
+                        : 'text-neutral-600 border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'
                     }`}
                   >
                     {isActive && (
                       <motion.span
                         layoutId={`nav-active-pill-${section.group}`}
                         transition={{ type: 'spring', stiffness: 520, damping: 38 }}
-                        className="absolute inset-0 rounded-[var(--radius-control)] bg-gradient-to-br from-slate-800 to-neutral-950"
+                        className="absolute inset-0 rounded-[var(--radius-control)] bg-gradient-to-br from-slate-800 to-neutral-950 shadow-md shadow-slate-900/25"
                       />
                     )}
-                    {/* hover sheen for inactive buttons — a faint wash of the
-                        group's own accent color, not a generic gray hover */}
-                    {!isActive && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                        style={{ background: `linear-gradient(135deg, ${accent}12, transparent 65%)` }}
-                      />
-                    )}
-                    <span
-                      className="relative z-10 h-5 w-5 rounded-md flex items-center justify-center shrink-0 transition-colors duration-150"
-                      style={{
-                        backgroundColor: isActive ? 'rgba(255,255,255,0.14)' : `${accent}17`,
-                      }}
-                    >
-                      <Icon
-                        className="h-3 w-3 shrink-0"
-                        style={{ color: isActive ? '#2dd4bf' : accent }}
-                      />
-                    </span>
+                    <Icon className={`relative z-10 h-3.5 w-3.5 shrink-0 ${isActive ? 'text-teal-400' : 'text-neutral-400'}`} />
                     <span className="relative z-10 whitespace-nowrap">{tab.label}</span>
                   </motion.button>
                 );
