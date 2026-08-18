@@ -176,7 +176,7 @@ interface HRPortalProps {
   onSaveEmployee: (emp: Employee) => void;
   onDeleteEmployee: (id: string) => void;
   onAddEmployeePunchesBulk?: (punches: EmployeePunch[]) => void;
-  onAddEmployeesBulk?: (newStaff: Employee[]) => void;
+  onAddEmployeesBulk?: (newStaff: Employee[]) => void | Promise<void>;
   onDeleteEmployeePunchesByDate?: (date: string) => void;
   currentUserName?: string;
   /** Called when HR changes the system-wide idle auto-logout duration. */
@@ -282,7 +282,7 @@ interface ImportPreviewRow {
 // overwrites data that's already there.
 const EmployeeExcelImportModal = ({ employees, onImport, onClose }: {
   employees: Employee[];
-  onImport: (rows: Employee[]) => void;
+  onImport: (rows: Employee[]) => void | Promise<void>;
   onClose: () => void;
 }) => {
   const [dragActive, setDragActive] = useState(false);
@@ -290,6 +290,7 @@ const EmployeeExcelImportModal = ({ employees, onImport, onClose }: {
   const [preview, setPreview] = useState<ImportPreviewRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const buildPreview = (rawHeaders: string[], rows: string[][]) => {
     const headers = rawHeaders.map(h => String(h || '').trim().toLowerCase().replace(/[\s_\-\.]/g, ''));
@@ -440,13 +441,30 @@ const EmployeeExcelImportModal = ({ employees, onImport, onClose }: {
     }
   };
 
-  const confirmImport = () => {
+  const confirmImport = async () => {
     if (!preview || preview.length === 0) return;
-    onImport(preview.map(r => r.employee));
-    const updated = preview.filter(r => r.action === 'update').length;
-    const added = preview.filter(r => r.action === 'add').length;
-    setDone(`Done — ${updated} existing employee${updated === 1 ? '' : 's'} filled in, ${added} new employee${added === 1 ? '' : 's'} added.`);
-    setTimeout(onClose, 2500);
+    setSaving(true);
+    setError(null);
+    try {
+      // CRITICAL FIX: this now actually WAITS for the Firestore write to
+      // finish and checks whether it succeeded, instead of assuming success
+      // the instant the function was called. Previously "Done" showed up
+      // regardless of whether the save actually worked — which is exactly
+      // why an import could look successful, then silently vanish on the
+      // next refresh once the real (unsaved) data loaded from Firestore.
+      await onImport(preview.map(r => r.employee));
+      const updated = preview.filter(r => r.action === 'update').length;
+      const added = preview.filter(r => r.action === 'add').length;
+      setDone(`Done — ${updated} existing employee${updated === 1 ? '' : 's'} filled in, ${added} new employee${added === 1 ? '' : 's'} added. Saved to Firestore.`);
+      setTimeout(onClose, 2500);
+    } catch (err: any) {
+      // Do NOT close the modal and do NOT claim success — tell the user
+      // plainly that the save failed so they know to retry instead of
+      // walking away thinking the import worked.
+      setError(`Import failed to save: ${err?.message || err}. Nothing was saved — please check your connection and try again.`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateCount = preview?.filter(r => r.action === 'update').length || 0;
@@ -523,10 +541,10 @@ const EmployeeExcelImportModal = ({ employees, onImport, onClose }: {
             <div className="flex gap-2 pt-2">
               <button
                 onClick={confirmImport}
-                disabled={preview.length === 0}
+                disabled={preview.length === 0 || saving}
                 className="flex-1 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-bold py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
               >
-                <Save className="h-4 w-4" /> Confirm Import
+                <Save className="h-4 w-4" /> {saving ? 'Saving to Firestore…' : 'Confirm Import'}
               </button>
               <button
                 onClick={() => { setPreview(null); setFileName(null); }}
@@ -570,7 +588,7 @@ const AttendanceUploadPanel = ({
   selectedDate: string;
   onDateDetected: (date: string) => void;
   onAddEmployeePunchesBulk?: (punches: EmployeePunch[]) => void;
-  onAddEmployeesBulk?: (newStaff: Employee[]) => void;
+  onAddEmployeesBulk?: (newStaff: Employee[]) => void | Promise<void>;
   onDeleteEmployeePunchesByDate?: (date: string) => void;
 }) => {
   const [file, setFile] = useState<File | null>(null);
