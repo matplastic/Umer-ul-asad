@@ -52,10 +52,59 @@ import {
   collection,
   getDocs,
   writeBatch,
+  query,
+  where,
+  deleteDoc,
 } from 'firebase/firestore';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATE-BOUNDED COLLECTIONS (for collections that grow forever, like daily
+// attendance punches). Loading and live-listening to the ENTIRE history of a
+// collection like this gets slower and more expensive (in Firestore read
+// costs) every single day, forever — even though each document itself is
+// tiny and will never hit the 1 MiB limit. So for these specific collections
+// we only load/listen to a recent rolling window by default, and provide a
+// separate on-demand function for reports that genuinely need older data.
+//
+// Every punch record has a `date` field ("YYYY-MM-DD"), so we can filter with
+// a native Firestore query instead of reading everything and filtering in
+// JS — the query itself only reads the matching documents.
+// ─────────────────────────────────────────────────────────────────────────────
+const RECENT_WINDOW_DAYS: Record<string, number> = {
+  employeePunches: 30,
+};
+
+function isoDateNDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+// Fetch only the last N days of a date-bounded collection.
+async function collectionGetRecent(name: string, days: number): Promise<any[]> {
+  const cutoff = isoDateNDaysAgo(days);
+  const q = query(collection(clientDb, name), where('date', '>=', cutoff));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data());
+}
+
+// On-demand fetch for a specific date range — for reports/payroll that need
+// older data than the default rolling window covers. Both bounds inclusive,
+// "YYYY-MM-DD" format, matching the `date` field already stored on each
+// punch record.
+export async function dbGetEmployeePunchesInRange(startDate: string, endDate: string): Promise<EmployeePunch[]> {
+  const q = query(
+    collection(clientDb, 'employeePunches'),
+    where('date', '>=', startDate),
+    where('date', '<=', endDate),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data() as EmployeePunch);
+}
 
 const COLLECTION_BACKED: Record<string, boolean> = {
   pools: true,
+  employeePunches: true,
 };
 
 function isCollectionBacked(docName: string): boolean {
@@ -184,9 +233,19 @@ export function subscribeToLiveState(
       // expects that shape), but the network traffic and the write cost
       // that produced this update were both scoped to just the documents
       // that actually changed — not the whole collection.
+      //
+      // For collections with a configured RECENT_WINDOW_DAYS (like
+      // employeePunches), the live listener itself is also bounded to that
+      // same rolling window — otherwise the listener would keep streaming
+      // and holding the ENTIRE history in memory forever as it grows,
+      // which defeats the point of bounding the initial load.
+      const windowDays = RECENT_WINDOW_DAYS[name];
+      const target = windowDays
+        ? query(collection(clientDb, name), where('date', '>=', isoDateNDaysAgo(windowDays)))
+        : collection(clientDb, name);
       unsubs.push(
         onSnapshot(
-          collection(clientDb, name),
+          target,
           snap => {
             callback({ collection: name, data: snap.docs.map(d => d.data()) });
           },
@@ -351,6 +410,12 @@ export async function dbFetchActivityLogsInRange(startDate: string, endDate: str
 async function getFirestoreDocArray(docName: string): Promise<any[]> {
   try {
     if (isCollectionBacked(docName)) {
+      if (RECENT_WINDOW_DAYS[docName]) {
+        // Default load is bounded to the recent window — callers that need
+        // older data (reports/payroll) should call dbGetEmployeePunchesInRange
+        // explicitly instead of relying on this generic function.
+        return await collectionGetRecent(docName, RECENT_WINDOW_DAYS[docName]);
+      }
       return await collectionGetAll(docName);
     }
     const shardNames = shardDocNamesFor(docName);
@@ -2362,12 +2427,10 @@ export async function dbMarkMaterialRequestBatchPrinted(ids: string[]): Promise<
 export async function dbSaveEmployeePunch(punch: EmployeePunch) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('employeePunches', (arr) => {
-      const idx = arr.findIndex(item => item.id === punch.id);
-      if (idx !== -1) arr[idx] = punch;
-      else arr.push(punch);
-      return arr;
-    });
+    // CRITICAL: employeePunches is collection-backed (one doc per punch), so
+    // this is a single targeted document write — it does NOT read the rest
+    // of the punch history at all, no matter how large it grows.
+    await setDoc(doc(clientDb, 'employeePunches', String(punch.id)), removeUndefined(punch));
     return { success: true, punch };
   }
 
@@ -2389,7 +2452,8 @@ export async function dbSaveEmployeePunch(punch: EmployeePunch) {
 export async function dbDeleteEmployeePunch(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('employeePunches', (arr) => arr.filter(item => item.id !== id), true);
+    // Single targeted delete — no full-collection read needed.
+    await deleteDoc(doc(clientDb, 'employeePunches', String(id)));
     return { success: true };
   }
 
@@ -2410,10 +2474,17 @@ export async function dbDeleteEmployeePunch(id: string) {
 export async function dbSaveEmployeePunchesBulk(punches: EmployeePunch[]) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('employeePunches', (arr) => {
-      const filtered = arr.filter(existing => !punches.some(p => p.id === existing.id));
-      return [...filtered, ...punches];
-    });
+    // CRITICAL FIX: this used to call updateFirestoreDocArray, which reads
+    // the ENTIRE punch history just to figure out what to overwrite — every
+    // single daily attendance upload would get slower and more expensive as
+    // history grows, forever. Since every punch already has its own unique
+    // `id`, we can just set them directly by ID — this only ever touches the
+    // punches actually being uploaded, regardless of how many years of
+    // history exist.
+    const ops = punches.map(p => (batch: ReturnType<typeof writeBatch>) =>
+      batch.set(doc(clientDb, 'employeePunches', String(p.id)), removeUndefined(p))
+    );
+    await commitInChunks(ops);
     return { success: true };
   }
 
@@ -2482,8 +2553,19 @@ export async function dbClearAllEmployeePunches() {
 export async function dbDeleteEmployeePunchesByDate(date: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    await updateFirestoreDocArray('employeePunches', (arr) => arr.filter(p => !p.punchTime?.startsWith(date)), true);
-    return { success: true };
+    // CRITICAL FIX: this used to read the ENTIRE punch history and filter in
+    // JS on `p.punchTime?.startsWith(date)` — but EmployeePunch records don't
+    // actually have a `punchTime` field (they have `date` and `timestamp`),
+    // so that filter never matched anything and this function was silently
+    // a no-op. Now it runs a targeted Firestore query on the real `date`
+    // field and only reads/deletes the matching day's records — correct AND
+    // cheap regardless of how much history exists.
+    const q = query(collection(clientDb, 'employeePunches'), where('date', '==', date));
+    const snap = await getDocs(q);
+    if (snap.empty) return { success: true, deleted: 0 };
+    const ops = snap.docs.map(d => (batch: ReturnType<typeof writeBatch>) => batch.delete(d.ref));
+    await commitInChunks(ops);
+    return { success: true, deleted: snap.size };
   }
 
   try {
