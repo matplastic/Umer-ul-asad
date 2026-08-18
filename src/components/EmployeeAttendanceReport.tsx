@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { UserCheck, UserX, CalendarClock, Printer, Download, HeartPulse, MapPin, CalendarOff } from 'lucide-react';
 import { exportToExcel, exportTablePdf } from '../lib/exportUtils';
 import { Employee, EmployeePunch } from '../types';
+import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
 
 // Loosely typed so this component works whether it's fed HR's local
 // LeaveRequest/MedicalRecord/SiteDeployedEntry shapes or the plain Firestore
@@ -126,12 +127,55 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
     [employeePunches, employeeId]
   );
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // CRITICAL FIX: the app now only keeps the LAST 30 DAYS of punches in
+  // memory by default (employeePunches prop above), to keep the app fast as
+  // years of daily attendance data pile up. But this report has "Last Month"
+  // and "Yearly" views that need older data than that. So whenever the
+  // selected range reaches further back than the live 30-day window covers,
+  // fetch that specific range directly from Firestore on demand — this
+  // report is the one place that actually needs deep history, so it asks
+  // for exactly the range it needs instead of the whole app always paying
+  // the cost of holding years of punches in memory.
+  // ─────────────────────────────────────────────────────────────────────────
+  const [rangePunches, setRangePunches] = useState<EmployeePunch[] | null>(null);
+  const [loadingRange, setLoadingRange] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!employeeId) { setRangePunches(null); return; }
+    let cancelled = false;
+    setLoadingRange(true);
+    setRangeError(null);
+    dbGetEmployeePunchesInRange(range.startDate, range.endDate)
+      .then(punches => { if (!cancelled) setRangePunches(punches); })
+      .catch(err => {
+        console.error('EmployeeAttendanceReport: failed to fetch punch range', err);
+        if (!cancelled) {
+          setRangeError('Could not load attendance data for this period — showing recent data only, which may be incomplete.');
+          // Fall back to whatever's already in memory (last 30 days) rather
+          // than showing a totally blank report.
+          setRangePunches(null);
+        }
+      })
+      .finally(() => { if (!cancelled) setLoadingRange(false); });
+    return () => { cancelled = true; };
+  }, [employeeId, range.startDate, range.endDate]);
+
+  // Use the freshly-fetched range data when we have it; otherwise fall back
+  // to the live in-memory (last-30-days) punches so the report still shows
+  // something immediately while the range fetch is in flight.
+  const effectivePunchesForEmp = useMemo(
+    () => (rangePunches ? rangePunches.filter(p => p.employeeId === employeeId) : punchesForEmp),
+    [rangePunches, employeeId, punchesForEmp]
+  );
+
   const dayRows: DayRow[] = useMemo(() => {
     if (!employeeId) return [];
     const dates = enumerateDates(range.startDate, range.endDate);
     return dates.map(date => {
       const dayName = new Date(date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short' });
-      const dayPunches = punchesForEmp.filter(p => p.date === date);
+      const dayPunches = effectivePunchesForEmp.filter(p => p.date === date);
       const inPunch = dayPunches.find(p => p.punchType === 'IN');
       const outPunch = [...dayPunches].reverse().find(p => p.punchType === 'OUT');
 
@@ -156,7 +200,7 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
       }
       return { date, dayName, status: 'Absent' as DayStatus };
     });
-  }, [employeeId, range, punchesForEmp, deployedEntriesForEmp, approvedLeavesForEmp, medicalsForEmp]);
+  }, [employeeId, range, effectivePunchesForEmp, deployedEntriesForEmp, approvedLeavesForEmp, medicalsForEmp]);
 
   const summary = useMemo(() => {
     const counts: Record<DayStatus, number> = { Present: 0, Absent: 0, 'On Leave': 0, Medical: 0, Deployed: 0, Holiday: 0 };
@@ -253,6 +297,16 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
             className="border border-slate-200 rounded-lg px-2 py-2 text-xs bg-slate-50"
           />
         </div>
+
+        {loadingRange && (
+          <div className="text-xs font-semibold text-violet-600 flex items-center gap-2 pb-2">
+            <span className="h-3 w-3 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin" />
+            Loading attendance for this period…
+          </div>
+        )}
+        {rangeError && (
+          <div className="text-xs font-semibold text-amber-600 pb-2">{rangeError}</div>
+        )}
 
         {employee && dayRows.length > 0 && (
           <div className="flex gap-2 ml-auto">
