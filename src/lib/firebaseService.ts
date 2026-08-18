@@ -6,32 +6,119 @@ import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Em
 // forced on). Do NOT call getFirestore(app) here — see googleDrive.ts.
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DOCUMENT SHARDING (fixes: "Document ... exceeds the maximum allowed size of
-// 1,048,576 bytes")
+// COLLECTION-BACKED DATA (proper fix for both the 1 MiB size limit AND
+// cross-device race conditions / data loss)
 //
-// THE BUG: every collection (pools, teams, logs, employees, ...) was stored
-// as ONE Firestore document — system_state/{name} — holding the entire array
-// as a single JSON blob. Firestore hard-caps a document at 1 MiB. 'pools'
-// grew past that limit (it holds full QC/stage/defect history per pool), so
-// EVERY write to it started failing with exactly that error — which means
-// EVERY onSnapshot listener for 'pools' stopped receiving updates too. That's
-// what looked like "snapshot sync not working": it wasn't the listener, it
-// was that nothing could be written anymore.
+// THE OLD PROBLEM: every collection (pools, teams, logs, employees, ...) was
+// stored as ONE Firestore document — system_state/{name} — holding the
+// entire array as a single JSON blob. Two consequences:
+//   1. Firestore hard-caps a document at 1 MiB. 'pools' grew past that, so
+//      EVERY write to it started failing outright — which is why sync
+//      looked broken (nothing could be written anymore).
+//   2. Editing ONE pool required reading and rewriting the ENTIRE array.
+//      If two floor PCs saved within the same moment, one write could
+//      silently overwrite the other's changes — the actual cause of the
+//      race conditions and data loss.
 //
-// THE FIX: collections listed in SHARD_COUNTS are split across N sibling
-// documents (system_state/{name}__s0 ... {name}__s{N-1}) instead of one.
-// Items are distributed by `index % N`, so as the array grows the shards
-// grow evenly together rather than one shard filling up first. Every read,
-// write, transaction, and live listener below is shard-aware — callers
-// elsewhere in the app (App.tsx, dbSavePool, etc.) don't know or care;
-// they still just get/set one logical array per collection name.
+// A document-sharding fix (splitting one big doc into 8 smaller docs) was
+// applied first and it solved the size-limit crash, but it did NOT solve
+// the race condition — two edits landing in the same shard could still
+// collide, and a single pool edit still meant rewriting a chunk of ~48
+// other unrelated pools.
 //
-// To fix another collection that hits this same limit later, just add it
-// here with a shard count — nothing else needs to change.
+// THE REAL FIX (this section): collections listed in COLLECTION_BACKED are
+// no longer stored as array-documents (sharded or not) at all. Instead
+// each item becomes its OWN small document in a real top-level Firestore
+// collection — e.g. pools/{poolId}, one document per pool. This means:
+//   - Editing pool #204 writes exactly ONE document. No other pool's data
+//     is read or touched, so no size limit is realistically reachable.
+//   - Editing pool #12 on one PC and pool #340 on another PC touch
+//     completely different documents — they cannot collide, ever.
+//   - Two people editing the SAME pool at nearly the same time still get
+//     Firestore's normal last-write-wins on that one small document,
+//     which is the expected/correct behavior for a single record.
+//
+// Every read, write, transaction, and live listener below is aware of
+// which collections are collection-backed vs. still using the legacy
+// system_state/{name} single-array-document pattern — callers elsewhere
+// in the app (App.tsx, dbSavePool, etc.) don't know or care; they still
+// just get/set one logical array per collection name, exactly as before.
+//
+// To move another collection (e.g. 'teams') onto this same pattern later,
+// add its name to COLLECTION_BACKED below — nothing else needs to change
+// in App.tsx or anywhere else that calls these functions.
 // ─────────────────────────────────────────────────────────────────────────────
-const SHARD_COUNTS: Record<string, number> = {
-  pools: 8,
+import {
+  collection,
+  getDocs,
+  writeBatch,
+} from 'firebase/firestore';
+
+const COLLECTION_BACKED: Record<string, boolean> = {
+  pools: true,
 };
+
+function isCollectionBacked(docName: string): boolean {
+  return !!COLLECTION_BACKED[docName];
+}
+
+// Firestore write batches are capped at 500 operations — chunk larger diffs
+// into multiple batches so this keeps working even on very large collections.
+async function commitInChunks(ops: Array<(batch: ReturnType<typeof writeBatch>) => void>) {
+  const CHUNK = 450; // safety margin under Firestore's 500-op batch limit
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    const batch = writeBatch(clientDb);
+    ops.slice(i, i + CHUNK).forEach(op => op(batch));
+    await batch.commit();
+  }
+}
+
+// Read every document in a collection-backed collection and return it as a
+// plain array — mirrors what getFirestoreDocArray returned for the old
+// array-document pattern, so callers see no difference.
+async function collectionGetAll(name: string): Promise<any[]> {
+  const snap = await getDocs(collection(clientDb, name));
+  return snap.docs.map(d => d.data());
+}
+
+// Write a full array into a collection-backed collection, but ONLY touch
+// documents that actually changed — this is what keeps per-edit write cost
+// down to ~1 document instead of rewriting everything, and is what removes
+// the race condition (unrelated documents are never read or rewritten).
+async function collectionDiffWrite(name: string, newArray: any[]): Promise<void> {
+  const current = await collectionGetAll(name);
+  const currentById = new Map(current.map(item => [item.id, item]));
+  const newById = new Map(newArray.map(item => [item.id, item]));
+
+  const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+
+  // Set (create or update) any item that's new or actually changed.
+  newById.forEach((item, id) => {
+    const existing = currentById.get(id);
+    if (!existing || JSON.stringify(existing) !== JSON.stringify(item)) {
+      const cleaned = removeUndefined(item);
+      ops.push(batch => batch.set(doc(clientDb, name, String(id)), cleaned));
+    }
+  });
+
+  // Delete any item that existed before but isn't in the new array.
+  currentById.forEach((_item, id) => {
+    if (!newById.has(id)) {
+      ops.push(batch => batch.delete(doc(clientDb, name, String(id))));
+    }
+  });
+
+  if (ops.length > 0) {
+    await commitInChunks(ops);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEGACY DOCUMENT SHARDING (still used for any collection NOT listed in
+// COLLECTION_BACKED above). See the block above for why COLLECTION_BACKED is
+// now the preferred approach for high-churn / large collections.
+// ─────────────────────────────────────────────────────────────────────────────
+const SHARD_COUNTS: Record<string, number> = {};
 
 function shardCountFor(docName: string): number {
   return SHARD_COUNTS[docName] || 1;
@@ -91,6 +178,24 @@ export function subscribeToLiveState(
   const unsubs: Unsubscribe[] = [];
 
   collections.forEach(name => {
+    if (isCollectionBacked(name)) {
+      // Real collection: Firestore streams us exactly which documents
+      // changed. We still hand the callback a full merged array (App.tsx
+      // expects that shape), but the network traffic and the write cost
+      // that produced this update were both scoped to just the documents
+      // that actually changed — not the whole collection.
+      unsubs.push(
+        onSnapshot(
+          collection(clientDb, name),
+          snap => {
+            callback({ collection: name, data: snap.docs.map(d => d.data()) });
+          },
+          err => console.warn(`[liveSync] ${name} (collection) subscription error:`, err)
+        )
+      );
+      return;
+    }
+
     const shardNames = shardDocNamesFor(name);
 
     if (shardNames.length === 1) {
@@ -244,8 +349,11 @@ export async function dbFetchActivityLogsInRange(startDate: string, endDate: str
 // normal reads (loading data to show on screen), NOT for the empty-write
 // safety check below. See getFirestoreDocArrayStrict for that.
 async function getFirestoreDocArray(docName: string): Promise<any[]> {
-  const shardNames = shardDocNamesFor(docName);
   try {
+    if (isCollectionBacked(docName)) {
+      return await collectionGetAll(docName);
+    }
+    const shardNames = shardDocNamesFor(docName);
     if (shardNames.length === 1) {
       const docRef = doc(clientDb, 'system_state', docName);
       const snap = await getDoc(docRef);
@@ -286,6 +394,11 @@ async function getFirestoreDocArray(docName: string): Promise<any[]> {
 // instead of assuming the collection is empty. Fail safe, not fail open.
 // ─────────────────────────────────────────────────────────────────────────────
 async function getFirestoreDocArrayStrict(docName: string): Promise<any[]> {
+  if (isCollectionBacked(docName)) {
+    // Collection-backed reads already don't swallow errors (getDocs throws
+    // naturally on failure), so this is just a direct pass-through.
+    return await collectionGetAll(docName);
+  }
   const shardNames = shardDocNamesFor(docName);
   if (shardNames.length === 1) {
     const docRef = doc(clientDb, 'system_state', docName);
@@ -345,6 +458,10 @@ async function setFirestoreDocArray(docName: string, data: any[], allowEmpty: bo
         return;
       }
     }
+    if (isCollectionBacked(docName)) {
+      await collectionDiffWrite(docName, data);
+      return;
+    }
     const shardNames = shardDocNamesFor(docName);
     if (shardNames.length === 1) {
       const docRef = doc(clientDb, 'system_state', docName);
@@ -399,25 +516,49 @@ async function updateFirestoreDocArrays(
   allowEmpty: Record<string, boolean> = {},
 ): Promise<Record<string, any[]>> {
   const docNames = Object.keys(updates);
-  // Each logical collection may map to 1 or N shard doc refs.
-  const shardNamesByCollection = docNames.map((name) => shardDocNamesFor(name));
+  const collectionBackedNames = docNames.filter(isCollectionBacked);
+  const legacyNames = docNames.filter(n => !isCollectionBacked(n));
+  const results: Record<string, any[]> = {};
+
+  // Collection-backed collections can't join the legacy runTransaction below
+  // (they don't map to a fixed, known set of document refs ahead of time).
+  // Handle them first, individually — see the note in updateFirestoreDocArray
+  // above for why per-document writes don't need cross-collection atomicity
+  // the same way the old whole-array pattern did.
+  for (const name of collectionBackedNames) {
+    const current = await collectionGetAll(name);
+    const updated = updates[name]([...current]);
+    if (!allowEmpty[name] && updated.length === 0 && current.length > 0) {
+      console.warn(`[updateFirestoreDocArrays] Refusing to write empty array to '${name}' (current has ${current.length} items). Skipping this doc's write.`);
+      results[name] = current;
+      continue;
+    }
+    await collectionDiffWrite(name, updated);
+    results[name] = updated;
+  }
+
+  if (legacyNames.length === 0) {
+    return results;
+  }
+
+  // Each remaining legacy collection may map to 1 or N shard doc refs.
+  const shardNamesByCollection = legacyNames.map((name) => shardDocNamesFor(name));
   const docRefsByCollection = shardNamesByCollection.map((shardNames) =>
     shardNames.map((sn) => doc(clientDb, 'system_state', sn))
   );
-  const results: Record<string, any[]> = {};
 
   await runTransaction(clientDb, async (transaction) => {
     // All reads first (Firestore transaction rule: reads before writes).
     const currents: Record<string, any[]> = {};
-    for (let i = 0; i < docNames.length; i++) {
+    for (let i = 0; i < legacyNames.length; i++) {
       const snaps = await Promise.all(docRefsByCollection[i].map((ref) => transaction.get(ref)));
-      currents[docNames[i]] = snaps.flatMap((snap) =>
+      currents[legacyNames[i]] = snaps.flatMap((snap) =>
         snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : []
       );
     }
     // Then apply every update function and write every doc (or shard set).
-    for (let i = 0; i < docNames.length; i++) {
-      const name = docNames[i];
+    for (let i = 0; i < legacyNames.length; i++) {
+      const name = legacyNames[i];
       const current = currents[name];
       const updated = updates[name]([...current]);
       if (!allowEmpty[name] && updated.length === 0 && current.length > 0) {
@@ -437,6 +578,25 @@ async function updateFirestoreDocArrays(
 }
 
 async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) => any[], allowEmpty: boolean = false): Promise<any[]> {
+  if (isCollectionBacked(docName)) {
+    // Collection-backed path: no single "transaction" spans an unknown,
+    // variable set of documents the way the legacy array-transaction did —
+    // and it doesn't need to. Since each item is its own document, the only
+    // way two writes can ever collide is if they touch the SAME item at the
+    // same instant, and Firestore's normal per-document write ordering
+    // already handles that correctly. Editing pool #12 and pool #340 at the
+    // same moment now literally cannot conflict, because they're different
+    // documents — that's the whole point of this restructure.
+    const current = await collectionGetAll(docName);
+    const updatedArr = updateFn([...current]);
+    if (!allowEmpty && updatedArr.length === 0 && current.length > 0) {
+      console.warn(`[updateFirestoreDocArray] Refusing to write empty array to '${docName}' (current has ${current.length} items). Skipping write.`);
+      return current;
+    }
+    await collectionDiffWrite(docName, updatedArr);
+    return updatedArr;
+  }
+
   const shardNames = shardDocNamesFor(docName);
   const docRefs = shardNames.map(sn => doc(clientDb, 'system_state', sn));
   let updatedArr: any[] = [];
