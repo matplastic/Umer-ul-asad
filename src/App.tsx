@@ -1222,7 +1222,8 @@ export default function App() {
     dbDeleteEmployeePunchesByDate(date).catch(console.error);
   };
 
-  const handleSaveEmployeesBulk = (newStaffList: Employee[]) => {
+  const handleSaveEmployeesBulk = async (newStaffList: Employee[]) => {
+    const previous = employees; // keep a snapshot to roll back to on failure
     const updated = [...employees];
     newStaffList.forEach(emp => {
       const idx = updated.findIndex(e => e.id === emp.id);
@@ -1232,9 +1233,25 @@ export default function App() {
         updated.unshift(emp);
       }
     });
+    // Optimistic update so the UI feels instant...
     setEmployees(updated);
     saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, updated);
-    dbSaveEmployeesBulk(newStaffList).catch(console.error);
+    try {
+      // ...but now we actually WAIT for Firestore to confirm the write.
+      // CRITICAL FIX: this used to be a fire-and-forget `.catch(console.error)`
+      // — the UI would show "Done" and the data would look saved right up
+      // until the next refresh pulled the real (still-unsaved) data back
+      // from Firestore and the import appeared to vanish. Now, if the write
+      // actually fails, we roll the local state back to what it was before
+      // and throw so the import modal can show a real error instead of a
+      // false "Done".
+      await dbSaveEmployeesBulk(newStaffList);
+    } catch (err) {
+      console.error('handleSaveEmployeesBulk: Firestore write failed, rolling back local state:', err);
+      setEmployees(previous);
+      saveState(pools, teams, logs, inspectors, engineers, plannedPools, projectsSummary, monthlyTargets, previous);
+      throw err;
+    }
   };
 
   const handleSaveTrolley = (trolley: TrolleyProduction) => {
