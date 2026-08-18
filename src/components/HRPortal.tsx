@@ -9,6 +9,7 @@ import {
   Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
+import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis,
@@ -1895,11 +1896,38 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
     const empNames = useMemo(() => ['All', ...Array.from(new Set(employeePunches.map(p => p.employeeName)))], []);
 
-    const dayPunches = useMemo(() => employeePunches.filter(p => {
+    // ───────────────────────────────────────────────────────────────────────
+    // CRITICAL FIX: the app only keeps the last 30 days of punches in memory
+    // by default now (see firebaseService.ts RECENT_WINDOW_DAYS). Picking a
+    // date further back than that here would previously find zero punches
+    // and incorrectly mark every single employee "Absent" for that day. Fetch
+    // the selected date's punches directly whenever it falls outside today's
+    // in-memory window, so historical date lookups stay accurate no matter
+    // how far back HR picks.
+    // ───────────────────────────────────────────────────────────────────────
+    const [datePunchesOverride, setDatePunchesOverride] = useState<typeof employeePunches | null>(null);
+    const [loadingDatePunches, setLoadingDatePunches] = useState(false);
+
+    useEffect(() => {
+      let cancelled = false;
+      setLoadingDatePunches(true);
+      dbGetEmployeePunchesInRange(dateFilter, dateFilter)
+        .then(punches => { if (!cancelled) setDatePunchesOverride(punches); })
+        .catch(err => {
+          console.error('AttendanceTab: failed to fetch punches for selected date', err);
+          if (!cancelled) setDatePunchesOverride(null); // fall back to in-memory data below
+        })
+        .finally(() => { if (!cancelled) setLoadingDatePunches(false); });
+      return () => { cancelled = true; };
+    }, [dateFilter]);
+
+    const punchesSourceForDate = datePunchesOverride ?? employeePunches;
+
+    const dayPunches = useMemo(() => punchesSourceForDate.filter(p => {
       const matchDate = p.date === dateFilter;
       const matchEmp = empFilter === 'All' || p.employeeName === empFilter;
       return matchDate && matchEmp;
-    }).sort((a, b) => a.timestamp.localeCompare(b.timestamp)), [dateFilter, empFilter]);
+    }).sort((a, b) => a.timestamp.localeCompare(b.timestamp)), [dateFilter, empFilter, punchesSourceForDate]);
 
     // Compute attendance summary per employee for this day
     const summary = useMemo(() => {
@@ -2054,6 +2082,12 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           >
             {empNames.map(n => <option key={n}>{n}</option>)}
           </select>
+          {loadingDatePunches && (
+            <span className="text-xs font-semibold text-violet-600 flex items-center gap-1.5">
+              <span className="h-3 w-3 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin" />
+              Loading…
+            </span>
+          )}
           <div className="flex gap-3 ml-auto items-center flex-wrap">
             {isSelectedDateSunday && (
               <span className="bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5">
