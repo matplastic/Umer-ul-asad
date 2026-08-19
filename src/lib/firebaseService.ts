@@ -52,9 +52,6 @@ import {
   collection,
   getDocs,
   writeBatch,
-  query,
-  where,
-  deleteDoc,
 } from 'firebase/firestore';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,12 +77,14 @@ function isoDateNDaysAgo(days: number): string {
   return d.toISOString().slice(0, 10); // "YYYY-MM-DD"
 }
 
-// Fetch only the last N days of a date-bounded collection.
+// Fetch only the last N days of a week-bucketed collection, by reading just
+// the bucket documents that cover that window (typically ~5 for 30 days),
+// instead of a collection-wide query.
 async function collectionGetRecent(name: string, days: number): Promise<any[]> {
   const cutoff = isoDateNDaysAgo(days);
-  const q = query(collection(clientDb, name), where('date', '>=', cutoff));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => d.data());
+  const today = new Date().toISOString().slice(0, 10);
+  const all = await readWeekBucketsInRange(name, cutoff, today);
+  return all.filter((item: any) => item?.date >= cutoff);
 }
 
 // On-demand fetch for a specific date range — for reports/payroll that need
@@ -93,19 +92,94 @@ async function collectionGetRecent(name: string, days: number): Promise<any[]> {
 // "YYYY-MM-DD" format, matching the `date` field already stored on each
 // punch record.
 export async function dbGetEmployeePunchesInRange(startDate: string, endDate: string): Promise<EmployeePunch[]> {
-  const q = query(
-    collection(clientDb, 'employeePunches'),
-    where('date', '>=', startDate),
-    where('date', '<=', endDate),
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map(d => d.data() as EmployeePunch);
+  const all = await readWeekBucketsInRange('employeePunches', startDate, endDate);
+  // Buckets can include a few extra days at the week's edges beyond the
+  // exact requested range — filter down to the exact range requested.
+  return (all as EmployeePunch[]).filter(p => p.date >= startDate && p.date <= endDate);
 }
 
 const COLLECTION_BACKED: Record<string, boolean> = {
   pools: true,
+  teams: true,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WEEK-BUCKETED COLLECTIONS (the right trade-off for high-VOLUME, bulk-synced
+// data like daily attendance punches)
+//
+// THE PROBLEM WITH ONE-DOCUMENT-PER-RECORD FOR PUNCHES: Firestore bills per
+// document WRITE, not per "logical save". The old single-array-document
+// design was accidentally cheap on writes — uploading 500 backlogged punches
+// from a kiosk was ONE billed write (one big document overwrite), even
+// though it was dangerous (1 MiB limit, race conditions across the whole
+// history). Making every punch its own document (like pools/teams) fixed
+// the danger but made that same 500-punch kiosk sync cost 500 billed writes
+// instead of 1 — which is what blew through the daily write quota.
+//
+// THE FIX: bucket punches into one document PER CALENDAR WEEK instead of one
+// document per punch (or one document forever). A week's worth of punches
+// easily stays well under the 1 MiB limit, and:
+//   - A bulk sync of many punches that all fall in the same week now costs
+//     ONE write again, exactly like the old design — quota-cheap.
+//   - Two devices editing punches from DIFFERENT weeks never collide.
+//   - Even two devices editing the SAME week collide far less often than
+//     the old "entire all-time history in one document" design did, and
+//     the blast radius of a collision is capped at one week's data instead
+//     of every punch ever recorded.
+// ─────────────────────────────────────────────────────────────────────────────
+const WEEK_BUCKETED: Record<string, boolean> = {
   employeePunches: true,
 };
+
+function isWeekBucketed(docName: string): boolean {
+  return !!WEEK_BUCKETED[docName];
+}
+
+// ISO 8601 week key, e.g. "2026-W34". Punches are grouped by the ISO week
+// their `date` field falls in.
+function isoWeekKey(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  // Move to the Thursday of this week (ISO weeks are defined by their Thursday)
+  const dayNum = (d.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
+  d.setUTCDate(d.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const weekNum = 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 24 * 3600 * 1000));
+  return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+function weekBucketDocName(docName: string, dateStr: string): string {
+  return `${docName}__${isoWeekKey(dateStr)}`;
+}
+
+// Every ISO week key that a [startDate, endDate] range touches, inclusive.
+function weekKeysInRange(startDate: string, endDate: string): string[] {
+  const keys = new Set<string>();
+  const cur = new Date(startDate + 'T00:00:00Z');
+  const end = new Date(endDate + 'T00:00:00Z');
+  while (cur <= end) {
+    keys.add(isoWeekKey(cur.toISOString().slice(0, 10)));
+    cur.setUTCDate(cur.getUTCDate() + 7); // step by week is enough since we only need distinct week keys
+  }
+  keys.add(isoWeekKey(endDate)); // make sure the final week is always included
+  return Array.from(keys);
+}
+
+// Read one week bucket's array (empty array if the bucket doesn't exist yet).
+async function readWeekBucket(docName: string, weekKey: string): Promise<any[]> {
+  const snap = await getDoc(doc(clientDb, 'system_state', `${docName}__${weekKey}`));
+  if (!snap.exists()) return [];
+  const raw = snap.data();
+  return Array.isArray(raw?.data) ? raw.data : [];
+}
+
+// Read and merge every week bucket touching [startDate, endDate].
+async function readWeekBucketsInRange(docName: string, startDate: string, endDate: string): Promise<any[]> {
+  const weekKeys = weekKeysInRange(startDate, endDate);
+  const arrays = await Promise.all(weekKeys.map(wk => readWeekBucket(docName, wk)));
+  return arrays.flat();
+}
 
 function isCollectionBacked(docName: string): boolean {
   return !!COLLECTION_BACKED[docName];
@@ -227,25 +301,54 @@ export function subscribeToLiveState(
   const unsubs: Unsubscribe[] = [];
 
   collections.forEach(name => {
+    if (isWeekBucketed(name)) {
+      // Week-bucketed: listen to the handful of bucket documents covering
+      // the recent window (e.g. ~5 weekly docs for a 30-day window) instead
+      // of a whole collection or a collection-wide query. Merges just like
+      // the old document-sharding approach did, but the bucket boundaries
+      // are meaningful (calendar weeks) instead of an arbitrary index % N.
+      const windowDays = RECENT_WINDOW_DAYS[name] || 30;
+      const cutoff = isoDateNDaysAgo(windowDays);
+      const today = new Date().toISOString().slice(0, 10);
+      const weekKeys = weekKeysInRange(cutoff, today);
+      const bucketDocNames = weekKeys.map(wk => `${name}__${wk}`);
+
+      const bucketCache: any[][] = bucketDocNames.map(() => []);
+      const bucketSeen: boolean[] = bucketDocNames.map(() => false);
+
+      bucketDocNames.forEach((bucketDocName, i) => {
+        unsubs.push(
+          onSnapshot(
+            doc(clientDb, 'system_state', bucketDocName),
+            snap => {
+              if (snap.exists()) {
+                const raw = snap.data();
+                bucketCache[i] = Array.isArray(raw?.data) ? raw.data : [];
+              } else {
+                bucketCache[i] = [];
+              }
+              bucketSeen[i] = true;
+              if (bucketSeen.every(Boolean)) {
+                const merged = bucketCache.flat().filter((item: any) => item?.date >= cutoff);
+                callback({ collection: name, data: merged });
+              }
+            },
+            err => console.warn(`[liveSync] ${bucketDocName} (week bucket of '${name}') subscription error:`, err)
+          )
+        );
+      });
+      return;
+    }
+
     if (isCollectionBacked(name)) {
       // Real collection: Firestore streams us exactly which documents
       // changed. We still hand the callback a full merged array (App.tsx
       // expects that shape), but the network traffic and the write cost
       // that produced this update were both scoped to just the documents
       // that actually changed — not the whole collection.
-      //
-      // For collections with a configured RECENT_WINDOW_DAYS (like
-      // employeePunches), the live listener itself is also bounded to that
-      // same rolling window — otherwise the listener would keep streaming
-      // and holding the ENTIRE history in memory forever as it grows,
-      // which defeats the point of bounding the initial load.
-      const windowDays = RECENT_WINDOW_DAYS[name];
-      const target = windowDays
-        ? query(collection(clientDb, name), where('date', '>=', isoDateNDaysAgo(windowDays)))
-        : collection(clientDb, name);
       unsubs.push(
         onSnapshot(
-          target,
+          collection(clientDb, name),
           snap => {
             callback({ collection: name, data: snap.docs.map(d => d.data()) });
           },
@@ -409,13 +512,14 @@ export async function dbFetchActivityLogsInRange(startDate: string, endDate: str
 // safety check below. See getFirestoreDocArrayStrict for that.
 async function getFirestoreDocArray(docName: string): Promise<any[]> {
   try {
+    if (isWeekBucketed(docName)) {
+      // Default load is bounded to the recent window — callers that need
+      // older data (reports/payroll) should call dbGetEmployeePunchesInRange
+      // explicitly instead of relying on this generic function.
+      const days = RECENT_WINDOW_DAYS[docName] || 30;
+      return await collectionGetRecent(docName, days);
+    }
     if (isCollectionBacked(docName)) {
-      if (RECENT_WINDOW_DAYS[docName]) {
-        // Default load is bounded to the recent window — callers that need
-        // older data (reports/payroll) should call dbGetEmployeePunchesInRange
-        // explicitly instead of relying on this generic function.
-        return await collectionGetRecent(docName, RECENT_WINDOW_DAYS[docName]);
-      }
       return await collectionGetAll(docName);
     }
     const shardNames = shardDocNamesFor(docName);
@@ -1496,6 +1600,92 @@ export async function dbDeleteTeam(teamId: string) {
 // from `current` (the live server value read inside this transaction), so
 // an untouched team can never be rewound by a stale screen.
 export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [], changedIds?: string[]): Promise<Team[]> {
+  const isGenericSkeletonTeam = (t: any) =>
+    typeof t?.id === 'string' && typeof t?.name === 'string' &&
+    /^[a-z_]+_t\d+$/.test(t.id) && / - Team \d+$/.test(t.name);
+  const isGenericSkeletonArray = (arr: any[]) => arr.length > 0 && arr.every(isGenericSkeletonTeam);
+
+  if (isCollectionBacked('teams')) {
+    // ───────────────────────────────────────────────────────────────────────
+    // COLLECTION-BACKED PATH: 'teams' moved from one array-document to a real
+    // collection (teams/{teamId}), exactly like 'pools' and 'employeePunches'
+    // did. This is what STRUCTURALLY removes the race described in the long
+    // comment block above (v7–v13): two devices editing DIFFERENT teams at
+    // the same moment now write to different documents and cannot interleave
+    // at all — there's no shared array-document for their writes to collide
+    // on anymore.
+    //
+    // The skeleton-guard safety net from all those earlier fixes is kept
+    // as-is below (still genuinely useful — it protects against a stale
+    // client re-seeding default teams over real customized data), it's just
+    // now checked against a fresh full read of the collection instead of one
+    // document. Teams collections are small (dozens, not thousands), so this
+    // one full read per sync call is cheap — nothing like the punches/pools
+    // situation.
+    // ───────────────────────────────────────────────────────────────────────
+    const current = await collectionGetAll('teams');
+
+    if (isGenericSkeletonArray(localTeams) && current.length > 0 && !isGenericSkeletonArray(current)) {
+      console.error(
+        '[dbSyncTeams] BLOCKED: incoming team list looks like the auto-generated ' +
+        'generic skeleton, but Firestore already holds real, customized team data. ' +
+        'Refusing to overwrite — this write did not happen. If this fires, please ' +
+        'reload the page fully before editing teams again.'
+      );
+      return current;
+    }
+
+    const removedSet = new Set(removedIds);
+    const localById = new Map(localTeams.map((t) => [t?.id, t]));
+    let updatedArr: any[];
+    let idsToWrite: Set<string>;
+
+    if (!changedIds) {
+      // No explicit changed-id list supplied — fall back to the old
+      // (broad) behaviour: treat every id in localTeams as "changed".
+      const localIds = new Set(localTeams.map((t) => t?.id));
+      const restored = current.filter((item) => !localIds.has(item?.id) && !removedSet.has(item?.id));
+      updatedArr = [...localTeams, ...restored];
+      idsToWrite = new Set(localTeams.map((t) => t?.id));
+    } else {
+      const changedSet = new Set(changedIds);
+      updatedArr = current
+        .filter((item) => !removedSet.has(item?.id))
+        .map((item) => (changedSet.has(item?.id) && localById.has(item?.id) ? localById.get(item?.id) : item));
+
+      const currentIds = new Set(current.map((item) => item?.id));
+      for (const id of changedSet) {
+        if (!currentIds.has(id) && !removedSet.has(id) && localById.has(id)) {
+          updatedArr.push(localById.get(id));
+        }
+      }
+      idsToWrite = changedSet;
+    }
+
+    // The actual fix: only write documents for ids that were genuinely
+    // changed, plus deletes for removed ids — nothing else is read or
+    // rewritten. An edit to Team A can never collide with an edit to Team B.
+    const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+    idsToWrite.forEach((id) => {
+      if (removedSet.has(id)) return;
+      const item = localById.get(id);
+      if (item) ops.push((batch) => batch.set(doc(clientDb, 'teams', String(id)), removeUndefined(item)));
+    });
+    removedSet.forEach((id) => {
+      ops.push((batch) => batch.delete(doc(clientDb, 'teams', String(id))));
+    });
+    if (ops.length > 0) {
+      await commitInChunks(ops);
+    }
+
+    return updatedArr;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // LEGACY PATH (kept as a fallback — should be unreachable now that 'teams'
+  // is in COLLECTION_BACKED above, but left intact rather than deleted in
+  // case COLLECTION_BACKED is ever toggled off for debugging).
+  // ───────────────────────────────────────────────────────────────────────
   const docRef = doc(clientDb, 'system_state', 'teams');
   let updatedArr: any[] = [];
 
@@ -1520,11 +1710,8 @@ export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [],
   // skeleton, AND the server's current live copy already holds real data
   // that ISN'T a generic skeleton, refuse the write and keep the server
   // copy — no matter which code path or which earlier guard failed to catch
-  // it.
-  const isGenericSkeletonTeam = (t: any) =>
-    typeof t?.id === 'string' && typeof t?.name === 'string' &&
-    /^[a-z_]+_t\d+$/.test(t.id) && / - Team \d+$/.test(t.name);
-  const isGenericSkeletonArray = (arr: any[]) => arr.length > 0 && arr.every(isGenericSkeletonTeam);
+  // it. (isGenericSkeletonTeam / isGenericSkeletonArray are defined once,
+  // above, and reused here in the legacy fallback path too.)
 
   await runTransaction(clientDb, async (transaction) => {
     const snap = await transaction.get(docRef);
@@ -2427,10 +2614,18 @@ export async function dbMarkMaterialRequestBatchPrinted(ids: string[]): Promise<
 export async function dbSaveEmployeePunch(punch: EmployeePunch) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    // CRITICAL: employeePunches is collection-backed (one doc per punch), so
-    // this is a single targeted document write — it does NOT read the rest
-    // of the punch history at all, no matter how large it grows.
-    await setDoc(doc(clientDb, 'employeePunches', String(punch.id)), removeUndefined(punch));
+    // Week-bucketed: only reads/writes the ONE bucket document covering this
+    // punch's date (e.g. "employeePunches__2026-W34") — 1 billed write, and
+    // it never touches any other week's data.
+    const bucketName = weekBucketDocName('employeePunches', punch.date);
+    const bucketRef = doc(clientDb, 'system_state', bucketName);
+    await runTransaction(clientDb, async (transaction) => {
+      const snap = await transaction.get(bucketRef);
+      const current: any[] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
+      const idx = current.findIndex(item => item.id === punch.id);
+      if (idx !== -1) current[idx] = punch; else current.push(punch);
+      transaction.set(bucketRef, { data: removeUndefined(current) });
+    });
     return { success: true, punch };
   }
 
@@ -2449,11 +2644,24 @@ export async function dbSaveEmployeePunch(punch: EmployeePunch) {
   }
 }
 
-export async function dbDeleteEmployeePunch(id: string) {
+// `date` (the punch's own date field, "YYYY-MM-DD") is required so we know
+// which week bucket to look in — without it we'd have to scan every bucket
+// ever created to find one punch, which defeats the entire point of
+// bucketing. Callers already have the punch object in local state before
+// deleting (see handleDeleteEmployeePunch in App.tsx), so this is free.
+export async function dbDeleteEmployeePunch(id: string, date: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    // Single targeted delete — no full-collection read needed.
-    await deleteDoc(doc(clientDb, 'employeePunches', String(id)));
+    const bucketName = weekBucketDocName('employeePunches', date);
+    const bucketRef = doc(clientDb, 'system_state', bucketName);
+    await runTransaction(clientDb, async (transaction) => {
+      const snap = await transaction.get(bucketRef);
+      const current: any[] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
+      const filtered = current.filter(item => item.id !== id);
+      if (filtered.length !== current.length) {
+        transaction.set(bucketRef, { data: removeUndefined(filtered) });
+      }
+    });
     return { success: true };
   }
 
@@ -2474,17 +2682,32 @@ export async function dbDeleteEmployeePunch(id: string) {
 export async function dbSaveEmployeePunchesBulk(punches: EmployeePunch[]) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    // CRITICAL FIX: this used to call updateFirestoreDocArray, which reads
-    // the ENTIRE punch history just to figure out what to overwrite — every
-    // single daily attendance upload would get slower and more expensive as
-    // history grows, forever. Since every punch already has its own unique
-    // `id`, we can just set them directly by ID — this only ever touches the
-    // punches actually being uploaded, regardless of how many years of
-    // history exist.
-    const ops = punches.map(p => (batch: ReturnType<typeof writeBatch>) =>
-      batch.set(doc(clientDb, 'employeePunches', String(p.id)), removeUndefined(p))
-    );
-    await commitInChunks(ops);
+    // THIS is the fix for the write-quota spike: group the incoming punches
+    // by which week bucket they belong to, then do ONE read+write PER WEEK
+    // TOUCHED — not one write per punch. A kiosk uploading a 500-punch
+    // backlog that all falls within the current week now costs exactly 1
+    // write, matching the old (safe-on-quota) design, while still keeping
+    // documents small and race conditions scoped to a single week at worst.
+    const byWeek = new Map<string, EmployeePunch[]>();
+    for (const p of punches) {
+      const wk = isoWeekKey(p.date);
+      if (!byWeek.has(wk)) byWeek.set(wk, []);
+      byWeek.get(wk)!.push(p);
+    }
+
+    const weekKeys = Array.from(byWeek.keys());
+    await Promise.all(weekKeys.map(async (wk) => {
+      const bucketRef = doc(clientDb, 'system_state', `employeePunches__${wk}`);
+      const incoming = byWeek.get(wk)!;
+      await runTransaction(clientDb, async (transaction) => {
+        const snap = await transaction.get(bucketRef);
+        const current: any[] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
+        const currentById = new Map(current.map(item => [item.id, item]));
+        incoming.forEach(p => currentById.set(p.id, p));
+        transaction.set(bucketRef, { data: removeUndefined(Array.from(currentById.values())) });
+      });
+    }));
+
     return { success: true };
   }
 
@@ -2531,8 +2754,17 @@ export async function dbSaveEmployeesBulk(newEmployees: Employee[]) {
 export async function dbClearAllEmployeePunches() {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    // allowEmpty=true because this function intentionally clears all punches
-    await setFirestoreDocArray('employeePunches', [], true);
+    // Enumerate every bucket document that exists (system_state holds one
+    // document per collection-name/bucket-name, so we list it and filter to
+    // just the employeePunches__* buckets) and delete each. This is a rare,
+    // deliberate admin action — an occasional full-collection read here is
+    // fine, unlike doing it on every single punch write.
+    const snap = await getDocs(collection(clientDb, 'system_state'));
+    const bucketRefs = snap.docs.filter(d => d.id.startsWith('employeePunches__')).map(d => d.ref);
+    if (bucketRefs.length > 0) {
+      const ops = bucketRefs.map(ref => (batch: ReturnType<typeof writeBatch>) => batch.delete(ref));
+      await commitInChunks(ops);
+    }
     return { success: true };
   }
 
@@ -2553,19 +2785,24 @@ export async function dbClearAllEmployeePunches() {
 export async function dbDeleteEmployeePunchesByDate(date: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
-    // CRITICAL FIX: this used to read the ENTIRE punch history and filter in
-    // JS on `p.punchTime?.startsWith(date)` — but EmployeePunch records don't
-    // actually have a `punchTime` field (they have `date` and `timestamp`),
-    // so that filter never matched anything and this function was silently
-    // a no-op. Now it runs a targeted Firestore query on the real `date`
-    // field and only reads/deletes the matching day's records — correct AND
-    // cheap regardless of how much history exists.
-    const q = query(collection(clientDb, 'employeePunches'), where('date', '==', date));
-    const snap = await getDocs(q);
-    if (snap.empty) return { success: true, deleted: 0 };
-    const ops = snap.docs.map(d => (batch: ReturnType<typeof writeBatch>) => batch.delete(d.ref));
-    await commitInChunks(ops);
-    return { success: true, deleted: snap.size };
+    // CRITICAL FIX (kept from the earlier fix): this used to filter on
+    // `p.punchTime`, a field that doesn't exist on EmployeePunch records
+    // (they have `date` and `timestamp`), so it silently deleted nothing.
+    // Now it correctly targets the one week bucket containing `date` and
+    // removes just that day's entries from it — one read, one write.
+    const bucketName = weekBucketDocName('employeePunches', date);
+    const bucketRef = doc(clientDb, 'system_state', bucketName);
+    let deletedCount = 0;
+    await runTransaction(clientDb, async (transaction) => {
+      const snap = await transaction.get(bucketRef);
+      const current: any[] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
+      const filtered = current.filter(p => p.date !== date);
+      deletedCount = current.length - filtered.length;
+      if (deletedCount > 0) {
+        transaction.set(bucketRef, { data: removeUndefined(filtered) });
+      }
+    });
+    return { success: true, deleted: deletedCount };
   }
 
   try {
