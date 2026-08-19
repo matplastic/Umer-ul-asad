@@ -1193,10 +1193,20 @@ export default function App() {
   };
 
   const handleDeleteEmployeePunch = (id: string) => {
+    const punch = employeePunches.find(p => p.id === id);
     const updated = employeePunches.filter(p => p.id !== id);
     setEmployeePunches(updated);
     localStorage.setItem('apex_employee_punches', JSON.stringify(updated));
-    dbDeleteEmployeePunch(id).catch(console.error);
+    // dbDeleteEmployeePunch needs the punch's date to find which weekly
+    // bucket document it lives in — we already have it in local state here,
+    // so this is free. If for some reason the punch wasn't found locally
+    // (shouldn't normally happen), skip the remote delete rather than
+    // guessing a bucket and silently deleting nothing.
+    if (punch) {
+      dbDeleteEmployeePunch(id, punch.date).catch(console.error);
+    } else {
+      console.warn(`handleDeleteEmployeePunch: punch ${id} not found in local state, skipping Firestore delete.`);
+    }
   };
 
   const handleSaveEmployeePunchesBulk = (newPunches: EmployeePunch[]) => {
