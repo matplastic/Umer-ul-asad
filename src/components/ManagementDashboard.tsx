@@ -11,6 +11,7 @@ import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { OnlineUsersPanel } from './OnlineUsersPanel';
 import { StageDashboard } from './StageDashboard';
 import { StageReportsTab } from './StageReportsTab';
+import { exportEmployeeCertificatePdf } from '../lib/exportUtils';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
   CartesianGrid, Tooltip as RechartsTooltip, Legend
@@ -21,7 +22,7 @@ import {
   ThumbsUp, SlidersHorizontal, ChevronLeft, ChevronRight, 
   Edit2, Plus, Trash2, UserPlus, Check, X, Briefcase, FolderPlus,
   ShieldCheck, ShieldAlert, Activity, Cloud, Loader2, CheckCircle2, HardDrive,
-  Lock, Unlock, Info, Calendar, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes,
+  Lock, Unlock, Info, Calendar, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes, FileDown,
   UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck, Printer
 } from 'lucide-react';
 
@@ -252,6 +253,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [nominatedEmployeeId, setNominatedEmployeeId] = useState<string>('emp-2');
   const [nominationCitation, setNominationCitation] = useState<string>('For outstanding technical leadership on high-pressure vacuum molds, ensuring zero fiber misalignment on bespoke builds.');
   const [isAwardConferred, setIsAwardConferred] = useState<boolean>(false);
+  // Which award this nomination panel is currently producing a certificate
+  // for — reuses the same nominee/citation fields either way, since a
+  // "certificate of recognition" is the same document either way, just
+  // with a different title and time period printed on it.
+  const [certificateAwardType, setCertificateAwardType] = useState<'month' | 'year'>('month');
+  const [isGeneratingCertificate, setIsGeneratingCertificate] = useState(false);
 
   // Daily Production Record state
   const [selectedProductionDate, setSelectedProductionDate] = useState<string>(() => {
@@ -4396,33 +4403,90 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                     </div>
 
-                    {/* Action trigger button */}
-                    <button
-                      onClick={() => {
-                        if (!isAwardConferred) {
-                          setIsAwardConferred(true);
-                        } else {
-                          setIsAwardConferred(false);
-                        }
-                      }}
-                      className={`w-full py-2.5 text-xs font-bold rounded-xl transition-all shadow-sm border flex items-center justify-center gap-1.5 cursor-pointer font-sans ${
-                        isAwardConferred 
-                          ? 'bg-rose-50 hover:bg-rose-100/80 border-rose-100 text-rose-700' 
-                          : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-105 border-amber-500 text-white'
-                      }`}
-                    >
-                      {isAwardConferred ? (
-                        <>
-                          <X className="h-4 w-4" />
-                          Revoke Executive Award
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Confer Annual Presidential Medal
-                        </>
-                      )}
-                    </button>
+                    {/* Month vs Year toggle — decides the title/period printed
+                        on the certificate below; everything else (nominee,
+                        citation) is shared between the two. */}
+                    <div className="flex gap-1.5 bg-slate-100 rounded-lg p-1">
+                      {(['month', 'year'] as const).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setCertificateAwardType(t)}
+                          className={`flex-1 py-1.5 text-[10.5px] font-bold rounded-md transition-colors ${
+                            certificateAwardType === t ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          Employee of the {t === 'month' ? 'Month' : 'Year'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Action trigger button */}
+                      <button
+                        onClick={() => {
+                          if (!isAwardConferred) {
+                            setIsAwardConferred(true);
+                          } else {
+                            setIsAwardConferred(false);
+                          }
+                        }}
+                        className={`py-2.5 text-xs font-bold rounded-xl transition-all shadow-sm border flex items-center justify-center gap-1.5 cursor-pointer font-sans ${
+                          isAwardConferred 
+                            ? 'bg-rose-50 hover:bg-rose-100/80 border-rose-100 text-rose-700' 
+                            : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-105 border-amber-500 text-white'
+                        }`}
+                      >
+                        {isAwardConferred ? (
+                          <>
+                            <X className="h-4 w-4" />
+                            Revoke
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Confer Award
+                          </>
+                        )}
+                      </button>
+
+                      {/* Downloads an actual printable/frameable PDF
+                          certificate using the nominee + citation currently
+                          filled in above — works whether or not the award
+                          toggle above has been pressed, so HR can produce
+                          the physical certificate as soon as a winner is
+                          decided. */}
+                      <button
+                        disabled={!nominatedEmployeeId || isGeneratingCertificate}
+                        onClick={async () => {
+                          const emp = employees.find(x => x.id === nominatedEmployeeId);
+                          if (!emp) return;
+                          setIsGeneratingCertificate(true);
+                          try {
+                            const now = new Date();
+                            const period = certificateAwardType === 'month'
+                              ? now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+                              : String(now.getFullYear());
+                            await exportEmployeeCertificatePdf({
+                              employeeName: emp.name,
+                              department: emp.department,
+                              roleTitle: emp.role || undefined,
+                              awardTitle: certificateAwardType === 'month' ? 'Employee of the Month' : 'Employee of the Year',
+                              period,
+                              citation: nominationCitation || 'In recognition of outstanding performance and dedication.',
+                            });
+                          } catch (err) {
+                            console.error('Certificate generation failed:', err);
+                            alert('Could not generate the certificate. Please try again.');
+                          } finally {
+                            setIsGeneratingCertificate(false);
+                          }
+                        }}
+                        className="py-2.5 text-xs font-bold rounded-xl transition-all shadow-sm border flex items-center justify-center gap-1.5 cursor-pointer font-sans bg-slate-900 hover:bg-slate-800 border-slate-900 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <FileDown className="h-4 w-4" />
+                        {isGeneratingCertificate ? 'Generating…' : 'Get Certificate'}
+                      </button>
+                    </div>
                   </div>
                 )}
 
