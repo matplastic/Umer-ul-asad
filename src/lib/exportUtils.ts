@@ -448,7 +448,7 @@ export async function exportEmployeeCertificatePdf(opts: {
   doc.setTextColor(...ink);
 
  // Move y down past the background logo/header elements
-  y += 75; // Adjust this increment as needed for exact spacing
+  y += 125; // Adjust this increment as needed for exact spacing
 
   // "Certificate of Recognition"
   doc.setFont('times', 'normal');
