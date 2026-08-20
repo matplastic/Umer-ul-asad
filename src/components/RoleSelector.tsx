@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ViewRole, StageId } from '../types';
 import { STAGES } from '../data/mockData';
+import { getAllowedRoles } from '../lib/authClient';
 import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight, Factory } from 'lucide-react';
 
 interface RoleSelectorProps {
@@ -22,7 +23,7 @@ interface RoleSelectorProps {
     pin: string;
     allowedRoles?: ViewRole[];
   };
-  loggedInUser: { role: ViewRole; displayName: string } | null;
+  loggedInUser: { role: ViewRole; displayName: string; allowedRoles?: ViewRole[] | null } | null;
   onLogout: () => void;
   isOpen: boolean;
   onClose: () => void;
@@ -226,32 +227,46 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
       {/* Role navigation */}
       <div className="flex-1 px-3 py-2">
         {!stationLock?.isLocked ? (
-          loggedInUser?.role === 'management' ? (
-            <>
-              <p className={`px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'lg:hidden' : ''}`}>Role view</p>
-              <nav className="flex flex-col gap-0.5">
-                {NAV_ITEMS.map(({ role, label, icon: Icon, testId }) => (
-                  <button
-                    key={role}
-                    onClick={() => selectRole(role)}
-                    data-testid={testId}
-                    title={collapsed ? label : undefined}
-                    className={itemClass(currentRole === role)}
-                  >
-                    <Icon className="h-[18px] w-[18px] shrink-0" />
-                    <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>{label}</span>
-                  </button>
-                ))}
-              </nav>
-            </>
-          ) : (
-            <div className={`flex items-center gap-2 bg-slate-800/80 px-3 py-2.5 rounded-lg border border-slate-700/50 text-[11px] text-slate-200 ${collapsed ? 'lg:justify-center' : ''}`}>
-              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className={collapsed ? 'lg:hidden' : ''}>
-                Active session: <strong className="text-white uppercase font-mono block mt-0.5">{loggedInUser ? loggedInUser.displayName : currentRole.replace('_', ' ')}</strong>
-              </span>
-            </div>
-          )
+          (() => {
+            // An account can switch between every portal in its allowedRoles
+            // list — could be all of them (unrestricted admin-style access,
+            // the same as 'management' has always had), or a short curated
+            // list an admin deliberately assigned (e.g. just Management +
+            // Quality Assurance, nothing else). See getAllowedRoles in
+            // authClient.ts for exactly how that list is resolved, including
+            // backward compatibility for accounts created before this
+            // per-portal access system existed.
+            const myAllowedRoles = loggedInUser ? getAllowedRoles(loggedInUser) : [];
+            const visibleNavItems = NAV_ITEMS.filter(item => myAllowedRoles.includes(item.role));
+            return visibleNavItems.length > 1 ? (
+              <>
+                <p className={`px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'lg:hidden' : ''}`}>
+                  {visibleNavItems.length === NAV_ITEMS.length ? 'Role view' : 'Your assigned portals'}
+                </p>
+                <nav className="flex flex-col gap-0.5">
+                  {visibleNavItems.map(({ role, label, icon: Icon, testId }) => (
+                    <button
+                      key={role}
+                      onClick={() => selectRole(role)}
+                      data-testid={testId}
+                      title={collapsed ? label : undefined}
+                      className={itemClass(currentRole === role)}
+                    >
+                      <Icon className="h-[18px] w-[18px] shrink-0" />
+                      <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>{label}</span>
+                    </button>
+                  ))}
+                </nav>
+              </>
+            ) : (
+              <div className={`flex items-center gap-2 bg-slate-800/80 px-3 py-2.5 rounded-lg border border-slate-700/50 text-[11px] text-slate-200 ${collapsed ? 'lg:justify-center' : ''}`}>
+                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className={collapsed ? 'lg:hidden' : ''}>
+                  Active session: <strong className="text-white uppercase font-mono block mt-0.5">{loggedInUser ? loggedInUser.displayName : currentRole.replace('_', ' ')}</strong>
+                </span>
+              </div>
+            );
+          })()
         ) : stationLock?.allowedRoles && stationLock.allowedRoles.length > 1 ? (
           <>
             <p className={`px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-500 flex items-center gap-1.5 ${collapsed ? 'lg:hidden' : ''}`}>
