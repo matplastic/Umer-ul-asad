@@ -7,7 +7,7 @@ import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getInitialData, createEmptyH
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { AutoPrintMaterialSlip } from './components/AutoPrintMaterialSlip';
 import { LoginScreen } from './components/LoginScreen';
-import { getStoredUser, logout as logoutUser, findAccountByQuickCode, type AuthUser } from './lib/authClient';
+import { getStoredUser, logout as logoutUser, findAccountByQuickCode, getAllowedRoles, type AuthUser } from './lib/authClient';
 import { startPresenceHeartbeat, stopPresenceHeartbeat } from './lib/presence';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
 import { ProductionEngineer } from './components/ProductionEngineer';
@@ -366,6 +366,11 @@ export default function App() {
 
   const handleLoginSuccess = (user: AuthUser) => {
     setLoggedInUser(user);
+    // Safety net: if this account's assigned portals ever changed (e.g. an
+    // admin narrowed them down after this device last logged in), or a
+    // leftover currentRole from a previous session/localStorage restore
+    // points somewhere this account can no longer access, always land on
+    // the account's own primary role rather than trusting stale state.
     setCurrentRole(user.role);
     if (user.role === 'stage_worker') {
       setSelectedStageId('steel_fabrication');
@@ -3553,7 +3558,19 @@ export default function App() {
         <RoleSelector
           currentRole={currentRole}
           selectedStageId={selectedStageId}
-          onChangeRole={setCurrentRole}
+          onChangeRole={(role) => {
+            // Defense in depth: only actually switch if this account is
+            // allowed into that portal. The nav UI already only ever shows
+            // buttons for allowed portals, so this should never fire for a
+            // disallowed role in normal use — this just guarantees it can't
+            // happen even from some other code path we haven't audited.
+            const allowed = loggedInUser ? getAllowedRoles(loggedInUser) : [role];
+            if (allowed.includes(role)) {
+              setCurrentRole(role);
+            } else {
+              console.warn(`[access] Blocked switch to "${role}" — not in this account's allowedRoles.`);
+            }
+          }}
           onChangeStage={handleStageChange}
           workerTeamId={workerTeamId}
           onChangeWorkerTeam={setWorkerTeamId}
