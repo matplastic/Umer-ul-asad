@@ -4221,8 +4221,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           return acc;
                         }, 0);
 
-                        const baseScore = 75;
-                        const kpiScore = Math.min(100, Math.max(0, baseScore + (completions * 8) - (rejections * 12)));
+                        // Quality Index = approved pools ÷ total pools inspected (approved + rejected),
+                        // so rejections always pull the percentage down proportionally instead of
+                        // being swallowed by a volume bonus that can overflow the 100% cap.
+                        const totalInspected = completions + rejections;
+                        const kpiScore = totalInspected > 0
+                          ? Math.round((completions / totalInspected) * 100)
+                          : 0;
 
                         return {
                           team: t,
