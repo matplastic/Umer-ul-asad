@@ -436,7 +436,7 @@ export async function exportEmployeeCertificatePdf(opts: {
 
   // Logo, centered
   if (logo) {
-    const logoH = 40;
+    const logoH = 120;
     const logoW = logoH * logo.ratio;
     doc.addImage(logo.dataUrl, 'PNG', w / 2 - logoW / 2, y - 30, logoW, logoH);
     y += 20;
@@ -446,8 +446,6 @@ export async function exportEmployeeCertificatePdf(opts: {
   doc.setFont('times', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(...ink);
-  doc.text('MAT PLASTIC INDUSTRIES LLC', w / 2, y, { align: 'center' });
-  y += 30;
 
   // "Certificate of Recognition"
   doc.setFont('times', 'normal');
