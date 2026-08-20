@@ -259,6 +259,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // with a different title and time period printed on it.
   const [certificateAwardType, setCertificateAwardType] = useState<'month' | 'year'>('month');
   const [isGeneratingCertificate, setIsGeneratingCertificate] = useState(false);
+  // Tracks which section's "Get Certificate" button is mid-generation, so
+  // only that one card shows a spinner (there are several cards on screen
+  // at once, one per production stage).
+  const [generatingCertForStage, setGeneratingCertForStage] = useState<string | null>(null);
 
   // Daily Production Record state
   const [selectedProductionDate, setSelectedProductionDate] = useState<string>(() => {
@@ -4300,6 +4304,41 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               <span>{nominee.rejections} Rework Checks</span>
                             </div>
                           </div>
+
+                          {/* Downloads a printable certificate for THIS
+                              section's winning team, for the current
+                              calendar month. Uses the same certificate
+                              layout as Employee of the Month/Year — just
+                              addressed to the team instead of one person,
+                              with the section name and this month's OEE
+                              score worked into the citation automatically. */}
+                          <button
+                            disabled={generatingCertForStage === stage.id}
+                            onClick={async () => {
+                              setGeneratingCertForStage(stage.id);
+                              try {
+                                const now = new Date();
+                                const period = now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+                                await exportEmployeeCertificatePdf({
+                                  employeeName: nominee.team.name,
+                                  department: `${stage.name} Section`,
+                                  roleTitle: 'Section Best Team',
+                                  awardTitle: 'Employee of the Month',
+                                  period,
+                                  citation: `In recognition of outstanding performance in the ${stage.name} section this month — achieving a ${nominee.kpiScore}% OEE quality index across ${nominee.completions} approved pool${nominee.completions === 1 ? '' : 's'} with only ${nominee.rejections} rework check${nominee.rejections === 1 ? '' : 's'}.`,
+                                });
+                              } catch (err) {
+                                console.error('Section certificate generation failed:', err);
+                                alert('Could not generate the certificate. Please try again.');
+                              } finally {
+                                setGeneratingCertForStage(null);
+                              }
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[10.5px] font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <FileDown className="h-3 w-3" />
+                            {generatingCertForStage === stage.id ? 'Generating…' : `Get Certificate — ${stage.name}`}
+                          </button>
 
                         </div>
                       );
