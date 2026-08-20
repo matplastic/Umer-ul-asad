@@ -511,16 +511,16 @@ export async function exportEmployeeCertificatePdf(opts: {
   const sigLineWidth = 160;
   doc.setDrawColor(...ink);
   doc.setLineWidth(0.6);
-  // Left signature (management)
+  // Left signature (Hussein haj khalil)
   doc.line(w / 2 - 220, sigY, w / 2 - 220 + sigLineWidth, sigY);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(...ink);
-  doc.text(opts.signatoryName || 'Management', w / 2 - 220 + sigLineWidth / 2, sigY + 14, { align: 'center' });
+  doc.text(opts.signatoryName || 'Hussein haj khalil', w / 2 - 220 + sigLineWidth / 2, sigY + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(120, 110, 90);
-  doc.text(opts.signatoryTitle || 'General Manager', w / 2 - 220 + sigLineWidth / 2, sigY + 26, { align: 'center' });
+  doc.text(opts.signatoryTitle || 'Factory Manager', w / 2 - 220 + sigLineWidth / 2, sigY + 26, { align: 'center' });
 
   // Right signature (date)
   doc.setDrawColor(...ink);
