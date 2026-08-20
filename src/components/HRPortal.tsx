@@ -38,7 +38,7 @@ const PASSPORT_COUNTRIES = [
 import { EmployeeAttendanceReport } from './EmployeeAttendanceReport';
 import {
   listUserAccounts, createUserAccount, updateUserAccount,
-  resetUserPassword, deactivateUserAccount, type AuthUser
+  resetUserPassword, deactivateUserAccount, getAllowedRoles, type AuthUser
 } from '../lib/authClient';
 import {
   dbFetchHRLeaves, dbSaveHRLeaves,
@@ -3801,6 +3801,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [newUsername, setNewUsername] = useState('');
     const [newDisplayName, setNewDisplayName] = useState('');
     const [newRole, setNewRole] = useState<ViewRole>('section_supervisor');
+    const [newAllowedRoles, setNewAllowedRoles] = useState<ViewRole[]>(['section_supervisor']);
     const [newEmployeeId, setNewEmployeeId] = useState<string>('');
     const [newPasswordMode, setNewPasswordMode] = useState<'auto' | 'manual'>('auto');
     const [newPassword, setNewPassword] = useState('');
@@ -3817,6 +3818,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     // Reset-password modal (choose auto-generate vs assign a specific password)
     const [resetTarget, setResetTarget] = useState<AuthUser | null>(null);
     const [resetMode, setResetMode] = useState<'auto' | 'manual'>('auto');
+    // Per-account "additional portal access" editor modal
+    const [accessEditTarget, setAccessEditTarget] = useState<AuthUser | null>(null);
+    const [accessDraft, setAccessDraft] = useState<ViewRole[]>([]);
+    const [accessSaving, setAccessSaving] = useState(false);
     const [resetPassword, setResetPassword] = useState('');
     const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
     const [showResetPassword, setShowResetPassword] = useState(false);
@@ -3843,6 +3848,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       setNewUsername('');
       setNewDisplayName('');
       setNewRole('section_supervisor');
+      setNewAllowedRoles(['section_supervisor']);
       setNewEmployeeId('');
       setNewPasswordMode('auto');
       setNewPassword('');
@@ -3875,6 +3881,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           role: newRole,
           employeeId: newEmployeeId || null,
           password: newPasswordMode === 'manual' ? newPassword : null,
+          allowedRoles: newAllowedRoles,
         });
         setAccounts(prev => [...prev, user]);
         setRevealedPassword({ username: user.username, password: tempPassword, isCustom: isCustomPassword });
@@ -4120,14 +4127,55 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 />
               </div>
               <div>
-                <label className="text-[11px] font-bold uppercase text-slate-500">Portal / Role</label>
+                <label className="text-[11px] font-bold uppercase text-slate-500">Primary Portal / Role</label>
                 <select
                   value={newRole}
-                  onChange={(e) => setNewRole(e.target.value as ViewRole)}
+                  onChange={(e) => {
+                    const role = e.target.value as ViewRole;
+                    setNewRole(role);
+                    // Keep the primary role always included in the extra-access
+                    // checklist below, so it's never possible to accidentally
+                    // uncheck someone's own landing portal.
+                    setNewAllowedRoles(prev => Array.from(new Set([role, ...prev])));
+                  }}
                   className="w-full mt-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
                 >
                   {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
+                <p className="text-[10px] text-slate-400 mt-1">The portal they land on right after logging in.</p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-[11px] font-bold uppercase text-slate-500">Additional Portal Access (optional)</label>
+                <p className="text-[10px] text-slate-400 mt-0.5 mb-2">
+                  Check any other portals this person should be able to switch into — e.g. Management + Quality Assurance
+                  only, with everything else (HR, Store, etc.) staying hidden from them. Leave everything unchecked besides
+                  the primary role above for a single-portal account, same as before.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 border border-slate-200 rounded-xl p-3 bg-slate-50/60 max-h-48 overflow-y-auto">
+                  {ROLE_OPTIONS.map(r => {
+                    const checked = newAllowedRoles.includes(r.value);
+                    const isPrimary = r.value === newRole;
+                    return (
+                      <label
+                        key={r.value}
+                        className={`flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded-lg cursor-pointer ${checked ? 'bg-violet-100 text-violet-800 font-semibold' : 'text-slate-600 hover:bg-white'} ${isPrimary ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={isPrimary}
+                          onChange={(e) => {
+                            setNewAllowedRoles(prev =>
+                              e.target.checked ? Array.from(new Set([...prev, r.value])) : prev.filter(x => x !== r.value)
+                            );
+                          }}
+                          className="accent-violet-600"
+                        />
+                        {r.label}{isPrimary ? ' (primary)' : ''}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
               <div>
                 <label className="text-[11px] font-bold uppercase text-slate-500">Link to Employee (optional)</label>
@@ -4260,6 +4308,26 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                         >
                           {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                         </select>
+                        {(() => {
+                          const effective = getAllowedRoles(acc);
+                          const extra = effective.length - 1; // beyond the primary role
+                          return (
+                            <button
+                              onClick={() => {
+                                setAccessEditTarget(acc);
+                                setAccessDraft(effective);
+                              }}
+                              className="block mt-1 text-[10px] font-semibold text-violet-600 hover:text-violet-800 hover:underline"
+                            >
+                              {effective.length === ROLE_OPTIONS.length
+                                ? 'Full access (all portals)'
+                                : extra > 0
+                                ? `+${extra} more portal${extra === 1 ? '' : 's'}`
+                                : 'Single portal only'}
+                              {' · Edit access'}
+                            </button>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3">
                         {acc.active ? (
@@ -4386,6 +4454,102 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-60"
                 >
                   <Save className="h-3.5 w-3.5" /> {resetSaving ? 'Saving…' : 'Reset Password'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {accessEditTarget && (
+          <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4" onClick={() => setAccessEditTarget(null)}>
+            <div
+              className="bg-white rounded-2xl p-5 shadow-2xl w-full max-w-md space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                  <UserCog className="h-4 w-4 text-violet-600" /> Portal Access
+                </h4>
+                <button onClick={() => setAccessEditTarget(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500">
+                For <span className="font-bold text-slate-700">{accessEditTarget.displayName}</span> ({accessEditTarget.username}).
+                Choose exactly which portals this account can open. Their primary role
+                (<span className="font-semibold">{ROLE_OPTIONS.find(r => r.value === accessEditTarget.role)?.label || accessEditTarget.role}</span>)
+                is always included and can't be removed here — change it from the Role dropdown in the table instead.
+              </p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 border border-slate-200 rounded-xl p-3 bg-slate-50/60 max-h-64 overflow-y-auto">
+                {ROLE_OPTIONS.map(r => {
+                  const checked = accessDraft.includes(r.value);
+                  const isPrimary = r.value === accessEditTarget.role;
+                  return (
+                    <label
+                      key={r.value}
+                      className={`flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded-lg cursor-pointer ${checked ? 'bg-violet-100 text-violet-800 font-semibold' : 'text-slate-600 hover:bg-white'} ${isPrimary ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={isPrimary}
+                        onChange={(e) => {
+                          setAccessDraft(prev =>
+                            e.target.checked ? Array.from(new Set([...prev, r.value])) : prev.filter(x => x !== r.value)
+                          );
+                        }}
+                        className="accent-violet-600"
+                      />
+                      {r.label}{isPrimary ? ' (primary)' : ''}
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAccessDraft(ROLE_OPTIONS.map(r => r.value))}
+                  className="text-[11px] font-bold text-violet-600 hover:underline"
+                >
+                  Select all (full admin access)
+                </button>
+                <span className="text-slate-300">·</span>
+                <button
+                  type="button"
+                  onClick={() => setAccessDraft([accessEditTarget.role])}
+                  className="text-[11px] font-bold text-violet-600 hover:underline"
+                >
+                  Reset to single portal only
+                </button>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setAccessEditTarget(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setAccessSaving(true);
+                    try {
+                      const updated = await updateUserAccount(accessEditTarget.id, { allowedRoles: accessDraft });
+                      setAccounts(prev => prev.map(a => a.id === accessEditTarget.id ? updated : a));
+                      setAccessEditTarget(null);
+                    } catch (err: any) {
+                      alert(err?.message || 'Failed to update portal access.');
+                    } finally {
+                      setAccessSaving(false);
+                    }
+                  }}
+                  disabled={accessSaving}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-60"
+                >
+                  <Save className="h-3.5 w-3.5" /> {accessSaving ? 'Saving…' : 'Save Access'}
                 </button>
               </div>
             </div>
