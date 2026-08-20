@@ -392,6 +392,9 @@ export function exportPoolHistoryPdf(pool: any, stages: { id: string; name: stri
  * to be printed and physically handed to the employee or framed.
  */
 export async function exportEmployeeCertificatePdf(opts: {
+  /** A person's name ("Umer Ul Asad") or a team's name ("Cladding Team A")
+   *  — both print identically on the certificate, just centered as the
+   *  recipient. */
   employeeName: string;
   department: string;
   roleTitle?: string;
