@@ -385,3 +385,152 @@ export function exportPoolHistoryPdf(pool: any, stages: { id: string; name: stri
 
   doc.save(`Pool_${pool.poolNo}_history_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+
+/**
+ * Employee recognition certificate — "Employee of the Month" / "Employee of
+ * the Year" / "Section Best Team" etc. Landscape A4, gold-bordered, designed
+ * to be printed and physically handed to the employee or framed.
+ */
+export async function exportEmployeeCertificatePdf(opts: {
+  employeeName: string;
+  department: string;
+  roleTitle?: string;
+  /** e.g. "EMPLOYEE OF THE MONTH", "EMPLOYEE OF THE YEAR", "SECTION BEST TEAM" */
+  awardTitle: string;
+  /** e.g. "August 2026" or "2026" */
+  period: string;
+  citation: string;
+  signatoryName?: string;
+  signatoryTitle?: string;
+}) {
+  const logo = await loadLogo();
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const w = doc.internal.pageSize.getWidth();
+  const h = doc.internal.pageSize.getHeight();
+  const gold: [number, number, number] = [180, 140, 40];
+  const goldLight: [number, number, number] = [212, 175, 90];
+  const ink: [number, number, number] = [30, 27, 20];
+
+  // Cream background
+  doc.setFillColor(253, 251, 245);
+  doc.rect(0, 0, w, h, 'F');
+
+  // Outer + inner gold border, framing the whole certificate
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(2.5);
+  doc.rect(24, 24, w - 48, h - 48);
+  doc.setLineWidth(0.75);
+  doc.rect(34, 34, w - 68, h - 68);
+
+  // Corner flourishes (simple diamond accents)
+  const corners: [number, number][] = [[34, 34], [w - 34, 34], [34, h - 34], [w - 34, h - 34]];
+  corners.forEach(([cx, cy]) => {
+    doc.setFillColor(...gold);
+    doc.circle(cx, cy, 3, 'F');
+  });
+
+  let y = 78;
+
+  // Logo, centered
+  if (logo) {
+    const logoH = 40;
+    const logoW = logoH * logo.ratio;
+    doc.addImage(logo.dataUrl, 'PNG', w / 2 - logoW / 2, y - 30, logoW, logoH);
+    y += 20;
+  }
+
+  // Company name
+  doc.setFont('times', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(...ink);
+  doc.text('MAT PLASTIC INDUSTRIES LLC', w / 2, y, { align: 'center' });
+  y += 30;
+
+  // "Certificate of Recognition"
+  doc.setFont('times', 'normal');
+  doc.setFontSize(15);
+  doc.setTextColor(90, 80, 60);
+  doc.text('Certificate of Recognition', w / 2, y, { align: 'center' });
+  y += 8;
+  doc.setDrawColor(...goldLight);
+  doc.setLineWidth(1);
+  doc.line(w / 2 - 90, y, w / 2 + 90, y);
+  y += 40;
+
+  // Award title, large
+  doc.setFont('times', 'bold');
+  doc.setFontSize(30);
+  doc.setTextColor(...gold);
+  doc.text(opts.awardTitle.toUpperCase(), w / 2, y, { align: 'center' });
+  y += 16;
+  doc.setFont('times', 'italic');
+  doc.setFontSize(11);
+  doc.setTextColor(120, 110, 90);
+  doc.text(opts.period, w / 2, y, { align: 'center' });
+  y += 42;
+
+  // "This certificate is proudly presented to"
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(90, 80, 60);
+  doc.text('This certificate is proudly presented to', w / 2, y, { align: 'center' });
+  y += 34;
+
+  // Employee name, huge
+  doc.setFont('times', 'bolditalic');
+  doc.setFontSize(28);
+  doc.setTextColor(...ink);
+  doc.text(opts.employeeName, w / 2, y, { align: 'center' });
+  y += 6;
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.75);
+  doc.line(w / 2 - 130, y, w / 2 + 130, y);
+  y += 22;
+
+  // Role / department
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(110, 100, 80);
+  const roleLine = [opts.roleTitle, opts.department].filter(Boolean).join(' · ');
+  doc.text(roleLine, w / 2, y, { align: 'center' });
+  y += 34;
+
+  // Citation, wrapped
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(10.5);
+  doc.setTextColor(70, 63, 48);
+  const citationLines = doc.splitTextToSize(opts.citation, w - 220);
+  doc.text(citationLines, w / 2, y, { align: 'center' });
+  y += citationLines.length * 14;
+
+  // Signature block, bottom of page (fixed position regardless of citation length)
+  const sigY = h - 96;
+  const sigLineWidth = 160;
+  doc.setDrawColor(...ink);
+  doc.setLineWidth(0.6);
+  // Left signature (management)
+  doc.line(w / 2 - 220, sigY, w / 2 - 220 + sigLineWidth, sigY);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(...ink);
+  doc.text(opts.signatoryName || 'Management', w / 2 - 220 + sigLineWidth / 2, sigY + 14, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 110, 90);
+  doc.text(opts.signatoryTitle || 'General Manager', w / 2 - 220 + sigLineWidth / 2, sigY + 26, { align: 'center' });
+
+  // Right signature (date)
+  doc.setDrawColor(...ink);
+  doc.line(w / 2 + 220 - sigLineWidth, sigY, w / 2 + 220, sigY);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(...ink);
+  doc.text(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }), w / 2 + 220 - sigLineWidth / 2, sigY + 14, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 110, 90);
+  doc.text('Date Issued', w / 2 + 220 - sigLineWidth / 2, sigY + 26, { align: 'center' });
+
+  const safeName = opts.employeeName.replace(/[^a-z0-9]+/gi, '_');
+  doc.save(`Certificate_${safeName}_${opts.awardTitle.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
