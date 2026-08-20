@@ -456,12 +456,12 @@ export async function exportEmployeeCertificatePdf(opts: {
   doc.setTextColor(90, 80, 60);
   doc.text('Certificate of Recognition', w / 2, y, { align: 'center' });
   
-  y += 15;
+  y += 8;
   doc.setDrawColor(...goldLight);
   doc.setLineWidth(1);
   doc.line(w / 2 - 90, y, w / 2 + 90, y);
   
-  y += 20; // Space before the "This certificate is proudly presented to" block
+  y += 40; // Space before the "This certificate is proudly presented to" block
 
   // Award title, large
   doc.setFont('times', 'bold');
