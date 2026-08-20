@@ -447,16 +447,21 @@ export async function exportEmployeeCertificatePdf(opts: {
   doc.setFontSize(13);
   doc.setTextColor(...ink);
 
+ // Move y down past the background logo/header elements
+  y += 35; // Adjust this increment as needed for exact spacing
+
   // "Certificate of Recognition"
   doc.setFont('times', 'normal');
   doc.setFontSize(15);
   doc.setTextColor(90, 80, 60);
   doc.text('Certificate of Recognition', w / 2, y, { align: 'center' });
+  
   y += 8;
   doc.setDrawColor(...goldLight);
   doc.setLineWidth(1);
   doc.line(w / 2 - 90, y, w / 2 + 90, y);
-  y += 40;
+  
+  y += 20; // Space before the "This certificate is proudly presented to" block
 
   // Award title, large
   doc.setFont('times', 'bold');
