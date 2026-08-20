@@ -2728,18 +2728,26 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     }`}>{l.status}</span>
                   </td>
                   <td className="px-4 py-3">
-                    {l.status === 'Pending' && (
-                      <div className="flex gap-1">
-                        <button onClick={() => updateStatus(l.id, 'Approved')}
-                          className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Approve">
-                          <CheckCircle className="h-4 w-4" />
-                        </button>
-                        <button onClick={() => updateStatus(l.id, 'Rejected')}
-                          className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="Reject">
-                          <XCircle className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex gap-1 items-center">
+                      {l.status === 'Pending' && (
+                        <>
+                          <button onClick={() => updateStatus(l.id, 'Approved')}
+                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Approve">
+                            <CheckCircle className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => updateStatus(l.id, 'Rejected')}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="Reject">
+                            <XCircle className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => { if (window.confirm(`Delete this leave request for ${l.employeeName}?`)) saveLeaves(leaves.filter(x => x.id !== l.id)); }}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
