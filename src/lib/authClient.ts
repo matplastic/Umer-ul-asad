@@ -21,6 +21,44 @@ export interface AuthUser {
    *  password each time — same idea as Team.code for workers. Only meaningful
    *  for section_supervisor accounts today, but kept generic. */
   quickCode?: string | null;
+  /** Full set of portals this account is allowed to open. `role` above stays
+   *  the "primary" portal — the one they land on right after login, and the
+   *  one used by any older single-portal logic elsewhere in the app (kiosk
+   *  PIN lookups, station locks, etc). `allowedRoles` is what actually gates
+   *  access now: an account can see and switch between EVERY portal listed
+   *  here, and nothing else — e.g. an account with
+   *  allowedRoles: ['management', 'quality_inspector'] can use those two
+   *  portals only, never HR, Store, etc.
+   *  Omitted or empty on older accounts — those fall back to just [role],
+   *  preserving exactly the old single-portal behavior with no migration
+   *  needed. */
+  allowedRoles?: ViewRole[] | null;
+}
+
+export const ALL_VIEW_ROLES: ViewRole[] = [
+  'planning_department', 'production_engineer', 'stage_worker', 'quality_inspector',
+  'factory_entrance', 'management', 'section_dashboard', 'trolley_prod', 'hr_portal',
+  'store', 'section_supervisor', 'factory_supervisor', 'reports_analytics',
+];
+
+/** The actual set of portals an account may use.
+ *
+ *  - If the admin has EXPLICITLY set `allowedRoles` on this account (even to
+ *    just one entry), that list wins — this is what lets an admin create an
+ *    account that can ONLY see, say, Management + Quality Assurance, and
+ *    nothing else, no matter what its primary `role` is.
+ *  - Otherwise (no `allowedRoles` ever set — true for every account created
+ *    before this feature existed), fall back to the exact old behavior so
+ *    nobody gets locked out by this change: a 'management' account keeps
+ *    full access to every portal (that's how it already worked), and every
+ *    other role keeps single-portal access to just its own `role`.
+ */
+export function getAllowedRoles(user: Pick<AuthUser, 'role' | 'allowedRoles'>): ViewRole[] {
+  if (user.allowedRoles && user.allowedRoles.length > 0) {
+    return Array.from(new Set([user.role, ...user.allowedRoles]));
+  }
+  if (user.role === 'management') return ALL_VIEW_ROLES; // legacy default: full access, unchanged
+  return [user.role]; // legacy default: single-portal, unchanged
 }
 
 // Internal shape actually stored in Firestore — same as AuthUser plus the
@@ -294,6 +332,10 @@ export async function createUserAccount(input: {
    *  auto-generated one. The admin is asserting the person already knows it,
    *  so we don't force a change on first login. */
   password?: string | null;
+  /** Every portal this account should be able to open. If omitted, the
+   *  account gets single-portal access to just `role` — same as before this
+   *  field existed. */
+  allowedRoles?: ViewRole[];
 }): Promise<{ user: AuthUser; tempPassword: string; isCustomPassword: boolean }> {
   const backendResult = await tryBackend<{ user: AuthUser; tempPassword: string; isCustomPassword?: boolean }>('/api/users', {
     method: 'POST',
@@ -319,6 +361,9 @@ export async function createUserAccount(input: {
     username: normalized,
     displayName: input.displayName.trim(),
     role: input.role,
+    allowedRoles: input.allowedRoles && input.allowedRoles.length > 0
+      ? Array.from(new Set([input.role, ...input.allowedRoles]))
+      : [input.role],
     employeeId: input.employeeId || null,
     active: 1,
     // Only force a change on next login for auto-generated passwords —
@@ -344,7 +389,7 @@ export async function createUserAccount(input: {
 
 export async function updateUserAccount(
   id: string,
-  patch: Partial<Pick<AuthUser, 'displayName' | 'role' | 'employeeId' | 'active' | 'quickCode'>>
+  patch: Partial<Pick<AuthUser, 'displayName' | 'role' | 'employeeId' | 'active' | 'quickCode' | 'allowedRoles'>>
 ): Promise<AuthUser> {
   const backendResult = await tryBackend<AuthUser>(`/api/users/${id}`, {
     method: 'PUT',
@@ -356,6 +401,21 @@ export async function updateUserAccount(
   await updateAccounts(current => current.map(a => {
     if (a.id !== id) return a;
     updated = { ...a, ...patch, updatedAt: new Date().toISOString() };
+    // Fold the (possibly just-changed) primary role into allowedRoles
+    // whenever there's an explicit allowedRoles to work with — either this
+    // account already had one (from a prior access-editor save), or this
+    // very patch is setting one (the access editor always includes it). If
+    // NEITHER is true, leave allowedRoles untouched (still undefined): a
+    // plain "change the primary role" edit on a legacy account should keep
+    // behaving via the old fallback rules in getAllowedRoles (full access
+    // if now 'management', single-portal otherwise) — NOT silently freeze
+    // it down to one role just because its role field changed.
+    const hadExplicit = a.allowedRoles && a.allowedRoles.length > 0;
+    const patchHasExplicit = patch.allowedRoles && patch.allowedRoles.length > 0;
+    if (hadExplicit || patchHasExplicit) {
+      const base = patchHasExplicit ? patch.allowedRoles! : a.allowedRoles!;
+      updated.allowedRoles = Array.from(new Set([updated.role, ...base]));
+    }
     return updated;
   }));
 
