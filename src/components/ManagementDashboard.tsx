@@ -4221,12 +4221,26 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           return acc;
                         }, 0);
 
-                        // Quality Index = approved pools ÷ total pools inspected (approved + rejected),
-                        // so rejections always pull the percentage down proportionally instead of
-                        // being swallowed by a volume bonus that can overflow the 100% cap.
-                        const totalInspected = completions + rejections;
-                        const kpiScore = totalInspected > 0
-                          ? Math.round((completions / totalInspected) * 100)
+                        // ACCURATE OEE FIX: the old formula was
+                        // `75 + completions*8 - rejections*12`, clamped to
+                        // 100. Completions dominated so heavily (8 points
+                        // each, uncapped before clamping) that any team with
+                        // more than ~3 approved pools saturated to 100%
+                        // regardless of how many rejections it also had —
+                        // e.g. 55 completions + 2 rejections still showed
+                        // 100%, hiding real rework activity.
+                        //
+                        // This now uses an actual quality-yield calculation:
+                        // completions ÷ (completions + rejections) — i.e.
+                        // what fraction of this team's total pool-stage
+                        // attempts were accepted without needing rework.
+                        // 55 completions + 2 rejections = 55/57 ≈ 96%, not
+                        // 100% — every rejection now visibly costs
+                        // percentage points, proportionally, no matter how
+                        // many completions exist alongside it.
+                        const totalAttempts = completions + rejections;
+                        const kpiScore = totalAttempts > 0
+                          ? Math.round((completions / totalAttempts) * 100)
                           : 0;
 
                         return {
