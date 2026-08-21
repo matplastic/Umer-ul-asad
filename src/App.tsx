@@ -676,15 +676,35 @@ export default function App() {
           setFirebaseStatus('connected');
         } else {
           // BUGFIX: truly empty database. We now seed ONLY the structural
-          // defaults (empty teams skeleton + inspectors/engineers lookup
-          // lists) and write the SENTINEL_DB_INITIALIZED marker so that
-          // future loads always know the DB is initialized — even when every
-          // user-data collection is empty. We DO NOT seed any demo pools,
-          // employees, projects, planned-pools or monthly-targets anymore.
-          const defaultData = getInitialData(); // returns empty pools/logs + teams skeleton
+          // defaults (inspectors/engineers lookup lists) and write the
+          // SENTINEL_DB_INITIALIZED marker so that future loads always know
+          // the DB is initialized — even when every user-data collection is
+          // empty. We DO NOT seed any demo pools, employees, projects,
+          // planned-pools or monthly-targets anymore.
+          //
+          // FURTHER BUGFIX (found after teams became a real collection):
+          // this branch used to ALSO seed a full generic team roster via
+          // generateDefaultTeams() (e.g. "Steel Fabrication - Team 1..5").
+          // This branch is only supposed to fire on a genuinely brand-new,
+          // never-used database — but the "is this DB empty?" check above
+          // reads several collections and can be WRONG on a transient
+          // network hiccup (one collection read comes back empty for a
+          // moment even though the database has real data). On an
+          // ESTABLISHED database like this one — which already has real,
+          // customized teams — that false-positive used to silently write
+          // ~51 generic placeholder team documents ALONGSIDE the real ones
+          // (collection-backed writes only ADD/update documents that are in
+          // the array being saved; they don't touch real documents that
+          // simply weren't included, so nothing got deleted — just
+          // cluttered with generic teams appearing next to real ones).
+          // Teams now start genuinely empty here too, exactly like pools/
+          // logs/plannedPools already did — if this fires on a real
+          // production database by mistake, the worst case is now "nothing
+          // happens" instead of "51 fake teams get created".
+          const defaultData = getInitialData(); // returns empty pools/logs/teams
           await saveEntireStateToFirestore(
             defaultData.pools,        // []
-            defaultData.teams,        // teams skeleton (structural, not demo)
+            [],                       // teams — genuinely empty, never auto-generated
             defaultData.logs,         // []
             DEFAULT_INSPECTORS,
             DEFAULT_ENGINEERS,
@@ -694,7 +714,7 @@ export default function App() {
             DEFAULT_EMPLOYEES         // []
           );
           setPools(defaultData.pools);
-          setTeams(defaultData.teams);
+          setTeams([]);
           teamsVerifiedRef.current = true; // genuinely empty DB — this IS the real state
           setLogs(defaultData.logs);
           setInspectors(DEFAULT_INSPECTORS);
