@@ -986,11 +986,19 @@ export async function saveEntireStateToFirestore(
     // NOTE: trolleys, recycleBin, employeePunches are managed by their own fine-grained
     // db functions and must NOT be overwritten here — only update what was explicitly passed
     // Use allowEmpty=false (default) on all collections — never accidentally wipe real data
+    //
+    // 'teams' is DELIBERATELY not written here anymore. It's collection-backed
+    // now and already has its own dedicated, skeleton-guard-protected save
+    // path (dbSyncTeams) — that guard is what stops a stray generic/empty
+    // team list from ever overwriting real customized teams. This bulk
+    // function has no such guard, and a false-positive "empty database"
+    // detection elsewhere in the app once used it to silently write ~51
+    // generic placeholder teams alongside real ones. Route ALL team saves
+    // through dbSyncTeams instead — never through this function.
     dbArchiveActivityLogs(logsList); // permanent archive, never trimmed — fire-and-forget
     await Promise.all([
       setFirestoreDocArray('pools', poolsList),
       setFirestoreDocArray('plannedPools', plannedPoolsList),
-      setFirestoreDocArray('teams', teamsList),
       setFirestoreDocArray('logs', logsList.slice(-200)),
       setFirestoreDocArray('inspectors', inspectorsList),
       setFirestoreDocArray('engineers', engineersList),
