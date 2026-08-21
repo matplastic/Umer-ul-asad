@@ -4202,7 +4202,22 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 {/* Sub Tab contents */}
                 {activeNominationSubTab === 'section_teams' ? (
                   <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1 pt-1 flex-1">
-                    {STAGES.map(stage => {
+                    {(() => {
+                      // MONTH SCOPING FIX: this whole nomination panel is
+                      // titled "this month's" best team, but the numbers
+                      // used to come from EVERY pool ever processed by a
+                      // team, all-time — so a team that was excellent two
+                      // years ago and idle all of this month could still
+                      // "win" this month's certificate. Now every completion
+                      // and rejection counted below is filtered to only
+                      // ones whose stage activity actually happened in the
+                      // current calendar month, using each stage's own
+                      // endTime (when that stage was actually finished/
+                      // inspected) as the date of record.
+                      const now = new Date();
+                      const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                      const isThisMonth = (iso?: string | null) => !!iso && iso.slice(0, 7) === currentMonthKey;
+                      return STAGES.map(stage => {
                       // Compute Nominated Team KPI for this stage
                       const stageTeams = teams.filter(t => t.stageId === stage.id);
                       if (stageTeams.length === 0) return null;
@@ -4210,12 +4225,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       const teamPerformances = stageTeams.map(t => {
                         const completions = pools.filter(p => {
                           const hist = p.stageHistory[stage.id];
-                          return hist && hist.teamId === t.id && (hist.status === 'APPROVED' || p.currentStageIndex > STAGES.findIndex(s => s.id === stage.id));
+                          if (!hist || hist.teamId !== t.id) return false;
+                          const wasCompleted = hist.status === 'APPROVED' || p.currentStageIndex > STAGES.findIndex(s => s.id === stage.id);
+                          if (!wasCompleted) return false;
+                          // Only count it toward THIS month if the stage's
+                          // own endTime falls within the current month.
+                          return isThisMonth(hist.endTime);
                         }).length;
 
                         const rejections = pools.reduce((acc, p) => {
                           const hist = p.stageHistory[stage.id];
-                          if (hist && hist.teamId === t.id) {
+                          if (hist && hist.teamId === t.id && isThisMonth(hist.endTime)) {
                             return acc + (hist.rejectionCount || 0);
                           }
                           return acc;
@@ -4361,7 +4381,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                         </div>
                       );
-                    })}
+                    });
+                    })()}
                   </div>
                 ) : (
                   // Employee of the Year presidential certificate suite
