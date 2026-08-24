@@ -114,7 +114,7 @@ const NAV_ITEMS: { role: ViewRole; label: string; icon: React.ElementType; testI
   { role: 'section_supervisor', label: 'Section Supervisor', icon: HardHat, testId: 'role-section-supervisor' },
   { role: 'factory_supervisor', label: 'Factory Supervisor', icon: Factory, testId: 'role-factory-supervisor' },
   { role: 'reports_analytics', label: 'Reports & Analytics', icon: FileBarChart, testId: 'role-reports-analytics' },
-  { role: 'site_team', label: 'Site Deliveries', icon: Truck, testId: 'role-site-team' },
+  { role: 'site_team', label: 'Site Team (Receiving)', icon: Truck, testId: 'role-site-team' },
 ];
 
 const LOCKED_LABELS: Partial<Record<ViewRole, { label: string; icon: React.ElementType }>> = {
