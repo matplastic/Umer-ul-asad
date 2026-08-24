@@ -3510,3 +3510,16 @@ export async function dbSendSupervisorPurchaseRequestEmail(batch: {
     console.warn('[dbSendSupervisorPurchaseRequestEmail] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
   }
 }
+
+// --- Site Deliveries (Management dispatches → Site Team confirms receipt) ---
+// Low-volume, occasional-write data (a handful of deliveries a day at most),
+// so this uses the same simple whole-array system_state/{name} pattern as
+// hrPurchaseRequests / supervisorPurchaseRequests above rather than the
+// collection-backed or week-bucketed strategies reserved for high-churn
+// collections like pools/teams/employeePunches.
+export async function dbFetchSiteDeliveries(): Promise<any[]> {
+  return getFirestoreDocArray('siteDeliveries');
+}
+export async function dbSaveSiteDeliveries(deliveries: any[]): Promise<void> {
+  await setFirestoreDocArray('siteDeliveries', deliveries, true);
+}
