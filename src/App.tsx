@@ -3932,6 +3932,7 @@ export default function App() {
             pools={pools}
             teams={teams}
             logs={logs}
+            currentUserName={loggedInUser?.displayName || 'Management'}
             inspectors={inspectors}
             engineers={engineers}
             onUpdateTeams={handleUpdateTeams}
@@ -4105,8 +4106,8 @@ export default function App() {
 
         {currentRole === 'site_team' && (
           <SiteDeliveryTracker
-            mode={loggedInUser?.role === 'management' || (loggedInUser?.allowedRoles || []).includes('management') ? 'management' : 'site_team'}
-            currentUserName={loggedInUser?.displayName || 'Management'}
+            mode="site_team"
+            currentUserName={loggedInUser?.displayName || 'Site Team'}
             siteNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
           />
         )}
