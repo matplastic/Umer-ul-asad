@@ -38,7 +38,7 @@ export interface AuthUser {
 export const ALL_VIEW_ROLES: ViewRole[] = [
   'planning_department', 'production_engineer', 'stage_worker', 'quality_inspector',
   'factory_entrance', 'management', 'section_dashboard', 'trolley_prod', 'hr_portal',
-  'store', 'section_supervisor', 'factory_supervisor', 'reports_analytics',
+  'store', 'section_supervisor', 'factory_supervisor', 'reports_analytics', 'site_team',
 ];
 
 /** The actual set of portals an account may use.
