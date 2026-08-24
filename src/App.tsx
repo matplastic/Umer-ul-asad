@@ -23,6 +23,7 @@ import { HRPortal } from './components/HRPortal';
 import { ReportsAndAnalytics } from './components/ReportsAndAnalytics';
 import { QRScanner } from './components/QRCodeModule';
 import { QCDefect } from './components/QCDefectPanel';
+import { SiteDeliveryTracker } from './components/SiteDeliveryTracker';
 import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera, HardHat } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
@@ -4099,6 +4100,14 @@ export default function App() {
             onRefresh={refreshFromCloud}
             isSyncing={isSyncing}
             qcDefects={qcDefects}
+          />
+        )}
+
+        {currentRole === 'site_team' && (
+          <SiteDeliveryTracker
+            mode={loggedInUser?.role === 'management' || (loggedInUser?.allowedRoles || []).includes('management') ? 'management' : 'site_team'}
+            currentUserName={loggedInUser?.displayName || 'Management'}
+            siteNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
           />
         )}
 
