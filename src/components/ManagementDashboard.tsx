@@ -11,6 +11,7 @@ import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { OnlineUsersPanel } from './OnlineUsersPanel';
 import { StageDashboard } from './StageDashboard';
 import { StageReportsTab } from './StageReportsTab';
+import { SiteDeliveryTracker } from './SiteDeliveryTracker';
 import { exportEmployeeCertificatePdf } from '../lib/exportUtils';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
@@ -30,6 +31,7 @@ interface ManagementDashboardProps {
   pools: Pool[];
   teams: Team[];
   logs: ActivityLog[];
+  currentUserName?: string;
   onOverridePoolStage?: (poolId: string, deltaIndex: number) => void;
   inspectors?: { id: string; name: string; title: string }[];
   engineers?: { id: string; name: string; title: string }[];
@@ -106,6 +108,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   pools,
   teams,
   logs,
+  currentUserName = 'Management',
   inspectors = [],
   engineers = [],
   onUpdateTeams,
@@ -164,7 +167,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [defectHeatmapDateTo, setDefectHeatmapDateTo] = useState<string>('');
   const [defectHeatmapTeamSearch, setDefectHeatmapTeamSearch] = useState<string>('');
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery' | 'site_deliveries'>('analytics');
 
   // KPI stat-card drill-down modal: which bucket ("Active in fabrication",
   // "Despatched and clear", "Total rework holds", "Assigned teams rate") is
@@ -2673,6 +2676,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'team_search', label: 'Team Search', icon: Search, elId: 'tab-mgmt-team-search' },
               { id: 'shop_floor', label: 'Shop Floor Monitor', icon: HardHat, elId: 'tab-mgmt-shop-floor' },
               { id: 'pool_delivery', label: 'Pool Delivery', icon: Truck, elId: 'tab-mgmt-pool-delivery' },
+              { id: 'site_deliveries', label: 'Site Deliveries', icon: Truck, elId: 'tab-mgmt-site-deliveries' },
               { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
               { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
             ],
@@ -7013,6 +7017,16 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'site_deliveries' && (
+          <div className="animate-fadeIn">
+            <SiteDeliveryTracker
+              mode="management"
+              currentUserName={currentUserName}
+              siteNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
+            />
           </div>
         )}
 
