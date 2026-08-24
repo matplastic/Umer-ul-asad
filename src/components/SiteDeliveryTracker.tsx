@@ -62,6 +62,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
   const [tab, setTab] = useState<'dispatch' | 'receive' | 'reports'>(mode === 'site_team' ? 'receive' : 'dispatch');
   const [printDelivery, setPrintDelivery] = useState<SiteDelivery | null>(null);
   const [receiveTarget, setReceiveTarget] = useState<SiteDelivery | null>(null);
+  const [addingNewSite, setAddingNewSite] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -99,10 +100,13 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
     dispatchDate: todayStr(), dispatchTime: nowTimeStr(), notes: '', items: [blankItem()],
   });
 
-  const resetForm = () => setForm({
-    siteName: '', truckNumber: '', driverName: '', driverPhone: '',
-    dispatchDate: todayStr(), dispatchTime: nowTimeStr(), notes: '', items: [blankItem()],
-  });
+  const resetForm = () => {
+    setForm({
+      siteName: '', truckNumber: '', driverName: '', driverPhone: '',
+      dispatchDate: todayStr(), dispatchTime: nowTimeStr(), notes: '', items: [blankItem()],
+    });
+    setAddingNewSite(false);
+  };
 
   const updateItem = (id: string, patch: Partial<SiteDeliveryItem>) => {
     setForm(f => ({ ...f, items: f.items.map(it => it.id === id ? { ...it, ...patch } : it) }));
@@ -204,6 +208,12 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
   }, [rangeMode, rangeAnchor, customStart, customEnd]);
 
   const allSiteNames = useMemo(() => Array.from(new Set([...siteNames, ...deliveries.map(d => d.siteName)])).filter(Boolean).sort(), [siteNames, deliveries]);
+
+  // First-ever use (no known sites yet) — jump straight to free-text entry
+  // instead of showing an empty, unusable dropdown.
+  useEffect(() => {
+    if (!loading && allSiteNames.length === 0) setAddingNewSite(true);
+  }, [loading, allSiteNames.length]);
   const allProducts = useMemo(() => Array.from(new Set(deliveries.flatMap(d => d.items.map(it => it.category || it.description)))).filter(Boolean).sort(), [deliveries]);
 
   const filteredDeliveries = useMemo(() => {
@@ -369,9 +379,47 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
             <div className="space-y-3">
               <div>
                 <label className="text-[11px] font-bold text-slate-500">Site / Project *</label>
-                <input list="site-name-options" value={form.siteName} onChange={e => setForm(f => ({ ...f, siteName: e.target.value }))}
-                  className="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-slate-400" placeholder="e.g. Al Barari Villa 12" />
-                <datalist id="site-name-options">{allSiteNames.map(s => <option key={s} value={s} />)}</datalist>
+                {!addingNewSite ? (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <select
+                      value={allSiteNames.includes(form.siteName) ? form.siteName : ''}
+                      onChange={e => setForm(f => ({ ...f, siteName: e.target.value }))}
+                      className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-slate-400"
+                    >
+                      <option value="" disabled>Select a site…</option>
+                      {allSiteNames.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => { setAddingNewSite(true); setForm(f => ({ ...f, siteName: '' })); }}
+                      title="Add a new site/project name"
+                      className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg border border-slate-200 text-[11px] font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> New Site
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <input
+                      autoFocus
+                      value={form.siteName}
+                      onChange={e => setForm(f => ({ ...f, siteName: e.target.value }))}
+                      placeholder="Type the new site/project name"
+                      className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-slate-400"
+                    />
+                    {allSiteNames.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setAddingNewSite(false); setForm(f => ({ ...f, siteName: '' })); }}
+                        title="Pick from existing sites instead"
+                        className="shrink-0 px-2.5 py-2 rounded-lg border border-slate-200 text-[11px] font-bold text-slate-500 hover:bg-slate-50 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-400 mt-1">New site names are remembered automatically for next time.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
