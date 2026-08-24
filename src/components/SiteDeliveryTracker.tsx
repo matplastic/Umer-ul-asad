@@ -82,6 +82,10 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
     return () => clearInterval(t);
   }, [load]);
 
+  useEffect(() => {
+    if (mode === 'management' && tab === 'receive') setTab('dispatch');
+  }, [mode, tab]);
+
   const persist = (next: SiteDelivery[]) => {
     setDeliveries(next);
     setSyncing(true);
@@ -363,9 +367,11 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
             Send to Site
           </button>
         )}
+        {mode === 'site_team' && (
         <button onClick={() => setTab('receive')} className={`px-4 py-2 text-xs font-bold border-b-2 cursor-pointer ${tab === 'receive' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
           Receive at Site {pendingReceipt.length > 0 && <span className="ml-1 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-amber-500 text-white text-[10px]">{pendingReceipt.length}</span>}
         </button>
+        )}
         <button onClick={() => setTab('reports')} className={`px-4 py-2 text-xs font-bold border-b-2 cursor-pointer ${tab === 'reports' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
           Reports
         </button>
@@ -519,7 +525,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
       )}
 
       {/* ── RECEIVE TAB ─────────────────────────────────────────────────── */}
-      {tab === 'receive' && (
+      {tab === 'receive' && mode === 'site_team' && (
         <div className="space-y-6 print:hidden">
           <div>
             <h3 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-2"><Clock className="h-4 w-4 text-amber-500" /> Awaiting Confirmation ({pendingReceipt.length})</h3>
