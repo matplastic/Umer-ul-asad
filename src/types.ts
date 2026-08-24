@@ -162,7 +162,8 @@ export type ViewRole =
   | 'store'
   | 'section_supervisor'
   | 'factory_supervisor'
-  | 'reports_analytics';
+  | 'reports_analytics'
+  | 'site_team';
 
 export interface ProjectSummary {
   id: string;
@@ -304,6 +305,41 @@ export interface CompanyAsset {
   value?: number | null; // Purchase/book value (AED)
   notes?: string | null;
   createdAt: string;
+}
+
+// One line item within a Site Delivery (a pool, trolley, bag of acrylic, etc.)
+export interface SiteDeliveryItem {
+  id: string;
+  description: string; // free text — "Acrylic Sheet", "Pool #204", "Trolley - Steel", etc.
+  category?: string | null; // optional grouping for filters/reports, e.g. "Acrylic", "Pool", "Trolley", "Fiberglass"
+  qty: number;
+  unit: string; // 'pcs' | 'kg' | 'roll' | 'set' | ...
+  notes?: string | null;
+}
+
+// A single delivery dispatched from the factory to a project/site. Created by
+// Management (or Store/Supervisor with delivery access); confirmed on the
+// other end by the Site Team portal once the truck actually arrives.
+export interface SiteDelivery {
+  id: string;
+  deliveryNo: string; // human-friendly reference, e.g. "DEL-2026-0042", shown on the printed challan
+  siteName: string; // destination project/site name
+  items: SiteDeliveryItem[];
+  truckNumber?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+  dispatchDate: string; // "YYYY-MM-DD" — date it left the factory
+  dispatchTime?: string | null; // "HH:MM"
+  dispatchedByName: string; // who entered/sent this delivery
+  notes?: string | null;
+  status: 'DISPATCHED' | 'RECEIVED' | 'PARTIAL' | 'DISPUTED';
+  // Filled in by the Site Team once the delivery physically arrives.
+  receivedAt?: string | null; // ISO timestamp
+  receivedByName?: string | null;
+  receivedNotes?: string | null;
+  shortageNotes?: string | null; // anything missing/damaged, noted by the site team
+  createdAt: string; // ISO timestamp
+  updatedAt?: string | null; // ISO timestamp
 }
 
 // One line of the Bill of Materials for a Project + Pool Type combination
