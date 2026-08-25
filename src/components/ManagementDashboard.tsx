@@ -6,6 +6,9 @@ import { STAGES } from '../data/mockData';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
+
+const REGISTRY_CHART_COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#f59e0b', '#8b5cf6', '#ec4899', '#84cc16', '#f97316'];
+const REGISTRY_STATUS_COLORS: Record<string, string> = { Active: '#3b82f6', Rework: '#f43f5e', Completed: '#10b981' };
 import { listUserAccounts, updateUserAccount, type AuthUser } from '../lib/authClient';
 import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { OnlineUsersPanel } from './OnlineUsersPanel';
@@ -15,7 +18,8 @@ import { SiteDeliveryTracker } from './SiteDeliveryTracker';
 import { exportEmployeeCertificatePdf } from '../lib/exportUtils';
 import { 
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, 
-  CartesianGrid, Tooltip as RechartsTooltip, Legend
+  CartesianGrid, Tooltip as RechartsTooltip, Legend,
+  BarChart, Bar, PieChart, Pie, Cell,
 } from 'recharts';
 import { 
   Search, Compass, Ruler, BarChart2, Users, FileSpreadsheet, 
@@ -2211,6 +2215,32 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   );
 
   const selectedPool = dateFilteredPools.find(p => p.id === selectedPoolId) || filteredPools[0] || dateFilteredPools[0];
+
+  // Production overview charts for the Pool Registry tab — stage distribution
+  // and status mix, scoped to whatever project filter is currently active.
+  const registryStageDistribution = STAGES.map(stage => ({
+    name: stage.name.length > 14 ? `${stage.name.slice(0, 13)}…` : stage.name,
+    count: filteredPools.filter(p => p.currentStageIndex === STAGES.indexOf(stage)).length,
+  })).concat([{
+    name: 'Completed',
+    count: filteredPools.filter(p => p.currentStageIndex >= STAGES.length).length,
+  }]);
+
+  const registryStatusMix = (() => {
+    let active = 0, rework = 0, completed = 0;
+    filteredPools.forEach(p => {
+      if (p.currentStageIndex >= STAGES.length) { completed++; return; }
+      const currentStage = STAGES[p.currentStageIndex];
+      const hist = currentStage ? p.stageHistory[currentStage.id] : null;
+      if (hist && hist.status === 'REJECTED') rework++;
+      else active++;
+    });
+    return [
+      { name: 'Active', count: active },
+      { name: 'Rework', count: rework },
+      { name: 'Completed', count: completed },
+    ].filter(s => s.count > 0);
+  })();
 
   // Calculate workloads for each stage
   const stageStats = STAGES.map((stage) => {
@@ -4725,6 +4755,62 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
         {/* Tab 2: Pools Registry Tracker */}
         {activeTab === 'pools' && (
+          <div className="space-y-6">
+            {/* Production overview — stage distribution + status mix for the currently filtered pools */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+              <div className="lg:col-span-3 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                    <BarChart2 className="h-4 w-4 text-indigo-500" /> Pools by Stage
+                  </h4>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {selectedProjectFilter === 'ALL' ? 'All projects' : selectedProjectFilter} · {filteredPools.length} shells
+                  </span>
+                </div>
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={registryStageDistribution} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartAxisDefaults.gridStroke} vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: chartAxisDefaults.axisStroke }} interval={0} angle={-25} textAnchor="end" height={50} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: chartAxisDefaults.axisStroke }} />
+                      <RechartsTooltip contentStyle={{ fontSize: 11, borderRadius: 10, border: `1px solid ${chartAxisDefaults.gridStroke}` }} />
+                      <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                        {registryStageDistribution.map((entry, idx) => (
+                          <Cell key={entry.name} fill={REGISTRY_CHART_COLORS[idx % REGISTRY_CHART_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                <h4 className="text-xs font-black text-slate-700 uppercase tracking-wide flex items-center gap-1.5 mb-3">
+                  <Layers className="h-4 w-4 text-emerald-500" /> Status Mix
+                </h4>
+                <div className="h-56 flex items-center">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={registryStatusMix}
+                        dataKey="count"
+                        nameKey="name"
+                        innerRadius={45}
+                        outerRadius={75}
+                        paddingAngle={2}
+                      >
+                        {registryStatusMix.map((entry) => (
+                          <Cell key={entry.name} fill={REGISTRY_STATUS_COLORS[entry.name] || '#94a3b8'} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip contentStyle={{ fontSize: 11, borderRadius: 10, border: `1px solid ${chartAxisDefaults.gridStroke}` }} />
+                      <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             {/* Left selector col */}
@@ -5007,6 +5093,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               )}
             </div>
 
+          </div>
           </div>
         )}
 
