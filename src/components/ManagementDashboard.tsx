@@ -4874,6 +4874,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         <button
                           key={pool.id}
                           onClick={() => setSelectedPoolId(pool.id)}
+                          title={`Firestore ID: ${pool.id}`}
                           className={`w-full text-left p-3 rounded-xl border cursor-pointer block transition-all ${
                             isSelected
                               ? 'border-slate-900 bg-slate-900 text-white shadow-md'
@@ -4900,6 +4901,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             </span>
                           </div>
                           <h4 className="text-xs font-extrabold mt-1.5 tracking-tight truncate">{pool.projectName}</h4>
+                          <p className={`text-[9px] font-mono mt-0.5 truncate ${isSelected ? 'text-slate-400' : 'text-slate-300'}`}>
+                            {pool.id}
+                          </p>
                         </button>
                       );
                     })
@@ -4951,6 +4955,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         <h3 className="text-lg font-black text-slate-900 mt-2 tracking-tight">
                           {selectedPool.projectName}
                         </h3>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(selectedPool.id); }}
+                          title="Click to copy — this is the exact document ID under the 'pools' collection in Firestore"
+                          className="mt-1 text-[10px] font-mono text-slate-400 hover:text-slate-700 cursor-pointer flex items-center gap-1"
+                        >
+                          Firestore ID: {selectedPool.id}
+                        </button>
                       </div>
                       <button
                         onClick={() => {
