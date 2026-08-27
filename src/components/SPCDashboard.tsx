@@ -1,8 +1,21 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pool, StageId } from '../types';
 import { STAGES } from '../data/mockData';
 import { QCDefect } from './QCDefectPanel';
 import { TrendingUp, AlertTriangle, Clock3 } from 'lucide-react';
+import { DateRangeFilter, DateRange } from './DateRangeFilter';
+
+function inDateRange(dateStr: string | undefined | null, start: string, end: string): boolean {
+  if (!dateStr) return false;
+  const d = dateStr.slice(0, 10);
+  return d >= start && d <= end;
+}
+
+function getDefaultRange(): DateRange {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+  return { startDate: start.toISOString().slice(0, 10), endDate: today.toISOString().slice(0, 10) };
+}
 
 interface SPCDashboardProps {
   pools: Pool[];
@@ -14,6 +27,8 @@ interface SPCDashboardProps {
 // collection. If a future feature adds numeric checklist measurements, a
 // proper X-bar/R control chart can slot in here using the same layout.
 export const SPCDashboard: React.FC<SPCDashboardProps> = ({ pools, qcDefects }) => {
+  const [dateRange, setDateRange] = useState<DateRange>(getDefaultRange());
+
   // ── Rejection rate per stage ──
   const rejectionByStage = useMemo(() => {
     return STAGES.map((stage) => {
@@ -22,6 +37,7 @@ export const SPCDashboard: React.FC<SPCDashboardProps> = ({ pools, qcDefects }) 
       pools.forEach((pool) => {
         const hist = pool.stageHistory[stage.id];
         if (!hist) return;
+        if (!inDateRange(hist.inspectionTime, dateRange.startDate, dateRange.endDate)) return;
         if (hist.status === 'APPROVED' || hist.status === 'REJECTED' || (hist.rejectionCount ?? 0) > 0) {
           totalInspections += 1 + (hist.rejectionCount || 0);
           totalRejections += hist.rejectionCount || 0;
@@ -31,39 +47,45 @@ export const SPCDashboard: React.FC<SPCDashboardProps> = ({ pools, qcDefects }) 
       return { stageId: stage.id, stageName: stage.name, totalInspections, totalRejections, rate };
     }).filter(s => s.totalInspections > 0)
       .sort((a, b) => b.rate - a.rate);
-  }, [pools]);
+  }, [pools, dateRange]);
 
-  // ── Defect Pareto (by type, across all logged defects) ──
+  // ── Defect Pareto (by type, across all logged defects in range) ──
   const defectPareto = useMemo(() => {
     const counts: Record<string, number> = {};
-    qcDefects.forEach(d => {
+    const inRange = qcDefects.filter(d => inDateRange(d.loggedAt, dateRange.startDate, dateRange.endDate));
+    inRange.forEach(d => {
       counts[d.defectType] = (counts[d.defectType] || 0) + 1;
     });
-    const total = qcDefects.length || 1;
+    const total = inRange.length || 1;
     return Object.entries(counts)
       .map(([type, count]) => ({ type, count, pct: (count / total) * 100 }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
-  }, [qcDefects]);
+  }, [qcDefects, dateRange]);
 
-  // ── Open NCR aging (days since logged, still not closed) ──
+  // ── Open NCR aging (days since logged, still not closed, logged within range) ──
   const openNcrAging = useMemo(() => {
     const now = Date.now();
     return qcDefects
       .filter(d => d.status !== 'closed' && d.status !== 'rejected')
+      .filter(d => inDateRange(d.loggedAt, dateRange.startDate, dateRange.endDate))
       .map(d => ({
         ...d,
         daysOpen: Math.floor((now - new Date(d.loggedAt).getTime()) / (1000 * 60 * 60 * 24)),
       }))
       .sort((a, b) => b.daysOpen - a.daysOpen)
       .slice(0, 10);
-  }, [qcDefects]);
+  }, [qcDefects, dateRange]);
 
   const maxRate = Math.max(...rejectionByStage.map(s => s.rate), 1);
   const maxCount = Math.max(...defectPareto.map(d => d.count), 1);
 
   return (
     <div className="space-y-6 font-sans">
+      <div className="flex justify-end">
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
+      </div>
+
       {/* Rejection rate by stage */}
       <div className="bg-white rounded-2xl border border-slate-100 p-4">
         <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5 mb-3">
