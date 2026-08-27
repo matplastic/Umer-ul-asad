@@ -3805,6 +3805,7 @@ export default function App() {
             engineers={engineers}
             plannedPools={plannedPools}
             onReleasePlannedPool={handleReleasePlannedPool}
+            monthlyTargets={monthlyTargets}
           />
         )}
 
