@@ -1356,6 +1356,34 @@ export default function App() {
     });
   };
 
+  // Records root cause + corrective action on a defect and marks the NCR
+  // closed. Deliberately separate from handleUpdateDefectStatus above (which
+  // only ever sets a plain status) so the two write paths stay simple.
+  const handleCloseNcr = (
+    defectId: string,
+    fields: { rootCause: string; correctiveAction: string; correctiveActionOwner: string; correctiveActionDueDate?: string },
+    operatorName: string,
+  ) => {
+    setQcDefects(prev => {
+      const updated = prev.map(d => {
+        if (d.id !== defectId) return d;
+        return {
+          ...d,
+          ...fields,
+          status: 'closed' as const,
+          closedBy: operatorName,
+          closedAt: new Date().toISOString(),
+        };
+      });
+      localStorage.setItem('apex_qc_defects', JSON.stringify(updated));
+      const updatedDefect = updated.find(d => d.id === defectId);
+      if (updatedDefect) {
+        dbSaveQcDefect(updatedDefect).catch(console.error);
+      }
+      return updated;
+    });
+  };
+
   const handleUpdateTeams = (updatedTeams: Team[]) => {
     // DATA-LOSS FIX (v12): refuse to sync teams to Firestore while this
     // device is still showing the unverified placeholder skeleton (see
@@ -3919,6 +3947,7 @@ export default function App() {
             qcDefects={qcDefects}
             onLogDefect={handleLogDefect}
             onUpdateDefectStatus={handleUpdateDefectStatus}
+            onCloseNcr={handleCloseNcr}
             logs={logs}
             onHoldPool={handleHoldPool}
             onReleaseHold={handleReleaseHold}
