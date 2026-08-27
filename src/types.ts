@@ -394,6 +394,16 @@ export interface SiteDelivery {
   receivedByName?: string | null;
   receivedNotes?: string | null;
   shortageNotes?: string | null; // anything missing/damaged, noted by the site team
+  // Optional, lightweight proof-of-delivery — kept off by default (not
+  // required to confirm receipt) due to Firestore storage limits. Stored
+  // the same way as checklist photos: base64 data URL, no separate upload
+  // infrastructure.
+  podPhotoUrl?: string | null;
+  podSignatureUrl?: string | null;
+  // Structured delay tracking, separate from free-text shortageNotes so it
+  // can actually be aggregated into an on-time % / avg delay KPI.
+  delayHours?: number | null;
+  delayReason?: string | null;
   createdAt: string; // ISO timestamp
   updatedAt?: string | null; // ISO timestamp
 }
