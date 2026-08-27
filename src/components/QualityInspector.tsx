@@ -6,6 +6,7 @@ import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
 import { DailyDefectReport } from './DailyDefectReport';
 import { dbFetchIncomingMaterials, dbDecideIncomingQc, dbFetchChecklistTemplates } from '../lib/firebaseService';
 import { ChecklistPanel } from './ChecklistPanel';
+import { SPCDashboard } from './SPCDashboard';
 
 interface UndoClaimRequest {
   id: string;
@@ -44,6 +45,7 @@ interface QualityInspectorProps {
   qcDefects?: QCDefect[];
   onLogDefect?: (defect: QCDefect) => void;
   onUpdateDefectStatus?: (defectId: string, newStatus: QCDefect['status'], operatorName: string) => void;
+  onCloseNcr?: (defectId: string, fields: { rootCause: string; correctiveAction: string; correctiveActionOwner: string; correctiveActionDueDate?: string }, operatorName: string) => void;
   // Daily Defect Report portal (auto-generated from logs + qcDefects)
   logs?: ActivityLog[];
   // QC Hold: lock a pool at its current stage so no team can claim it.
@@ -69,11 +71,12 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   qcDefects = [],
   onLogDefect,
   onUpdateDefectStatus,
+  onCloseNcr,
   logs = [],
   onHoldPool,
   onReleaseHold,
 }) => {
-  const [activeTab, setActiveTab] = useState<'queue' | 'incoming_qc' | 'daily_report' | 'hold_pool'>('queue');
+  const [activeTab, setActiveTab] = useState<'queue' | 'incoming_qc' | 'daily_report' | 'hold_pool' | 'spc'>('queue');
   const [holdSearch, setHoldSearch] = useState('');
   const [holdReasonDraft, setHoldReasonDraft] = useState<{ [poolId: string]: string }>({});
   const [confirmHoldAction, setConfirmHoldAction] = useState<{ poolId: string; poolNo: string; type: 'HOLD' | 'RELEASE' } | null>(null);
@@ -291,11 +294,6 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
         setErrorMsg('Please mark every required checklist item as passed or failed.');
         return;
       }
-      const missingPhotos = activeChecklistTemplate.items.filter(i => checklistState[i.id] === false && !checklistPhotos[i.id]);
-      if (missingPhotos.length > 0) {
-        setErrorMsg('Please attach a photo for every failed checklist item.');
-        return;
-      }
       if (hasFailedRequired && !overrideReason.trim()) {
         setErrorMsg('A required item failed. Approve anyway only with an override reason.');
         return;
@@ -456,6 +454,15 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                   {heldPoolsList.length}
                 </span>
               )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('spc')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
+                activeTab === 'spc' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              SPC & NCR
             </button>
           </div>
           {currentUserName ? (
@@ -814,6 +821,8 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             </div>
           )}
         </div>
+      ) : activeTab === 'spc' ? (
+        <SPCDashboard pools={pools} qcDefects={qcDefects} />
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
@@ -1073,6 +1082,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                     existingDefects={qcDefects}
                     onLogDefect={onLogDefect}
                     onUpdateDefectStatus={onUpdateDefectStatus}
+                    onCloseNcr={onCloseNcr}
                   />
                 )}
 
