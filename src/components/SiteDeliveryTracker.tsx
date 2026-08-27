@@ -151,17 +151,29 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
   };
 
   // ── Receive / confirm (Site Team, or Management on their behalf) ────────
-  const [receiveForm, setReceiveForm] = useState<{ receivedByName: string; receivedNotes: string; shortageNotes: string; status: 'RECEIVED' | 'PARTIAL' | 'DISPUTED' }>({
+  const [receiveForm, setReceiveForm] = useState<{
+    receivedByName: string; receivedNotes: string; shortageNotes: string; status: 'RECEIVED' | 'PARTIAL' | 'DISPUTED';
+    delayHours: string; delayReason: string; podPhotoUrl: string; podSignatureUrl: string;
+  }>({
     receivedByName: '', receivedNotes: '', shortageNotes: '', status: 'RECEIVED',
+    delayHours: '', delayReason: '', podPhotoUrl: '', podSignatureUrl: '',
   });
 
   const openReceive = (d: SiteDelivery) => {
     setReceiveTarget(d);
-    setReceiveForm({ receivedByName: '', receivedNotes: '', shortageNotes: '', status: 'RECEIVED' });
+    setReceiveForm({ receivedByName: '', receivedNotes: '', shortageNotes: '', status: 'RECEIVED', delayHours: '', delayReason: '', podPhotoUrl: '', podSignatureUrl: '' });
+  };
+
+  const handlePodPhoto = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setReceiveForm(f => ({ ...f, podPhotoUrl: reader.result as string }));
+    reader.readAsDataURL(file);
   };
 
   const confirmReceipt = () => {
     if (!receiveTarget || !receiveForm.receivedByName.trim()) return;
+    const parsedDelay = parseFloat(receiveForm.delayHours);
     const next = deliveries.map(d => d.id === receiveTarget.id ? {
       ...d,
       status: receiveForm.status,
@@ -169,6 +181,10 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
       receivedByName: receiveForm.receivedByName.trim(),
       receivedNotes: receiveForm.receivedNotes.trim() || null,
       shortageNotes: receiveForm.shortageNotes.trim() || null,
+      delayHours: !isNaN(parsedDelay) && parsedDelay > 0 ? parsedDelay : null,
+      delayReason: receiveForm.delayReason.trim() || null,
+      podPhotoUrl: receiveForm.podPhotoUrl || null,
+      podSignatureUrl: receiveForm.podSignatureUrl || null,
       updatedAt: new Date().toISOString(),
     } : d);
     persist(next);
@@ -257,6 +273,19 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
     }));
     return Array.from(map.entries()).map(([product, v]) => ({ product, qty: v.qty, unit: v.unit, deliveryCount: v.deliveries.size })).sort((a, b) => b.qty - a.qty);
   }, [filteredDeliveries, filterProduct]);
+
+  // Delivery performance KPI — on-time % and average delay, computed from
+  // the same filtered/date-ranged set of deliveries as the report above.
+  // Only resolved deliveries (RECEIVED/PARTIAL/DISPUTED) count — anything
+  // still DISPATCHED hasn't reached its outcome yet.
+  const deliveryPerformance = useMemo(() => {
+    const resolved = filteredDeliveries.filter(d => d.status !== 'DISPATCHED');
+    const onTime = resolved.filter(d => !d.delayHours || d.delayHours <= 0).length;
+    const delayed = resolved.filter(d => (d.delayHours || 0) > 0);
+    const avgDelay = delayed.length > 0 ? delayed.reduce((sum, d) => sum + (d.delayHours || 0), 0) / delayed.length : 0;
+    const onTimePct = resolved.length > 0 ? (onTime / resolved.length) * 100 : null;
+    return { resolvedCount: resolved.length, onTimePct, delayedCount: delayed.length, avgDelay };
+  }, [filteredDeliveries]);
 
   const exportReportExcel = () => {
     exportToExcel(reportRows, `site_deliveries_${rangeMode}_${rangeStart}`, 'Deliveries');
@@ -542,9 +571,14 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
                   <ul className="text-[11px] text-slate-600 space-y-0.5 mb-3">
                     {d.items.map(it => <li key={it.id}>• {it.qty} {it.unit} — {it.category ? `${it.category} — ` : ''}{it.description}</li>)}
                   </ul>
-                  <button onClick={() => openReceive(d)} className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center justify-center gap-1.5">
-                    <PackageCheck className="h-3.5 w-3.5" /> Confirm Received
-                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={() => openReceive(d)} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer flex items-center justify-center gap-1.5">
+                      <PackageCheck className="h-3.5 w-3.5" /> Confirm Received
+                    </button>
+                    <button onClick={() => setPrintDelivery(d)} title="Print challan" className="h-9 w-9 shrink-0 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 cursor-pointer">
+                      <Printer className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -618,6 +652,26 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
             <div className="ml-auto flex gap-2">
               <button onClick={exportReportExcel} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"><Download className="h-3.5 w-3.5" /> Excel</button>
               <button onClick={exportReportPdf} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"><Printer className="h-3.5 w-3.5" /> PDF</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">On-Time Rate</p>
+              <p className="text-2xl font-black text-slate-800 mt-1">
+                {deliveryPerformance.onTimePct !== null ? `${deliveryPerformance.onTimePct.toFixed(0)}%` : '—'}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">{deliveryPerformance.resolvedCount} confirmed in range</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Delayed Deliveries</p>
+              <p className="text-2xl font-black text-slate-800 mt-1">{deliveryPerformance.delayedCount}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">out of {deliveryPerformance.resolvedCount}</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Avg Delay</p>
+              <p className="text-2xl font-black text-slate-800 mt-1">{deliveryPerformance.avgDelay > 0 ? `${deliveryPerformance.avgDelay.toFixed(1)}h` : '—'}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">among delayed only</p>
             </div>
           </div>
 
@@ -699,6 +753,29 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
                     className="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-300" />
                 </div>
               )}
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-[11px] font-bold text-slate-500">Delay (hours)</label>
+                  <input type="number" min="0" step="0.5" value={receiveForm.delayHours}
+                    onChange={e => setReceiveForm(f => ({ ...f, delayHours: e.target.value }))}
+                    placeholder="0" className="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                </div>
+                <div className="flex-[2]">
+                  <label className="text-[11px] font-bold text-slate-500">Delay reason</label>
+                  <input value={receiveForm.delayReason} onChange={e => setReceiveForm(f => ({ ...f, delayReason: e.target.value }))}
+                    placeholder="e.g. traffic, gate access" className="w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-slate-500">Proof of delivery (optional)</label>
+                <label className="mt-1 flex items-center justify-center gap-2 border border-dashed border-slate-300 rounded-lg py-2.5 text-xs font-bold text-slate-500 cursor-pointer hover:border-slate-400">
+                  {receiveForm.podPhotoUrl ? 'Photo attached — tap to replace' : 'Attach photo (optional)'}
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => handlePodPhoto(e.target.files?.[0])} />
+                </label>
+                {receiveForm.podPhotoUrl && (
+                  <img src={receiveForm.podPhotoUrl} alt="Proof of delivery" className="mt-2 h-20 w-20 object-cover rounded-lg border border-slate-200" />
+                )}
+              </div>
               <div>
                 <label className="text-[11px] font-bold text-slate-500">Notes</label>
                 <textarea value={receiveForm.receivedNotes} onChange={e => setReceiveForm(f => ({ ...f, receivedNotes: e.target.value }))} rows={2}
