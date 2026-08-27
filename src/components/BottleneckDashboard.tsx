@@ -1,7 +1,20 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pool, StageId, MonthlyTarget } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
 import { Clock, AlertTriangle, Layers } from 'lucide-react';
+import { DateRangeFilter, DateRange } from './DateRangeFilter';
+
+function inDateRange(dateStr: string | undefined | null, start: string, end: string): boolean {
+  if (!dateStr) return false;
+  const d = dateStr.slice(0, 10);
+  return d >= start && d <= end;
+}
+
+function getDefaultRange(): DateRange {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+  return { startDate: start.toISOString().slice(0, 10), endDate: today.toISOString().slice(0, 10) };
+}
 
 interface BottleneckDashboardProps {
   pools: Pool[];
@@ -16,6 +29,12 @@ const STUCK_THRESHOLD_HOURS = 24;
 export const BottleneckDashboard: React.FC<BottleneckDashboardProps> = ({ pools, monthlyTargets = [] }) => {
   const currentMonthId = new Date().toISOString().slice(0, 7);
   const activeTarget = monthlyTargets.find(t => t.id === currentMonthId) || monthlyTargets[monthlyTargets.length - 1];
+
+  // Date filter applies to Average Cycle Time only — WIP-by-stage and
+  // Stuck Pools both describe *current* state, which a historical date
+  // range doesn't meaningfully filter (a pool is either stuck right now
+  // or it isn't).
+  const [dateRange, setDateRange] = useState<DateRange>(getDefaultRange());
 
   // ── WIP per stage: how many pools currently sit at each stage ──
   const wipByStage = useMemo(() => {
@@ -39,12 +58,14 @@ export const BottleneckDashboard: React.FC<BottleneckDashboardProps> = ({ pools,
       const durations: number[] = [];
       pools.forEach(pool => {
         const hist = pool.stageHistory[stage.id];
-        if (hist?.durationMinutes != null) durations.push(hist.durationMinutes);
+        if (hist?.durationMinutes == null) return;
+        if (!inDateRange(hist.endTime, dateRange.startDate, dateRange.endDate)) return;
+        durations.push(hist.durationMinutes);
       });
       const avg = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
       return { stageId: stage.id, stageName: stage.name, avgMinutes: avg, sampleSize: durations.length };
     }).filter(s => s.avgMinutes !== null);
-  }, [pools]);
+  }, [pools, dateRange]);
 
   // ── Stuck pools: IN_PROGRESS or PENDING_INSPECTION past the threshold ──
   const stuckPools = useMemo(() => {
@@ -93,10 +114,13 @@ export const BottleneckDashboard: React.FC<BottleneckDashboardProps> = ({ pools,
 
       {/* Cycle time vs target */}
       <div className="bg-white rounded-2xl border border-slate-100 p-4">
-        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5 mb-3">
-          <Clock className="h-4 w-4 text-emerald-500" />
-          Average Cycle Time by Stage
-        </h3>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+            <Clock className="h-4 w-4 text-emerald-500" />
+            Average Cycle Time by Stage
+          </h3>
+          <DateRangeFilter value={dateRange} onChange={setDateRange} />
+        </div>
         {cycleTimeByStage.length === 0 ? (
           <p className="text-xs text-slate-400 py-4 text-center">Not enough completed stage data yet.</p>
         ) : (
