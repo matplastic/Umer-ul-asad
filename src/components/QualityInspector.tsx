@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Pool, StageId, ActivityLog, IncomingMaterial } from '../types';
+import { Pool, StageId, ActivityLog, IncomingMaterial, ChecklistTemplate, ChecklistResult } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
 import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw, Clock, PauseCircle, PackageSearch } from 'lucide-react';
 import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
 import { DailyDefectReport } from './DailyDefectReport';
-import { dbFetchIncomingMaterials, dbDecideIncomingQc } from '../lib/firebaseService';
+import { dbFetchIncomingMaterials, dbDecideIncomingQc, dbFetchChecklistTemplates } from '../lib/firebaseService';
+import { ChecklistPanel } from './ChecklistPanel';
 
 interface UndoClaimRequest {
   id: string;
@@ -21,7 +22,7 @@ interface UndoClaimRequest {
 interface QualityInspectorProps {
   pools: Pool[];
   allTeams: any[];
-  onApproveStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string, picture?: string) => void;
+  onApproveStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string, picture?: string, checklistResult?: ChecklistResult) => void;
   onRejectStage: (poolId: string, stageId: StageId, inspectorId: string, notes: string, picture?: string) => void;
   // Undo a stage that was already Certified & Approved — sends it back to
   // rework, for when an inspector passes something by mistake.
@@ -85,6 +86,18 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const [filterMode, setFilterMode] = useState<'pending' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [reviewStageId, setReviewStageId] = useState<StageId | null>(null);
+
+  // ---------- QC Inspection Checklists ----------
+  const [checklistTemplates, setChecklistTemplates] = useState<ChecklistTemplate[]>([]);
+  // itemId -> passed. Reset whenever the reviewed pool/stage changes.
+  const [checklistState, setChecklistState] = useState<Record<string, boolean>>({});
+  const [checklistPhotos, setChecklistPhotos] = useState<Record<string, string>>({});
+  const [checklistItemNotes, setChecklistItemNotes] = useState<Record<string, string>>({});
+  const [overrideReason, setOverrideReason] = useState('');
+
+  React.useEffect(() => {
+    dbFetchChecklistTemplates().then(setChecklistTemplates).catch(() => setChecklistTemplates([]));
+  }, []);
 
   // ---------- Incoming Material QC gate ----------
   const [incomingMaterials, setIncomingMaterials] = useState<IncomingMaterial[]>([]);
@@ -221,6 +234,28 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const isApprovedStage = activeReviewPool && activeReviewStage &&
     activeReviewPool.stageHistory[activeReviewStage.id]?.status === 'APPROVED';
 
+  // The active (editable-by-admin, but here just read) template for whichever
+  // stage is currently under review. Stages without a template configured
+  // simply skip the checklist gate — nothing blocks approval in that case,
+  // so existing stages behave exactly as before until someone adds a
+  // template for them.
+  const activeChecklistTemplate = activeReviewStage
+    ? checklistTemplates.find(t => t.stageId === activeReviewStage.id && t.active) || null
+    : null;
+
+  const requiredItemIds = activeChecklistTemplate ? activeChecklistTemplate.items.filter(i => i.required).map(i => i.id) : [];
+  const allRequiredPassed = requiredItemIds.every(id => checklistState[id] === true);
+  const hasFailedRequired = requiredItemIds.some(id => checklistState[id] === false);
+
+  // Reset the checklist whenever the reviewer moves to a different pool/stage
+  // — otherwise a previous pool's ticks would silently carry over.
+  React.useEffect(() => {
+    setChecklistState({});
+    setChecklistPhotos({});
+    setChecklistItemNotes({});
+    setOverrideReason('');
+  }, [activePoolId, activeReviewStageId]);
+
   React.useEffect(() => {
     if (displayedPools.length > 0 && (!activePoolId || !pools.some(p => p.id === activePoolId))) {
       const nextPool = displayedPools[0];
@@ -247,8 +282,42 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       setErrorMsg('Please write inspection notes before approving.');
       return;
     }
+    // Checklist gate: only applies when this stage actually has an active
+    // template. A required item that failed blocks approval unless the
+    // inspector supplies an override justification.
+    if (activeChecklistTemplate) {
+      const uncheckedRequired = requiredItemIds.filter(id => checklistState[id] === undefined);
+      if (uncheckedRequired.length > 0) {
+        setErrorMsg('Please mark every required checklist item as passed or failed.');
+        return;
+      }
+      const missingPhotos = activeChecklistTemplate.items.filter(i => checklistState[i.id] === false && !checklistPhotos[i.id]);
+      if (missingPhotos.length > 0) {
+        setErrorMsg('Please attach a photo for every failed checklist item.');
+        return;
+      }
+      if (hasFailedRequired && !overrideReason.trim()) {
+        setErrorMsg('A required item failed. Approve anyway only with an override reason.');
+        return;
+      }
+    }
     setErrorMsg('');
-    onApproveStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim(), uploadedPicture || undefined);
+
+    const checklistResult: ChecklistResult | undefined = activeChecklistTemplate ? {
+      templateId: activeChecklistTemplate.id,
+      templateName: activeChecklistTemplate.name,
+      items: activeChecklistTemplate.items.map(i => ({
+        itemId: i.id,
+        passed: !!checklistState[i.id],
+        photoUrl: checklistPhotos[i.id] || undefined,
+        note: checklistItemNotes[i.id] || undefined,
+      })),
+      overridden: hasFailedRequired,
+      overrideReason: hasFailedRequired ? overrideReason.trim() : undefined,
+      completedAt: new Date().toISOString(),
+    } : undefined;
+
+    onApproveStage(activeReviewPool.id, activeReviewStage.id, selectedInspector, reviewerNotes.trim(), uploadedPicture || undefined, checklistResult);
     setReviewerNotes('');
     setUploadedPicture(null);
     setActivePoolId(null);
@@ -1009,27 +1078,23 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
 
                 {isPendingInspection ? (
                   <>
-                    {/* QA Review Checklist */}
-                    <div className="space-y-2.5 font-sans">
-                      <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
-                        <ClipboardList className="h-4 w-4 text-indigo-500" />
-                        Quality Certification Checklist
-                      </h4>
-                      <div className="text-xs text-slate-600 bg-slate-50/55 p-3 rounded-xl border border-slate-100 space-y-2.5">
-                        <div className="flex items-center gap-2">
-                          <input type="checkbox" defaultChecked className="rounded border-slate-300 accent-emerald-500 cursor-pointer h-4 w-4" />
-                          <span>Confirm core structural dimensions match the initial released blueprint.</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input type="checkbox" defaultChecked className="rounded border-slate-300 accent-emerald-500 cursor-pointer h-4 w-4" />
-                          <span>Inspect welds, rivets, seals or surface treatments for any voids or anomalies.</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input type="checkbox" defaultChecked className="rounded border-slate-300 accent-emerald-500 cursor-pointer h-4 w-4" />
-                          <span>Run structural integrity load/pressure simulation routines.</span>
-                        </div>
-                      </div>
-                    </div>
+                    {/* QA Review Checklist — driven by the active ChecklistTemplate for
+                        this stage, if one has been configured. Stages without a template
+                        show nothing here and approval behaves exactly as before. */}
+                    {activeChecklistTemplate && (
+                      <ChecklistPanel
+                        template={activeChecklistTemplate}
+                        checklistState={checklistState}
+                        setChecklistState={setChecklistState}
+                        checklistPhotos={checklistPhotos}
+                        setChecklistPhotos={setChecklistPhotos}
+                        checklistItemNotes={checklistItemNotes}
+                        setChecklistItemNotes={setChecklistItemNotes}
+                        overrideReason={overrideReason}
+                        setOverrideReason={setOverrideReason}
+                        hasFailedRequired={hasFailedRequired}
+                      />
+                    )}
 
                     <div className="space-y-2.5 pt-2">
                       <label className="block text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1">
