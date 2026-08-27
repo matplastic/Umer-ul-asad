@@ -65,6 +65,15 @@ export interface ChecklistItemDefinition {
   id: string; // short stable id, e.g. "res_thickness"
   label: string; // e.g. "Resin thickness within tolerance"
   required: boolean; // if true, must pass (or be overridden) to approve the stage
+  // If set, this item also captures a numeric measurement (e.g. resin
+  // thickness in mm) alongside its pass/fail result, feeding SPC control
+  // charts. Left undefined for plain pass/fail items — nothing about
+  // existing templates needs to change.
+  measurement?: {
+    unit: string; // e.g. "mm", "sec"
+    targetValue: number;
+    tolerance: number; // +/- range around targetValue considered in-spec
+  };
 }
 
 // Editable, per-stage inspection template. QC can add/remove/reorder items
@@ -83,8 +92,12 @@ export interface ChecklistTemplate {
 export interface ChecklistItemResult {
   itemId: string;
   passed: boolean;
-  photoUrl?: string; // required by the UI when passed === false
+  photoUrl?: string; // optional — kept off by default to avoid storage bloat
   note?: string;
+  // Recorded value when the item's template definition has a `measurement`
+  // config. Feeds SPC control charts. Optional — plain pass/fail items never
+  // set this.
+  measuredValue?: number;
 }
 
 // The full result of running a template against one pool/stage visit.
