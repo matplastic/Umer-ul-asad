@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, COMPANIES } from './types';
+import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, COMPANIES, ChecklistResult } from './types';
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
@@ -3093,7 +3093,7 @@ export default function App() {
   };
 
   // 5. Approve Stage (By Quality Inspector)
-  const handleApproveStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string) => {
+  const handleApproveStage = (poolId: string, stageId: StageId, inspectorId: string, notes: string, inspectorPicture?: string, checklistResult?: ChecklistResult) => {
     const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
@@ -3109,6 +3109,10 @@ export default function App() {
     stageHist.inspectorNotes = notes;
     stageHist.inspectionTime = new Date().toISOString();
     stageHist.inspectorPicture = inspectorPicture;
+    // Structured checklist result, if a template existed for this stage.
+    // Left undefined for stages with no active template — nothing above
+    // depends on this field being present.
+    if (checklistResult) stageHist.checklistResult = checklistResult;
     pool.stageHistory[stageId] = stageHist;
 
     const originalWorkspecTeamId = stageHist.teamId;
