@@ -6,7 +6,7 @@ import {
   Plus, Search, Trash2, Edit2, CheckCircle, XCircle, Check,
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
-  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2, Wrench
+  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
@@ -36,7 +36,6 @@ const PASSPORT_COUNTRIES = [
   'China', 'United Kingdom', 'United States', 'South Africa', 'Morocco', 'Tunisia',
 ].sort();
 import { EmployeeAttendanceReport } from './EmployeeAttendanceReport';
-import { SkillsMatrixTab } from './SkillsMatrixTab';
 import {
   listUserAccounts, createUserAccount, updateUserAccount,
   resetUserPassword, deactivateUserAccount, getAllowedRoles, type AuthUser
@@ -953,7 +952,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   companyList,
   onSaveCompanies,
 }) => {
-  const [activeTab, setActiveTab] = useState<'directory' | 'passports' | 'skills' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('directory');
+  const [activeTab, setActiveTab] = useState<'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('directory');
 
   // ── A4 print/PDF report state (Absent / Accident / Medical reports) ──
   const [printReport, setPrintReport] = useState<{
@@ -4576,7 +4575,6 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   const tabs = [
     { id: 'directory', label: 'Directory', icon: <Users className="h-4 w-4" /> },
     { id: 'passports', label: 'Passports', icon: <FileText className="h-4 w-4" /> },
-    { id: 'skills', label: 'Skills Matrix', icon: <Wrench className="h-4 w-4" /> },
     { id: 'attendance', label: 'Attendance', icon: <Clock className="h-4 w-4" /> },
     { id: 'payroll', label: 'Payroll', icon: <DollarSign className="h-4 w-4" /> },
     { id: 'leave', label: 'Leave', icon: <CalendarOff className="h-4 w-4" /> },
@@ -4682,7 +4680,6 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       {/* Tab Content */}
       {activeTab === 'directory' && <DirectoryTab />}
       {activeTab === 'passports' && <PassportsTab />}
-      {activeTab === 'skills' && <SkillsMatrixTab employees={employees} onSaveEmployee={onSaveEmployee} />}
       {activeTab === 'attendance' && <AttendanceTab />}
       {activeTab === 'payroll' && <PayrollTab />}
       {activeTab === 'leave' && <LeaveTab />}
