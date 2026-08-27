@@ -1,6 +1,6 @@
 import { auth, app, clientDb } from './googleDrive.ts';
 import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
 // NOTE: clientDb now comes from googleDrive.ts, which is the ONLY place
 // Firestore is initialized (via initializeFirestore with long-polling
 // forced on). Do NOT call getFirestore(app) here — see googleDrive.ts.
@@ -2293,6 +2293,41 @@ export async function dbDeleteMaterial(id: string) {
   }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/materials/${id}`), { method: 'DELETE', headers });
+  return res.json();
+}
+
+// --- QC Inspection Checklist Templates ---
+// One template per stage (editable by QC, not hardcoded in the UI). This is
+// a small, low-churn set (roughly one doc per StageId) so it follows the
+// same array-document pattern as Materials rather than needing a
+// collection-backed or week-bucketed strategy.
+export async function dbFetchChecklistTemplates(): Promise<ChecklistTemplate[]> {
+  if (!apiBase()) return getFirestoreDocArray('checklistTemplates');
+  const res = await fetch(getApiUrl('/api/checklist-templates'));
+  return res.ok ? res.json() : [];
+}
+
+export async function dbSaveChecklistTemplate(template: ChecklistTemplate) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('checklistTemplates', (arr) => {
+      const idx = arr.findIndex((t) => t.id === template.id);
+      if (idx !== -1) arr[idx] = template; else arr.push(template);
+      return arr;
+    });
+    return { success: true, template };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl('/api/checklist-templates'), { method: 'POST', headers, body: JSON.stringify(template) });
+  return res.json();
+}
+
+export async function dbDeleteChecklistTemplate(id: string) {
+  if (!apiBase()) {
+    await updateFirestoreDocArray('checklistTemplates', (arr) => arr.filter((t) => t.id !== id), true);
+    return { success: true };
+  }
+  const headers = await getHeaders();
+  const res = await fetch(getApiUrl(`/api/checklist-templates/${id}`), { method: 'DELETE', headers });
   return res.json();
 }
 
