@@ -54,6 +54,49 @@ export interface StageHistory {
   inspectionTime?: string;
   rejectionCount: number;
   inspectorPicture?: string;
+  // Structured inspection result from a ChecklistTemplate, alongside the
+  // free-text fields above (nothing above is removed or replaced). Optional
+  // so pools/stages inspected before this feature shipped remain valid.
+  checklistResult?: ChecklistResult;
+}
+
+// One checkpoint item inside a ChecklistTemplate.
+export interface ChecklistItemDefinition {
+  id: string; // short stable id, e.g. "res_thickness"
+  label: string; // e.g. "Resin thickness within tolerance"
+  required: boolean; // if true, must pass (or be overridden) to approve the stage
+}
+
+// Editable, per-stage inspection template. QC can add/remove/reorder items
+// without a redeploy — these live in Firestore, not hardcoded in the UI.
+export interface ChecklistTemplate {
+  id: string;
+  stageId: StageId;
+  name: string; // e.g. "Lamination Final Check v2"
+  items: ChecklistItemDefinition[];
+  active: boolean; // only one active template per stageId is used by the UI
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Per-item outcome recorded when an inspector completes a checklist.
+export interface ChecklistItemResult {
+  itemId: string;
+  passed: boolean;
+  photoUrl?: string; // required by the UI when passed === false
+  note?: string;
+}
+
+// The full result of running a template against one pool/stage visit.
+export interface ChecklistResult {
+  templateId: string;
+  templateName: string; // snapshot, same reasoning as StageHistory.teamName
+  items: ChecklistItemResult[];
+  // True if the inspector approved despite one or more required items
+  // failing. overrideReason is mandatory whenever this is true.
+  overridden: boolean;
+  overrideReason?: string;
+  completedAt: string;
 }
 
 export interface Pool {
