@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pool, PoolOrientation, PlannedPool } from '../types';
+import { Pool, PoolOrientation, PlannedPool, MonthlyTarget } from '../types';
 import { 
   PlusCircle, 
   Search, 
@@ -16,6 +16,7 @@ import {
   Tag,
   BarChart3
 } from 'lucide-react';
+import { BottleneckDashboard } from './BottleneckDashboard';
 
 interface ProductionEngineerProps {
   pools: Pool[];
@@ -45,6 +46,7 @@ interface ProductionEngineerProps {
   engineers?: { id: string; name: string; title: string }[];
   plannedPools?: PlannedPool[];
   onReleasePlannedPool?: (planId: string, operatorName: string) => string | null;
+  monthlyTargets?: MonthlyTarget[];
 }
 
 export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({ 
@@ -53,7 +55,8 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
   onCreatePoolBatch,
   engineers = [],
   plannedPools = [],
-  onReleasePlannedPool
+  onReleasePlannedPool,
+  monthlyTargets = [],
 }) => {
   // Navigation for Form Tab
   const [formMode, setFormMode] = useState<'single' | 'batch'>('single');
@@ -1084,6 +1087,22 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Real-time Capacity & Bottleneck View — WIP per stage, cycle time,
+          and pools stuck past a time threshold. Reads directly from `pools`,
+          no new data source needed. */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+        <div className="border-b border-slate-100 pb-3 mb-4">
+          <h3 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-indigo-500" />
+            Capacity & Bottleneck View
+          </h3>
+          <p className="text-xs text-slate-400">
+            Live work-in-progress by stage, average cycle time, and any pools stuck longer than expected.
+          </p>
+        </div>
+        <BottleneckDashboard pools={pools} monthlyTargets={monthlyTargets} />
       </div>
 
     </div>
