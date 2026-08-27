@@ -13,12 +13,20 @@ export interface QCDefect {
   projectName: string;
   defectType: string;
   severity: 'minor' | 'major' | 'critical';
-  status: 'open' | 'on_hold' | 'released' | 'rejected';
+  status: 'open' | 'on_hold' | 'released' | 'rejected' | 'closed';
   loggedBy: string;
   loggedAt: string;
   releasedBy?: string;
   releasedAt?: string;
   notes?: string;
+  // ── NCR close-out fields (all optional — existing defect records with
+  //    none of these still display and behave exactly as before) ──
+  rootCause?: string;
+  correctiveAction?: string;
+  correctiveActionOwner?: string;
+  correctiveActionDueDate?: string; // ISO date
+  closedBy?: string;
+  closedAt?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,6 +167,7 @@ export const DEFECT_STATUS_CONFIG = {
   on_hold:  { label: 'On Hold',  color: 'bg-rose-50 text-rose-700 border-rose-200',        icon: ShieldAlert },
   released: { label: 'Released', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 },
   rejected: { label: 'Rejected', color: 'bg-slate-50 text-slate-500 border-slate-200',    icon: X },
+  closed:   { label: 'Closed (NCR)', color: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: CheckCircle2 },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,6 +215,10 @@ interface QCDefectPanelProps {
   existingDefects: QCDefect[];
   onLogDefect: (defect: QCDefect) => void;
   onUpdateDefectStatus: (defectId: string, newStatus: QCDefect['status'], operatorName: string) => void;
+  // Records root cause + corrective action and marks the NCR closed. Optional
+  // — panels that don't pass this simply won't show the close-out form
+  // (e.g. older call sites you haven't updated yet keep working as-is).
+  onCloseNcr?: (defectId: string, fields: { rootCause: string; correctiveAction: string; correctiveActionOwner: string; correctiveActionDueDate?: string }, operatorName: string) => void;
 }
 
 export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
@@ -218,6 +231,7 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
   existingDefects,
   onLogDefect,
   onUpdateDefectStatus,
+  onCloseNcr,
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(DEFECT_TYPES[0].category);
@@ -226,6 +240,10 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
   const [notes, setNotes] = useState('');
   const [putOnHold, setPutOnHold] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  // NCR close-out form state, keyed by defect id so multiple defects on the
+  // same pool/stage can each be mid-close independently.
+  const [ncrDraft, setNcrDraft] = useState<Record<string, { rootCause: string; correctiveAction: string; owner: string; dueDate: string }>>({});
+  const [ncrFormOpenFor, setNcrFormOpenFor] = useState<string | null>(null);
 
   const poolDefects = existingDefects.filter(d => d.poolId === poolId && d.stageId === stageId);
   const activeDefects = poolDefects.filter(d => d.status !== 'released' && d.status !== 'rejected');
@@ -489,12 +507,86 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
                       Dismiss
                     </button>
                   )}
+                  {onCloseNcr && (defect.status === 'released' || defect.status === 'rejected') && (
+                    <button
+                      type="button"
+                      onClick={() => setNcrFormOpenFor(ncrFormOpenFor === defect.id ? null : defect.id)}
+                      className="text-[10px] font-bold px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg cursor-pointer transition-colors"
+                    >
+                      Close NCR
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* NCR close-out form — root cause + corrective action, opened per-defect
+          via the "Close NCR" button above. Kept optional (no photo, no forced
+          fields beyond root cause/action) to match how this shop actually works. */}
+      {onCloseNcr && poolDefects.filter(d => ncrFormOpenFor === d.id).map(defect => {
+        const draft = ncrDraft[defect.id] || { rootCause: '', correctiveAction: '', owner: inspectorName, dueDate: '' };
+        const setDraft = (patch: Partial<typeof draft>) => setNcrDraft(prev => ({ ...prev, [defect.id]: { ...draft, ...patch } }));
+        return (
+          <div key={`ncr-${defect.id}`} className="mx-4 mb-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
+            <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest">Close NCR — {defect.defectType}</p>
+            <textarea
+              value={draft.rootCause}
+              onChange={(e) => setDraft({ rootCause: e.target.value })}
+              placeholder="Root cause..."
+              className="w-full text-xs rounded-lg border border-indigo-200 px-2 py-1.5 min-h-[44px]"
+            />
+            <textarea
+              value={draft.correctiveAction}
+              onChange={(e) => setDraft({ correctiveAction: e.target.value })}
+              placeholder="Corrective action taken..."
+              className="w-full text-xs rounded-lg border border-indigo-200 px-2 py-1.5 min-h-[44px]"
+            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={draft.owner}
+                onChange={(e) => setDraft({ owner: e.target.value })}
+                placeholder="Owner"
+                className="flex-1 text-xs rounded-lg border border-indigo-200 px-2 py-1"
+              />
+              <input
+                type="date"
+                value={draft.dueDate}
+                onChange={(e) => setDraft({ dueDate: e.target.value })}
+                className="text-xs rounded-lg border border-indigo-200 px-2 py-1"
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setNcrFormOpenFor(null); }}
+                className="flex-1 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!draft.rootCause.trim() || !draft.correctiveAction.trim()) return;
+                  onCloseNcr!(defect.id, {
+                    rootCause: draft.rootCause.trim(),
+                    correctiveAction: draft.correctiveAction.trim(),
+                    correctiveActionOwner: draft.owner.trim() || inspectorName,
+                    correctiveActionDueDate: draft.dueDate || undefined,
+                  }, inspectorName);
+                  setNcrFormOpenFor(null);
+                }}
+                className="flex-1 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-black rounded-lg cursor-pointer"
+              >
+                Close NCR
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };
