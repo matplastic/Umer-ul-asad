@@ -97,7 +97,7 @@ export const ChecklistPanel: React.FC<ChecklistPanelProps> = ({
                 <div className="pl-1 space-y-1.5">
                   <label className="flex items-center gap-2 text-[11px] font-bold text-rose-600 cursor-pointer w-fit">
                     <Camera className="h-3.5 w-3.5" />
-                    {checklistPhotos[item.id] ? 'Photo attached — tap to replace' : 'Attach defect photo (required)'}
+                    {checklistPhotos[item.id] ? 'Photo attached — tap to replace' : 'Attach defect photo (optional)'}
                     <input
                       type="file"
                       accept="image/*"
