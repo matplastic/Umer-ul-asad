@@ -288,6 +288,31 @@ export interface Employee {
   passportCountry?: string | null; // nationality / issuing country
   passportIssueDate?: string | null;
   passportExpiryDate?: string | null;
+  // ── Skills matrix ──
+  // Job-relevant skills/proficiencies (lamination, spray, QC, forklift,
+  // etc.), separate from certifications below — a skill has a proficiency
+  // level and no expiry; a certification has an expiry and no proficiency.
+  skills?: EmployeeSkill[];
+  certifications?: EmployeeCertification[];
+}
+
+export type SkillProficiency = 'beginner' | 'intermediate' | 'advanced' | 'expert';
+
+export interface EmployeeSkill {
+  id: string;
+  skillName: string; // e.g. "Lamination", "Forklift Operation", "QC Inspection"
+  proficiency: SkillProficiency;
+  notes?: string | null;
+  updatedAt: string;
+}
+
+export interface EmployeeCertification {
+  id: string;
+  certName: string; // e.g. "HSE Safety", "ISO 9001:2015 Awareness"
+  issuedDate?: string | null;
+  expiryDate?: string | null; // null = does not expire
+  certificateFileUrl?: string | null; // optional scan/photo of the cert, base64 — kept optional like other photo fields in this app
+  notes?: string | null;
 }
 
 // Keep this list in sync with the group's actual company names. Centralized
