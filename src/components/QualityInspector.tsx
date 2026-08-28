@@ -281,10 +281,8 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
 
   const handleApprove = () => {
     if (!activeReviewPool || !activeReviewStage) return;
-    if (!reviewerNotes.trim()) {
-      setErrorMsg('Please write inspection notes before approving.');
-      return;
-    }
+    // Inspector notes are optional — checklist item notes and the override
+    // reason (when a required item fails) already capture the "why".
     // Checklist gate: only applies when this stage actually has an active
     // template. A required item that failed blocks approval unless the
     // inspector supplies an override justification.
@@ -1109,7 +1107,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                     <div className="space-y-2.5 pt-2">
                       <label className="block text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1">
                         <FileText className="h-4 w-4 text-indigo-500" />
-                        Inspector Detailed Notes & Verdict Reasons
+                        Inspector Detailed Notes & Verdict Reasons <span className="text-slate-400 font-normal normal-case tracking-normal">(optional to approve — required to reject)</span>
                       </label>
                       <textarea
                         placeholder="e.g., Welds pass pristine visual scan, core shape alignment verified, ready to advance to primer."
