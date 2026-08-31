@@ -3,7 +3,7 @@ import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPoo
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
-import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getInitialData, createEmptyHistory } from './data/mockData';
+import { STAGES, getDualGroupForStage, isAtDualStageGate, getInitialData, createEmptyHistory } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { AutoPrintMaterialSlip } from './components/AutoPrintMaterialSlip';
 import { LoginScreen } from './components/LoginScreen';
@@ -3176,15 +3176,17 @@ export default function App() {
     let unlockedStageName = 'Final Completion Shipment';
     let advanced = false;
 
-    if (DUAL_STAGE_IDS.includes(stageId)) {
-      // Skimmer Fitting & Lamination run in parallel off the same gate index.
-      // Only move the pool forward once BOTH siblings are QC-approved.
-      const gateIdx = STAGES.findIndex(s => s.id === DUAL_STAGE_IDS[0]);
+    const dualGroup = getDualGroupForStage(stageId);
+    if (dualGroup) {
+      // This stage's pair (e.g. Skimmer Fitting & Lamination, or Mechanical
+      // Fitting & Skimmer Test) runs in parallel off the same gate index.
+      // Only move the pool forward once BOTH siblings in the pair are QC-approved.
+      const gateIdx = STAGES.findIndex(s => s.id === dualGroup[0]);
       if (isAtDualStageGate(pool.currentStageIndex)) {
-        const siblingId = DUAL_STAGE_IDS.find(id => id !== stageId)!;
+        const siblingId = dualGroup.find(id => id !== stageId)!;
         const siblingApproved = pool.stageHistory[siblingId]?.status === 'APPROVED';
         if (siblingApproved) {
-          const nextIndex = gateIdx + DUAL_STAGE_IDS.length; // past both dual stages
+          const nextIndex = gateIdx + dualGroup.length; // past both stages in this pair
           pool.currentStageIndex = nextIndex;
           advanced = true;
           unlockedStageName = nextIndex < STAGES.length ? STAGES[nextIndex].name : 'Final Completion Shipment';
@@ -3216,8 +3218,8 @@ export default function App() {
       }
     }
 
-    const dualWaitingNote = DUAL_STAGE_IDS.includes(stageId) && !advanced
-      ? ` Waiting on parallel stage "${STAGES.find(s => s.id === DUAL_STAGE_IDS.find(id => id !== stageId))?.name}" before advancing.`
+    const dualWaitingNote = dualGroup && !advanced
+      ? ` Waiting on parallel stage "${STAGES.find(s => s.id === dualGroup.find(id => id !== stageId))?.name}" before advancing.`
       : '';
 
     const newLog: ActivityLog = {
@@ -3345,9 +3347,10 @@ export default function App() {
       return !!st && st !== 'NOT_STARTED';
     };
 
-    if (DUAL_STAGE_IDS.includes(stageId)) {
-      const gateIdx = STAGES.findIndex(s => s.id === DUAL_STAGE_IDS[0]);
-      const nextIndex = gateIdx + DUAL_STAGE_IDS.length;
+    const undoDualGroup = getDualGroupForStage(stageId);
+    if (undoDualGroup) {
+      const gateIdx = STAGES.findIndex(s => s.id === undoDualGroup[0]);
+      const nextIndex = gateIdx + undoDualGroup.length;
       if (pool.currentStageIndex > gateIdx) {
         // The sibling approval already moved the pool past the dual gate.
         const nextStageId = nextIndex < STAGES.length ? STAGES[nextIndex].id : null;
