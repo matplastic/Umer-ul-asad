@@ -15,25 +15,55 @@ export const STAGES: StageDefinition[] = [
   { id: 'acrylic', name: 'Acrylic', defaultTeamsCount: 3, color: '#6366f1' }, // Indigo
 ];
 
-// These two stages run in PARALLEL on the shop floor (skimmer boxes get set
-// into the shell during the lamination layup, not after it). A pool sits at
-// the shared "gate" (the Skimmer Fitting index in STAGES) and is visible on
-// BOTH boards at once. Each stage is claimed, worked, and QC-signed off
-// independently. The pool only advances to the next stage (Mechanical
-// Fitting) once BOTH of these have been APPROVED by QC.
-export const DUAL_STAGE_IDS: StageId[] = ['skimmer_fitting', 'lamination'];
+// Each inner array is a pair of stages that run in PARALLEL on the shop
+// floor, sharing one "gate" slot in STAGES:
+//  - Skimmer Fitting / Lamination: skimmer boxes get set into the shell
+//    during the lamination layup, not after it.
+//  - Mechanical Fitting / Skimmer Test: either can be started first; a pool
+//    sits at whichever index the gate begins at and is visible on BOTH
+//    boards at once.
+// Within a pair, each stage is claimed, worked, and QC-signed off
+// independently. The pool only advances past the pair once BOTH stages in
+// it have been APPROVED by QC. Each pair's two stages must be adjacent in
+// STAGES (this is what makes a single "gate index" meaningful for them).
+export const DUAL_STAGE_GROUPS: StageId[][] = [
+  ['skimmer_fitting', 'lamination'],
+  ['mechanical_fitting', 'skimmer_test'],
+];
 
-// Returns true if a pool's currentStageIndex falls anywhere within the dual
-// stage range (i.e. the Skimmer Fitting OR Lamination slot). This matters
-// because pools created/advanced BEFORE this parallel-stage logic existed
-// may already sit at the Lamination index (having passed Skimmer Fitting
-// under the old strictly-sequential model) rather than at the Skimmer
-// Fitting index. Both positions mean "this pool is at the shared gate."
-export const isAtDualStageGate = (currentStageIndex: number): boolean => {
-  const gateStart = STAGES.findIndex((s) => s.id === DUAL_STAGE_IDS[0]);
-  const gateEnd = gateStart + DUAL_STAGE_IDS.length - 1;
-  return currentStageIndex >= gateStart && currentStageIndex <= gateEnd;
+// Flattened membership list — safe to use anywhere the old single-pair
+// DUAL_STAGE_IDS was used purely as a "is this stage part of some dual
+// gate?" check (e.g. `.includes(id)`). For anything that needs to know
+// WHICH pair a stage belongs to, use getDualGroupForStage instead.
+export const DUAL_STAGE_IDS: StageId[] = DUAL_STAGE_GROUPS.flat();
+
+const dualGroupRanges = () =>
+  DUAL_STAGE_GROUPS.map((group) => {
+    const start = STAGES.findIndex((s) => s.id === group[0]);
+    return { group, start, end: start + group.length - 1 };
+  });
+
+// Returns the dual-stage pair a given stage belongs to, or undefined if
+// the stage isn't part of any parallel gate.
+export const getDualGroupForStage = (stageId: StageId): StageId[] | undefined =>
+  DUAL_STAGE_GROUPS.find((g) => g.includes(stageId));
+
+// Returns the dual-stage pair whose shared gate range a pool's
+// currentStageIndex currently falls within, or undefined if the pool isn't
+// parked at any parallel gate. This matters because pools created/advanced
+// before this parallel-stage logic existed may already sit at the second
+// stage's index (having passed the first stage under the old strictly-
+// sequential model) rather than at the first stage's index — both
+// positions still mean "this pool is at that pair's shared gate."
+export const getDualGroupForIndex = (currentStageIndex: number): StageId[] | undefined => {
+  const hit = dualGroupRanges().find((r) => currentStageIndex >= r.start && currentStageIndex <= r.end);
+  return hit?.group;
 };
+
+// True if a pool's currentStageIndex falls anywhere within ANY dual-stage
+// pair's shared gate range.
+export const isAtDualStageGate = (currentStageIndex: number): boolean =>
+  getDualGroupForIndex(currentStageIndex) !== undefined;
 
 // Generate teams based on STAGES
 export const generateDefaultTeams = (): Team[] => {
