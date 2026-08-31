@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Pool, StageId, MonthlyTarget } from '../types';
-import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
+import { STAGES, getDualGroupForIndex } from '../data/mockData';
 import { Clock, AlertTriangle, Layers } from 'lucide-react';
 import { DateRangeFilter, DateRange } from './DateRangeFilter';
 
@@ -41,7 +41,8 @@ export const BottleneckDashboard: React.FC<BottleneckDashboardProps> = ({ pools,
     return STAGES.map((stage, idx) => {
       const poolsHere = pools.filter(p => {
         if (p.completedAt) return false;
-        if (isAtDualStageGate(p.currentStageIndex) && DUAL_STAGE_IDS.includes(stage.id)) {
+        const gateGroup = getDualGroupForIndex(p.currentStageIndex);
+        if (gateGroup && gateGroup.includes(stage.id)) {
           return p.stageHistory[stage.id]?.status !== 'APPROVED' && p.stageHistory[stage.id]?.status !== 'SKIPPED';
         }
         return p.currentStageIndex === idx;
