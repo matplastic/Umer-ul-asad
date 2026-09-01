@@ -14,6 +14,7 @@ import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { OnlineUsersPanel } from './OnlineUsersPanel';
 import { StageDashboard } from './StageDashboard';
 import { StageReportsTab } from './StageReportsTab';
+import { ProjectProgressReport } from './ProjectProgressReport';
 import { SiteDeliveryTracker } from './SiteDeliveryTracker';
 import { exportEmployeeCertificatePdf } from '../lib/exportUtils';
 import { 
@@ -2696,6 +2697,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'daily_progress', label: 'Daily Stage Progress', icon: Calendar, elId: 'tab-mgmt-daily-progress' },
               { id: 'rejection_log', label: 'Rejection Log', icon: AlertTriangle, elId: 'tab-mgmt-rejection-log' },
               { id: 'stage_reports', label: 'Stage Reports', icon: FileSpreadsheet, elId: 'tab-mgmt-stage-reports' },
+              { id: 'project_progress', label: 'Project Progress Report', icon: Boxes, elId: 'tab-mgmt-project-progress' },
             ],
           },
           {
@@ -5529,6 +5531,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         {/* Tab: Stage Reports — per-stage PDF/Excel export, Remaining/Unclaimed + Completed */}
         {activeTab === 'stage_reports' && (
           <StageReportsTab pools={pools} />
+        )}
+
+        {/* Tab: Project Progress Report — per-project stage matrix with Today/Week/Month/Year/Custom date filter */}
+        {activeTab === 'project_progress' && (
+          <ProjectProgressReport pools={pools} plannedPools={plannedPools} />
         )}
 
         {/* Tab 3: Teams Status Allocation */}
