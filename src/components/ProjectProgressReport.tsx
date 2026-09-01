@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Boxes, Printer, Download, Filter, X, ClipboardList, CheckCircle2 } from 'lucide-react';
-import { Pool, PlannedPool } from '../types';
+import { Boxes, Printer, Download, Filter, X, ClipboardList, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Pool, PlannedPool, StageId } from '../types';
 import { STAGES, getDualGroupForIndex } from '../data/mockData';
 import { DateRangeFilter, DateRange } from './DateRangeFilter';
 import { exportToExcel, exportTablePdf } from '../lib/exportUtils';
@@ -12,10 +12,22 @@ interface ProjectProgressReportProps {
 
 type ViewMode = 'wip' | 'completions';
 
+interface DrillDownState {
+  project: string;
+  columnLabel: string;
+  rows: { poolNo: string; date: string; extra?: string }[];
+}
+
 function inDateRange(dateStr: string | undefined | null, start: string, end: string): boolean {
   if (!dateStr) return false;
   const d = dateStr.slice(0, 10);
   return d >= start && d <= end;
+}
+
+function fmtDate(d?: string | null): string {
+  if (!d) return '—';
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? '—' : dt.toLocaleString('en-GB');
 }
 
 function getDefaultRange(): DateRange {
@@ -27,23 +39,28 @@ function getDefaultRange(): DateRange {
 /**
  * Project-wise progress matrix for Management Dashboard.
  *
- * Two views, both filterable by Project and by Date (Today/Week/Month/Year
- * presets or a custom range, via the shared DateRangeFilter):
+ * Two views, both filterable by Project:
  *
- *  - "Current Status (WIP)": for pools CREATED within the selected date
- *    range, where do they physically sit right now — how many are still in
- *    Planning (not yet released), how many currently sit at each production
- *    stage, and how many are fully completed.
+ *  - "Current Status (WIP)" — a live SNAPSHOT, not affected by the date
+ *    filter: how many pools are still in Planning (never released to
+ *    production, regardless of when they were created), how many have been
+ *    Released to production, how many currently sit at each production
+ *    stage right now, and how many are fully completed. This answers
+ *    "project X has 100+ pools planned but only 5 released" correctly,
+ *    because Planning/Released/Total are always whole-project totals.
  *
- *  - "Stage Completions (Cumulative)": how many pools had EACH stage
- *    APPROVED within the selected date range (i.e. "how many Steel done,
+ *  - "Stage Completions (Cumulative)" — DATE-FILTERED (Today/Week/Month/
+ *    Year/Custom via the shared DateRangeFilter): how many pools had EACH
+ *    stage APPROVED within the selected period (e.g. "how many Steel done,
  *    how many Primer done" for the period), plus how many pools were
  *    released from Planning and how many reached final completion in that
- *    same window. This counts an event each time it happens in the period,
- *    independent of a pool's current stage.
+ *    same window.
  *
- * Both views can be exported per-project as PDF or Excel, matching the
- * existing StageReportsTab export pattern.
+ * Every stage cell (in both views) is clickable and opens a drill-down list
+ * of the exact pool numbers behind that count, each with its relevant date
+ * (started/claimed for WIP, approved date for completions).
+ *
+ * Both views can be exported per-project as PDF or Excel.
  */
 export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ pools, plannedPools = [] }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('wip');
@@ -51,6 +68,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [isExporting, setIsExporting] = useState(false);
+  const [drillDown, setDrillDown] = useState<DrillDownState | null>(null);
 
   const projectOptions = useMemo(
     () => Array.from(new Set([...pools.map(p => p.projectName), ...plannedPools.map(p => p.projectName)].filter(Boolean))).sort(),
@@ -62,74 +80,97 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
     [projectOptions, projectFilter]
   );
 
-  // ── View: Current Status (WIP) — pools created in range, grouped by
-  // where they sit right now. ──────────────────────────────────────────
-  const wipRows = useMemo(() => {
-    const { startDate, endDate } = dateRange;
-    return activeProjects.map(project => {
-      const planning = plannedPools.filter(
-        p => p.projectName === project && p.status === 'PLANNED' && inDateRange(p.createdAt, startDate, endDate)
-      ).length;
+  // Returns whether a pool currently occupies this STAGES entry for WIP
+  // counting, respecting dual-stage (parallel gate) groups the same way
+  // BottleneckDashboard does.
+  function poolIsAtStage(p: Pool, stage: typeof STAGES[number], idx: number): boolean {
+    if (p.completedAt || p.currentStageIndex >= STAGES.length) return false;
+    const gateGroup = getDualGroupForIndex(p.currentStageIndex);
+    if (gateGroup && gateGroup.includes(stage.id)) {
+      return p.stageHistory[stage.id]?.status !== 'APPROVED' && p.stageHistory[stage.id]?.status !== 'SKIPPED';
+    }
+    return p.currentStageIndex === idx;
+  }
 
-      const projectPools = pools.filter(p => p.projectName === project && inDateRange(p.createdAt, startDate, endDate));
+  // ── View: Current Status (WIP) — a live snapshot, NOT date-filtered.
+  // "Planning" and "Released" are whole-project totals so a project with
+  // 100+ planned pools and only 5 released shows both numbers correctly. ──
+  const wipRows = useMemo(() => {
+    return activeProjects.map(project => {
+      const planningPools = plannedPools.filter(p => p.projectName === project && p.status === 'PLANNED');
+      const projectPools = pools.filter(p => p.projectName === project);
 
       const stageCounts: Record<string, number> = {};
       STAGES.forEach((stage, idx) => {
-        stageCounts[stage.id] = projectPools.filter(p => {
-          if (p.completedAt) return false;
-          const gateGroup = getDualGroupForIndex(p.currentStageIndex);
-          if (gateGroup && gateGroup.includes(stage.id)) {
-            return p.stageHistory[stage.id]?.status !== 'APPROVED' && p.stageHistory[stage.id]?.status !== 'SKIPPED';
-          }
-          return p.currentStageIndex === idx;
-        }).length;
+        stageCounts[stage.id] = projectPools.filter(p => poolIsAtStage(p, stage, idx)).length;
       });
 
-      const completed = projectPools.filter(p => !!p.completedAt || p.currentStageIndex >= STAGES.length).length;
-      const total = planning + projectPools.length;
+      const completedPools = projectPools.filter(p => !!p.completedAt || p.currentStageIndex >= STAGES.length);
 
-      return { project, planning, stageCounts, completed, totalInProduction: projectPools.length, total };
+      return {
+        project,
+        planning: planningPools.length,
+        planningPools,
+        released: projectPools.length,
+        stageCounts,
+        completed: completedPools.length,
+        completedPools,
+        total: planningPools.length + projectPools.length,
+      };
     }).filter(row => row.total > 0 || projectFilter !== 'all');
-  }, [activeProjects, plannedPools, pools, dateRange, projectFilter]);
+  }, [activeProjects, plannedPools, pools, projectFilter]);
 
-  // ── View: Stage Completions (Cumulative) — how many times each stage
-  // was APPROVED within the date range, plus releases and final completions. ──
+  // ── View: Stage Completions (Cumulative) — DATE-FILTERED event counts. ──
   const completionRows = useMemo(() => {
     const { startDate, endDate } = dateRange;
     return activeProjects.map(project => {
-      const released = plannedPools.filter(
+      const releasedInRange = plannedPools.filter(
         p => p.projectName === project && p.status !== 'PLANNED' && inDateRange(p.createdAt, startDate, endDate)
-      ).length;
+      );
 
       const projectPools = pools.filter(p => p.projectName === project);
 
       const stageCounts: Record<string, number> = {};
+      const stagePools: Record<string, Pool[]> = {};
       STAGES.forEach(stage => {
-        stageCounts[stage.id] = projectPools.filter(p => {
+        const matches = projectPools.filter(p => {
           const h = p.stageHistory[stage.id];
           if (!h || h.status !== 'APPROVED') return false;
           const relevantDate = h.inspectionTime || h.endTime || null;
           return inDateRange(relevantDate, startDate, endDate);
-        }).length;
+        });
+        stageCounts[stage.id] = matches.length;
+        stagePools[stage.id] = matches;
       });
 
-      const finalCompleted = projectPools.filter(
+      const finalCompletedPools = projectPools.filter(
         p => !!p.completedAt && inDateRange(p.completedAt, startDate, endDate)
-      ).length;
+      );
 
-      const totalEvents = released + Object.values(stageCounts).reduce((a, b) => a + b, 0) + finalCompleted;
+      const totalEvents = releasedInRange.length + Object.values(stageCounts).reduce((a, b) => a + b, 0) + finalCompletedPools.length;
 
-      return { project, released, stageCounts, finalCompleted, totalEvents };
+      return {
+        project,
+        released: releasedInRange.length,
+        releasedInRange,
+        stageCounts,
+        stagePools,
+        finalCompleted: finalCompletedPools.length,
+        finalCompletedPools,
+        totalEvents,
+      };
     }).filter(row => row.totalEvents > 0 || projectFilter !== 'all');
   }, [activeProjects, plannedPools, pools, dateRange, projectFilter]);
 
   const grandTotals = useMemo(() => {
     if (viewMode === 'wip') {
-      const totals: Record<string, number> = { planning: 0, completed: 0 };
+      const totals: Record<string, number> = { planning: 0, released: 0, completed: 0, total: 0 };
       STAGES.forEach(s => { totals[s.id] = 0; });
       wipRows.forEach(r => {
         totals.planning += r.planning;
+        totals.released += r.released;
         totals.completed += r.completed;
+        totals.total += r.total;
         STAGES.forEach(s => { totals[s.id] += r.stageCounts[s.id] || 0; });
       });
       return totals;
@@ -143,6 +184,77 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
     });
     return totals;
   }, [viewMode, wipRows, completionRows]);
+
+  // ── Drill-down helpers: open a modal listing pool numbers + dates behind a cell. ──
+  const openPlanningDrillDown = (row: typeof wipRows[number]) => {
+    setDrillDown({
+      project: row.project,
+      columnLabel: 'Planning (not yet released)',
+      rows: row.planningPools.map(p => ({ poolNo: p.poolNo, date: fmtDate(p.createdAt), extra: p.poolType || undefined })),
+    });
+  };
+
+  const openWipReleasedDrillDown = (row: typeof wipRows[number]) => {
+    const releasedPools = pools.filter(p => p.projectName === row.project);
+    setDrillDown({
+      project: row.project,
+      columnLabel: 'Released to Production',
+      rows: releasedPools.map(p => ({ poolNo: p.poolNo, date: fmtDate(p.createdAt) })),
+    });
+  };
+
+  const openWipStageDrillDown = (row: typeof wipRows[number], stageId: StageId, stageName: string) => {
+    const stageIdx = STAGES.findIndex(s => s.id === stageId);
+    const stage = STAGES[stageIdx];
+    const projectPools = pools.filter(p => p.projectName === row.project);
+    const matches = projectPools.filter(p => poolIsAtStage(p, stage, stageIdx));
+    setDrillDown({
+      project: row.project,
+      columnLabel: `Currently at ${stageName}`,
+      rows: matches.map(p => ({
+        poolNo: p.poolNo,
+        date: fmtDate(p.stageHistory[stageId]?.startTime),
+        extra: (p.stageHistory[stageId]?.status || '').replace(/_/g, ' ') || undefined,
+      })),
+    });
+  };
+
+  const openWipCompletedDrillDown = (row: typeof wipRows[number]) => {
+    setDrillDown({
+      project: row.project,
+      columnLabel: 'Fully Completed',
+      rows: row.completedPools.map(p => ({ poolNo: p.poolNo, date: fmtDate(p.completedAt) })),
+    });
+  };
+
+  const openCompletionsStageDrillDown = (row: typeof completionRows[number], stageId: StageId, stageName: string) => {
+    const matches = row.stagePools[stageId] || [];
+    setDrillDown({
+      project: row.project,
+      columnLabel: `${stageName} — Approved in period`,
+      rows: matches.map(p => ({
+        poolNo: p.poolNo,
+        date: fmtDate(p.stageHistory[stageId]?.inspectionTime || p.stageHistory[stageId]?.endTime),
+        extra: p.stageHistory[stageId]?.teamName || undefined,
+      })),
+    });
+  };
+
+  const openCompletionsReleasedDrillDown = (row: typeof completionRows[number]) => {
+    setDrillDown({
+      project: row.project,
+      columnLabel: 'Released from Planning — in period',
+      rows: row.releasedInRange.map(p => ({ poolNo: p.poolNo, date: fmtDate(p.createdAt) })),
+    });
+  };
+
+  const openCompletionsFinalDrillDown = (row: typeof completionRows[number]) => {
+    setDrillDown({
+      project: row.project,
+      columnLabel: 'Final Completed — in period',
+      rows: row.finalCompletedPools.map(p => ({ poolNo: p.poolNo, date: fmtDate(p.completedAt) })),
+    });
+  };
 
   const runExport = async (format: 'pdf' | 'excel') => {
     const isWip = viewMode === 'wip';
@@ -159,6 +271,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
         ? [
             { header: 'Project', dataKey: 'project' },
             { header: 'Planning', dataKey: 'planning' },
+            { header: 'Released', dataKey: 'released' },
             ...STAGES.map(s => ({ header: s.name, dataKey: s.id })),
             { header: 'Completed', dataKey: 'completed' },
             { header: 'Total', dataKey: 'total' },
@@ -174,6 +287,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
         const obj: Record<string, any> = { project: r.project };
         if (isWip) {
           obj.planning = r.planning;
+          obj.released = r.released;
           STAGES.forEach(s => { obj[s.id] = r.stageCounts[s.id] || 0; });
           obj.completed = r.completed;
           obj.total = r.total;
@@ -186,12 +300,10 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
       });
 
       const filenameBase = isWip ? 'Project_Status_WIP_Report' : 'Project_Stage_Completions_Report';
-      const title = isWip ? 'Project Status Report (Current Stage)' : 'Project Stage Completions Report';
-      const filterSummary = [
-        `Period: ${dateRange.startDate} to ${dateRange.endDate}`,
-        projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects',
-        `${rows.length} project(s)`,
-      ].join('  •  ');
+      const title = isWip ? 'Project Status Report (Current Snapshot)' : 'Project Stage Completions Report';
+      const filterSummary = isWip
+        ? [projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects', `${rows.length} project(s)`, 'Live snapshot — not date-filtered'].join('  •  ')
+        : [`Period: ${dateRange.startDate} to ${dateRange.endDate}`, projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects', `${rows.length} project(s)`].join('  •  ');
 
       if (format === 'excel') {
         exportToExcel(
@@ -237,7 +349,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
               viewMode === 'wip' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            <ClipboardList className="h-3.5 w-3.5" /> Current Status (WIP)
+            <ClipboardList className="h-3.5 w-3.5" /> Current Status (Live Snapshot)
           </button>
           <button
             onClick={() => setViewMode('completions')}
@@ -246,20 +358,23 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
               viewMode === 'completions' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            <CheckCircle2 className="h-3.5 w-3.5" /> Stage Completions (Cumulative)
+            <CheckCircle2 className="h-3.5 w-3.5" /> Stage Completions (Cumulative, by date)
           </button>
         </div>
         <p className="text-[11px] text-slate-400 mt-2">
           {viewMode === 'wip'
-            ? 'Pools created within the selected period, grouped by where they currently sit — Planning, each production stage, or Completed.'
-            : 'How many pools had each stage approved within the selected period (e.g. how many Steel done, how many Primer done), plus releases from Planning and final completions.'}
+            ? 'Whole-project totals right now — Planning (not yet released), Released to production, where those released pools currently sit stage-by-stage, and Completed. Not affected by the date filter below.'
+            : 'How many pools had each stage approved within the selected period (e.g. how many Steel done, how many Primer done), plus releases from Planning and final completions in that window.'}
         </p>
+        <p className="text-[11px] text-indigo-500 mt-1 font-semibold">Click any number in the table to see the exact pool numbers and dates.</p>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col md:flex-row gap-3">
-        <DateRangeFilter value={dateRange} onChange={setDateRange} />
-      </div>
+      {viewMode === 'completions' && (
+        <div className="flex flex-col md:flex-row gap-3">
+          <DateRangeFilter value={dateRange} onChange={setDateRange} />
+        </div>
+      )}
 
       <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider shrink-0">
@@ -334,10 +449,12 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           <thead>
             <tr className="border-b border-slate-100">
               <th className="text-left font-bold text-slate-500 uppercase tracking-wider px-3 py-2.5 sticky left-0 bg-white">Project</th>
-              {viewMode === 'wip' ? (
-                <th className="text-center font-bold text-amber-600 uppercase tracking-wider px-3 py-2.5">Planning</th>
-              ) : (
-                <th className="text-center font-bold text-amber-600 uppercase tracking-wider px-3 py-2.5">Released</th>
+              <th className="text-center font-bold text-amber-600 uppercase tracking-wider px-3 py-2.5">Planning</th>
+              {viewMode === 'wip' && (
+                <th className="text-center font-bold text-sky-600 uppercase tracking-wider px-3 py-2.5">Released</th>
+              )}
+              {viewMode === 'completions' && (
+                <th className="text-center font-bold text-sky-600 uppercase tracking-wider px-3 py-2.5">Released (in period)</th>
               )}
               {STAGES.map(s => (
                 <th key={s.id} className="text-center font-bold text-slate-500 uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">
@@ -357,30 +474,75 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={STAGES.length + 3} className="text-center text-slate-400 py-8">
-                  No data for the selected period and filters.
+                <td colSpan={STAGES.length + 4} className="text-center text-slate-400 py-8">
+                  No data for the selected filters.
                 </td>
               </tr>
             )}
-            {rows.map((r: any) => (
+            {viewMode === 'wip' && wipRows.map(r => (
               <tr key={r.project} className="border-b border-slate-50 hover:bg-slate-50/50">
                 <td className="px-3 py-2 font-bold text-slate-700 sticky left-0 bg-white whitespace-nowrap">{r.project}</td>
-                <td className="px-3 py-2 text-center font-mono text-amber-700">
-                  {viewMode === 'wip' ? r.planning : r.released}
+                <td
+                  className={`px-3 py-2 text-center font-mono text-amber-700 ${r.planning > 0 ? 'cursor-pointer hover:bg-amber-50 hover:underline font-bold' : ''}`}
+                  onClick={() => r.planning > 0 && openPlanningDrillDown(r)}
+                >
+                  {r.planning}
                 </td>
-                {STAGES.map(s => (
-                  <td key={s.id} className="px-3 py-2 text-center font-mono text-slate-600">
-                    {r.stageCounts[s.id] || 0}
-                  </td>
-                ))}
-                {viewMode === 'wip' ? (
-                  <>
-                    <td className="px-3 py-2 text-center font-mono text-emerald-700">{r.completed}</td>
-                    <td className="px-3 py-2 text-center font-mono font-bold text-slate-800">{r.total}</td>
-                  </>
-                ) : (
-                  <td className="px-3 py-2 text-center font-mono text-emerald-700">{r.finalCompleted}</td>
-                )}
+                <td
+                  className={`px-3 py-2 text-center font-mono text-sky-700 ${r.released > 0 ? 'cursor-pointer hover:bg-sky-50 hover:underline font-bold' : ''}`}
+                  onClick={() => r.released > 0 && openWipReleasedDrillDown(r)}
+                >
+                  {r.released}
+                </td>
+                {STAGES.map(s => {
+                  const count = r.stageCounts[s.id] || 0;
+                  return (
+                    <td
+                      key={s.id}
+                      className={`px-3 py-2 text-center font-mono text-slate-600 ${count > 0 ? 'cursor-pointer hover:bg-indigo-50 hover:underline font-bold' : ''}`}
+                      onClick={() => count > 0 && openWipStageDrillDown(r, s.id, s.name)}
+                    >
+                      {count}
+                    </td>
+                  );
+                })}
+                <td
+                  className={`px-3 py-2 text-center font-mono text-emerald-700 ${r.completed > 0 ? 'cursor-pointer hover:bg-emerald-50 hover:underline font-bold' : ''}`}
+                  onClick={() => r.completed > 0 && openWipCompletedDrillDown(r)}
+                >
+                  {r.completed}
+                </td>
+                <td className="px-3 py-2 text-center font-mono font-bold text-slate-800">{r.total}</td>
+              </tr>
+            ))}
+            {viewMode === 'completions' && completionRows.map(r => (
+              <tr key={r.project} className="border-b border-slate-50 hover:bg-slate-50/50">
+                <td className="px-3 py-2 font-bold text-slate-700 sticky left-0 bg-white whitespace-nowrap">{r.project}</td>
+                <td className="px-3 py-2 text-center font-mono text-slate-300">—</td>
+                <td
+                  className={`px-3 py-2 text-center font-mono text-sky-700 ${r.released > 0 ? 'cursor-pointer hover:bg-sky-50 hover:underline font-bold' : ''}`}
+                  onClick={() => r.released > 0 && openCompletionsReleasedDrillDown(r)}
+                >
+                  {r.released}
+                </td>
+                {STAGES.map(s => {
+                  const count = r.stageCounts[s.id] || 0;
+                  return (
+                    <td
+                      key={s.id}
+                      className={`px-3 py-2 text-center font-mono text-slate-600 ${count > 0 ? 'cursor-pointer hover:bg-indigo-50 hover:underline font-bold' : ''}`}
+                      onClick={() => count > 0 && openCompletionsStageDrillDown(r, s.id, s.name)}
+                    >
+                      {count}
+                    </td>
+                  );
+                })}
+                <td
+                  className={`px-3 py-2 text-center font-mono text-emerald-700 ${r.finalCompleted > 0 ? 'cursor-pointer hover:bg-emerald-50 hover:underline font-bold' : ''}`}
+                  onClick={() => r.finalCompleted > 0 && openCompletionsFinalDrillDown(r)}
+                >
+                  {r.finalCompleted}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -389,8 +551,9 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
               <tr className="border-t-2 border-slate-200 bg-slate-50/70">
                 <td className="px-3 py-2.5 font-black text-slate-700 sticky left-0 bg-slate-50/70">Grand Total</td>
                 <td className="px-3 py-2.5 text-center font-mono font-black text-amber-700">
-                  {viewMode === 'wip' ? grandTotals.planning : grandTotals.released}
+                  {viewMode === 'wip' ? grandTotals.planning : '—'}
                 </td>
+                <td className="px-3 py-2.5 text-center font-mono font-black text-sky-700">{grandTotals.released}</td>
                 {STAGES.map(s => (
                   <td key={s.id} className="px-3 py-2.5 text-center font-mono font-black text-slate-700">
                     {grandTotals[s.id] || 0}
@@ -399,9 +562,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
                 {viewMode === 'wip' ? (
                   <>
                     <td className="px-3 py-2.5 text-center font-mono font-black text-emerald-700">{grandTotals.completed}</td>
-                    <td className="px-3 py-2.5 text-center font-mono font-black text-slate-900">
-                      {wipRows.reduce((a, r) => a + r.total, 0)}
-                    </td>
+                    <td className="px-3 py-2.5 text-center font-mono font-black text-slate-900">{grandTotals.total}</td>
                   </>
                 ) : (
                   <td className="px-3 py-2.5 text-center font-mono font-black text-emerald-700">{grandTotals.finalCompleted}</td>
@@ -411,6 +572,60 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           )}
         </table>
       </div>
+
+      {/* Drill-down modal — pool numbers + dates behind whichever cell was clicked */}
+      {drillDown && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setDrillDown(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between p-4 border-b border-slate-100">
+              <div>
+                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{drillDown.project}</div>
+                <h3 className="font-extrabold text-slate-800 text-sm mt-0.5 flex items-center gap-1">
+                  <ChevronRight className="h-4 w-4 text-indigo-500" />
+                  {drillDown.columnLabel}
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">{drillDown.rows.length} pool(s)</p>
+              </div>
+              <button
+                onClick={() => setDrillDown(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-2">
+              {drillDown.rows.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-6">No pools found.</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                      <th className="text-left px-2 py-1.5">Pool No</th>
+                      <th className="text-left px-2 py-1.5">Date</th>
+                      <th className="text-left px-2 py-1.5">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drillDown.rows.map((r, i) => (
+                      <tr key={i} className="border-t border-slate-50">
+                        <td className="px-2 py-1.5 font-bold text-slate-700">{r.poolNo}</td>
+                        <td className="px-2 py-1.5 font-mono text-slate-500">{r.date}</td>
+                        <td className="px-2 py-1.5 text-slate-400">{r.extra || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
