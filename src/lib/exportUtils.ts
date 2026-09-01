@@ -400,6 +400,12 @@ interface BirthCertColumn {
   /** Keywords checked (case-insensitive, substring) against checklist item
    *  labels/ids to find this column's value. First match wins. */
   keywords: string[];
+  /** Optional override computed straight from the stage's StageHistory
+   *  record — checked BEFORE keyword matching, so a stage-specific rule
+   *  (e.g. holding time = inspection time minus sent-to-quality time) wins
+   *  over a generic checklist-item lookup. Return null to fall through to
+   *  keyword matching / the default dash. */
+  compute?: (h: any) => string | null;
 }
 interface BirthCertSection {
   title: string;
@@ -452,8 +458,39 @@ const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
       { header: 'Jointing', keywords: ['jointing', 'joint'] },
       { header: 'Alignment', keywords: ['alignment', 'align'] },
       { header: 'Valves Orientation', keywords: ['valve'] },
-      { header: 'Test Pressure', keywords: ['pressure'] },
-      { header: 'Holding Time', keywords: ['holding', 'hold time'] },
+      {
+        header: 'Test Pressure',
+        keywords: ['pressure'],
+        // MAT-ERP's standard plumbing test pressure — shown by default even
+        // if no checklist item recorded a different reading for this pool.
+        compute: (h) => {
+          const measured = h?.checklistResult?.items?.find((it: any) =>
+            (it.itemId || '').toLowerCase().includes('pressure')
+          )?.measuredValue;
+          return measured != null ? `${measured} bar` : '3 bar';
+        },
+      },
+      {
+        header: 'Holding Time',
+        keywords: ['holding', 'hold time'],
+        // Sent-to-Quality (endTime, set when the team finishes and hands the
+        // pool to QC) -> Inspector's decision (inspectionTime, set when QC
+        // approves/rejects). This is the real wait time in the QC queue,
+        // computed automatically rather than typed by hand.
+        compute: (h) => {
+          if (!h?.endTime || !h?.inspectionTime) return null;
+          const startMs = new Date(h.endTime).getTime();
+          const endMs = new Date(h.inspectionTime).getTime();
+          if (isNaN(startMs) || isNaN(endMs) || endMs < startMs) return null;
+          const totalMinutes = Math.round((endMs - startMs) / 60000);
+          const hrs = Math.floor(totalMinutes / 60);
+          const mins = totalMinutes % 60;
+          const St = new Date(h.endTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const End = new Date(h.inspectionTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const durationLabel = hrs > 0 ? `${hrs}h ${mins}m` : `${mins} min`;
+          return `St:${St} End:${End} (${durationLabel})`;
+        },
+      },
       { header: 'Remarks', keywords: ['remark', 'note'] },
     ],
   },
@@ -502,15 +539,21 @@ const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
 /** OK / No / Yes text derived from a checklist item's pass/fail + note,
  *  matching how the paper form is actually filled by hand. Prefers a
  *  literal note (inspectors often write "OK", "Re-touch", etc.) over a
- *  generic Pass/Fail translation. */
+ *  generic Pass/Fail translation. A column's `compute` (e.g. Holding Time,
+ *  Test Pressure) is checked first and wins over keyword matching. */
 function cellValueForColumn(
+  h: any,
   items: { itemId: string; passed: boolean; note?: string }[],
   templateItems: { id: string; label: string }[],
-  keywords: string[]
+  column: BirthCertColumn
 ): string {
+  if (column.compute) {
+    const computed = column.compute(h);
+    if (computed != null) return computed;
+  }
   for (const item of items) {
     const tmplLabel = (templateItems.find(t => t.id === item.itemId)?.label || item.itemId).toLowerCase();
-    if (keywords.some(k => tmplLabel.includes(k))) {
+    if (column.keywords.some(k => tmplLabel.includes(k))) {
       if (item.note && item.note.trim()) return item.note.trim();
       return item.passed ? 'OK' : 'No';
     }
@@ -535,15 +578,22 @@ function statusToNcrBadges(status?: string): { opened: boolean; closed: boolean;
  * Mosaic Tile Fixation), a Situation row, Inspected By + Date, NCR
  * Opened/Closed/Hold/OK, and an OK-for-dispatch block — filled from live
  * checklist/stage data wherever it's been recorded, dash where it hasn't.
+ * Plumbing's Holding Time and Test Pressure are computed/defaulted rather
+ * than matched from a checklist (see BIRTH_CERT_SECTIONS above). GRP/FRP's
+ * Remarks line auto-states the Cladding and Lamination completion dates.
+ * Any QCDefect logged against this pool (any stage) appears under the
+ * matching section as its own "Defects Logged" line.
  * `checklistTemplates` is optional — when supplied, checklist item ids are
  * resolved to their human-readable labels for column matching; when
  * omitted, columns fall back to a dash and the certificate still renders
- * fully using stage status/team/inspector/notes.
+ * fully using stage status/team/inspector/notes. `qcDefects` is optional —
+ * when omitted, the Defects Logged line is simply skipped.
  */
 export async function exportPoolBirthCertificatePdf(
   pool: any,
   stages: { id: string; name: string }[],
-  checklistTemplates?: { stageId: string; items: { id: string; label: string }[] }[]
+  checklistTemplates?: { stageId: string; items: { id: string; label: string }[] }[],
+  qcDefects?: { poolId: string; stageId: string; defectType: string; severity: string; status: string; notes?: string; loggedAt: string }[]
 ) {
   const logo = await loadLogo();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
@@ -611,7 +661,7 @@ export async function exportPoolBirthCertificatePdf(
     autoTable(doc, {
       startY: y,
       head: [section.columns.map(c => c.header)],
-      body: [section.columns.map(c => cellValueForColumn(items, templateItems, c.keywords))],
+      body: [section.columns.map(c => cellValueForColumn(h, items, templateItems, c))],
       styles: { fontSize: 7, cellPadding: 4, halign: 'center' },
       headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 6.5 },
       margin: { left: marginLeft, right: 32 },
@@ -620,11 +670,50 @@ export async function exportPoolBirthCertificatePdf(
 
     if (section.remarksLine) {
       ensureSpace(30);
+      // GRP/FRP Workshop: auto-state Cladding and Lamination completion
+      // dates (matching how this section is actually filled by hand — see
+      // the "GRP cladding on 17.06.26 / lamination done on 19.06.26" style
+      // note), then append any free-text inspector notes after it.
+      let remarksText = h?.inspectorNotes || '';
+      if (section.title.startsWith('IV')) {
+        const claddingDate = pool.stageHistory?.['cladding']?.inspectionTime || pool.stageHistory?.['cladding']?.endTime;
+        const laminationDate = pool.stageHistory?.['lamination']?.inspectionTime || pool.stageHistory?.['lamination']?.endTime;
+        const parts: string[] = [];
+        if (claddingDate) parts.push(`GRP cladding on ${new Date(claddingDate).toLocaleDateString('en-GB')}`);
+        if (laminationDate) parts.push(`Lamination done on ${new Date(laminationDate).toLocaleDateString('en-GB')}`);
+        const autoRemark = parts.join('  /  ');
+        remarksText = [autoRemark, remarksText].filter(Boolean).join('   —   ');
+      }
       autoTable(doc, {
         startY: y,
-        body: [['Remarks', h?.inspectorNotes || '—']],
+        body: [['Remarks', remarksText || '—']],
         styles: { fontSize: 7.5, cellPadding: 5 },
         columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60, fillColor: [248, 250, 252] } },
+        margin: { left: marginLeft, right: 32 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 2;
+    }
+
+    // Defects Logged — any QCDefect record raised against this pool at any
+    // stage belonging to this section (not just the stage the grid above is
+    // showing), so a defect logged mid-workshop is never silently dropped.
+    const sectionDefects = (qcDefects || []).filter(
+      d => d.poolId === pool.id && section.stageIds.includes(d.stageId)
+    );
+    if (sectionDefects.length > 0) {
+      ensureSpace(20 + sectionDefects.length * 12);
+      autoTable(doc, {
+        startY: y,
+        head: [['Defects Logged', 'Severity', 'Status', 'Date']],
+        body: sectionDefects.map(d => [
+          d.notes ? `${d.defectType} — ${d.notes}` : d.defectType,
+          d.severity,
+          d.status,
+          d.loggedAt ? new Date(d.loggedAt).toLocaleDateString('en-GB') : '—',
+        ]),
+        styles: { fontSize: 7, cellPadding: 4 },
+        headStyles: { fillColor: [254, 242, 242], textColor: [190, 18, 60], fontStyle: 'bold', fontSize: 6.5 },
+        columnStyles: { 1: { cellWidth: 55 }, 2: { cellWidth: 55 }, 3: { cellWidth: 55 } },
         margin: { left: marginLeft, right: 32 },
       });
       y = (doc as any).lastAutoTable.finalY + 2;
