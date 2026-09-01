@@ -11,7 +11,8 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   LineChart, Line, PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
-import { exportToExcel, exportTablePdf, exportPoolHistoryPdf } from '../lib/exportUtils';
+import { exportToExcel, exportTablePdf, exportPoolHistoryPdf, exportPoolBirthCertificatePdf } from '../lib/exportUtils';
+import { dbFetchChecklistTemplates } from '../lib/firebaseService';
 
 interface ReportsAndAnalyticsProps {
   pools: Pool[];
@@ -522,6 +523,27 @@ const ReportsTab: React.FC<{
     exportPoolHistoryPdf(pool, STAGES.map(s => ({ id: s.id, name: s.name })));
   };
 
+  const [isGeneratingBirthCert, setIsGeneratingBirthCert] = useState(false);
+  const generateBirthCertificate = async () => {
+    const pool = pools.find(p => p.id === selectedPoolId);
+    if (!pool) { alert('Pick a pool first.'); return; }
+    setIsGeneratingBirthCert(true);
+    try {
+      const templates = await dbFetchChecklistTemplates();
+      await exportPoolBirthCertificatePdf(
+        pool,
+        STAGES.map(s => ({ id: s.id, name: s.name })),
+        templates.map(t => ({ stageId: t.stageId, items: t.items.map(i => ({ id: i.id, label: i.label })) }))
+      );
+    } catch {
+      // Checklist templates are optional context — still generate with whatever the pool record has.
+      const pool2 = pools.find(p => p.id === selectedPoolId);
+      if (pool2) await exportPoolBirthCertificatePdf(pool2, STAGES.map(s => ({ id: s.id, name: s.name })));
+    } finally {
+      setIsGeneratingBirthCert(false);
+    }
+  };
+
   const reportCards = [
     {
       title: 'Daily Production Report',
@@ -612,6 +634,15 @@ const ReportsTab: React.FC<{
               >
                 <Printer className="h-3.5 w-3.5" />
                 Generate PDF
+              </button>
+              <button
+                onClick={generateBirthCertificate}
+                disabled={!selectedPoolId || isGeneratingBirthCert}
+                data-testid="report-pool-birth-certificate"
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-xl text-xs cursor-pointer transition-all flex items-center gap-1.5"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                {isGeneratingBirthCert ? 'Generating…' : 'Birth Certificate'}
               </button>
             </div>
           </div>
