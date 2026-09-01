@@ -4159,6 +4159,7 @@ export default function App() {
             logs={logs}
             teams={teams}
             employeePunches={employeePunches}
+            qcDefects={qcDefects}
           />
         )}
 
