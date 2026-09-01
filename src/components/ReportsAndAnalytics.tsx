@@ -385,6 +385,27 @@ const ReportsTab: React.FC<{
 }> = ({ pools, projectsSummary, monthlyTargets, employees, logs }) => {
 
   const [selectedPoolId, setSelectedPoolId] = useState('');
+  const [poolSearchQuery, setPoolSearchQuery] = useState('');
+  const [poolSearchProject, setPoolSearchProject] = useState('all');
+
+  const poolSearchProjectOptions = useMemo(
+    () => Array.from(new Set(pools.map(p => p.projectName).filter(Boolean))).sort(),
+    [pools]
+  );
+
+  const filteredPoolsForPicker = useMemo(() => {
+    const q = poolSearchQuery.trim().toLowerCase();
+    return pools.filter(p => {
+      if (poolSearchProject !== 'all' && p.projectName !== poolSearchProject) return false;
+      if (!q) return true;
+      return (
+        (p.poolNo || '').toLowerCase().includes(q) ||
+        (p.projectName || '').toLowerCase().includes(q) ||
+        (p.poolType || '').toLowerCase().includes(q) ||
+        (p.shape || '').toLowerCase().includes(q)
+      );
+    }).slice(0, 200); // cap the dropdown so it stays fast/usable with large registries
+  }, [pools, poolSearchQuery, poolSearchProject]);
 
   const generateDailyProductionReport = () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -612,38 +633,65 @@ const ReportsTab: React.FC<{
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
               Pick any pool to generate a full lifecycle PDF: specs, every stage's status, team, inspector, duration, and rejection counts.
             </p>
-            <div className="mt-3 flex flex-col sm:flex-row gap-2">
-              <select
-                value={selectedPoolId}
-                onChange={(e) => setSelectedPoolId(e.target.value)}
-                data-testid="report-pool-picker"
-                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none"
-              >
-                <option value="">— Pick a pool —</option>
-                {pools.map(p => (
-                  <option key={p.id} value={p.id}>
-                    Pool {p.poolNo} ({p.projectName})
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={poolSearchQuery}
+                  onChange={(e) => setPoolSearchQuery(e.target.value)}
+                  placeholder="Search by pool number, type, or project…"
+                  data-testid="report-pool-search"
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <select
+                  value={poolSearchProject}
+                  onChange={(e) => setPoolSearchProject(e.target.value)}
+                  data-testid="report-pool-search-project"
+                  className="sm:w-52 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                >
+                  <option value="all">All Projects</option>
+                  {poolSearchProjectOptions.map(proj => (
+                    <option key={proj} value={proj}>{proj}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={selectedPoolId}
+                  onChange={(e) => setSelectedPoolId(e.target.value)}
+                  data-testid="report-pool-picker"
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none"
+                >
+                  <option value="">
+                    {filteredPoolsForPicker.length === 0 ? 'No pools match this search' : `— Pick a pool (${filteredPoolsForPicker.length} match${filteredPoolsForPicker.length === 1 ? '' : 'es'}) —`}
                   </option>
-                ))}
-              </select>
-              <button
-                onClick={generatePoolHistoryReport}
-                disabled={!selectedPoolId}
-                data-testid="report-pool-history"
-                className="bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-xl text-xs cursor-pointer transition-all flex items-center gap-1.5"
-              >
-                <Printer className="h-3.5 w-3.5" />
-                Generate PDF
-              </button>
-              <button
-                onClick={generateBirthCertificate}
-                disabled={!selectedPoolId || isGeneratingBirthCert}
-                data-testid="report-pool-birth-certificate"
-                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-xl text-xs cursor-pointer transition-all flex items-center gap-1.5"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                {isGeneratingBirthCert ? 'Generating…' : 'Birth Certificate'}
-              </button>
+                  {filteredPoolsForPicker.map(p => (
+                    <option key={p.id} value={p.id}>
+                      Pool {p.poolNo} ({p.projectName}{p.poolType ? ` — ${p.poolType}` : ''})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={generatePoolHistoryReport}
+                  disabled={!selectedPoolId}
+                  data-testid="report-pool-history"
+                  className="bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-xl text-xs cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Generate PDF
+                </button>
+                <button
+                  onClick={generateBirthCertificate}
+                  disabled={!selectedPoolId || isGeneratingBirthCert}
+                  data-testid="report-pool-birth-certificate"
+                  className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-xl text-xs cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {isGeneratingBirthCert ? 'Generating…' : 'Birth Certificate'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
