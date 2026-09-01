@@ -386,6 +386,224 @@ export function exportPoolHistoryPdf(pool: any, stages: { id: string; name: stri
   doc.save(`Pool_${pool.poolNo}_history_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
+// Section groupings that mirror the paper "Swimming Pool Control Sheet"
+// (FRM-01/WI-04). Each roman-numeral section on the paper form maps to one
+// or more StageIds from mockData's STAGES — this is what lets the digital
+// certificate follow the exact same section order the QC team already
+// knows from the paper form, while still pulling live data per stage.
+const BIRTH_CERT_SECTIONS: { title: string; stageIds: string[] }[] = [
+  { title: 'I - Steel Structure Fabrication', stageIds: ['steel_fabrication'] },
+  { title: 'II - Metal Primer', stageIds: ['steel_primer'] },
+  { title: 'III - Plumbing Workshop', stageIds: ['plumbing'] },
+  { title: 'IV - GRP/FRP Workshop', stageIds: ['cladding', 'skimmer_fitting', 'lamination', 'mechanical_fitting', 'skimmer_test', 'door_cutting'] },
+  { title: 'V - Acrylic Fixing Workshop', stageIds: ['acrylic'] },
+  { title: 'VI - Copping and Mosaic Tile Fixation', stageIds: ['mosaic', 'grouting'] },
+];
+
+function statusToNcrBadges(status?: string): { opened: boolean; closed: boolean; hold: boolean; ok: boolean } {
+  return {
+    opened: status === 'REJECTED',
+    closed: status === 'APPROVED' && (false),
+    hold: status === 'PENDING_INSPECTION',
+    ok: status === 'APPROVED' || status === 'SKIPPED' || status === 'CARRIED_ON_SITE',
+  };
+}
+
+/**
+ * Pool "Birth Certificate" — the digital equivalent of the paper Swimming
+ * Pool Control Sheet (FRM-01/WI-04), auto-filled from live stage/checklist
+ * data instead of being filled out by hand. Same section order (Steel
+ * Structure Fabrication -> Metal Primer -> Plumbing -> GRP/FRP -> Acrylic
+ * Fixing -> Copping/Mosaic), each with Process/Situation rows, inspector +
+ * date, and NCR Opened/Closed/Hold/OK status, followed by an OK-for-dispatch
+ * block. `checklistTemplates` is optional — when supplied, checklist item
+ * ids are resolved to their human-readable labels; when omitted, the
+ * certificate still renders fully using stage status/team/inspector/notes.
+ */
+export async function exportPoolBirthCertificatePdf(
+  pool: any,
+  stages: { id: string; name: string }[],
+  checklistTemplates?: { stageId: string; items: { id: string; label: string }[] }[]
+) {
+  const logo = await loadLogo();
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginLeft = 32;
+  const marginRight = pageWidth - 32;
+
+  const labelFor = (stageId: string, itemId: string): string => {
+    const tmpl = checklistTemplates?.find(t => t.stageId === stageId);
+    const item = tmpl?.items.find(i => i.id === itemId);
+    return item?.label || itemId;
+  };
+
+  let y = drawPdfHeader(doc, logo, 'Quality Control — Swimming Pool Control Sheet', `Pool Birth Certificate — ${pool.poolNo}`, `${pool.projectName}  •  FRM-01/WI-04-REV1`);
+
+  const ensureSpace = (needed: number) => {
+    if (y + needed > pageHeight - 40) {
+      doc.addPage();
+      y = 32;
+    }
+  };
+
+  // ── Identity block: Project / Serial / Type / Size / Date ──────────────
+  autoTable(doc, {
+    startY: y,
+    head: [['Project', 'Serial (Pool No.)', 'Type', 'Size', 'Date']],
+    body: [[
+      pool.projectName || '—',
+      pool.poolNo || '—',
+      pool.poolType || pool.shape || '—',
+      pool.dimensions || '—',
+      pool.createdAt ? new Date(pool.createdAt).toLocaleDateString('en-GB') : '—',
+    ]],
+    styles: { fontSize: 8.5, cellPadding: 5, halign: 'center' },
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+    margin: { left: marginLeft, right: 32 },
+  });
+  y = (doc as any).lastAutoTable.finalY + 14;
+
+  // ── One block per paper-form section ────────────────────────────────────
+  for (const section of BIRTH_CERT_SECTIONS) {
+    ensureSpace(70);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(20, 20, 20);
+    doc.text(section.title, marginLeft, y);
+    y += 6;
+
+    for (const stageId of section.stageIds) {
+      const stageDef = stages.find(s => s.id === stageId);
+      const h = pool.stageHistory?.[stageId];
+      const stageName = stageDef?.name || stageId;
+
+      if (!h || h.status === 'NOT_STARTED') {
+        ensureSpace(24);
+        autoTable(doc, {
+          startY: y + 4,
+          body: [[stageName, 'Not started', '—', '—']],
+          styles: { fontSize: 8, cellPadding: 4, textColor: [148, 163, 184] },
+          columnStyles: { 0: { fontStyle: 'bold', textColor: [30, 41, 59] } },
+          margin: { left: marginLeft, right: 32 },
+        });
+        y = (doc as any).lastAutoTable.finalY + 6;
+        continue;
+      }
+
+      const badges = statusToNcrBadges(h.status);
+      const items: any[] = h.checklistResult?.items || [];
+
+      ensureSpace(30 + items.length * 14);
+
+      // Process / Situation summary row for this stage
+      autoTable(doc, {
+        startY: y + 4,
+        head: [[stageName, 'Team', 'Inspected By', 'Date', 'Status']],
+        body: [[
+          items.length ? `${items.filter(i => i.passed).length}/${items.length} checklist items passed` : (h.inspectorNotes || 'Situation recorded'),
+          h.teamName || h.teamId || '—',
+          h.inspectorId || '—',
+          h.inspectionTime ? new Date(h.inspectionTime).toLocaleDateString('en-GB') : (h.endTime ? new Date(h.endTime).toLocaleDateString('en-GB') : '—'),
+          h.status,
+        ]],
+        styles: { fontSize: 7.8, cellPadding: 4 },
+        headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold', lineWidth: 0.5 },
+        margin: { left: marginLeft, right: 32 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 2;
+
+      // Checklist item detail, if this stage used a digital checklist
+      if (items.length) {
+        autoTable(doc, {
+          startY: y,
+          head: [['Checkpoint', 'Result', 'Note']],
+          body: items.map(it => [
+            labelFor(stageId, it.itemId),
+            it.passed ? 'Pass' : 'Fail',
+            it.note || (it.measuredValue != null ? String(it.measuredValue) : '—'),
+          ]),
+          styles: { fontSize: 7.5, cellPadding: 3 },
+          headStyles: { fillColor: [255, 255, 255], textColor: [100, 116, 139], fontStyle: 'italic', lineWidth: 0.25 },
+          columnStyles: { 1: { halign: 'center', cellWidth: 50 } },
+          didParseCell: (data) => {
+            if (data.section === 'body' && data.column.index === 1) {
+              data.cell.styles.textColor = data.cell.raw === 'Pass' ? [16, 185, 129] : [225, 29, 72];
+              data.cell.styles.fontStyle = 'bold';
+            }
+          },
+          margin: { left: marginLeft + 14, right: 32 },
+        });
+        y = (doc as any).lastAutoTable.finalY + 2;
+      }
+
+      if (h.overridden || h.rejectionCount > 0 || h.inspectorNotes) {
+        ensureSpace(14);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        const note = [
+          h.overridden ? `Override: ${h.overrideReason || 'reason not recorded'}` : '',
+          h.rejectionCount > 0 ? `Rejections: ${h.rejectionCount}` : '',
+          h.inspectorNotes ? `Notes: ${h.inspectorNotes}` : '',
+        ].filter(Boolean).join('   •   ');
+        if (note) {
+          doc.text(note, marginLeft + 14, y + 8);
+          y += 12;
+        }
+      }
+
+      // NCR status badges — Opened / Closed / Hold / OK, derived from stage status
+      ensureSpace(16);
+      const badgeY = y + 6;
+      const badgeDefs: [string, boolean, [number, number, number]][] = [
+        ['NCR Opened', badges.opened, [225, 29, 72]],
+        ['Hold', badges.hold, [217, 119, 6]],
+        ['OK', badges.ok, [16, 185, 129]],
+      ];
+      let bx = marginLeft + 14;
+      doc.setFontSize(7.5);
+      badgeDefs.forEach(([label, active]) => {
+        const w = doc.getTextWidth(label) + 12;
+        doc.setFillColor(...(active ? badgeDefs.find(b => b[0] === label)![2] : [226, 232, 240] as [number, number, number]));
+        doc.roundedRect(bx, badgeY - 8, w, 12, 3, 3, 'F');
+        doc.setTextColor(active ? 255 : 148, active ? 255 : 163, active ? 255 : 184);
+        doc.setFont('helvetica', 'bold');
+        doc.text(label, bx + 6, badgeY);
+        bx += w + 6;
+      });
+      y = badgeY + 14;
+    }
+
+    y += 4;
+    ensureSpace(2);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(marginLeft, y, marginRight, y);
+    y += 14;
+  }
+
+  // ── OK for dispatch block ───────────────────────────────────────────────
+  ensureSpace(60);
+  autoTable(doc, {
+    startY: y,
+    head: [['OK for Dispatch', 'Date', 'Dispatched To', 'Delivered']],
+    body: [[
+      pool.completedAt ? 'Yes' : 'Pending',
+      pool.deliveredAt ? new Date(pool.deliveredAt).toLocaleDateString('en-GB') : (pool.completedAt ? new Date(pool.completedAt).toLocaleDateString('en-GB') : '—'),
+      pool.isDelivered ? (pool.projectName || '—') : '—',
+      pool.isDelivered ? 'Yes' : 'No',
+    ]],
+    styles: { fontSize: 8.5, cellPadding: 5, halign: 'center' },
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+    margin: { left: marginLeft, right: 32 },
+  });
+
+  drawPdfFooter(doc, `${COMPANY_NAME} — Quality Control — Pool Birth Certificate`);
+  doc.save(`Pool_${pool.poolNo}_Birth_Certificate_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
 /**
  * Employee recognition certificate — "Employee of the Month" / "Employee of
  * the Year" / "Section Best Team" etc. Landscape A4, gold-bordered, designed
