@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Pool, ActivityLog, ProjectSummary, MonthlyTarget, Employee, PlannedPool, Team, EmployeePunch } from '../types';
+import { QCDefect } from './QCDefectPanel';
 import { AllReportsTab } from './AllReportsTab';
 import { STAGES } from '../data/mockData';
 import {
@@ -23,12 +24,13 @@ interface ReportsAndAnalyticsProps {
   logs: ActivityLog[];
   teams: Team[];
   employeePunches?: EmployeePunch[];
+  qcDefects?: QCDefect[];
 }
 
 type TabId = 'analytics' | 'reports' | 'exports' | 'all';
 
 export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
-  pools, plannedPools, projectsSummary, monthlyTargets, employees, logs, teams, employeePunches = []
+  pools, plannedPools, projectsSummary, monthlyTargets, employees, logs, teams, employeePunches = [], qcDefects = []
 }) => {
   const [tab, setTab] = useState<TabId>('analytics');
 
@@ -78,7 +80,7 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
         <AnalyticsTab pools={pools} logs={logs} monthlyTargets={monthlyTargets} projectsSummary={projectsSummary} />
       )}
       {tab === 'reports' && (
-        <ReportsTab pools={pools} projectsSummary={projectsSummary} monthlyTargets={monthlyTargets} employees={employees} logs={logs} />
+        <ReportsTab pools={pools} projectsSummary={projectsSummary} monthlyTargets={monthlyTargets} employees={employees} logs={logs} qcDefects={qcDefects} />
       )}
       {tab === 'exports' && (
         <ExportsTab
@@ -382,7 +384,8 @@ const ReportsTab: React.FC<{
   monthlyTargets: MonthlyTarget[];
   employees: Employee[];
   logs: ActivityLog[];
-}> = ({ pools, projectsSummary, monthlyTargets, employees, logs }) => {
+  qcDefects: QCDefect[];
+}> = ({ pools, projectsSummary, monthlyTargets, employees, logs, qcDefects }) => {
 
   const [selectedPoolId, setSelectedPoolId] = useState('');
   const [poolSearchQuery, setPoolSearchQuery] = useState('');
@@ -554,12 +557,13 @@ const ReportsTab: React.FC<{
       await exportPoolBirthCertificatePdf(
         pool,
         STAGES.map(s => ({ id: s.id, name: s.name })),
-        templates.map(t => ({ stageId: t.stageId, items: t.items.map(i => ({ id: i.id, label: i.label })) }))
+        templates.map(t => ({ stageId: t.stageId, items: t.items.map(i => ({ id: i.id, label: i.label })) })),
+        qcDefects
       );
     } catch {
       // Checklist templates are optional context — still generate with whatever the pool record has.
       const pool2 = pools.find(p => p.id === selectedPoolId);
-      if (pool2) await exportPoolBirthCertificatePdf(pool2, STAGES.map(s => ({ id: s.id, name: s.name })));
+      if (pool2) await exportPoolBirthCertificatePdf(pool2, STAGES.map(s => ({ id: s.id, name: s.name })), undefined, qcDefects);
     } finally {
       setIsGeneratingBirthCert(false);
     }
