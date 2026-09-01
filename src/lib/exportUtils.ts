@@ -386,24 +386,142 @@ export function exportPoolHistoryPdf(pool: any, stages: { id: string; name: stri
   doc.save(`Pool_${pool.poolNo}_history_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-// Section groupings that mirror the paper "Swimming Pool Control Sheet"
-// (FRM-01/WI-04). Each roman-numeral section on the paper form maps to one
-// or more StageIds from mockData's STAGES — this is what lets the digital
-// certificate follow the exact same section order the QC team already
-// knows from the paper form, while still pulling live data per stage.
-const BIRTH_CERT_SECTIONS: { title: string; stageIds: string[] }[] = [
-  { title: 'I - Steel Structure Fabrication', stageIds: ['steel_fabrication'] },
-  { title: 'II - Metal Primer', stageIds: ['steel_primer'] },
-  { title: 'III - Plumbing Workshop', stageIds: ['plumbing'] },
-  { title: 'IV - GRP/FRP Workshop', stageIds: ['cladding', 'skimmer_fitting', 'lamination', 'mechanical_fitting', 'skimmer_test', 'door_cutting'] },
-  { title: 'V - Acrylic Fixing Workshop', stageIds: ['acrylic'] },
-  { title: 'VI - Copping and Mosaic Tile Fixation', stageIds: ['mosaic', 'grouting'] },
+// The paper "Swimming Pool Control Sheet" (FRM-01/WI-04) has a FIXED set of
+// columns per section — e.g. Section I is always Dimensions/Squareness/
+// Cracks/Pits/Slag/Dents/Planety/Remarks, filled by hand as OK/No/Yes/notes.
+// To reproduce that exact grid digitally, each column below is matched
+// against the stage's checklist item labels (case-insensitive substring
+// match) and rendered as OK/No/Yes/the item's note — falling back to a
+// dash when no matching checklist item exists for that stage yet. This
+// keeps the printed form identical to the paper one your QC team already
+// knows, while still pulling live data wherever it's been recorded.
+interface BirthCertColumn {
+  header: string;
+  /** Keywords checked (case-insensitive, substring) against checklist item
+   *  labels/ids to find this column's value. First match wins. */
+  keywords: string[];
+}
+interface BirthCertSection {
+  title: string;
+  /** Stage(s) this section's Situation row is filled from. Multiple stages
+   *  (e.g. Section IV) are checked in order — first stage with any
+   *  recorded checklist data supplies the row. */
+  stageIds: string[];
+  columns: BirthCertColumn[];
+  /** If true, render a free-text Remarks row (from inspectorNotes) instead
+   *  of/alongside the column grid, matching sections IV/V/VI on the paper
+   *  form which lean on a Remarks line rather than filling every column. */
+  remarksLine?: boolean;
+}
+
+const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
+  {
+    title: 'I - Steel Structure Fabrication',
+    stageIds: ['steel_fabrication'],
+    columns: [
+      { header: 'Dimensions', keywords: ['dimension'] },
+      { header: 'Squareness', keywords: ['square'] },
+      { header: 'Cracks', keywords: ['crack'] },
+      { header: 'Pits', keywords: ['pit'] },
+      { header: 'Slag', keywords: ['slag'] },
+      { header: 'Dents', keywords: ['dent'] },
+      { header: 'Planety', keywords: ['planety', 'planarity', 'flatness'] },
+      { header: 'Remarks', keywords: ['remark', 'note'] },
+    ],
+  },
+  {
+    title: 'II - Metal Primer',
+    stageIds: ['steel_primer'],
+    columns: [
+      { header: 'Dry Primer', keywords: ['dry primer', 'dry'] },
+      { header: 'Uniform Color', keywords: ['uniform', 'color', 'colour'] },
+      { header: 'Slag', keywords: ['slag'] },
+      { header: 'Pinholes', keywords: ['pinhole'] },
+      { header: 'Cracks', keywords: ['crack'] },
+      { header: 'Remarks', keywords: ['remark', 'note'] },
+    ],
+  },
+  {
+    title: 'III - Plumbing Workshop',
+    stageIds: ['plumbing'],
+    columns: [
+      { header: 'Layout', keywords: ['layout'] },
+      { header: 'Supports', keywords: ['support'] },
+      { header: 'Spacing', keywords: ['spacing'] },
+      { header: 'Cleanliness', keywords: ['clean'] },
+      { header: 'Jointing', keywords: ['jointing', 'joint'] },
+      { header: 'Alignment', keywords: ['alignment', 'align'] },
+      { header: 'Valves Orientation', keywords: ['valve'] },
+      { header: 'Test Pressure', keywords: ['pressure'] },
+      { header: 'Holding Time', keywords: ['holding', 'hold time'] },
+      { header: 'Remarks', keywords: ['remark', 'note'] },
+    ],
+  },
+  {
+    title: 'IV - GRP/FRP Workshop',
+    stageIds: ['cladding', 'skimmer_fitting', 'lamination', 'mechanical_fitting', 'skimmer_test', 'door_cutting'],
+    columns: [
+      { header: 'Skimmer Dimension', keywords: ['skimmer dimension'] },
+      { header: 'GRP/FRP Thickness', keywords: ['thickness'] },
+      { header: 'GRP/FRP Sheet Defect', keywords: ['sheet defect', 'defect'] },
+      { header: 'Sheet Fixition Leveling', keywords: ['fixition', 'fixation', 'sheet leveling'] },
+      { header: 'Pipes Joints', keywords: ['pipes joint', 'pipe joint'] },
+      { header: 'Lamination Leveling', keywords: ['lamination leveling', 'lamination level'] },
+      { header: 'Skimmer Test', keywords: ['skimmer test'] },
+      { header: 'Pipes Test', keywords: ['pipes test', 'pipe test'] },
+      { header: 'Check After Repair', keywords: ['after repair', 'repair check'] },
+    ],
+    remarksLine: true,
+  },
+  {
+    title: 'V - Acrylic Fixing Workshop',
+    stageIds: ['acrylic'],
+    columns: [
+      { header: 'Dimension', keywords: ['dimension'] },
+      { header: 'Alignment', keywords: ['alignment', 'align'] },
+      { header: 'Curing', keywords: ['curing'] },
+      { header: 'Water Leakage Test', keywords: ['leakage', 'leak'] },
+      { header: 'Defects', keywords: ['defect'] },
+    ],
+    remarksLine: true,
+  },
+  {
+    title: 'VI - Copping and Mosaic Tile Fixation',
+    stageIds: ['mosaic', 'grouting'],
+    columns: [
+      { header: 'Color', keywords: ['color', 'colour'] },
+      { header: 'Leveling', keywords: ['leveling', 'level'] },
+      { header: 'Lippage', keywords: ['lippage'] },
+      { header: 'Joints', keywords: ['joints'] },
+      { header: 'Joints (Mosaic/Acrylic)', keywords: ['mosaic and acrylic', 'between mosaic'] },
+    ],
+    remarksLine: true,
+  },
 ];
+
+/** OK / No / Yes text derived from a checklist item's pass/fail + note,
+ *  matching how the paper form is actually filled by hand. Prefers a
+ *  literal note (inspectors often write "OK", "Re-touch", etc.) over a
+ *  generic Pass/Fail translation. */
+function cellValueForColumn(
+  items: { itemId: string; passed: boolean; note?: string }[],
+  templateItems: { id: string; label: string }[],
+  keywords: string[]
+): string {
+  for (const item of items) {
+    const tmplLabel = (templateItems.find(t => t.id === item.itemId)?.label || item.itemId).toLowerCase();
+    if (keywords.some(k => tmplLabel.includes(k))) {
+      if (item.note && item.note.trim()) return item.note.trim();
+      return item.passed ? 'OK' : 'No';
+    }
+  }
+  return '—';
+}
 
 function statusToNcrBadges(status?: string): { opened: boolean; closed: boolean; hold: boolean; ok: boolean } {
   return {
     opened: status === 'REJECTED',
-    closed: status === 'APPROVED' && (false),
+    closed: false,
     hold: status === 'PENDING_INSPECTION',
     ok: status === 'APPROVED' || status === 'SKIPPED' || status === 'CARRIED_ON_SITE',
   };
@@ -411,14 +529,16 @@ function statusToNcrBadges(status?: string): { opened: boolean; closed: boolean;
 
 /**
  * Pool "Birth Certificate" — the digital equivalent of the paper Swimming
- * Pool Control Sheet (FRM-01/WI-04), auto-filled from live stage/checklist
- * data instead of being filled out by hand. Same section order (Steel
- * Structure Fabrication -> Metal Primer -> Plumbing -> GRP/FRP -> Acrylic
- * Fixing -> Copping/Mosaic), each with Process/Situation rows, inspector +
- * date, and NCR Opened/Closed/Hold/OK status, followed by an OK-for-dispatch
- * block. `checklistTemplates` is optional — when supplied, checklist item
- * ids are resolved to their human-readable labels; when omitted, the
- * certificate still renders fully using stage status/team/inspector/notes.
+ * Pool Control Sheet (FRM-01/WI-04). Reproduces the exact same fixed grid
+ * per section (Dimensions/Squareness/Cracks/... for Steel Structure, Dry
+ * Primer/Uniform Color/... for Metal Primer, and so on through Copping and
+ * Mosaic Tile Fixation), a Situation row, Inspected By + Date, NCR
+ * Opened/Closed/Hold/OK, and an OK-for-dispatch block — filled from live
+ * checklist/stage data wherever it's been recorded, dash where it hasn't.
+ * `checklistTemplates` is optional — when supplied, checklist item ids are
+ * resolved to their human-readable labels for column matching; when
+ * omitted, columns fall back to a dash and the certificate still renders
+ * fully using stage status/team/inspector/notes.
  */
 export async function exportPoolBirthCertificatePdf(
   pool: any,
@@ -432,12 +552,6 @@ export async function exportPoolBirthCertificatePdf(
   const marginLeft = 32;
   const marginRight = pageWidth - 32;
 
-  const labelFor = (stageId: string, itemId: string): string => {
-    const tmpl = checklistTemplates?.find(t => t.stageId === stageId);
-    const item = tmpl?.items.find(i => i.id === itemId);
-    return item?.label || itemId;
-  };
-
   let y = drawPdfHeader(doc, logo, 'Quality Control — Swimming Pool Control Sheet', `Pool Birth Certificate — ${pool.poolNo}`, `${pool.projectName}  •  FRM-01/WI-04-REV1`);
 
   const ensureSpace = (needed: number) => {
@@ -447,26 +561,28 @@ export async function exportPoolBirthCertificatePdf(
     }
   };
 
-  // ── Identity block: Project / Serial / Type / Size / Date ──────────────
+  // ── Identity block: Project / Serial / Flate No. / Status / Type / Size / Date ──
   autoTable(doc, {
     startY: y,
-    head: [['Project', 'Serial (Pool No.)', 'Type', 'Size', 'Date']],
+    head: [['Project', 'Serial', 'Flate No.', 'Status', 'Type', 'Size', 'Date']],
     body: [[
       pool.projectName || '—',
+      pool.id ? String(pool.id).slice(0, 8) : '—',
       pool.poolNo || '—',
+      pool.orientation || '—',
       pool.poolType || pool.shape || '—',
       pool.dimensions || '—',
       pool.createdAt ? new Date(pool.createdAt).toLocaleDateString('en-GB') : '—',
     ]],
-    styles: { fontSize: 8.5, cellPadding: 5, halign: 'center' },
+    styles: { fontSize: 8, cellPadding: 5, halign: 'center' },
     headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
     margin: { left: marginLeft, right: 32 },
   });
-  y = (doc as any).lastAutoTable.finalY + 14;
+  y = (doc as any).lastAutoTable.finalY + 12;
 
-  // ── One block per paper-form section ────────────────────────────────────
+  // ── One fixed-column grid per paper-form section ────────────────────────
   for (const section of BIRTH_CERT_SECTIONS) {
-    ensureSpace(70);
+    ensureSpace(60);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10.5);
@@ -474,114 +590,88 @@ export async function exportPoolBirthCertificatePdf(
     doc.text(section.title, marginLeft, y);
     y += 6;
 
-    for (const stageId of section.stageIds) {
-      const stageDef = stages.find(s => s.id === stageId);
-      const h = pool.stageHistory?.[stageId];
-      const stageName = stageDef?.name || stageId;
-
-      if (!h || h.status === 'NOT_STARTED') {
-        ensureSpace(24);
-        autoTable(doc, {
-          startY: y + 4,
-          body: [[stageName, 'Not started', '—', '—']],
-          styles: { fontSize: 8, cellPadding: 4, textColor: [148, 163, 184] },
-          columnStyles: { 0: { fontStyle: 'bold', textColor: [30, 41, 59] } },
-          margin: { left: marginLeft, right: 32 },
-        });
-        y = (doc as any).lastAutoTable.finalY + 6;
-        continue;
+    // Use the first stage in this section that has any recorded checklist
+    // result; sections spanning several stages (e.g. IV) show whichever one
+    // has data rather than repeating the grid per stage.
+    let h: any = null;
+    let matchedStageId = section.stageIds[0];
+    for (const sid of section.stageIds) {
+      const candidate = pool.stageHistory?.[sid];
+      if (candidate && candidate.status !== 'NOT_STARTED') {
+        h = candidate;
+        matchedStageId = sid;
+        break;
       }
+    }
 
-      const badges = statusToNcrBadges(h.status);
-      const items: any[] = h.checklistResult?.items || [];
+    const items: any[] = h?.checklistResult?.items || [];
+    const templateItems = checklistTemplates?.find(t => t.stageId === matchedStageId)?.items || [];
 
-      ensureSpace(30 + items.length * 14);
+    ensureSpace(40);
+    autoTable(doc, {
+      startY: y,
+      head: [section.columns.map(c => c.header)],
+      body: [section.columns.map(c => cellValueForColumn(items, templateItems, c.keywords))],
+      styles: { fontSize: 7, cellPadding: 4, halign: 'center' },
+      headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 6.5 },
+      margin: { left: marginLeft, right: 32 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 2;
 
-      // Process / Situation summary row for this stage
+    if (section.remarksLine) {
+      ensureSpace(30);
       autoTable(doc, {
-        startY: y + 4,
-        head: [[stageName, 'Team', 'Inspected By', 'Date', 'Status']],
-        body: [[
-          items.length ? `${items.filter(i => i.passed).length}/${items.length} checklist items passed` : (h.inspectorNotes || 'Situation recorded'),
-          h.teamName || h.teamId || '—',
-          h.inspectorId || '—',
-          h.inspectionTime ? new Date(h.inspectionTime).toLocaleDateString('en-GB') : (h.endTime ? new Date(h.endTime).toLocaleDateString('en-GB') : '—'),
-          h.status,
-        ]],
-        styles: { fontSize: 7.8, cellPadding: 4 },
-        headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold', lineWidth: 0.5 },
+        startY: y,
+        body: [['Remarks', h?.inspectorNotes || '—']],
+        styles: { fontSize: 7.5, cellPadding: 5 },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60, fillColor: [248, 250, 252] } },
         margin: { left: marginLeft, right: 32 },
       });
       y = (doc as any).lastAutoTable.finalY + 2;
-
-      // Checklist item detail, if this stage used a digital checklist
-      if (items.length) {
-        autoTable(doc, {
-          startY: y,
-          head: [['Checkpoint', 'Result', 'Note']],
-          body: items.map(it => [
-            labelFor(stageId, it.itemId),
-            it.passed ? 'Pass' : 'Fail',
-            it.note || (it.measuredValue != null ? String(it.measuredValue) : '—'),
-          ]),
-          styles: { fontSize: 7.5, cellPadding: 3 },
-          headStyles: { fillColor: [255, 255, 255], textColor: [100, 116, 139], fontStyle: 'italic', lineWidth: 0.25 },
-          columnStyles: { 1: { halign: 'center', cellWidth: 50 } },
-          didParseCell: (data) => {
-            if (data.section === 'body' && data.column.index === 1) {
-              data.cell.styles.textColor = data.cell.raw === 'Pass' ? [16, 185, 129] : [225, 29, 72];
-              data.cell.styles.fontStyle = 'bold';
-            }
-          },
-          margin: { left: marginLeft + 14, right: 32 },
-        });
-        y = (doc as any).lastAutoTable.finalY + 2;
-      }
-
-      if (h.overridden || h.rejectionCount > 0 || h.inspectorNotes) {
-        ensureSpace(14);
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(7.5);
-        doc.setTextColor(100, 116, 139);
-        const note = [
-          h.overridden ? `Override: ${h.overrideReason || 'reason not recorded'}` : '',
-          h.rejectionCount > 0 ? `Rejections: ${h.rejectionCount}` : '',
-          h.inspectorNotes ? `Notes: ${h.inspectorNotes}` : '',
-        ].filter(Boolean).join('   •   ');
-        if (note) {
-          doc.text(note, marginLeft + 14, y + 8);
-          y += 12;
-        }
-      }
-
-      // NCR status badges — Opened / Closed / Hold / OK, derived from stage status
-      ensureSpace(16);
-      const badgeY = y + 6;
-      const badgeDefs: [string, boolean, [number, number, number]][] = [
-        ['NCR Opened', badges.opened, [225, 29, 72]],
-        ['Hold', badges.hold, [217, 119, 6]],
-        ['OK', badges.ok, [16, 185, 129]],
-      ];
-      let bx = marginLeft + 14;
-      doc.setFontSize(7.5);
-      badgeDefs.forEach(([label, active]) => {
-        const w = doc.getTextWidth(label) + 12;
-        doc.setFillColor(...(active ? badgeDefs.find(b => b[0] === label)![2] : [226, 232, 240] as [number, number, number]));
-        doc.roundedRect(bx, badgeY - 8, w, 12, 3, 3, 'F');
-        doc.setTextColor(active ? 255 : 148, active ? 255 : 163, active ? 255 : 184);
-        doc.setFont('helvetica', 'bold');
-        doc.text(label, bx + 6, badgeY);
-        bx += w + 6;
-      });
-      y = badgeY + 14;
     }
 
-    y += 4;
-    ensureSpace(2);
+    // Inspected By / Date row
+    ensureSpace(24);
+    autoTable(doc, {
+      startY: y,
+      body: [[
+        'Inspected By', h?.inspectorId || '—',
+        'Date', h?.inspectionTime ? new Date(h.inspectionTime).toLocaleDateString('en-GB') : (h?.endTime ? new Date(h.endTime).toLocaleDateString('en-GB') : '—'),
+      ]],
+      styles: { fontSize: 7.5, cellPadding: 5 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 70, fillColor: [248, 250, 252] },
+        2: { fontStyle: 'bold', cellWidth: 40, fillColor: [248, 250, 252] },
+      },
+      margin: { left: marginLeft, right: 32 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 4;
+
+    // NCR Opened / Closed / Hold / OK badges, derived from stage status
+    const badges = statusToNcrBadges(h?.status);
+    ensureSpace(20);
+    const badgeDefs: [string, boolean, [number, number, number]][] = [
+      ['NCR Opened', badges.opened, [225, 29, 72]],
+      ['Hold', badges.hold, [217, 119, 6]],
+      ['OK', badges.ok, [16, 185, 129]],
+    ];
+    let bx = marginLeft;
+    doc.setFontSize(7.5);
+    badgeDefs.forEach(([label, active, color]) => {
+      const bw = doc.getTextWidth(label) + 12;
+      doc.setFillColor(...(active ? color : ([226, 232, 240] as [number, number, number])));
+      doc.roundedRect(bx, y, bw, 14, 3, 3, 'F');
+      doc.setTextColor(active ? 255 : 148, active ? 255 : 163, active ? 255 : 184);
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, bx + 6, y + 10);
+      bx += bw + 6;
+    });
+    y += 22;
+
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
     doc.line(marginLeft, y, marginRight, y);
-    y += 14;
+    y += 12;
   }
 
   // ── OK for dispatch block ───────────────────────────────────────────────
@@ -603,6 +693,7 @@ export async function exportPoolBirthCertificatePdf(
   drawPdfFooter(doc, `${COMPANY_NAME} — Quality Control — Pool Birth Certificate`);
   doc.save(`Pool_${pool.poolNo}_Birth_Certificate_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+
 
 /**
  * Employee recognition certificate — "Employee of the Month" / "Employee of
