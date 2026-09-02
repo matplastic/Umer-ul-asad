@@ -406,6 +406,17 @@ interface BirthCertColumn {
    *  over a generic checklist-item lookup. Return null to fall through to
    *  keyword matching / the default dash. */
   compute?: (h: any) => string | null;
+  /** What this column shows once the stage is APPROVED but no specific
+   *  checklist item matched it — this is what makes the certificate read
+   *  exactly like the paper form (every cell filled with OK/No, never a
+   *  blank on a passed stage). 'ok' for a general condition column
+   *  (Dimensions, Squareness, Layout...), 'no' for a defect-presence
+   *  column (Cracks, Pits, Slag...), where No means "no defect found" —
+   *  same convention QC already uses by hand. Left undefined only for
+   *  columns where guessing a default would be misleading (none currently).
+   *  Never applied unless the stage is actually APPROVED — a stage that
+   *  hasn't been inspected yet still shows a dash, not a fabricated pass. */
+  defaultOnApprove: 'OK' | 'No';
 }
 interface BirthCertSection {
   title: string;
@@ -425,42 +436,43 @@ const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
     title: 'I - Steel Structure Fabrication',
     stageIds: ['steel_fabrication'],
     columns: [
-      { header: 'Dimensions', keywords: ['dimension'] },
-      { header: 'Squareness', keywords: ['square'] },
-      { header: 'Cracks', keywords: ['crack'] },
-      { header: 'Pits', keywords: ['pit'] },
-      { header: 'Slag', keywords: ['slag'] },
-      { header: 'Dents', keywords: ['dent'] },
-      { header: 'Planety', keywords: ['planety', 'planarity', 'flatness'] },
-      { header: 'Remarks', keywords: ['remark', 'note'] },
+      { header: 'Dimensions', keywords: ['dimension'], defaultOnApprove: 'OK' },
+      { header: 'Squareness', keywords: ['square'], defaultOnApprove: 'OK' },
+      { header: 'Cracks', keywords: ['crack'], defaultOnApprove: 'No' },
+      { header: 'Pits', keywords: ['pit'], defaultOnApprove: 'No' },
+      { header: 'Slag', keywords: ['slag'], defaultOnApprove: 'No' },
+      { header: 'Dents', keywords: ['dent'], defaultOnApprove: 'No' },
+      { header: 'Planety', keywords: ['planety', 'planarity', 'flatness'], defaultOnApprove: 'No' },
+      { header: 'Remarks', keywords: ['remark', 'note'], defaultOnApprove: 'OK' },
     ],
   },
   {
     title: 'II - Metal Primer',
     stageIds: ['steel_primer'],
     columns: [
-      { header: 'Dry Primer', keywords: ['dry primer', 'dry'] },
-      { header: 'Uniform Color', keywords: ['uniform', 'color', 'colour'] },
-      { header: 'Slag', keywords: ['slag'] },
-      { header: 'Pinholes', keywords: ['pinhole'] },
-      { header: 'Cracks', keywords: ['crack'] },
-      { header: 'Remarks', keywords: ['remark', 'note'] },
+      { header: 'Dry Primer', keywords: ['dry primer', 'dry'], defaultOnApprove: 'OK' },
+      { header: 'Uniform Color', keywords: ['uniform', 'color', 'colour'], defaultOnApprove: 'OK' },
+      { header: 'Slag', keywords: ['slag'], defaultOnApprove: 'No' },
+      { header: 'Pinholes', keywords: ['pinhole'], defaultOnApprove: 'No' },
+      { header: 'Cracks', keywords: ['crack'], defaultOnApprove: 'No' },
+      { header: 'Remarks', keywords: ['remark', 'note'], defaultOnApprove: 'OK' },
     ],
   },
   {
     title: 'III - Plumbing Workshop',
     stageIds: ['plumbing'],
     columns: [
-      { header: 'Layout', keywords: ['layout'] },
-      { header: 'Supports', keywords: ['support'] },
-      { header: 'Spacing', keywords: ['spacing'] },
-      { header: 'Cleanliness', keywords: ['clean'] },
-      { header: 'Jointing', keywords: ['jointing', 'joint'] },
-      { header: 'Alignment', keywords: ['alignment', 'align'] },
-      { header: 'Valves Orientation', keywords: ['valve'] },
+      { header: 'Layout', keywords: ['layout'], defaultOnApprove: 'OK' },
+      { header: 'Supports', keywords: ['support'], defaultOnApprove: 'OK' },
+      { header: 'Spacing', keywords: ['spacing'], defaultOnApprove: 'OK' },
+      { header: 'Cleanliness', keywords: ['clean'], defaultOnApprove: 'OK' },
+      { header: 'Jointing', keywords: ['jointing', 'joint'], defaultOnApprove: 'OK' },
+      { header: 'Alignment', keywords: ['alignment', 'align'], defaultOnApprove: 'OK' },
+      { header: 'Valves Orientation', keywords: ['valve'], defaultOnApprove: 'OK' },
       {
         header: 'Test Pressure',
         keywords: ['pressure'],
+        defaultOnApprove: 'OK',
         // MAT-ERP's standard plumbing test pressure — shown by default even
         // if no checklist item recorded a different reading for this pool.
         compute: (h) => {
@@ -473,6 +485,7 @@ const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
       {
         header: 'Holding Time',
         keywords: ['holding', 'hold time'],
+        defaultOnApprove: 'OK',
         // Sent-to-Quality (endTime, set when the team finishes and hands the
         // pool to QC) -> Inspector's decision (inspectionTime, set when QC
         // approves/rejects). This is the real wait time in the QC queue,
@@ -491,22 +504,22 @@ const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
           return `St:${St} End:${End} (${durationLabel})`;
         },
       },
-      { header: 'Remarks', keywords: ['remark', 'note'] },
+      { header: 'Remarks', keywords: ['remark', 'note'], defaultOnApprove: 'OK' },
     ],
   },
   {
     title: 'IV - GRP/FRP Workshop',
     stageIds: ['cladding', 'skimmer_fitting', 'lamination', 'mechanical_fitting', 'skimmer_test', 'door_cutting'],
     columns: [
-      { header: 'Skimmer Dimension', keywords: ['skimmer dimension'] },
-      { header: 'GRP/FRP Thickness', keywords: ['thickness'] },
-      { header: 'GRP/FRP Sheet Defect', keywords: ['sheet defect', 'defect'] },
-      { header: 'Sheet Fixition Leveling', keywords: ['fixition', 'fixation', 'sheet leveling'] },
-      { header: 'Pipes Joints', keywords: ['pipes joint', 'pipe joint'] },
-      { header: 'Lamination Leveling', keywords: ['lamination leveling', 'lamination level'] },
-      { header: 'Skimmer Test', keywords: ['skimmer test'] },
-      { header: 'Pipes Test', keywords: ['pipes test', 'pipe test'] },
-      { header: 'Check After Repair', keywords: ['after repair', 'repair check'] },
+      { header: 'Skimmer Dimension', keywords: ['skimmer dimension'], defaultOnApprove: 'OK' },
+      { header: 'GRP/FRP Thickness', keywords: ['thickness'], defaultOnApprove: 'OK' },
+      { header: 'GRP/FRP Sheet Defect', keywords: ['sheet defect', 'defect'], defaultOnApprove: 'No' },
+      { header: 'Sheet Fixition Leveling', keywords: ['fixition', 'fixation', 'sheet leveling'], defaultOnApprove: 'OK' },
+      { header: 'Pipes Joints', keywords: ['pipes joint', 'pipe joint'], defaultOnApprove: 'OK' },
+      { header: 'Lamination Leveling', keywords: ['lamination leveling', 'lamination level'], defaultOnApprove: 'OK' },
+      { header: 'Skimmer Test', keywords: ['skimmer test'], defaultOnApprove: 'OK' },
+      { header: 'Pipes Test', keywords: ['pipes test', 'pipe test'], defaultOnApprove: 'OK' },
+      { header: 'Check After Repair', keywords: ['after repair', 'repair check'], defaultOnApprove: 'OK' },
     ],
     remarksLine: true,
   },
@@ -514,11 +527,11 @@ const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
     title: 'V - Acrylic Fixing Workshop',
     stageIds: ['acrylic'],
     columns: [
-      { header: 'Dimension', keywords: ['dimension'] },
-      { header: 'Alignment', keywords: ['alignment', 'align'] },
-      { header: 'Curing', keywords: ['curing'] },
-      { header: 'Water Leakage Test', keywords: ['leakage', 'leak'] },
-      { header: 'Defects', keywords: ['defect'] },
+      { header: 'Dimension', keywords: ['dimension'], defaultOnApprove: 'OK' },
+      { header: 'Alignment', keywords: ['alignment', 'align'], defaultOnApprove: 'OK' },
+      { header: 'Curing', keywords: ['curing'], defaultOnApprove: 'OK' },
+      { header: 'Water Leakage Test', keywords: ['leakage', 'leak'], defaultOnApprove: 'OK' },
+      { header: 'Defects', keywords: ['defect'], defaultOnApprove: 'No' },
     ],
     remarksLine: true,
   },
@@ -526,11 +539,11 @@ const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
     title: 'VI - Copping and Mosaic Tile Fixation',
     stageIds: ['mosaic', 'grouting'],
     columns: [
-      { header: 'Color', keywords: ['color', 'colour'] },
-      { header: 'Leveling', keywords: ['leveling', 'level'] },
-      { header: 'Lippage', keywords: ['lippage'] },
-      { header: 'Joints', keywords: ['joints'] },
-      { header: 'Joints (Mosaic/Acrylic)', keywords: ['mosaic and acrylic', 'between mosaic'] },
+      { header: 'Color', keywords: ['color', 'colour'], defaultOnApprove: 'OK' },
+      { header: 'Leveling', keywords: ['leveling', 'level'], defaultOnApprove: 'OK' },
+      { header: 'Lippage', keywords: ['lippage'], defaultOnApprove: 'No' },
+      { header: 'Joints', keywords: ['joints'], defaultOnApprove: 'OK' },
+      { header: 'Joints (Mosaic/Acrylic)', keywords: ['mosaic and acrylic', 'between mosaic'], defaultOnApprove: 'OK' },
     ],
     remarksLine: true,
   },
@@ -540,7 +553,11 @@ const BIRTH_CERT_SECTIONS: BirthCertSection[] = [
  *  matching how the paper form is actually filled by hand. Prefers a
  *  literal note (inspectors often write "OK", "Re-touch", etc.) over a
  *  generic Pass/Fail translation. A column's `compute` (e.g. Holding Time,
- *  Test Pressure) is checked first and wins over keyword matching. */
+ *  Test Pressure) is checked first and wins over keyword matching. If
+ *  nothing matches AND the stage is APPROVED, falls back to the column's
+ *  `defaultOnApprove` (OK / No) — exactly how the paper form reads once a
+ *  stage passes: every box filled, none left blank. A stage that hasn't
+ *  been approved yet still shows a dash rather than a fabricated pass. */
 function cellValueForColumn(
   h: any,
   items: { itemId: string; passed: boolean; note?: string }[],
@@ -558,6 +575,11 @@ function cellValueForColumn(
       return item.passed ? 'OK' : 'No';
     }
   }
+  // No specific checklist item recorded for this column — once QC has
+  // actually approved the stage, fill it the same way the paper form
+  // would (every box OK/No, nothing left blank). A stage still awaiting
+  // inspection keeps the dash rather than showing a fabricated pass.
+  if (h?.status === 'APPROVED') return column.defaultOnApprove;
   return '—';
 }
 
@@ -686,7 +708,7 @@ export async function exportPoolBirthCertificatePdf(
       }
       autoTable(doc, {
         startY: y,
-        body: [['Remarks', remarksText || '—']],
+        body: [['Remarks', remarksText || (h?.status === 'APPROVED' ? 'OK' : '—')]],
         styles: { fontSize: 7.5, cellPadding: 5 },
         columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60, fillColor: [248, 250, 252] } },
         margin: { left: marginLeft, right: 32 },
