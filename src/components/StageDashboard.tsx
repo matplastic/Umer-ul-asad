@@ -816,7 +816,13 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         >
                           <Printer className="h-3.5 w-3.5" />
                         </button>
-                        {getStatusBadge(hist.status)}
+                        {pool.isOnHold ? (
+                          <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded border border-orange-300">
+                            <PauseCircle className="h-3 w-3" /> QC HOLD
+                          </span>
+                        ) : (
+                          getStatusBadge(hist.status)
+                        )}
                         {hist.rejectionCount > 0 && (
                           <span className="px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-100 rounded text-[10px] font-bold">
                             Re-worked {hist.rejectionCount}x
