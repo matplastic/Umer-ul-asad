@@ -19,12 +19,30 @@ function currentStageLabel(pool: Pool): string {
 
 // Days remaining until the scheduled date, counting today as day 0.
 // Negative = overdue.
+// 'Today' as a plain YYYY-MM-DD in UAE time — not the browser's local date,
+// which can differ from UAE's calendar day near midnight if the device's
+// timezone isn't set to Dubai.
+function todayInUAE(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const y = parts.find(p => p.type === 'year')!.value;
+  const m = parts.find(p => p.type === 'month')!.value;
+  const d = parts.find(p => p.type === 'day')!.value;
+  return `${y}-${m}-${d}`;
+}
+
 function daysRemaining(dateStr: string): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const target = new Date(dateStr + 'T00:00:00');
+  // Pure calendar-day arithmetic on 'YYYY-MM-DD' strings, deliberately
+  // avoiding `new Date(str)` (which parses as the browser's local
+  // timezone) — that's what caused the "date 7 in Excel becomes date 6 on
+  // screen" bug on devices not set to Dubai time. Date.UTC anchors both
+  // sides identically so no timezone can shift the count.
+  const today = todayInUAE();
+  const [ty, tm, td] = today.split('-').map(Number);
+  const [dy, dm, dd] = dateStr.split('-').map(Number);
   const msPerDay = 24 * 60 * 60 * 1000;
-  return Math.round((target.getTime() - today.getTime()) / msPerDay);
+  return Math.round((Date.UTC(dy, dm - 1, dd) - Date.UTC(ty, tm - 1, td)) / msPerDay);
 }
 
 function urgencyStyle(days: number, isDelivered?: boolean): { badge: string; label: string } {
@@ -43,7 +61,16 @@ function urgencyStyle(days: number, isDelivered?: boolean): { badge: string; lab
 function parseSheetDate(val: any): string | null {
   if (val == null || val === '') return null;
   if (val instanceof Date && !isNaN(val.getTime())) {
-    return val.toISOString().slice(0, 10);
+    // IMPORTANT: don't use toISOString() here. XLSX (with cellDates:true)
+    // builds this Date using the reading machine's LOCAL timezone, not
+    // UTC — so pulling the date back out via UTC getters (which is what
+    // toISOString does) silently shifts the day whenever the browser's
+    // timezone is set ahead of UTC (as UAE, +4, always is). Local getters
+    // read back exactly what was written in, regardless of timezone.
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
   if (typeof val === 'number') {
     const parsed = XLSX.SSF.parse_date_code(val);
@@ -69,7 +96,11 @@ function parseSheetDate(val: any): string | null {
     return isNaN(new Date(candidate).getTime()) ? null : candidate;
   }
   const asDate = new Date(str);
-  return isNaN(asDate.getTime()) ? null : asDate.toISOString().slice(0, 10);
+  if (isNaN(asDate.getTime())) return null;
+  const y2 = asDate.getFullYear();
+  const m2 = String(asDate.getMonth() + 1).padStart(2, '0');
+  const d2 = String(asDate.getDate()).padStart(2, '0');
+  return `${y2}-${m2}-${d2}`;
 }
 
 function normalizeKey(s: string): string {
@@ -605,8 +636,13 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
             <p className="text-xs text-slate-400 py-10 text-center">No pools have a scheduled delivery date yet — set one on the left.</p>
           ) : (
             groupedByDate.map(group => {
-              const dt = new Date(group.date + 'T00:00:00');
-              const dayLabel = isNaN(dt.getTime()) ? group.date : dt.toLocaleDateString('en-GB', { timeZone: 'Asia/Dubai', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+              // Build from Date.UTC + format in UTC (not Asia/Dubai) — the
+              // string is already the intended UAE calendar date, so this
+              // just renders it as-is with zero risk of a local-timezone
+              // parse shifting the day (see parseSheetDate/daysRemaining).
+              const [gy, gm, gd] = group.date.split('-').map(Number);
+              const dt = new Date(Date.UTC(gy, (gm || 1) - 1, gd || 1));
+              const dayLabel = isNaN(dt.getTime()) ? group.date : dt.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
               const overdueCount = group.pools.filter(p => !p.isDelivered && daysRemaining(group.date) < 0).length;
               return (
                 <div key={group.date} className="border border-slate-100 rounded-xl overflow-hidden">
