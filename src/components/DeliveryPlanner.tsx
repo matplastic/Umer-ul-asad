@@ -53,54 +53,77 @@ function urgencyStyle(days: number, isDelivered?: boolean): { badge: string; lab
   return { badge: 'bg-slate-100 text-slate-600 border-slate-200', label: `${days}d left` };
 }
 
-// Turns whatever a spreadsheet cell hands us — a real Date (when the sheet
-// was read with cellDates:true), an Excel serial-day number, or a text date
-// in a handful of common layouts — into a clean 'YYYY-MM-DD' string. Text
-// dates are read DD/MM/YYYY (this factory's own date format elsewhere in
-// the app), not MM/DD/YYYY. Returns null if nothing usable is found.
+// Turns whatever a spreadsheet cell hands us — Excel's own displayed text
+// for that cell — into a clean 'YYYY-MM-DD' string.
+//
+// DELIBERATELY works from the sheet's own displayed text (what the reader
+// passed in with { raw: false }, i.e. exactly what Excel shows in the
+// cell — "Monday, September 07, 2026", "07/09/2026", etc.) and pulls the
+// year/month/day out with plain string parsing. It never constructs a
+// `new Date(...)` from that text and never touches getters or
+// toISOString — those all interpret through *some* timezone (the
+// reading machine's local zone, or UTC) and can silently roll the day
+// forward or back. Reading the digits straight out of the text Excel
+// already printed means the app shows exactly the date in the file,
+// with zero conversion of any kind.
+const MONTH_NAMES: Record<string, string> = {
+  jan: '01', january: '01', feb: '02', february: '02', mar: '03', march: '03',
+  apr: '04', april: '04', may: '05', jun: '06', june: '06', jul: '07', july: '07',
+  aug: '08', august: '08', sep: '09', sept: '09', september: '09',
+  oct: '10', october: '10', nov: '11', november: '11', dec: '12', december: '12',
+};
+
 function parseSheetDate(val: any): string | null {
   if (val == null || val === '') return null;
-  if (val instanceof Date && !isNaN(val.getTime())) {
-    // IMPORTANT: don't use toISOString() here. XLSX (with cellDates:true)
-    // builds this Date using the reading machine's LOCAL timezone, not
-    // UTC — so pulling the date back out via UTC getters (which is what
-    // toISOString does) silently shifts the day whenever the browser's
-    // timezone is set ahead of UTC (as UAE, +4, always is). Local getters
-    // read back exactly what was written in, regardless of timezone.
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  if (typeof val === 'number') {
-    const parsed = XLSX.SSF.parse_date_code(val);
-    if (parsed) {
-      const mm = String(parsed.m).padStart(2, '0');
-      const dd = String(parsed.d).padStart(2, '0');
-      return `${parsed.y}-${mm}-${dd}`;
-    }
-    return null;
-  }
   const str = String(val).trim();
   if (!str) return null;
-  // YYYY-MM-DD already
+
+  // Already ISO: 2026-09-07(...)
   if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
-  // DD/MM/YYYY or DD-MM-YYYY
-  const m = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
-  if (m) {
-    let [, d, mo, y] = m;
-    if (y.length === 2) y = `20${y}`;
-    const dd = d.padStart(2, '0');
-    const mm = mo.padStart(2, '0');
-    const candidate = `${y}-${mm}-${dd}`;
-    return isNaN(new Date(candidate).getTime()) ? null : candidate;
+
+  // Excel serial number typed/pasted as plain digits (rare, but possible
+  // if a cell wasn't formatted as a date) — SSF decodes the serial's
+  // calendar date directly, no Date object involved.
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    const parsed = XLSX.SSF.parse_date_code(Number(str));
+    if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
   }
-  const asDate = new Date(str);
-  if (isNaN(asDate.getTime())) return null;
-  const y2 = asDate.getFullYear();
-  const m2 = String(asDate.getMonth() + 1).padStart(2, '0');
-  const d2 = String(asDate.getDate()).padStart(2, '0');
-  return `${y2}-${m2}-${d2}`;
+
+  // "Monday, September 07, 2026" / "September 7, 2026" / "Sep 07 2026"
+  const longForm = str.match(/([A-Za-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})/);
+  if (longForm) {
+    const monthKey = longForm[1].toLowerCase();
+    if (MONTH_NAMES[monthKey]) {
+      const dd = longForm[2].padStart(2, '0');
+      return `${longForm[3]}-${MONTH_NAMES[monthKey]}-${dd}`;
+    }
+  }
+
+  // "07-Sep-2026" / "07 Sep 26"
+  const dmyText = str.match(/^(\d{1,2})[\s\-](?:of\s)?([A-Za-z]+)\.?[\s\-](\d{2,4})$/);
+  if (dmyText) {
+    const monthKey = dmyText[2].toLowerCase();
+    if (MONTH_NAMES[monthKey]) {
+      let y = dmyText[3];
+      if (y.length === 2) y = `20${y}`;
+      const dd = dmyText[1].padStart(2, '0');
+      return `${y}-${MONTH_NAMES[monthKey]}-${dd}`;
+    }
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY (this app's convention throughout, matches
+  // how dates are typed elsewhere in the ERP)
+  const numeric = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (numeric) {
+    let [, d, mo, y] = numeric;
+    if (y.length === 2) y = `20${y}`;
+    const ddN = Number(d), moN = Number(mo);
+    if (moN >= 1 && moN <= 12 && ddN >= 1 && ddN <= 31) {
+      return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+  }
+
+  return null;
 }
 
 function normalizeKey(s: string): string {
@@ -170,9 +193,12 @@ const BulkDeliveryUploadModal: React.FC<{ pools: Pool[]; onUpdatePool?: (poolId:
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const wb = XLSX.read(data, { type: 'array', cellDates: true });
+          const wb = XLSX.read(data, { type: 'array', cellDates: true, cellText: true });
           const ws = wb.Sheets[wb.SheetNames[0]];
-          const sheetRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          // raw:false returns each cell's formatted display text (exactly
+          // what Excel shows, e.g. "Monday, September 07, 2026") instead
+          // of a Date object — see parseSheetDate for why that matters.
+          const sheetRows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as any[][];
           if (sheetRows.length < 2) { setError('The selected file is empty.'); return; }
           const headerRowIdx = sheetRows.findIndex(r => r && r.length > 0);
           buildPreview(sheetRows[headerRowIdx].map((h: any) => String(h || '')), sheetRows.slice(headerRowIdx + 1));
