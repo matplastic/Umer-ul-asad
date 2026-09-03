@@ -501,7 +501,15 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             <h4 className="text-sm font-bold text-slate-800 mt-1.5">{reworkPool.projectName}</h4>
                           </div>
                         </div>
-                        {getStatusBadge(reworkHist.status)}
+                        {/* QC HOLD takes visual priority over the raw stage status — the
+                            floor needs to see the timer is paused, not that work is "active". */}
+                        {reworkPool.isOnHold ? (
+                          <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded border border-orange-300">
+                            <PauseCircle className="h-3 w-3" /> QC HOLD
+                          </span>
+                        ) : (
+                          getStatusBadge(reworkHist.status)
+                        )}
                       </div>
 
                       <div className="p-2.5 bg-rose-50 border border-rose-100 text-rose-800 text-xs rounded-lg space-y-1 font-sans">
@@ -514,7 +522,17 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </p>
                       </div>
 
-                      {reworkHist.status === 'IN_PROGRESS' && (
+                      {/* QC HOLD notice — mirrors the notice on the normal available-pool
+                          card, and hides the Complete button so the team can't finish
+                          (and lock in a duration) while the clock is paused. */}
+                      {reworkPool.isOnHold && (
+                        <div className="text-[10.5px] text-orange-800 bg-orange-100 border border-orange-200 rounded px-2 py-1">
+                          <strong>On hold by QC</strong> ({reworkPool.holdInfo?.heldBy || 'Quality'})
+                          {reworkPool.holdInfo?.reason ? ` — ${reworkPool.holdInfo.reason}` : ''}. Timer paused until released.
+                        </div>
+                      )}
+
+                      {reworkHist.status === 'IN_PROGRESS' && !reworkPool.isOnHold && (
                         <>
                           <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold p-1.5 bg-blue-50/50 rounded border border-blue-105">
                             <Clock className="h-3.5 w-3.5 text-blue-500 animate-spin" />
