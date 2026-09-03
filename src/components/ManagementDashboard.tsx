@@ -15,6 +15,7 @@ import { OnlineUsersPanel } from './OnlineUsersPanel';
 import { StageDashboard } from './StageDashboard';
 import { StageReportsTab } from './StageReportsTab';
 import { ProjectProgressReport } from './ProjectProgressReport';
+import { DeliveryPlanner } from './DeliveryPlanner';
 import { SiteDeliveryTracker } from './SiteDeliveryTracker';
 import { exportEmployeeCertificatePdf } from '../lib/exportUtils';
 import { 
@@ -28,7 +29,7 @@ import {
   ThumbsUp, SlidersHorizontal, ChevronLeft, ChevronRight, 
   Edit2, Plus, Trash2, UserPlus, Check, X, Briefcase, FolderPlus,
   ShieldCheck, ShieldAlert, Activity, Cloud, Loader2, CheckCircle2, HardDrive,
-  Lock, Unlock, Info, Calendar, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes, FileDown,
+  Lock, Unlock, Info, Calendar, CalendarClock, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes, FileDown,
   UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck, Printer
 } from 'lucide-react';
 
@@ -2708,6 +2709,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'team_search', label: 'Team Search', icon: Search, elId: 'tab-mgmt-team-search' },
               { id: 'shop_floor', label: 'Shop Floor Monitor', icon: HardHat, elId: 'tab-mgmt-shop-floor' },
               { id: 'pool_delivery', label: 'Pool Delivery', icon: Truck, elId: 'tab-mgmt-pool-delivery' },
+              { id: 'delivery_planner', label: 'Delivery Planner', icon: CalendarClock, elId: 'tab-mgmt-delivery-planner' },
               { id: 'site_deliveries', label: 'Site Deliveries', icon: Truck, elId: 'tab-mgmt-site-deliveries' },
               { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
               { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
@@ -7123,6 +7125,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               )}
             </div>
           </div>
+        )}
+
+        {activeTab === 'delivery_planner' && (
+          <DeliveryPlanner pools={pools} onUpdatePool={onUpdatePool} />
         )}
 
         {activeTab === 'site_deliveries' && (
