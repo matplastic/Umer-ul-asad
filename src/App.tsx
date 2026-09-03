@@ -2943,8 +2943,21 @@ export default function App() {
     if (poolIndex === -1) return;
 
     const updatedPools = [...poolsRef.current];
-    const pool = { ...updatedPools[poolIndex] };
-    const heldStage = pool.holdInfo?.stageAtHold || (STAGES[pool.currentStageIndex]?.id ?? 'unknown');
+    const pool = { ...updatedPools[poolIndex], stageHistory: { ...updatedPools[poolIndex].stageHistory } };
+    const heldStage = (pool.holdInfo?.stageAtHold || (STAGES[pool.currentStageIndex]?.id ?? 'unknown')) as StageId;
+
+    // PRODUCTION TIMER PAUSE: add however long this hold lasted onto the
+    // stage's accumulated heldMs, so handleFinishStage can subtract it back
+    // out of the raw endTime-startTime diff. Only meaningful while a team
+    // is actually mid-work on that stage (startTime set, no endTime yet) —
+    // still safe to accumulate unconditionally since it's only ever read
+    // when startTime exists.
+    if (pool.holdInfo?.heldAt) {
+      const heldMs = Date.now() - new Date(pool.holdInfo.heldAt).getTime();
+      const existingHist = pool.stageHistory[heldStage] || { stageId: heldStage, status: 'NOT_STARTED', rejectionCount: 0 };
+      pool.stageHistory[heldStage] = { ...existingHist, heldMs: (existingHist.heldMs || 0) + Math.max(0, heldMs) };
+    }
+
     pool.isOnHold = false;
     pool.holdInfo = null;
     updatedPools[poolIndex] = pool;
@@ -3027,7 +3040,11 @@ export default function App() {
     // Calculate duration
     if (stageHist.startTime) {
       const msDiff = new Date(nowStr).getTime() - new Date(stageHist.startTime).getTime();
-      const minutes = Math.max(1, Math.round(msDiff / 60000));
+      // PRODUCTION TIMER PAUSE: subtract any time this stage spent under a
+      // QC hold — the hold froze the clock, so it shouldn't count toward
+      // reported production duration.
+      const heldMs = stageHist.heldMs || 0;
+      const minutes = Math.max(1, Math.round((msDiff - heldMs) / 60000));
       stageHist.durationMinutes = minutes;
     } else {
       stageHist.durationMinutes = 45; // Default safe mock duration if no timer start was toggled
