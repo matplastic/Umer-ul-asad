@@ -448,7 +448,7 @@ export default function App() {
         if ((freshData as any).trolleys) setTrolleys((freshData as any).trolleys);
         if ((freshData as any).employeePunches) setEmployeePunches((freshData as any).employeePunches);
         if ((freshData as any).recycleBin) setRecycleBin((freshData as any).recycleBin);
-        setLastSyncTime(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        setLastSyncTime(new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Dubai', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       }
     } catch (e) {
       console.error('Full refresh failed:', e);

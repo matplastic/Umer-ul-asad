@@ -124,7 +124,7 @@ export const AutoPrintMaterialSlip: React.FC = () => {
             <tr><td style={{ color: '#555' }}>Pool Type</td><td style={{ fontWeight: 700 }}>{first.poolType}</td></tr>
             {first.poolNo && <tr><td style={{ color: '#555' }}>Pool No.</td><td style={{ fontWeight: 700 }}>{first.poolNo}</td></tr>}
             <tr><td style={{ color: '#555' }}>Requested By</td><td>{first.requestedByName} ({first.requestedByRole})</td></tr>
-            <tr><td style={{ color: '#555' }}>Approved By</td><td>{first.decidedByName || '—'}{first.decidedAt ? ` · ${new Date(first.decidedAt).toLocaleString()}` : ''}</td></tr>
+            <tr><td style={{ color: '#555' }}>Approved By</td><td>{first.decidedByName || '—'}{first.decidedAt ? ` · ${new Date(first.decidedAt).toLocaleString('en-GB', { timeZone: 'Asia/Dubai' })}` : ''}</td></tr>
             {first.reason && <tr><td style={{ color: '#555' }}>Reason / Note</td><td style={{ fontStyle: 'italic' }}>{first.reason}</td></tr>}
           </tbody>
         </table>
