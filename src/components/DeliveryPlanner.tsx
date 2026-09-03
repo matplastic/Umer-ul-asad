@@ -606,7 +606,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
           ) : (
             groupedByDate.map(group => {
               const dt = new Date(group.date + 'T00:00:00');
-              const dayLabel = isNaN(dt.getTime()) ? group.date : dt.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+              const dayLabel = isNaN(dt.getTime()) ? group.date : dt.toLocaleDateString('en-GB', { timeZone: 'Asia/Dubai', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
               const overdueCount = group.pools.filter(p => !p.isDelivered && daysRemaining(group.date) < 0).length;
               return (
                 <div key={group.date} className="border border-slate-100 rounded-xl overflow-hidden">
