@@ -134,6 +134,12 @@ export interface Pool {
   stageHistory: { [key in StageId]: StageHistory };
   isDelivered?: boolean;
   deliveredAt?: string | null;
+  // DELIVERY PLANNING: a target date management commits to for this pool
+  // (independent of isDelivered/deliveredAt, which record the *actual*
+  // handover). Lets the Delivery Planner report show, per pool, its
+  // current production stage next to the promised date and days remaining.
+  scheduledDeliveryDate?: string | null; // 'YYYY-MM-DD'
+  deliveryPlanNotes?: string | null;
   // QC HOLD: when true, no team/kiosk may claim this pool at its current
   // stage until QC releases it. The pool stays visible on stage boards
   // (grayed out with a hold badge) — it is never hidden from the list.
