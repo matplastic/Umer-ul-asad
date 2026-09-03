@@ -58,6 +58,12 @@ export interface StageHistory {
   // free-text fields above (nothing above is removed or replaced). Optional
   // so pools/stages inspected before this feature shipped remain valid.
   checklistResult?: ChecklistResult;
+  // Total milliseconds this stage has spent under a QC hold while work was
+  // in progress. Accumulated across possibly multiple hold/release cycles
+  // within the same stage. Subtracted from the raw endTime-startTime diff
+  // when the stage duration is calculated, so a QC hold pauses the
+  // production timer instead of letting it keep counting.
+  heldMs?: number;
 }
 
 // One checkpoint item inside a ChecklistTemplate.
