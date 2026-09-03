@@ -287,6 +287,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [reportSearch, setReportSearch] = useState('');
   const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const selectedPool = useMemo(() => pools.find(p => p.id === selectedPoolId) || null, [pools, selectedPoolId]);
 
@@ -349,6 +350,38 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
     });
     return groups;
   }, [scheduledPools]);
+
+  const allVisibleSelected = scheduledPools.length > 0 && scheduledPools.every(p => selectedIds.has(p.id));
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(scheduledPools.map(p => p.id)));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = () => {
+    if (!onUpdatePool || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!window.confirm(`Remove the scheduled delivery date from ${count} pool${count === 1 ? '' : 's'}? This only clears the plan — it won't affect production or actual delivery status.`)) return;
+    selectedIds.forEach(id => {
+      onUpdatePool(id, { scheduledDeliveryDate: null, deliveryPlanNotes: null });
+    });
+    setSelectedIds(new Set());
+    if (selectedPoolId && selectedIds.has(selectedPoolId)) {
+      setDateInput('');
+      setNotesInput('');
+    }
+  };
 
   const exportRows = () =>
     scheduledPools.map(p => ({
@@ -544,6 +577,29 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
           </select>
         </div>
 
+        {scheduledPools.length > 0 && (
+          <div className="flex items-center justify-between gap-2 px-1">
+            <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={toggleSelectAll}
+                className="h-3.5 w-3.5 rounded border-slate-300 cursor-pointer"
+              />
+              Select all ({scheduledPools.length})
+            </label>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleDeleteSelected}
+                disabled={!onUpdatePool}
+                className="flex items-center gap-1 text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 disabled:opacity-50 cursor-pointer"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete {selectedIds.size} Selected
+              </button>
+            )}
+          </div>
+        )}
+
         <div id="delivery-planner-report" className="space-y-4 max-h-[640px] overflow-y-auto pr-1">
           {groupedByDate.length === 0 ? (
             <p className="text-xs text-slate-400 py-10 text-center">No pools have a scheduled delivery date yet — set one on the left.</p>
@@ -574,6 +630,12 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
                       return (
                         <div key={pool.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs">
                           <div className="min-w-0 flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(pool.id)}
+                              onChange={() => toggleSelectOne(pool.id)}
+                              className="h-3.5 w-3.5 rounded border-slate-300 cursor-pointer shrink-0"
+                            />
                             <span className="font-mono font-black text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded shrink-0">
                               {pool.poolNo}
                             </span>
