@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarClock, Search, X, Truck, AlertTriangle, CheckCircle2, Printer, Download, Trash2 } from 'lucide-react';
+import { CalendarClock, Search, X, Truck, AlertTriangle, CheckCircle2, Printer, Download, Trash2, UploadCloud, Check } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Pool } from '../types';
 import { STAGES } from '../data/mockData';
 import { exportToExcel, exportTablePdf } from '../lib/exportUtils';
@@ -34,6 +35,237 @@ function urgencyStyle(days: number, isDelivered?: boolean): { badge: string; lab
   return { badge: 'bg-slate-100 text-slate-600 border-slate-200', label: `${days}d left` };
 }
 
+// Turns whatever a spreadsheet cell hands us — a real Date (when the sheet
+// was read with cellDates:true), an Excel serial-day number, or a text date
+// in a handful of common layouts — into a clean 'YYYY-MM-DD' string. Text
+// dates are read DD/MM/YYYY (this factory's own date format elsewhere in
+// the app), not MM/DD/YYYY. Returns null if nothing usable is found.
+function parseSheetDate(val: any): string | null {
+  if (val == null || val === '') return null;
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    return val.toISOString().slice(0, 10);
+  }
+  if (typeof val === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(val);
+    if (parsed) {
+      const mm = String(parsed.m).padStart(2, '0');
+      const dd = String(parsed.d).padStart(2, '0');
+      return `${parsed.y}-${mm}-${dd}`;
+    }
+    return null;
+  }
+  const str = String(val).trim();
+  if (!str) return null;
+  // YYYY-MM-DD already
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  // DD/MM/YYYY or DD-MM-YYYY
+  const m = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let [, d, mo, y] = m;
+    if (y.length === 2) y = `20${y}`;
+    const dd = d.padStart(2, '0');
+    const mm = mo.padStart(2, '0');
+    const candidate = `${y}-${mm}-${dd}`;
+    return isNaN(new Date(candidate).getTime()) ? null : candidate;
+  }
+  const asDate = new Date(str);
+  return isNaN(asDate.getTime()) ? null : asDate.toISOString().slice(0, 10);
+}
+
+function normalizeKey(s: string): string {
+  return s.trim().toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+interface ImportRow {
+  rowNum: number;
+  poolNoRaw: string;
+  projectNameRaw: string;
+  dateRaw: string;
+  parsedDate: string | null;
+  matches: Pool[]; // pools whose poolNo matches (narrowed by project if given/needed)
+}
+
+/**
+ * Bulk-upload modal: drop an Excel/CSV with Pool No / Project Name /
+ * Delivery Date columns and set every matching pool's scheduled delivery
+ * date in one go, instead of doing it one by one.
+ */
+const BulkDeliveryUploadModal: React.FC<{ pools: Pool[]; onUpdatePool?: (poolId: string, updates: Partial<Pool>) => void; onClose: () => void }> = ({ pools, onUpdatePool, onClose }) => {
+  const [dragActive, setDragActive] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [rows, setRows] = useState<ImportRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+
+  const buildPreview = (headers: string[], dataRows: any[][]) => {
+    const norm = headers.map(normalizeKey);
+    const poolIdx = norm.findIndex(h => h.includes('poolno') || h === 'pool' || h.includes('pool#') || h.includes('poolnumber'));
+    const projectIdx = norm.findIndex(h => h.includes('project'));
+    const dateIdx = norm.findIndex(h => h.includes('deliver') || h.includes('date'));
+
+    if (poolIdx === -1 || dateIdx === -1) {
+      setError('Could not find "Pool No" and "Delivery Date" columns. Make sure your header row has columns named something like Pool No, Project Name, and Delivery Date.');
+      return;
+    }
+
+    const parsed: ImportRow[] = dataRows
+      .map((r, i) => {
+        const poolNoRaw = String(r[poolIdx] ?? '').trim();
+        const projectNameRaw = projectIdx !== -1 ? String(r[projectIdx] ?? '').trim() : '';
+        const dateRaw = String(r[dateIdx] ?? '').trim();
+        if (!poolNoRaw && !dateRaw) return null; // skip fully blank rows
+        const parsedDate = parseSheetDate(r[dateIdx]);
+        let matches = pools.filter(p => normalizeKey(p.poolNo) === normalizeKey(poolNoRaw));
+        if (matches.length > 1 && projectNameRaw) {
+          const narrowed = matches.filter(p => normalizeKey(p.projectName) === normalizeKey(projectNameRaw));
+          if (narrowed.length > 0) matches = narrowed;
+        }
+        return { rowNum: i + 2, poolNoRaw, projectNameRaw, dateRaw, parsedDate, matches };
+      })
+      .filter((r): r is ImportRow => r !== null);
+
+    setRows(parsed);
+    setError(null);
+  };
+
+  const handleFile = (f: File) => {
+    setFileName(f.name);
+    setError(null);
+    setDone(null);
+    const ext = f.name.split('.').pop()?.toLowerCase();
+    const reader = new FileReader();
+    if (ext === 'xlsx' || ext === 'xls') {
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const wb = XLSX.read(data, { type: 'array', cellDates: true });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const sheetRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          if (sheetRows.length < 2) { setError('The selected file is empty.'); return; }
+          const headerRowIdx = sheetRows.findIndex(r => r && r.length > 0);
+          buildPreview(sheetRows[headerRowIdx].map((h: any) => String(h || '')), sheetRows.slice(headerRowIdx + 1));
+        } catch (err: any) {
+          setError('Failed to read the file: ' + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(f);
+    } else {
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        if (!text) { setError('The selected file is empty or unreadable.'); return; }
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { setError('File has no content rows.'); return; }
+        const delim = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
+        const parseLine = (line: string) => line.split(delim).map(c => c.trim().replace(/^['"]|['"]$/g, ''));
+        buildPreview(parseLine(lines[0]), lines.slice(1).map(parseLine));
+      };
+      reader.readAsText(f);
+    }
+  };
+
+  const matchedRows = rows?.filter(r => r.matches.length === 1 && r.parsedDate) || [];
+  const unmatchedRows = rows?.filter(r => r.matches.length !== 1 || !r.parsedDate) || [];
+
+  const confirmImport = () => {
+    if (!onUpdatePool || matchedRows.length === 0) return;
+    setSaving(true);
+    matchedRows.forEach(r => {
+      onUpdatePool(r.matches[0].id, { scheduledDeliveryDate: r.parsedDate });
+    });
+    setDone(`Done — ${matchedRows.length} pool${matchedRows.length === 1 ? '' : 's'} updated.`);
+    setSaving(false);
+    setTimeout(onClose, 1800);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-slate-800 flex items-center gap-2">
+            <UploadCloud className="h-4 w-4 text-blue-600" /> Bulk Import Delivery Dates
+          </h3>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400 hover:text-slate-600" /></button>
+        </div>
+
+        {!rows ? (
+          <>
+            <p className="text-xs text-slate-500">
+              Upload an Excel or CSV file with columns for <strong>Pool No</strong>, <strong>Project Name</strong> (optional, used to disambiguate if a pool number repeats across projects), and <strong>Delivery Date</strong>.
+            </p>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(e) => { e.preventDefault(); setDragActive(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
+              onClick={() => document.getElementById('delivery_planner_import_input')?.click()}
+              className={`border-2 border-dashed rounded-xl py-8 text-center cursor-pointer transition-colors ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}
+            >
+              <input
+                id="delivery_planner_import_input" type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+              />
+              <UploadCloud className="h-6 w-6 text-slate-300 mx-auto mb-2" />
+              <p className="text-xs font-semibold text-slate-500">Drop the Excel/CSV file here, or click to browse</p>
+              <p className="text-[10px] text-slate-400 mt-1">Columns: Pool No, Project Name, Delivery Date</p>
+            </div>
+            {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
+          </>
+        ) : done ? (
+          <div className="text-center py-8">
+            <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-3" />
+            <p className="text-sm font-bold text-slate-700">{done}</p>
+          </div>
+        ) : (
+          <>
+            <p className="text-xs text-slate-500">
+              From <strong>{fileName}</strong>: <strong className="text-emerald-600">{matchedRows.length}</strong> row{matchedRows.length === 1 ? '' : 's'} matched a pool and will be updated.
+              {unmatchedRows.length > 0 && <> <strong className="text-rose-600">{unmatchedRows.length}</strong> row{unmatchedRows.length === 1 ? '' : 's'} couldn't be matched and will be skipped.</>}
+            </p>
+
+            <div className="border border-slate-100 rounded-xl max-h-64 overflow-y-auto divide-y divide-slate-50">
+              {rows.map(r => {
+                const ok = r.matches.length === 1 && r.parsedDate;
+                return (
+                  <div key={r.rowNum} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                    <div className="min-w-0 flex items-center gap-2">
+                      {ok ? <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" /> : <AlertTriangle className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
+                      <span className="font-mono font-bold text-slate-600 shrink-0">{r.poolNoRaw || '(blank)'}</span>
+                      <span className="text-slate-400 truncate">{r.projectNameRaw}</span>
+                    </div>
+                    <span className={`shrink-0 font-semibold ${ok ? 'text-slate-600' : 'text-rose-500'}`}>
+                      {!r.parsedDate ? `Unrecognized date: "${r.dateRaw}"` : r.matches.length === 0 ? 'No matching pool' : r.matches.length > 1 ? `${r.matches.length} pools match — add project name` : r.parsedDate}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => { setRows(null); setFileName(null); }}
+                className="flex-1 text-xs font-bold py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer"
+              >
+                Choose a different file
+              </button>
+              <button
+                onClick={confirmImport}
+                disabled={!onUpdatePool || saving || matchedRows.length === 0}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-colors"
+              >
+                <UploadCloud className="h-3.5 w-3.5" />
+                {saving ? 'Saving...' : `Update ${matchedRows.length} Pool${matchedRows.length === 1 ? '' : 's'}`}
+              </button>
+            </div>
+            {!onUpdatePool && (
+              <span className="text-[10px] font-bold text-rose-500 block">Save is not wired up yet — ask your developer to connect onUpdatePool.</span>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 /**
  * Delivery Planner — lets management commit a target delivery date to any
  * pool, then reports it against that pool's live current production stage
@@ -54,6 +286,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
 
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [reportSearch, setReportSearch] = useState('');
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   const selectedPool = useMemo(() => pools.find(p => p.id === selectedPoolId) || null, [pools, selectedPoolId]);
 
@@ -128,6 +361,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
     }));
 
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
 
       {/* Left: assign / update a pool's scheduled delivery date */}
@@ -246,6 +480,13 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
           </h3>
           <div className="flex items-center gap-1.5">
             <button
+              onClick={() => setShowBulkUpload(true)}
+              disabled={!onUpdatePool}
+              className="flex items-center gap-1 text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 cursor-pointer"
+            >
+              <UploadCloud className="h-3.5 w-3.5" /> Bulk Upload
+            </button>
+            <button
               onClick={() => exportTablePdf({
                 title: 'Delivery Schedule Report',
                 subtitle: projectFilter === 'all' ? 'All Projects' : projectFilter,
@@ -362,5 +603,10 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
         </div>
       </div>
     </div>
+
+    {showBulkUpload && (
+      <BulkDeliveryUploadModal pools={pools} onUpdatePool={onUpdatePool} onClose={() => setShowBulkUpload(false)} />
+    )}
+    </>
   );
 };
