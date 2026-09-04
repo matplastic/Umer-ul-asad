@@ -346,6 +346,8 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
   const [reportSearch, setReportSearch] = useState('');
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showExportPicker, setShowExportPicker] = useState(false);
+  const [exportDates, setExportDates] = useState<Set<string>>(new Set());
 
   const selectedPool = useMemo(() => pools.find(p => p.id === selectedPoolId) || null, [pools, selectedPoolId]);
 
@@ -413,6 +415,94 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
     });
     return groups;
   }, [scheduledPools]);
+
+  // Every distinct scheduled date across ALL pools (not narrowed by the
+  // project/ready/search filters above) — this backs the "export specific
+  // dates" picker, which is meant to work independently of whatever the
+  // report happens to be filtered to on screen right now.
+  const allDatesWithCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    pools.forEach(p => {
+      if (!p.scheduledDeliveryDate) return;
+      const d = p.scheduledDeliveryDate.slice(0, 10);
+      map.set(d, (map.get(d) || 0) + 1);
+    });
+    return Array.from(map.entries()).map(([date, count]) => ({ date, count })).sort((a, b) => a.date < b.date ? -1 : 1);
+  }, [pools]);
+
+  const openExportPicker = () => {
+    // default to whatever's currently on screen (respects project/ready
+    // filters) so the common case — "export what I'm looking at" — is
+    // just a confirm click away, while still letting them pick any date.
+    setExportDates(new Set(groupedByDate.map(g => g.date)));
+    setShowExportPicker(true);
+  };
+
+  const toggleExportDate = (date: string) => {
+    setExportDates(prev => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date); else next.add(date);
+      return next;
+    });
+  };
+
+  const poolsForExport = useMemo(
+    () => pools.filter(p => p.scheduledDeliveryDate && exportDates.has(p.scheduledDeliveryDate.slice(0, 10))),
+    [pools, exportDates]
+  );
+
+  const buildExportRows = (poolList: Pool[]) =>
+    poolList
+      .slice()
+      .sort((a, b) => (a.scheduledDeliveryDate! < b.scheduledDeliveryDate! ? -1 : a.scheduledDeliveryDate! > b.scheduledDeliveryDate! ? 1 : 0))
+      .map(p => ({
+        'Pool No': p.poolNo,
+        'Project': p.projectName,
+        'Current Stage': currentStageLabel(p),
+        'Delivery Date': p.scheduledDeliveryDate,
+        'Days Remaining': p.isDelivered ? 'Delivered' : daysRemaining(p.scheduledDeliveryDate!.slice(0, 10)),
+        'Ready for Delivery': p.isDelivered ? 'Delivered' : p.readyForDelivery ? 'Yes' : 'No',
+        'Notes': p.deliveryPlanNotes || '',
+      }));
+
+  const exportPickedDatesExcel = () => {
+    exportToExcel(buildExportRows(poolsForExport), 'delivery_schedule_selected_dates', 'Delivery Schedule');
+    setShowExportPicker(false);
+  };
+
+  const exportPickedDatesPdf = () => {
+    const exportDatesArr: string[] = [...exportDates];
+    const dateLabel = exportDatesArr.length === 1 ? exportDatesArr[0] : `${exportDatesArr.length} dates selected`;
+    exportTablePdf({
+      title: 'Delivery Schedule Report',
+      subtitle: dateLabel,
+      columns: [
+        { header: 'Pool No', dataKey: 'poolNo' },
+        { header: 'Project', dataKey: 'project' },
+        { header: 'Current Stage', dataKey: 'stage' },
+        { header: 'Delivery Date', dataKey: 'date' },
+        { header: 'Days Remaining', dataKey: 'days' },
+        { header: 'Ready?', dataKey: 'ready' },
+        { header: 'Notes', dataKey: 'notes' },
+      ],
+      rows: poolsForExport
+        .slice()
+        .sort((a, b) => (a.scheduledDeliveryDate! < b.scheduledDeliveryDate! ? -1 : a.scheduledDeliveryDate! > b.scheduledDeliveryDate! ? 1 : 0))
+        .map(p => ({
+          poolNo: p.poolNo,
+          project: p.projectName,
+          stage: currentStageLabel(p),
+          date: p.scheduledDeliveryDate,
+          days: p.isDelivered ? 'Delivered' : daysRemaining(p.scheduledDeliveryDate!.slice(0, 10)),
+          ready: p.isDelivered ? 'Delivered' : p.readyForDelivery ? 'Yes' : 'No',
+          notes: p.deliveryPlanNotes || '',
+        })),
+      filename: 'delivery_schedule_selected_dates',
+      orientation: 'landscape',
+      deptLine: 'Delivery Planning',
+    });
+    setShowExportPicker(false);
+  };
 
   const allVisibleSelected = scheduledPools.length > 0 && scheduledPools.every(p => selectedIds.has(p.id));
 
@@ -619,6 +709,12 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
             >
               <Download className="h-3.5 w-3.5" /> Excel
             </button>
+            <button
+              onClick={openExportPicker}
+              className="flex items-center gap-1 text-[10.5px] font-bold px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer"
+            >
+              <CalendarClock className="h-3.5 w-3.5" /> Export by Date
+            </button>
           </div>
         </div>
 
@@ -769,6 +865,86 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
 
     {showBulkUpload && (
       <BulkDeliveryUploadModal pools={pools} onUpdatePool={onUpdatePool} onClose={() => setShowBulkUpload(false)} />
+    )}
+
+    {showExportPicker && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+          <div className="flex items-center justify-between">
+            <h3 className="font-black text-slate-800 flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-blue-600" /> Export by Date
+            </h3>
+            <button onClick={() => setShowExportPicker(false)}><X className="h-5 w-5 text-slate-400 hover:text-slate-600" /></button>
+          </div>
+          <p className="text-xs text-slate-500">
+            Tick the date(s) you want in the export — one date, a few, or everything.
+          </p>
+
+          <div className="flex items-center justify-between px-1">
+            <button
+              onClick={() => setExportDates(new Set(allDatesWithCounts.map(d => d.date)))}
+              className="text-[10.5px] font-bold text-blue-600 hover:underline cursor-pointer"
+            >
+              Select all
+            </button>
+            <button
+              onClick={() => setExportDates(new Set())}
+              className="text-[10.5px] font-bold text-slate-400 hover:underline cursor-pointer"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="border border-slate-100 rounded-xl max-h-72 overflow-y-auto divide-y divide-slate-50">
+            {allDatesWithCounts.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-6">No pools have a scheduled delivery date yet.</p>
+            ) : (
+              allDatesWithCounts.map(({ date, count }) => {
+                const [gy, gm, gd] = date.split('-').map(Number);
+                const dt = new Date(Date.UTC(gy, (gm || 1) - 1, gd || 1));
+                const label = isNaN(dt.getTime()) ? date : dt.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+                return (
+                  <label key={date} className="flex items-center justify-between gap-2 px-3 py-2.5 text-xs cursor-pointer hover:bg-slate-50">
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={exportDates.has(date)}
+                        onChange={() => toggleExportDate(date)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 cursor-pointer"
+                      />
+                      <span className="font-semibold text-slate-700">{label}</span>
+                    </span>
+                    <span className="text-[10.5px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">
+                      {count} pool{count !== 1 ? 's' : ''}
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          <p className="text-[10.5px] text-slate-400">
+            {exportDates.size === 0 ? 'No dates selected.' : `${poolsForExport.length} pool${poolsForExport.length !== 1 ? 's' : ''} across ${exportDates.size} date${exportDates.size !== 1 ? 's' : ''} will be exported.`}
+          </p>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={exportPickedDatesPdf}
+              disabled={exportDates.size === 0}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-colors"
+            >
+              <Printer className="h-3.5 w-3.5" /> PDF
+            </button>
+            <button
+              onClick={exportPickedDatesExcel}
+              disabled={exportDates.size === 0}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" /> Excel
+            </button>
+          </div>
+        </div>
+      </div>
     )}
     </>
   );
