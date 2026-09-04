@@ -139,6 +139,11 @@ export interface Pool {
   // handover). Lets the Delivery Planner report show, per pool, its
   // current production stage next to the promised date and days remaining.
   scheduledDeliveryDate?: string | null; // 'YYYY-MM-DD'
+  // Marked by whoever's tracking the plan once the pool is physically
+  // ready to go out — separate from isDelivered/deliveredAt, which only
+  // get set once it has actually left. Lets the Delivery Planner report
+  // show "X of Y ready" per delivery date before the truck even shows up.
+  readyForDelivery?: boolean;
   deliveryPlanNotes?: string | null;
   // QC HOLD: when true, no team/kiosk may claim this pool at its current
   // stage until QC releases it. The pool stays visible on stage boards
