@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarClock, Search, X, Truck, AlertTriangle, CheckCircle2, Printer, Download, Trash2, UploadCloud, Check } from 'lucide-react';
+import { CalendarClock, Search, X, Truck, AlertTriangle, CheckCircle2, Printer, Download, Trash2, UploadCloud, Check, PackageCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Pool } from '../types';
 import { STAGES } from '../data/mockData';
@@ -342,6 +342,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   const [projectFilter, setProjectFilter] = useState<string>('all');
+  const [readyFilter, setReadyFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
   const [reportSearch, setReportSearch] = useState('');
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -392,9 +393,14 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
     return pools
       .filter(p => !!p.scheduledDeliveryDate)
       .filter(p => projectFilter === 'all' || p.projectName === projectFilter)
+      .filter(p => {
+        if (readyFilter === 'all') return true;
+        const isReady = p.isDelivered || p.readyForDelivery;
+        return readyFilter === 'ready' ? isReady : !isReady;
+      })
       .filter(p => !q || p.poolNo.toLowerCase().includes(q) || p.projectName.toLowerCase().includes(q))
       .sort((a, b) => (a.scheduledDeliveryDate! < b.scheduledDeliveryDate! ? -1 : a.scheduledDeliveryDate! > b.scheduledDeliveryDate! ? 1 : 0));
-  }, [pools, projectFilter, reportSearch]);
+  }, [pools, projectFilter, readyFilter, reportSearch]);
 
   // Group by date so "22 pools due on the 12th" reads as one block with a count.
   const groupedByDate = useMemo(() => {
@@ -447,6 +453,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
       'Current Stage': currentStageLabel(p),
       'Delivery Date': p.scheduledDeliveryDate,
       'Days Remaining': p.isDelivered ? 'Delivered' : daysRemaining(p.scheduledDeliveryDate!.slice(0, 10)),
+      'Ready for Delivery': p.isDelivered ? 'Delivered' : p.readyForDelivery ? 'Yes' : 'No',
       'Notes': p.deliveryPlanNotes || '',
     }));
 
@@ -586,6 +593,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
                   { header: 'Current Stage', dataKey: 'stage' },
                   { header: 'Delivery Date', dataKey: 'date' },
                   { header: 'Days Remaining', dataKey: 'days' },
+                  { header: 'Ready?', dataKey: 'ready' },
                   { header: 'Notes', dataKey: 'notes' },
                 ],
                 rows: scheduledPools.map(p => ({
@@ -594,6 +602,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
                   stage: currentStageLabel(p),
                   date: p.scheduledDeliveryDate,
                   days: p.isDelivered ? 'Delivered' : daysRemaining(p.scheduledDeliveryDate!.slice(0, 10)),
+                  ready: p.isDelivered ? 'Delivered' : p.readyForDelivery ? 'Yes' : 'No',
                   notes: p.deliveryPlanNotes || '',
                 })),
                 filename: 'delivery_schedule_report',
@@ -631,6 +640,15 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
           >
             <option value="all">All Projects</option>
             {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select
+            value={readyFilter}
+            onChange={(e) => setReadyFilter(e.target.value as 'all' | 'ready' | 'not_ready')}
+            className="text-xs border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400"
+          >
+            <option value="all">Ready + Not Ready</option>
+            <option value="ready">Ready Only</option>
+            <option value="not_ready">Not Ready Only</option>
           </select>
         </div>
 
@@ -670,6 +688,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
               const dt = new Date(Date.UTC(gy, (gm || 1) - 1, gd || 1));
               const dayLabel = isNaN(dt.getTime()) ? group.date : dt.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
               const overdueCount = group.pools.filter(p => !p.isDelivered && daysRemaining(group.date) < 0).length;
+              const readyCount = group.pools.filter(p => p.readyForDelivery || p.isDelivered).length;
               return (
                 <div key={group.date} className="border border-slate-100 rounded-xl overflow-hidden">
                   <div className="flex items-center justify-between px-3.5 py-2 bg-slate-50 border-b border-slate-100">
@@ -680,6 +699,11 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
                           <AlertTriangle className="h-3 w-3" /> {overdueCount} overdue
                         </span>
                       )}
+                      <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        readyCount === group.pools.length ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        <PackageCheck className="h-3 w-3" /> {readyCount} of {group.pools.length} ready
+                      </span>
                       <span className="text-[10.5px] font-bold text-slate-500 bg-white border border-slate-200 rounded-full px-2 py-0.5">
                         {group.pools.length} pool{group.pools.length !== 1 ? 's' : ''}
                       </span>
@@ -709,6 +733,21 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${style.badge}`}>
                               {style.label}
                             </span>
+                            {!pool.isDelivered && (
+                              <button
+                                onClick={() => onUpdatePool && onUpdatePool(pool.id, { readyForDelivery: !pool.readyForDelivery })}
+                                disabled={!onUpdatePool}
+                                title={pool.readyForDelivery ? 'Marked ready — click to undo' : 'Mark this pool ready for delivery'}
+                                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-pointer disabled:opacity-50 transition-colors ${
+                                  pool.readyForDelivery
+                                    ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200'
+                                    : 'bg-white text-slate-400 border-slate-200 hover:border-emerald-300 hover:text-emerald-600'
+                                }`}
+                              >
+                                <PackageCheck className="h-3 w-3" />
+                                {pool.readyForDelivery ? 'Ready' : 'Mark Ready'}
+                              </button>
+                            )}
                             <button
                               onClick={() => loadPool(pool)}
                               className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer"
