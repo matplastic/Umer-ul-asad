@@ -178,6 +178,14 @@ export interface Team {
   name: string;
   status: 'IDLE' | 'BUSY';
   activePoolId?: string | null;
+  // Overflow slot(s) for stages that allow a team to hold MORE than one
+  // normal (non-rework) pool at once — currently only the Mosaic stage
+  // (id `door_cutting`), where glue-drying time means a team can start a
+  // 2nd/3rd pool instead of sitting idle waiting for the 1st to dry. See
+  // getMaxConcurrentClaims() in mockData.ts for the per-stage cap. Stays
+  // empty for every stage capped at 1 (the default), so existing
+  // single-pool behavior elsewhere is unaffected.
+  extraPoolIds?: string[];
   // Auto-assigned + auto-STARTED when QC rejects a pool this team was
   // working. This is an ARRAY (not a single slot) because a second, third,
   // etc. rejection can land on the same team while earlier rework pools are
