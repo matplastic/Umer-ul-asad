@@ -3,7 +3,7 @@ import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPoo
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
-import { STAGES, getDualGroupForStage, isAtDualStageGate, getInitialData, createEmptyHistory } from './data/mockData';
+import { STAGES, getDualGroupForStage, isAtDualStageGate, getInitialData, createEmptyHistory, getMaxConcurrentClaims } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { AutoPrintMaterialSlip } from './components/AutoPrintMaterialSlip';
 import { LoginScreen } from './components/LoginScreen';
@@ -88,6 +88,37 @@ const DEFAULT_MONTHLY_TARGETS: MonthlyTarget[] = [];
 // user wiped the database. Demo employees are now permanently disabled — the
 // HR portal starts empty until real employees are added.
 const DEFAULT_EMPLOYEES: Employee[] = [];
+
+// ── Multi-pool claim helpers (see getMaxConcurrentClaims / Team.extraPoolIds) ──
+// All of a team's currently-claimed "normal work" pool ids, primary slot
+// first. For every stage except Mosaic (door_cutting) this is just
+// [activePoolId] or [] — identical to the old single-slot behavior.
+const getClaimedPoolIds = (team: Team): string[] =>
+  [team.activePoolId, ...(team.extraPoolIds || [])].filter((id): id is string => Boolean(id));
+
+// Adds a newly-claimed pool id to a team, filling the primary activePoolId
+// slot first and overflowing into extraPoolIds beyond that.
+const addClaimedPool = (team: Team, poolId: string): { activePoolId: string; extraPoolIds: string[] } => {
+  if (!team.activePoolId) return { activePoolId: poolId, extraPoolIds: team.extraPoolIds || [] };
+  return { activePoolId: team.activePoolId, extraPoolIds: [...(team.extraPoolIds || []), poolId] };
+};
+
+// Removes a pool id from wherever it's held (primary or overflow), promoting
+// the next overflow pool into the primary slot if the primary was the one
+// cleared. Returns the fields to spread onto the team, plus whether the team
+// is still holding ANY claimed pool afterward (for status IDLE/BUSY).
+const removeClaimedPool = (team: Team, poolId: string): { activePoolId: string | null; extraPoolIds: string[]; stillClaimed: boolean } => {
+  let activePoolId = team.activePoolId || null;
+  let extraPoolIds = team.extraPoolIds || [];
+  if (activePoolId === poolId) {
+    const [promoted, ...rest] = extraPoolIds;
+    activePoolId = promoted || null;
+    extraPoolIds = rest;
+  } else {
+    extraPoolIds = extraPoolIds.filter((id) => id !== poolId);
+  }
+  return { activePoolId, extraPoolIds, stillClaimed: !!activePoolId || extraPoolIds.length > 0 };
+};
 
 export default function App() {
   const [pools, setPools] = useState<Pool[]>([]);
@@ -2094,8 +2125,9 @@ export default function App() {
     
     // Auto-release any team currently assigned
     const updatedTeams = teams.map(t => {
-      if (t.activePoolId === poolId) {
-        return { ...t, status: 'IDLE' as const, activePoolId: null };
+      if (t.activePoolId === poolId || (t.extraPoolIds || []).includes(poolId)) {
+        const cleared = removeClaimedPool(t, poolId);
+        return { ...t, status: cleared.stillClaimed ? t.status : 'IDLE' as const, activePoolId: cleared.activePoolId, extraPoolIds: cleared.extraPoolIds };
       }
       return t;
     });
@@ -2695,9 +2727,13 @@ export default function App() {
       await dbAddRecycleBin(poolTrashItem).catch(console.error);
 
       const updatedPools = pools.filter(p => p.id !== linkedLivePool.id);
-      const updatedTeams = teams.map(t =>
-        t.activePoolId === linkedLivePool.id ? { ...t, status: 'IDLE' as const, activePoolId: null } : t
-      );
+      const updatedTeams = teams.map(t => {
+        if (t.activePoolId === linkedLivePool.id || (t.extraPoolIds || []).includes(linkedLivePool.id)) {
+          const cleared = removeClaimedPool(t, linkedLivePool.id);
+          return { ...t, status: cleared.stillClaimed ? t.status : 'IDLE' as const, activePoolId: cleared.activePoolId, extraPoolIds: cleared.extraPoolIds };
+        }
+        return t;
+      });
       setPools(updatedPools);
       setTeams(updatedTeams);
       await dbDeletePool(linkedLivePool.id).catch(console.error);
@@ -2840,12 +2876,17 @@ export default function App() {
     const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
 
-    // Verify the team's NORMAL work slot is free. We deliberately check
-    // activePoolId here, not team.status — status stays 'BUSY' while a team
-    // is working an auto-assigned rework pool too, but that shouldn't block
-    // them from also claiming a fresh pool as their normal job.
+    // Verify the team has a free NORMAL work slot. We deliberately check
+    // the claimed-pool count here, not team.status — status stays 'BUSY'
+    // while a team is working an auto-assigned rework pool too, but that
+    // shouldn't block them from also claiming a fresh pool as their normal
+    // job. Most stages cap this at 1 (matching the old activePoolId-only
+    // gate); Mosaic (door_cutting) allows up to 3 concurrent, since glue
+    // drying time means a team can start a new pool instead of sitting idle.
     const team = teamsRef.current.find(t => t.id === teamId);
-    if (!team || team.activePoolId) return;
+    if (!team) return;
+    const maxClaims = getMaxConcurrentClaims(stageId);
+    if (getClaimedPoolIds(team).length >= maxClaims) return;
 
     // QC HOLD GUARD: a pool placed on hold by Quality cannot be claimed by
     // any team/kiosk at any stage until QC explicitly releases it.
@@ -2868,10 +2909,11 @@ export default function App() {
     stageHist.teamName = team.name;
     pool.stageHistory[stageId] = stageHist;
 
-    // Update team: link to pool
+    // Update team: link to pool (fills activePoolId first, then overflows
+    // into extraPoolIds for stages that allow more than 1 concurrent claim)
     const updatedTeams = teamsRef.current.map(t => {
       if (t.id === teamId) {
-        return { ...t, status: 'BUSY' as const, activePoolId: poolId };
+        return { ...t, status: 'BUSY' as const, ...addClaimedPool(t, poolId) };
       }
       return t;
     });
@@ -3176,10 +3218,18 @@ export default function App() {
     // a pool, and caused team-pool allocation data to get overwritten/lost when
     // that wrongly-freed team then claimed a new pool.
     const updatedTeams = teamsRef.current.map(t => {
-      if (t.id === originalWorkspecTeamId || (t.activePoolId === poolId && t.stageId === stageId)) {
-        return { ...t, status: 'IDLE' as const, activePoolId: null, reworkPoolIds: (t.reworkPoolIds || []).filter(id => id !== poolId) };
+      const holdsNormally = t.activePoolId === poolId || (t.extraPoolIds || []).includes(poolId);
+      if (t.id === originalWorkspecTeamId || (holdsNormally && t.stageId === stageId)) {
+        const cleared = removeClaimedPool(t, poolId);
+        return {
+          ...t,
+          status: cleared.stillClaimed ? t.status : 'IDLE' as const,
+          activePoolId: cleared.activePoolId,
+          extraPoolIds: cleared.extraPoolIds,
+          reworkPoolIds: (t.reworkPoolIds || []).filter(id => id !== poolId),
+        };
       }
-      // Even if this team wasn't the one holding activePoolId on this pool,
+      // Even if this team wasn't the one holding this pool as normal work,
       // it may still be holding it as a REWORK pool specifically — clear it
       // there too so an approved rework pool never keeps showing as active.
       if (t.reworkPoolIds?.includes(poolId)) {
@@ -3303,13 +3353,16 @@ export default function App() {
       if (t.id === originalWorkspecTeamId) {
         const existing = t.reworkPoolIds || [];
         const nextRework = existing.includes(poolId) ? existing : [...existing, poolId];
-        // This pool now lives EXCLUSIVELY in reworkPoolIds. If activePoolId
-        // was also pointing at it (the team was doing it as "normal" work
-        // when QC rejected it), clear activePoolId so it doesn't render as
-        // both the normal card AND a rework card, and so the team is free
-        // to claim a genuinely different pool as their next normal job.
-        const clearedActivePoolId = t.activePoolId === poolId ? null : t.activePoolId;
-        return { ...t, reworkPoolIds: nextRework, activePoolId: clearedActivePoolId };
+        // This pool now lives EXCLUSIVELY in reworkPoolIds. If it was also
+        // held as "normal" work (activePoolId or an overflow extraPoolIds
+        // slot) when QC rejected it, clear it from there so it doesn't
+        // render as both the normal card AND a rework card, and so that
+        // slot is free for the team's next normal job.
+        const heldNormally = t.activePoolId === poolId || (t.extraPoolIds || []).includes(poolId);
+        const cleared = heldNormally
+          ? removeClaimedPool(t, poolId)
+          : { activePoolId: t.activePoolId || null, extraPoolIds: t.extraPoolIds || [] };
+        return { ...t, reworkPoolIds: nextRework, activePoolId: cleared.activePoolId, extraPoolIds: cleared.extraPoolIds };
       }
       return t;
     });
@@ -3408,8 +3461,10 @@ export default function App() {
     // completely different pool, wiping their current assignment out from
     // under them mid-work.
     const updatedTeams = teamsRef.current.map(t => {
-      if (t.activePoolId === poolId && t.stageId === stageId) {
-        return { ...t, status: 'IDLE' as const, activePoolId: null };
+      const holdsNormally = t.activePoolId === poolId || (t.extraPoolIds || []).includes(poolId);
+      if (holdsNormally && t.stageId === stageId) {
+        const cleared = removeClaimedPool(t, poolId);
+        return { ...t, status: cleared.stillClaimed ? t.status : 'IDLE' as const, activePoolId: cleared.activePoolId, extraPoolIds: cleared.extraPoolIds };
       }
       return t;
     });
@@ -3481,11 +3536,14 @@ export default function App() {
     pool.stageHistory[stageId] = stageHist;
 
     // Also free the team that was assigned
-    const updatedTeams = teamsRef.current.map(t =>
-      t.activePoolId === poolId && t.stageId === stageId
-        ? { ...t, status: 'IDLE' as const, activePoolId: null }
-        : t
-    );
+    const updatedTeams = teamsRef.current.map(t => {
+      const holdsNormally = t.activePoolId === poolId || (t.extraPoolIds || []).includes(poolId);
+      if (holdsNormally && t.stageId === stageId) {
+        const cleared = removeClaimedPool(t, poolId);
+        return { ...t, status: cleared.stillClaimed ? t.status : 'IDLE' as const, activePoolId: cleared.activePoolId, extraPoolIds: cleared.extraPoolIds };
+      }
+      return t;
+    });
 
     updatedPools[poolIndex] = pool;
 
@@ -3545,7 +3603,8 @@ export default function App() {
     // Release team if assigned to BUSY status
     const updatedTeams = teamsRef.current.map(t => {
       if (t.id === originalWorkspecTeamId) {
-        return { ...t, status: 'IDLE' as const, activePoolId: null };
+        const cleared = removeClaimedPool(t, poolId);
+        return { ...t, status: cleared.stillClaimed ? t.status : 'IDLE' as const, activePoolId: cleared.activePoolId, extraPoolIds: cleared.extraPoolIds };
       }
       return t;
     });
