@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pool, StageId, Team, StageDefinition } from '../types';
-import { STAGES, DUAL_STAGE_IDS, getDualGroupForIndex } from '../data/mockData';
+import { STAGES, DUAL_STAGE_IDS, getDualGroupForIndex, getMaxConcurrentClaims } from '../data/mockData';
 import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw, PauseCircle } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 import { QCDefectBadge, QCDefect } from './QCDefectPanel';
@@ -187,23 +187,30 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
       .filter((id): id is string => Boolean(id))
   );
 
-  // Pool claimed by the CURRENT active team (if any selected).
-  // Primary source: activeTeam.activePoolId. Fallback: if that field is stale/missing
-  // (same class of write-drop as above), fall back to whichever in-progress pool in
-  // this stage actually lists this team as its stageHistory.teamId, so the workstation
-  // card can't show "Ready for New Work" while the team is clearly mid-task elsewhere.
-  const myClaimedPool = activeTeam && activeTeam.activePoolId
-    ? pools.find((p) => p.id === activeTeam.activePoolId)
+  // Max concurrent "normal" claims this stage allows per team. 1 for almost
+  // every stage (unchanged behavior); 3 for Mosaic (door_cutting), since
+  // glue drying time means a team can start a 2nd/3rd pool instead of
+  // sitting idle waiting for the 1st to dry.
+  const maxClaims = getMaxConcurrentClaims(stage.id);
+
+  // Pool(s) claimed by the CURRENT active team (if any selected).
+  // Primary source: activeTeam.activePoolId + activeTeam.extraPoolIds (the
+  // overflow slots for stages allowing >1 concurrent claim). Fallback: if
+  // both are stale/missing (same class of write-drop as above), fall back to
+  // whichever in-progress pool in this stage actually lists this team as its
+  // stageHistory.teamId, so the workstation card can't show "Ready for New
+  // Work" while the team is clearly mid-task elsewhere.
+  const claimedIds = activeTeam ? [activeTeam.activePoolId, ...(activeTeam.extraPoolIds || [])].filter(Boolean) as string[] : [];
+  const myClaimedPools = claimedIds.length > 0
+    ? claimedIds.map((id) => pools.find((p) => p.id === id)).filter((p): p is Pool => Boolean(p))
     : (activeTeam
-        ? inProgressPools.find((p) =>
+        ? inProgressPools.filter((p) =>
             (p.stageHistory[stage.id] || {}).teamId === activeTeam.id &&
             !(activeTeam.reworkPoolIds || []).includes(p.id) // don't double-show a rework pool here too
           )
-        : null);
+        : []);
 
-  const myClaimedPoolHist = myClaimedPool
-    ? (myClaimedPool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 })
-    : null;
+  const getHistFor = (pool: Pool) => pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
 
   // Auto-assigned + auto-STARTED rework pools: kept in their own array slot
   // (Team.reworkPoolIds) so EACH rejection shows as its own concurrent card —
@@ -352,49 +359,63 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                   </span>
                 </div>
 
-                {/* Claimed pool information block */}
-                {myClaimedPool ? (
-                  <div className="border border-slate-200 rounded-xl bg-slate-50/50 p-4 space-y-3">
+                {/* Claimed pool information block(s). Most stages allow just
+                    one at a time; Mosaic (door_cutting) allows up to 3
+                    concurrently, so each claimed pool renders as its own
+                    independent card with its own Start/Finish/Undo controls. */}
+                {maxClaims > 1 && (
+                  <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 px-1">
+                    <span className="uppercase tracking-wider">Claimed Pools</span>
+                    <span className="font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                      {myClaimedPools.length} / {maxClaims}
+                    </span>
+                  </div>
+                )}
+
+                {myClaimedPools.length > 0 ? myClaimedPools.map((claimedPool) => {
+                  const claimedHist = getHistFor(claimedPool);
+                  return (
+                  <div key={claimedPool.id} className="border border-slate-200 rounded-xl bg-slate-50/50 p-4 space-y-3">
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="font-mono text-xs font-black text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">
-                          {myClaimedPool.poolNo}
+                          {claimedPool.poolNo}
                         </span>
                         <span className="text-[9px] font-bold px-1 py-0.2 bg-indigo-50 text-indigo-700 rounded uppercase ml-1">
-                          {myClaimedPool.poolType || 'Type 3'}
+                          {claimedPool.poolType || 'Type 3'}
                         </span>
-                        <h4 className="text-sm font-bold text-slate-800 mt-1.5">{myClaimedPool.projectName}</h4>
+                        <h4 className="text-sm font-bold text-slate-800 mt-1.5">{claimedPool.projectName}</h4>
                       </div>
-                      {getStatusBadge(myClaimedPoolHist.status)}
+                      {getStatusBadge(claimedHist.status)}
                     </div>
 
                     <div className="text-xs text-slate-500 space-y-1 bg-white p-2.5 rounded-lg border border-slate-100">
-                      <p>Shape: <strong className="text-slate-800">{myClaimedPool.shape}</strong></p>
-                      <p>Dimensions: <strong className="text-slate-800">{myClaimedPool.dimensions}</strong></p>
-                      <p>Orientation: <strong className="text-slate-800">{myClaimedPool.orientation}</strong></p>
+                      <p>Shape: <strong className="text-slate-800">{claimedPool.shape}</strong></p>
+                      <p>Dimensions: <strong className="text-slate-800">{claimedPool.dimensions}</strong></p>
+                      <p>Orientation: <strong className="text-slate-800">{claimedPool.orientation}</strong></p>
                     </div>
 
                     <button
-                      onClick={() => setPrintPool(myClaimedPool)}
+                      onClick={() => setPrintPool(claimedPool)}
                       className="w-full py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-205 border-slate-200 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                     >
                       <Printer className="h-3.5 w-3.5" />
                       <span>Print Shop Traveler Slip</span>
                     </button>
 
-                    {myClaimedPoolHist.status === 'REJECTED' && (
+                    {claimedHist.status === 'REJECTED' && (
                       <div className="p-2.5 bg-rose-50 border border-rose-100 text-rose-800 text-xs rounded-lg space-y-1 font-sans">
                         <p className="font-semibold flex items-center gap-1 text-rose-700">
                           <AlertTriangle className="h-3.5 w-3.5 text-rose-550" />
                           QA Rejection Note Checklist:
                         </p>
                         <p className="italic bg-white/60 p-2 rounded border border-rose-100 text-[11px] leading-relaxed">
-                          &quot;{myClaimedPoolHist.inspectorNotes || 'No notes left'}&quot;
+                          &quot;{claimedHist.inspectorNotes || 'No notes left'}&quot;
                         </p>
-                        {myClaimedPoolHist.inspectorPicture && (
+                        {claimedHist.inspectorPicture && (
                           <div className="mt-2 rounded-lg overflow-hidden border border-rose-200/50 shadow-xs max-h-[140px] bg-white p-1">
                             <img 
-                              src={myClaimedPoolHist.inspectorPicture} 
+                              src={claimedHist.inspectorPicture} 
                               alt="Defect visual evidence" 
                               className="max-h-[130px] w-full object-cover rounded-md" 
                               referrerPolicy="no-referrer"
@@ -407,7 +428,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                     {/* Operational Actions */}
                     <div className="pt-2 border-t border-slate-150 border-slate-100 gap-2 flex flex-col">
                       
-                      {(myClaimedPoolHist.status === 'NOT_STARTED' || myClaimedPoolHist.status === 'REJECTED') && (
+                      {(claimedHist.status === 'NOT_STARTED' || claimedHist.status === 'REJECTED') && (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
                             <Clock className="h-3.5 w-3.5 text-slate-400" />
@@ -415,7 +436,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           </div>
                           <button
                             onClick={() => {
-                              onStartStage(myClaimedPool.id, stage.id);
+                              onStartStage(claimedPool.id, stage.id);
                             }}
                             className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-100"
                           >
@@ -425,11 +446,11 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </div>
                       )}
 
-                      {myClaimedPoolHist.status === 'IN_PROGRESS' && (
+                      {claimedHist.status === 'IN_PROGRESS' && (
                         <div>
                           <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold mb-2 p-1.5 bg-blue-50/50 rounded border border-blue-105">
                             <Clock className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-                            <span>Started: {myClaimedPoolHist.startTime ? new Date(myClaimedPoolHist.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'Timer running...'}</span>
+                            <span>Started: {claimedHist.startTime ? new Date(claimedHist.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'Timer running...'}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 mb-2">
                             <Clock className="h-3.5 w-3.5 text-slate-400" />
@@ -437,7 +458,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           </div>
                           <button
                             onClick={() => {
-                              onFinishStage(myClaimedPool.id, stage.id);
+                              onFinishStage(claimedPool.id, stage.id);
                             }}
                             className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-blue-150"
                           >
@@ -447,7 +468,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </div>
                       )}
 
-                      {myClaimedPoolHist.status === 'PENDING_INSPECTION' && (
+                      {claimedHist.status === 'PENDING_INSPECTION' && (
                         <div className="p-3 bg-amber-50 border border-amber-100 text-amber-800 text-[11px] rounded-lg text-center font-medium">
                           Sent to Quality Inspection Queue.<br /> awaiting QA sign-off before proceeding upwards.
                         </div>
@@ -462,8 +483,8 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              const reason = window.prompt(`Request QA to undo claim for ${myClaimedPool.poolNo}?\n\nEnter reason (e.g. "Claimed under wrong team name"):`);
-                              if (reason) onRequestUndoClaim(myClaimedPool.id, stage.id, activeTeam?.name || 'Unknown Team', reason);
+                              const reason = window.prompt(`Request QA to undo claim for ${claimedPool.poolNo}?\n\nEnter reason (e.g. "Claimed under wrong team name"):`);
+                              if (reason) onRequestUndoClaim(claimedPool.id, stage.id, activeTeam?.name || 'Unknown Team', reason);
                             }}
                             className="w-full py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-black text-[10.5px] rounded border border-amber-200 text-center cursor-pointer flex items-center justify-center gap-1.5"
                           >
@@ -476,7 +497,8 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       )}
                     </div>
                   </div>
-                ) : (
+                  );
+                }) : (
                   <div className="text-center py-8 bg-slate-50 border border-slate-100 border-dashed rounded-xl">
                     <p className="text-xs font-bold text-slate-500">No active claimed pool card</p>
                     <p className="text-[10px] text-slate-400 mt-1">Select an item from the Available Queue or waiting list on the right to start work.</p>
@@ -726,14 +748,14 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         </span>
                         
                         <button
-                          disabled={!activeTeam || !!myClaimedPool || !!pool.isOnHold}
+                          disabled={!activeTeam || myClaimedPools.length >= maxClaims || !!pool.isOnHold}
                           onClick={() => onClaimPool(pool.id, activeTeam!.id, stage.id)}
                           className={`px-3 py-1.5 rounded text-xs font-semibold cursor-pointer transition-all flex items-center gap-1 ${
-                            activeTeam && !myClaimedPool && !pool.isOnHold
+                            activeTeam && myClaimedPools.length < maxClaims && !pool.isOnHold
                               ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
                               : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                           }`}
-                          title={pool.isOnHold ? "This pool is on hold by QC" : !activeTeam ? "Select a team first" : myClaimedPool ? "Finish current task first" : "Claim this pool"}
+                          title={pool.isOnHold ? "This pool is on hold by QC" : !activeTeam ? "Select a team first" : myClaimedPools.length >= maxClaims ? (maxClaims > 1 ? `All ${maxClaims} slots full — finish or send one to QA first` : "Finish current task first") : "Claim this pool"}
                         >
                           {pool.isOnHold ? (
                             <>
