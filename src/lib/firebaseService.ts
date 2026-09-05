@@ -1804,21 +1804,31 @@ export function reconcileTeamsForRestore(
   let releasedCount = 0;
   let strippedCodeCount = 0;
 
-  const releasedTeams = restoredTeams.map((team) => {
-    if (!team?.activePoolId) return team;
-
-    const pool = poolsById.get(team.activePoolId);
+  // A pool id is still genuinely active for this team if it still exists,
+  // is still IN_PROGRESS at this team's stage, and still lists this team.
+  const isGenuinelyActive = (team: Team, poolId: string): boolean => {
+    const pool = poolsById.get(poolId);
     const hist = pool?.stageHistory?.[team.stageId];
-    const stillGenuinelyActive =
-      !!pool &&
-      !!hist &&
-      hist.status === 'IN_PROGRESS' &&
-      hist.teamId === team.id;
+    return !!pool && !!hist && hist.status === 'IN_PROGRESS' && hist.teamId === team.id;
+  };
 
-    if (stillGenuinelyActive) return team;
+  const releasedTeams = restoredTeams.map((team) => {
+    // Mosaic-style stages allow up to 3 concurrent claims, so check
+    // activePoolId AND every extraPoolIds entry — not just the first slot.
+    const staleExtras = (team?.extraPoolIds || []).filter((id) => !isGenuinelyActive(team, id));
+    const activeStale = !!team?.activePoolId && !isGenuinelyActive(team, team.activePoolId);
+
+    if (!activeStale && staleExtras.length === 0) return team;
 
     releasedCount += 1;
-    return { ...team, status: 'IDLE' as const, activePoolId: null };
+    const survivingExtras = (team.extraPoolIds || []).filter((id) => !staleExtras.includes(id));
+    if (activeStale) {
+      // Primary slot is stale — promote a surviving extra into it, if any.
+      const [promoted, ...rest] = survivingExtras;
+      const stillClaimed = !!promoted;
+      return { ...team, status: stillClaimed ? team.status : 'IDLE' as const, activePoolId: promoted || null, extraPoolIds: rest };
+    }
+    return { ...team, extraPoolIds: survivingExtras };
   });
 
   const seenCodes = new Set<string>();
