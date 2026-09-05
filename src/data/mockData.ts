@@ -65,6 +65,22 @@ export const getDualGroupForIndex = (currentStageIndex: number): StageId[] | und
 export const isAtDualStageGate = (currentStageIndex: number): boolean =>
   getDualGroupForIndex(currentStageIndex) !== undefined;
 
+// ── Multi-pool claim capacity ──────────────────────────────────────────────
+// Almost every stage limits a team to ONE actively-claimed pool at a time
+// (Team.activePoolId). The Mosaic stage (internal id `door_cutting` — note
+// the display name/id swap with the `mosaic` id, which is actually
+// "Grouting") is the one exception: mosaic glue needs time to dry between
+// tiles, so a team can start a second and third pool while earlier ones are
+// drying rather than sit idle. Overflow claims beyond the first land in
+// Team.extraPoolIds (see types.ts). Add other stages here if the same
+// drying/curing need ever applies elsewhere.
+export const STAGE_MAX_CONCURRENT_CLAIMS: Partial<Record<StageId, number>> = {
+  door_cutting: 3, // "Mosaic" on the floor
+};
+
+export const getMaxConcurrentClaims = (stageId: StageId): number =>
+  STAGE_MAX_CONCURRENT_CLAIMS[stageId] ?? 1;
+
 // Generate teams based on STAGES
 export const generateDefaultTeams = (): Team[] => {
   const teams: Team[] = [];
