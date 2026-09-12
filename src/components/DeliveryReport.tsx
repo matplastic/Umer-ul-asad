@@ -117,30 +117,11 @@ export function DeliveryReport({ pools }: DeliveryReportProps) {
       }));
   }, [filtered]);
 
-  const summaryRowsForExport = useMemo(() => {
-    const rows: Record<string, any>[] = [];
-    matrix.projects.forEach(proj => {
-      matrix.dates.forEach(date => {
-        const count = matrix.m[proj][date];
-        if (count) rows.push({ Project: proj, Date: date, 'Pools Delivered': count });
-      });
-    });
-    return rows;
-  }, [matrix]);
-
   const rangeLabel = range === 'today' ? 'Today'
     : range === 'week' ? 'Last 7 days'
     : range === 'month' ? 'Last 30 days'
     : range === 'all' ? 'All time'
     : `${customFrom} to ${customTo}`;
-
-  const handleExportExcel = () => {
-    exportToExcel(
-      summaryRowsForExport.length ? summaryRowsForExport : [{ Project: '—', Date: '—', 'Pools Delivered': 0 }],
-      'delivery_report_summary',
-      'Summary'
-    );
-  };
 
   const handleExportDetailExcel = () => {
     exportToExcel(
@@ -157,9 +138,10 @@ export function DeliveryReport({ pools }: DeliveryReportProps) {
       columns: [
         { header: 'Date', dataKey: 'Date' },
         { header: 'Project', dataKey: 'Project' },
-        { header: 'Pools Delivered', dataKey: 'Pools Delivered' },
+        { header: 'Pool No.', dataKey: 'Pool No.' },
+        { header: 'Pool Type', dataKey: 'Pool Type' },
       ],
-      rows: summaryRowsForExport,
+      rows: detailRows,
       filename: 'delivery_report',
       orientation: 'portrait',
       deptLine: 'Delivery Report — Management ERP',
@@ -176,16 +158,10 @@ export function DeliveryReport({ pools }: DeliveryReportProps) {
           </h3>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-            >
-              <FileSpreadsheet className="h-3.5 w-3.5" /> Summary Excel
-            </button>
-            <button
               onClick={handleExportDetailExcel}
               className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5" /> Detail Excel
+              <FileSpreadsheet className="h-3.5 w-3.5" /> Export Excel
             </button>
             <button
               onClick={handleExportPdf}
