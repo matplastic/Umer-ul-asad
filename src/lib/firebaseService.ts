@@ -2095,6 +2095,47 @@ export async function dbBulkDeletePlannedPools(ids: string[], trashItems: Recycl
   }
 }
 
+// Releases MANY pre-planned pool designs onto the shop floor in one go (e.g.
+// a Production Engineer ticking 23 pools from a project and publishing them
+// with a single click). Both affected collections are written in ONE call to
+// updateFirestoreDocArrays so this can't fall into the classic stale-closure
+// bug of calling the single-release path in a for-loop: `pools` is
+// collection-backed (each new pool becomes its own doc, safe to add all at
+// once) and `plannedPools` is updated as one array read-modify-write inside
+// the same transaction, so N releases cost the same one round-trip a single
+// release would, instead of N separate races over the same plannedPools doc.
+export async function dbBulkReleasePlannedPools(releases: { planId: string; newPool: Pool }[]) {
+  const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+  const releasedPoolIdByPlanId = new Map(releases.map(r => [r.planId, r.newPool.id]));
+  const newPools = releases.map(r => r.newPool);
+
+  if (!base) {
+    await updateFirestoreDocArrays({
+      pools: (arr) => [...arr, ...newPools],
+      plannedPools: (arr) => arr.map(item =>
+        releasedPoolIdByPlanId.has(item.id)
+          ? { ...item, status: 'RELEASED', releasedPoolId: releasedPoolIdByPlanId.get(item.id) }
+          : item
+      ),
+    }, { pools: true, plannedPools: true });
+    return { success: true, releasedCount: releases.length };
+  }
+
+  try {
+    const headers = await getHeaders();
+    const response = await fetch(getApiUrl('/api/planned-pools/bulk-release'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ releases }),
+    });
+    if (!response.ok) throw new Error('Failed to bulk release Planned Pools.');
+    return await response.json();
+  } catch (error) {
+    console.error('dbBulkReleasePlannedPools failed:', error);
+    throw error;
+  }
+}
+
 export async function dbDeleteRecycleBin(id: string) {
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
