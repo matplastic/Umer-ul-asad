@@ -14,7 +14,9 @@ import {
   ChevronRight,
   Info,
   Tag,
-  BarChart3
+  BarChart3,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { BottleneckDashboard } from './BottleneckDashboard';
 
@@ -46,6 +48,7 @@ interface ProductionEngineerProps {
   engineers?: { id: string; name: string; title: string }[];
   plannedPools?: PlannedPool[];
   onReleasePlannedPool?: (planId: string, operatorName: string) => string | null;
+  onReleaseMultiplePlannedPools?: (planIds: string[], operatorName: string) => { releasedCount: number; skipped: string[] };
   monthlyTargets?: MonthlyTarget[];
 }
 
@@ -56,10 +59,11 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
   engineers = [],
   plannedPools = [],
   onReleasePlannedPool,
+  onReleaseMultiplePlannedPools,
   monthlyTargets = [],
 }) => {
   // Navigation for Form Tab
-  const [formMode, setFormMode] = useState<'single' | 'batch'>('single');
+  const [formMode, setFormMode] = useState<'single' | 'batch' | 'bulk_publish'>('single');
 
   // Selected engineer who is publishing
   const [selectedEngineer, setSelectedEngineer] = useState(engineers[0]?.name || '');
@@ -91,6 +95,11 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
   const [batchShape, setBatchShape] = useState('Rectangular');
   const [batchPoolType, setBatchPoolType] = useState('');
   const [batchNotes, setBatchNotes] = useState('');
+
+  // Bulk Publish tab: tick many pre-planned pools across a project and release them all in one click
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkProjectSearch, setBulkProjectSearch] = useState('');
+  const [bulkMsg, setBulkMsg] = useState('');
 
   // Sync selectedEngineer if list changes on the fly
   React.useEffect(() => {
@@ -337,6 +346,17 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
             >
               <FolderPlus className="h-4 w-4" />
               Project Batch Spawner (100+)
+            </button>
+            <button
+              onClick={() => { setFormMode('bulk_publish'); setSuccessMsg(''); setErrorMsg(''); setBulkMsg(''); }}
+              className={`flex-1 pb-3 text-center transition-all border-b-2 cursor-pointer flex items-center justify-center gap-1.5 ${
+                formMode === 'bulk_publish'
+                  ? 'border-blue-600 text-blue-600 font-bold'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <CheckSquare className="h-4 w-4" />
+              Bulk Publish Planned
             </button>
           </div>
 
@@ -821,6 +841,129 @@ export const ProductionEngineer: React.FC<ProductionEngineerProps> = ({
                 <span>Generate & Publish {batchCount} Active Shells</span>
               </button>
             </form>
+          )}
+
+          {/* Mode 3: Bulk Publish — tick many pre-planned pools (any project) and release them all at once */}
+          {formMode === 'bulk_publish' && (
+            <div className="space-y-3">
+              {(() => {
+                const plannedOnly = plannedPools.filter(p => p.status === 'PLANNED');
+                const q = bulkProjectSearch.trim().toLowerCase();
+                const filtered = q
+                  ? plannedOnly.filter(p => p.projectName.toLowerCase().includes(q) || p.poolNo.toLowerCase().includes(q))
+                  : plannedOnly;
+                const byProject = new Map<string, typeof filtered>();
+                filtered.forEach(p => {
+                  if (!byProject.has(p.projectName)) byProject.set(p.projectName, []);
+                  byProject.get(p.projectName)!.push(p);
+                });
+                const projectNames = Array.from(byProject.keys()).sort();
+                const selectedCount = bulkSelectedIds.size;
+
+                const toggleOne = (id: string) => {
+                  setBulkSelectedIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                  });
+                };
+                const toggleProject = (proj: string, ids: string[]) => {
+                  setBulkSelectedIds(prev => {
+                    const next = new Set(prev);
+                    const allSelected = ids.every(id => next.has(id));
+                    ids.forEach(id => allSelected ? next.delete(id) : next.add(id));
+                    return next;
+                  });
+                };
+
+                if (plannedOnly.length === 0) {
+                  return (
+                    <p className="text-xs text-slate-400 text-center py-10">
+                      No pre-planned pools waiting to be published. Add designs via the Planning Department first.
+                    </p>
+                  );
+                }
+
+                return (
+                  <>
+                    <div className="relative">
+                      <Search className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+                      <input
+                        type="text"
+                        value={bulkProjectSearch}
+                        onChange={e => setBulkProjectSearch(e.target.value)}
+                        placeholder="Filter by project or pool no..."
+                        className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div className="max-h-[420px] overflow-y-auto space-y-3 pr-1">
+                      {projectNames.map(proj => {
+                        const rows = byProject.get(proj)!;
+                        const ids = rows.map(r => r.id);
+                        const allSelected = ids.every(id => bulkSelectedIds.has(id));
+                        const someSelected = ids.some(id => bulkSelectedIds.has(id));
+                        return (
+                          <div key={proj} className="border border-slate-100 rounded-xl overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => toggleProject(proj, ids)}
+                              className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors"
+                            >
+                              <span className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                                {allSelected ? <CheckSquare className="h-4 w-4 text-blue-600" /> : <Square className={`h-4 w-4 ${someSelected ? 'text-blue-400' : 'text-slate-300'}`} />}
+                                {proj}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{rows.length} planned</span>
+                            </button>
+                            <div className="divide-y divide-slate-50">
+                              {rows.map(r => (
+                                <label key={r.id} className="flex items-center gap-2.5 px-3.5 py-2 text-xs cursor-pointer hover:bg-slate-50/70">
+                                  <input
+                                    type="checkbox"
+                                    checked={bulkSelectedIds.has(r.id)}
+                                    onChange={() => toggleOne(r.id)}
+                                    className="h-3.5 w-3.5 rounded accent-blue-600"
+                                  />
+                                  <span className="font-mono font-bold text-slate-700">{r.poolNo}</span>
+                                  <span className="text-slate-400">{r.dimensions}</span>
+                                  {r.poolType && <span className="text-slate-400">· {r.poolType}</span>}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {bulkMsg && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl text-xs font-medium">
+                        {bulkMsg}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      disabled={selectedCount === 0}
+                      onClick={() => {
+                        if (!onReleaseMultiplePlannedPools) return;
+                        const result = onReleaseMultiplePlannedPools(Array.from(bulkSelectedIds), selectedEngineer);
+                        setBulkMsg(
+                          result.releasedCount > 0
+                            ? `Published ${result.releasedCount} pool${result.releasedCount === 1 ? '' : 's'} to Steel Fabrication.${result.skipped.length ? ` Skipped ${result.skipped.length} (already released): ${result.skipped.join(', ')}` : ''}`
+                            : 'Nothing was published — the selected pools may already be released.'
+                        );
+                        setBulkSelectedIds(new Set());
+                      }}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white font-bold text-sm rounded-xl cursor-pointer transition-all shadow-md shadow-blue-105 flex items-center justify-center gap-2"
+                    >
+                      <CheckSquare className="h-4.5 w-4.5" />
+                      <span>Publish {selectedCount} Selected Pool{selectedCount === 1 ? '' : 's'}</span>
+                    </button>
+                  </>
+                );
+              })()}
+            </div>
           )}
 
         </div>
