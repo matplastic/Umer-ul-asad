@@ -54,6 +54,7 @@ import {
   dbSavePlannedPool,
   dbDeletePlannedPool,
   dbBulkDeletePlannedPools,
+  dbBulkReleasePlannedPools,
   dbSaveEmployeePunch,
   dbDeleteEmployeePunch,
   dbSaveEmployeePunchesBulk,
@@ -2870,6 +2871,78 @@ export default function App() {
     return livePoolId;
   };
 
+  // 1b. Bulk-release: Production Engineer ticks many pre-planned pools (e.g.
+  // all 23 remaining pools for a project) and publishes them in one click.
+  // Everything is computed from a single read of the current `plannedPools`/
+  // `pools`/`logs` state and committed with ONE setState + ONE saveState +
+  // ONE Firestore call — calling handleReleasePlannedPool in a for-loop would
+  // re-read the same stale `pools`/`plannedPools` closures on every
+  // iteration (React batches setState), so only the last release would
+  // actually stick. This avoids that stale-closure trap entirely.
+  const handleReleaseMultiplePlannedPools = (planIds: string[], operatorName: string): { releasedCount: number; skipped: string[] } => {
+    const idSet = new Set(planIds);
+    const skipped: string[] = [];
+    const releases: { planId: string; newPool: Pool }[] = [];
+    const newLogs: ActivityLog[] = [];
+
+    plannedPools.forEach((design, idx) => {
+      if (!idSet.has(design.id)) return;
+      if (design.status !== 'PLANNED') {
+        skipped.push(design.poolNo);
+        return;
+      }
+      const livePoolId = `pool_${Date.now()}_${idx}`;
+      const newPool: Pool = {
+        id: livePoolId,
+        projectName: design.projectName,
+        poolNo: design.poolNo,
+        orientation: design.orientation,
+        dimensions: design.dimensions,
+        shape: design.shape,
+        poolType: design.poolType || 'Type 1',
+        drawingUrl: design.drawingUrl,
+        notes: design.notes ? `${design.notes} (Source: Planning Portal)` : 'Source: Planning Portal',
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+        currentStageIndex: 0,
+        stageHistory: createEmptyHistory()
+      };
+      releases.push({ planId: design.id, newPool });
+      newLogs.push({
+        id: `log_release_${Date.now()}_${idx}`,
+        timestamp: new Date().toISOString(),
+        poolId: livePoolId,
+        poolNo: design.poolNo,
+        projectName: design.projectName,
+        stageId: 'steel_fabrication',
+        type: 'CREATED',
+        operatorName: operatorName || 'Planning Office',
+        notes: `Released Pre-Planned Pool [${design.poolNo}] into active fabrication (bulk publish). Current stage: Steel Fabrication.`
+      });
+    });
+
+    if (releases.length === 0) {
+      return { releasedCount: 0, skipped };
+    }
+
+    const releasedPoolIdByPlanId = new Map(releases.map(r => [r.planId, r.newPool.id]));
+    const updatedPlans = plannedPools.map(p =>
+      releasedPoolIdByPlanId.has(p.id)
+        ? { ...p, status: 'RELEASED' as const, releasedPoolId: releasedPoolIdByPlanId.get(p.id)! }
+        : p
+    );
+    const updatedPools = [...pools, ...releases.map(r => r.newPool)];
+    const updatedLogs = [...newLogs, ...logs];
+
+    setPools(updatedPools);
+    setPlannedPools(updatedPlans);
+    setLogs(updatedLogs);
+    saveState(updatedPools, teams, updatedLogs, inspectors, engineers, updatedPlans, projectsSummary, monthlyTargets, employees);
+    dbBulkReleasePlannedPools(releases).catch(console.error);
+
+    return { releasedCount: releases.length, skipped };
+  };
+
   // 2. Claim Pool (Stage worker claims available pool card)
   const handleClaimPool = (poolId: string, teamId: string, stageId: StageId) => {
     // Find the pool
@@ -3884,6 +3957,7 @@ export default function App() {
             engineers={engineers}
             plannedPools={plannedPools}
             onReleasePlannedPool={handleReleasePlannedPool}
+            onReleaseMultiplePlannedPools={handleReleaseMultiplePlannedPools}
             monthlyTargets={monthlyTargets}
           />
         )}
