@@ -16,6 +16,7 @@ import { StageDashboard } from './StageDashboard';
 import { StageReportsTab } from './StageReportsTab';
 import { ProjectProgressReport } from './ProjectProgressReport';
 import { DeliveryPlanner } from './DeliveryPlanner';
+import { DeliveryReport } from './DeliveryReport';
 import { SiteDeliveryTracker } from './SiteDeliveryTracker';
 import { exportEmployeeCertificatePdf } from '../lib/exportUtils';
 import { 
@@ -173,7 +174,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [defectHeatmapDateTo, setDefectHeatmapDateTo] = useState<string>('');
   const [defectHeatmapTeamSearch, setDefectHeatmapTeamSearch] = useState<string>('');
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'pool_delivery' | 'site_deliveries'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'delivery' | 'site_deliveries'>('analytics');
+  const [deliverySubTab, setDeliverySubTab] = useState<'confirm' | 'planner' | 'report'>('confirm');
 
   // KPI stat-card drill-down modal: which bucket ("Active in fabrication",
   // "Despatched and clear", "Total rework holds", "Assigned teams rate") is
@@ -2708,8 +2710,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'team_performance', label: 'Team Performance', icon: TrendingUp, elId: 'tab-mgmt-team-performance' },
               { id: 'team_search', label: 'Team Search', icon: Search, elId: 'tab-mgmt-team-search' },
               { id: 'shop_floor', label: 'Shop Floor Monitor', icon: HardHat, elId: 'tab-mgmt-shop-floor' },
-              { id: 'pool_delivery', label: 'Pool Delivery', icon: Truck, elId: 'tab-mgmt-pool-delivery' },
-              { id: 'delivery_planner', label: 'Delivery Planner', icon: CalendarClock, elId: 'tab-mgmt-delivery-planner' },
+              { id: 'delivery', label: 'Delivery', icon: Truck, elId: 'tab-mgmt-delivery' },
               { id: 'site_deliveries', label: 'Site Deliveries', icon: Truck, elId: 'tab-mgmt-site-deliveries' },
               { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
               { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
@@ -6984,8 +6985,36 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         )}
 
-        {activeTab === 'pool_delivery' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
+        {activeTab === 'delivery' && (
+          <div className="space-y-5 animate-fadeIn">
+            {/* Sub-tabs for Delivery: Confirm Delivery / Delivery Planner / Delivery Report */}
+            <div className="flex flex-wrap gap-2 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
+              {([
+                { id: 'confirm', label: 'Confirm Delivery', icon: Truck },
+                { id: 'planner', label: 'Delivery Planner', icon: CalendarClock },
+                { id: 'report', label: 'Delivery Report', icon: FileSpreadsheet },
+              ] as const).map(sub => {
+                const SubIcon = sub.icon;
+                const isActive = deliverySubTab === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    onClick={() => setDeliverySubTab(sub.id)}
+                    className={`flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl border transition-colors ${
+                      isActive
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                    }`}
+                  >
+                    <SubIcon className={`h-3.5 w-3.5 ${isActive ? 'text-teal-400' : 'text-slate-400'}`} />
+                    {sub.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {deliverySubTab === 'confirm' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
 
             {/* Left: search + pool list, nearly-finished pools float to top */}
             <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
@@ -7124,11 +7153,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </div>
               )}
             </div>
-          </div>
-        )}
+            </div>
+            )}
 
-        {activeTab === 'delivery_planner' && (
-          <DeliveryPlanner pools={pools} onUpdatePool={onUpdatePool} />
+            {deliverySubTab === 'planner' && (
+              <DeliveryPlanner pools={pools} onUpdatePool={onUpdatePool} />
+            )}
+
+            {deliverySubTab === 'report' && (
+              <DeliveryReport pools={pools} />
+            )}
+          </div>
         )}
 
         {activeTab === 'site_deliveries' && (
