@@ -493,13 +493,6 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     setTimeout(() => setFlash(null), 2500);
   };
 
-  const pDecide = (id: string, action: 'Approved' | 'Rejected') => {
-    savePurchaseRequests(purchaseRequests.map(r => r.id === id
-      ? { ...r, status: action, decidedByName: currentUserName || 'Manager', decidedAt: new Date().toISOString() }
-      : r
-    ));
-  };
-
   // Prints ONE combined PO for every Approved item that shares this request's
   // batchId (i.e. everything submitted together in the same "New Purchase
   // Request" cart), skipping any items from that same batch that were
@@ -1063,7 +1056,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               </div>
 
               <p className="text-xs text-slate-500 mb-3">
-                Request tools, equipment, or site items here — the manager gets an email to Approve/Reject. Once approved, print the Purchase Order for the purchaser, then upload the bill after buying.
+                Request tools, equipment, or site items here — the manager gets an email to Approve/Reject (decisions are made by the manager only). Once approved, print the Purchase Order for the purchaser, then upload the bill after buying.
               </p>
 
               {purchaseFiltered.length === 0 ? (
@@ -1110,10 +1103,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {r.status === 'Pending' && (
-                            <>
-                              <button onClick={() => pDecide(r.id, 'Approved')} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/40 text-emerald-400 border border-emerald-800 cursor-pointer">Approve</button>
-                              <button onClick={() => pDecide(r.id, 'Rejected')} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/40 text-rose-400 border border-rose-800 cursor-pointer">Reject</button>
-                            </>
+                            <span className="text-[11px] font-semibold text-slate-500 italic">Awaiting manager decision by email</span>
                           )}
                           {r.status === 'Approved' && showBatchActions && (
                             <>
