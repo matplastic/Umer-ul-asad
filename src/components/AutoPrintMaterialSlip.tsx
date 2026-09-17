@@ -143,7 +143,12 @@ export const AutoPrintMaterialSlip: React.FC = () => {
               <tr key={it.id} style={{ borderBottom: '1px solid #ddd' }}>
                 <td style={{ padding: '4px 0' }}>{idx + 1}</td>
                 <td>{it.materialName}</td>
-                <td style={{ textAlign: 'right' }}>{it.qtyRequested}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {it.qtyApproved ?? it.qtyRequested}
+                  {it.qtyApproved != null && it.qtyApproved < it.qtyRequested && (
+                    <div style={{ fontSize: 10, color: '#777' }}>(of {it.qtyRequested} requested)</div>
+                  )}
+                </td>
                 <td>{it.unit}</td>
               </tr>
             ))}
