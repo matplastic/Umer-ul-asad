@@ -2297,11 +2297,15 @@ async function notifyManagerOfMaterialRequestBatch(items: MaterialRequest[]) {
     })),
   };
   try {
-    await fetch('/.netlify/functions/send-material-request-email', {
+    const res = await fetch('/.netlify/functions/send-material-request-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      console.error('[notifyManagerOfMaterialRequestBatch] Email function returned an error — Resend never received/logged this send:', res.status, detail);
+    }
   } catch (err) {
     console.warn('[notifyManagerOfMaterialRequestBatch] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
   }
@@ -3587,11 +3591,15 @@ export async function dbSendSupervisorPurchaseRequestEmail(batch: {
   items: { id: string; itemName: string; category: string; qty: number; unit: string; estimatedCost?: number | null }[];
 }): Promise<void> {
   try {
-    await fetch('/.netlify/functions/send-supervisor-purchase-request-email', {
+    const res = await fetch('/.netlify/functions/send-supervisor-purchase-request-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(batch),
     });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      console.error('[dbSendSupervisorPurchaseRequestEmail] Email function returned an error — Resend never received/logged this send:', res.status, detail);
+    }
   } catch (err) {
     console.warn('[dbSendSupervisorPurchaseRequestEmail] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
   }
