@@ -425,7 +425,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const stockLedger = useMemo(() => {
     const approvedInRange = requests.filter(r => r.status === 'APPROVED' && (!fromDate && !toDate ? true : inDateRange((r.decidedAt || '').slice(0, 10))));
     const issuedByMaterial: Record<string, number> = {};
-    for (const r of approvedInRange) issuedByMaterial[r.materialId] = (issuedByMaterial[r.materialId] || 0) + Number(r.qtyRequested || 0);
+    for (const r of approvedInRange) issuedByMaterial[r.materialId] = (issuedByMaterial[r.materialId] || 0) + Number(r.qtyApproved ?? r.qtyRequested ?? 0);
 
     const incomingByMaterial: Record<string, number> = {};
     for (const i of passedIncoming) incomingByMaterial[i.materialId] = (incomingByMaterial[i.materialId] || 0) + Number(i.qty || 0);
@@ -1622,7 +1622,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           : 'border-slate-700 text-slate-200';
                         return (
                           <span key={it.id} className={`px-2 py-1 rounded-lg bg-slate-800 border text-xs ${lineColor}`} title={it.status}>
-                            {it.materialName}: <span className="font-mono font-bold">{Number(it.qtyRequested)}</span> {it.unit}
+                            {it.materialName}: <span className="font-mono font-bold">{Number(it.qtyApproved ?? it.qtyRequested)}</span> {it.unit}
+                            {it.qtyApproved != null && it.qtyApproved < Number(it.qtyRequested) && (
+                              <span className="text-slate-500"> (of {Number(it.qtyRequested)})</span>
+                            )}
                           </span>
                         );
                       })}
@@ -1923,7 +1926,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     <tr key={it.id} className="border-t border-slate-200">
                       <td className="px-3 py-1.5 text-slate-500">{idx + 1}</td>
                       <td className="px-3 py-1.5 font-semibold">{it.materialName}</td>
-                      <td className="px-3 py-1.5 text-right font-mono">{Number(it.qtyRequested)} {it.unit}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">
+                        {Number(it.qtyApproved ?? it.qtyRequested)} {it.unit}
+                        {it.qtyApproved != null && it.qtyApproved < Number(it.qtyRequested) && (
+                          <div className="text-[10px] text-slate-400 font-sans">(of {Number(it.qtyRequested)} requested)</div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
