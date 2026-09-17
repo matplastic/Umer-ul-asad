@@ -81,19 +81,32 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
   const first = all[0] || {};
   const multi = all.length > 1;
 
+  // Per-item: manager can approve the full qtyRequested, approve a LESSER
+  // qty (the remainder is auto-rejected), or reject outright. The qty box
+  // is always shown pre-filled with the full requested amount; it's only
+  // read on submit when that line's radio is set to "approve". Lowering it
+  // below the requested amount is how a partial approval happens — there's
+  // no separate control for it.
   const pendingRows = pendingItems.map((it) => `
     <tr>
       <td style="padding:8px 8px 8px 0; border-bottom:1px solid #e2e8f0;">
         <div style="font-weight:600; color:#0f172a;">${esc(it.materialName)}</div>
-        <div style="color:#64748b; font-size:12px;">${esc(it.qtyRequested)} ${esc(it.unit)}</div>
+        <div style="color:#64748b; font-size:12px;">Requested: ${esc(it.qtyRequested)} ${esc(it.unit)}</div>
       </td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">
-        <label style="margin-right:14px; color:#16a34a; font-weight:600; font-size:13px; cursor:pointer;">
-          <input type="radio" name="decision_${esc(it.id)}" value="approve" ${presetAction === 'approve' ? 'checked' : ''} style="vertical-align:middle; margin-right:4px;" /> Approve
-        </label>
-        <label style="color:#dc2626; font-weight:600; font-size:13px; cursor:pointer;">
-          <input type="radio" name="decision_${esc(it.id)}" value="reject" ${presetAction === 'reject' ? 'checked' : ''} style="vertical-align:middle; margin-right:4px;" /> Reject
-        </label>
+        <div style="margin-bottom:6px;">
+          <label style="margin-right:14px; color:#16a34a; font-weight:600; font-size:13px; cursor:pointer;">
+            <input type="radio" name="decision_${esc(it.id)}" value="approve" ${presetAction === 'approve' ? 'checked' : ''} style="vertical-align:middle; margin-right:4px;" /> Approve
+          </label>
+          <label style="color:#dc2626; font-weight:600; font-size:13px; cursor:pointer;">
+            <input type="radio" name="decision_${esc(it.id)}" value="reject" ${presetAction === 'reject' ? 'checked' : ''} style="vertical-align:middle; margin-right:4px;" /> Reject
+          </label>
+        </div>
+        <div style="font-size:12px; color:#64748b;">
+          Approve qty:
+          <input type="number" name="qty_${esc(it.id)}" value="${esc(it.qtyRequested)}" min="0" max="${esc(it.qtyRequested)}" step="any"
+            style="width:80px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; text-align:right;" /> ${esc(it.unit)}
+        </div>
       </td>
     </tr>`).join('');
 
@@ -141,7 +154,7 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
           <button type="submit" style="background:#0f172a; color:#fff; border:none; padding:14px 28px; border-radius:8px; font-weight:700; font-size:15px; cursor:pointer; width:100%;">
             Submit Decision${pendingItems.length > 1 ? 's' : ''}
           </button>
-          <p style="color:#94a3b8; font-size:12px; margin-top:16px; text-align:center;">Nothing happens until you click the button above. Each item can be approved or rejected on its own.</p>
+          <p style="color:#94a3b8; font-size:12px; margin-top:16px; text-align:center;">Nothing happens until you click the button above. Each item can be approved or rejected on its own, and you can lower the "Approve qty" box below the requested amount to approve less — the remainder is automatically marked Rejected.</p>
         </form>` : `
         <table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:16px;">
           <tbody>${decidedRows}</tbody>
@@ -229,11 +242,27 @@ exports.handler = async (event) => {
 
     for (const i of pendingIndices) {
       const item = arr[i];
-      const choice = body.get(`decision_${item.id}`) === 'reject' ? 'reject' : 'approve';
+      const requestedQty = Number(item.qtyRequested);
+      let choice = body.get(`decision_${item.id}`) === 'reject' ? 'reject' : 'approve';
+
+      // Clamp the approve-qty box to [0, qtyRequested] so a manager can't
+      // approve more than was asked for or a negative amount. Approving a
+      // qty of 0 is treated the same as an outright reject — there's
+      // nothing to issue.
+      let approveQty = requestedQty;
+      if (choice === 'approve') {
+        const raw = Number(body.get(`qty_${item.id}`));
+        approveQty = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), requestedQty) : requestedQty;
+        if (approveQty <= 0) choice = 'reject';
+      }
+
+      const partial = choice === 'approve' && approveQty < requestedQty;
       const decided = {
         ...item,
         status: choice === 'approve' ? 'APPROVED' : 'REJECTED',
+        qtyApproved: choice === 'approve' ? approveQty : null,
         decidedByName: 'Manager (email)',
+        decisionNotes: partial ? `Partially approved: ${approveQty} of ${requestedQty} ${item.unit}` : (item.decisionNotes || null),
         decidedAt,
       };
       arr[i] = decided;
@@ -247,7 +276,7 @@ exports.handler = async (event) => {
       // lines of the same material only touch currentStock once.
       const stockDeltas = {};
       for (const item of approvedItems) {
-        stockDeltas[item.materialId] = (stockDeltas[item.materialId] || 0) + Number(item.qtyRequested);
+        stockDeltas[item.materialId] = (stockDeltas[item.materialId] || 0) + Number(item.qtyApproved ?? item.qtyRequested);
       }
       const matRef = db.collection('system_state').doc('materials');
       const matSnap = await matRef.get();
@@ -266,7 +295,7 @@ exports.handler = async (event) => {
       for (const item of approvedItems) {
         const sectionId = item.stageId || 'unassigned';
         const rowId = `${sectionId}__${item.materialId}`;
-        const qty = Number(item.qtyRequested);
+        const qty = Number(item.qtyApproved ?? item.qtyRequested);
         const fIdx = floorArr.findIndex((f) => f.id === rowId);
         if (fIdx !== -1) {
           floorArr[fIdx] = { ...floorArr[fIdx], qty: (floorArr[fIdx].qty || 0) + qty, updatedAt: decidedAt };
@@ -283,7 +312,7 @@ exports.handler = async (event) => {
 
     const summary = [
       approvedItems.length > 0
-        ? `<p style="margin:6px 0;"><strong style="color:#16a34a;">✓ Approved (${approvedItems.length}):</strong> ${approvedItems.map((it) => esc(it.materialName)).join(', ')}</p>`
+        ? `<p style="margin:6px 0;"><strong style="color:#16a34a;">✓ Approved (${approvedItems.length}):</strong> ${approvedItems.map((it) => esc(it.qtyApproved < it.qtyRequested ? `${it.materialName} (${it.qtyApproved} of ${it.qtyRequested} ${it.unit})` : it.materialName)).join(', ')}</p>`
         : '',
       rejectedItems.length > 0
         ? `<p style="margin:6px 0;"><strong style="color:#dc2626;">✗ Rejected (${rejectedItems.length}):</strong> ${rejectedItems.map((it) => esc(it.materialName)).join(', ')}</p>`
