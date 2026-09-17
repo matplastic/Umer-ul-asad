@@ -320,6 +320,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
               stage={stage}
               activeTeam={activeTeam}
               availablePools={availablePools}
+              reworkPools={myReworkPools}
               onQuickBatchComplete={onQuickBatchComplete}
             />
           ) : (
@@ -1306,12 +1307,29 @@ interface QuickTestChecklistProps {
   stage: StageDefinition;
   activeTeam?: Team;
   availablePools: Pool[];
+  // Pools QC rejected here that got auto-assigned back to this team as
+  // rework (see handleRejectStage in App.tsx, which sets status IN_PROGRESS
+  // + teamId immediately). Quick stages have no per-pool "claimed
+  // workstation" card, so without this list a rejected pool had literally
+  // no UI path back to "Send to QA" — this fixes that.
+  reworkPools?: Pool[];
   onQuickBatchComplete?: (poolIds: string[], stageId: StageId, teamId: string) => void;
 }
 
-const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTeam, availablePools, onQuickBatchComplete }) => {
+const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTeam, availablePools, reworkPools = [], onQuickBatchComplete }) => {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [justSubmitted, setJustSubmitted] = useState(false);
+
+  // Rework pools are already PENDING_INSPECTION once re-submitted (waiting
+  // on QC), so only show ones still actually awaiting re-test — the same
+  // set of statuses myReworkPools upstream already narrows to, minus
+  // PENDING_INSPECTION (nothing left to tick here once it's back with QC).
+  const reworkPending = reworkPools.filter((p) => {
+    const st = p.stageHistory[stage.id]?.status;
+    return st === 'IN_PROGRESS' || st === 'REJECTED';
+  });
+  const reworkIds = new Set(reworkPending.map((p) => p.id));
+  const allPools = [...reworkPending, ...availablePools.filter((p) => !reworkIds.has(p.id))];
 
   const toggle = (poolId: string) => {
     setCheckedIds((prev) => {
@@ -1322,7 +1340,7 @@ const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTe
     });
   };
 
-  const selectAll = () => setCheckedIds(new Set(availablePools.map((p) => p.id)));
+  const selectAll = () => setCheckedIds(new Set(allPools.map((p) => p.id)));
   const clearAll = () => setCheckedIds(new Set());
 
   const handleSubmit = () => {
@@ -1356,7 +1374,7 @@ const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTe
             Tick each pool right after finishing it, then send them all to QA in one go — no per-pool timer needed.
           </p>
 
-          {availablePools.length === 0 ? (
+          {allPools.length === 0 ? (
             <div className="text-center py-8 bg-slate-50 border border-slate-100 border-dashed rounded-xl">
               <p className="text-xs font-bold text-slate-500">No pools waiting for {stage.name}</p>
             </div>
@@ -1364,7 +1382,7 @@ const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTe
             <>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                  {checkedIds.size} of {availablePools.length} selected
+                  {checkedIds.size} of {allPools.length} selected
                 </span>
                 <div className="flex gap-2">
                   <button onClick={selectAll} className="text-[10px] font-bold text-orange-600 hover:text-orange-700 cursor-pointer">
@@ -1378,13 +1396,15 @@ const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTe
               </div>
 
               <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
-                {availablePools.map((pool) => {
+                {allPools.map((pool) => {
                   const checked = checkedIds.has(pool.id);
+                  const isRework = reworkIds.has(pool.id);
+                  const hist = pool.stageHistory[stage.id];
                   return (
                     <label
                       key={pool.id}
                       className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
-                        checked ? 'bg-orange-50 border-orange-200' : 'bg-slate-50/50 border-slate-100 hover:bg-slate-50'
+                        checked ? 'bg-orange-50 border-orange-200' : isRework ? 'bg-rose-50/50 border-rose-100 hover:bg-rose-50' : 'bg-slate-50/50 border-slate-100 hover:bg-slate-50'
                       }`}
                     >
                       <input
@@ -1394,10 +1414,22 @@ const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTe
                         className="h-4 w-4 accent-orange-600 cursor-pointer"
                       />
                       <div className="min-w-0 flex-1">
-                        <span className="font-mono text-[11px] font-black text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">
-                          {pool.poolNo}
-                        </span>
-                        <span className="text-xs font-bold text-slate-800 ml-2">{pool.projectName}</span>
+                        <div>
+                          <span className="font-mono text-[11px] font-black text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">
+                            {pool.poolNo}
+                          </span>
+                          <span className="text-xs font-bold text-slate-800 ml-2">{pool.projectName}</span>
+                          {isRework && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded uppercase ml-2">
+                              Rework
+                            </span>
+                          )}
+                        </div>
+                        {isRework && hist?.inspectorNotes && (
+                          <p className="text-[10px] text-rose-700 italic mt-1 leading-snug">
+                            &quot;{hist.inspectorNotes}&quot;
+                          </p>
+                        )}
                       </div>
                     </label>
                   );
