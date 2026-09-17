@@ -68,15 +68,22 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
     <tr>
       <td style="padding:8px 8px 8px 0; border-bottom:1px solid #e2e8f0;">
         <div style="font-weight:600; color:#0f172a;">${esc(it.itemName)}</div>
-        <div style="color:#64748b; font-size:12px;">${esc(it.qty)} ${esc(it.unit)}${it.estimatedCost ? ` • AED ${esc(it.estimatedCost)}` : ''}</div>
+        <div style="color:#64748b; font-size:12px;">Requested: ${esc(it.qty)} ${esc(it.unit)}${it.estimatedCost ? ` • AED ${esc(it.estimatedCost)}` : ''}</div>
       </td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">
-        <label style="margin-right:14px; color:#16a34a; font-weight:600; font-size:13px; cursor:pointer;">
-          <input type="radio" name="decision_${esc(it.id)}" value="approve" ${presetAction === 'approve' ? 'checked' : ''} style="vertical-align:middle; margin-right:4px;" /> Approve
-        </label>
-        <label style="color:#dc2626; font-weight:600; font-size:13px; cursor:pointer;">
-          <input type="radio" name="decision_${esc(it.id)}" value="reject" ${presetAction === 'reject' ? 'checked' : ''} style="vertical-align:middle; margin-right:4px;" /> Reject
-        </label>
+        <div style="margin-bottom:6px;">
+          <label style="margin-right:14px; color:#16a34a; font-weight:600; font-size:13px; cursor:pointer;">
+            <input type="radio" name="decision_${esc(it.id)}" value="approve" ${presetAction === 'approve' ? 'checked' : ''} style="vertical-align:middle; margin-right:4px;" /> Approve
+          </label>
+          <label style="color:#dc2626; font-weight:600; font-size:13px; cursor:pointer;">
+            <input type="radio" name="decision_${esc(it.id)}" value="reject" ${presetAction === 'reject' ? 'checked' : ''} style="vertical-align:middle; margin-right:4px;" /> Reject
+          </label>
+        </div>
+        <div style="font-size:12px; color:#64748b;">
+          Approve qty:
+          <input type="number" name="qty_${esc(it.id)}" value="${esc(it.qty)}" min="0" max="${esc(it.qty)}" step="any"
+            style="width:80px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; text-align:right;" /> ${esc(it.unit)}
+        </div>
       </td>
     </tr>`).join('');
 
@@ -123,7 +130,7 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
           <button type="submit" style="background:#0f172a; color:#fff; border:none; padding:14px 28px; border-radius:8px; font-weight:700; font-size:15px; cursor:pointer; width:100%;">
             Submit Decision${pendingItems.length > 1 ? 's' : ''}
           </button>
-          <p style="color:#94a3b8; font-size:12px; margin-top:16px; text-align:center;">Nothing happens until you click the button above. Each item can be approved or rejected on its own.</p>
+          <p style="color:#94a3b8; font-size:12px; margin-top:16px; text-align:center;">Nothing happens until you click the button above. Each item can be approved or rejected on its own, and you can lower the "Approve qty" box below the requested amount to approve less — the remainder is automatically marked Rejected.</p>
         </form>` : `
         <table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:16px;">
           <tbody>${decidedRows}</tbody>
@@ -202,11 +209,23 @@ exports.handler = async (event) => {
 
     for (const i of pendingIndices) {
       const item = arr[i];
-      const choice = body.get(`decision_${item.id}`) === 'reject' ? 'reject' : 'approve';
+      const requestedQty = Number(item.qty);
+      let choice = body.get(`decision_${item.id}`) === 'reject' ? 'reject' : 'approve';
+
+      let approveQty = requestedQty;
+      if (choice === 'approve') {
+        const raw = Number(body.get(`qty_${item.id}`));
+        approveQty = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), requestedQty) : requestedQty;
+        if (approveQty <= 0) choice = 'reject';
+      }
+
+      const partial = choice === 'approve' && approveQty < requestedQty;
       const decided = {
         ...item,
         status: choice === 'approve' ? 'Approved' : 'Rejected',
+        qtyApproved: choice === 'approve' ? approveQty : null,
         decidedByName: 'Manager (email)',
+        decisionNotes: partial ? `Partially approved: ${approveQty} of ${requestedQty} ${item.unit}` : (item.decisionNotes || null),
         decidedAt,
       };
       arr[i] = decided;
@@ -217,7 +236,7 @@ exports.handler = async (event) => {
 
     const summary = [
       approvedItems.length > 0
-        ? `<p style="margin:6px 0;"><strong style="color:#16a34a;">✓ Approved (${approvedItems.length}):</strong> ${approvedItems.map((it) => esc(it.itemName)).join(', ')}</p>`
+        ? `<p style="margin:6px 0;"><strong style="color:#16a34a;">✓ Approved (${approvedItems.length}):</strong> ${approvedItems.map((it) => esc(it.qtyApproved < it.qty ? `${it.itemName} (${it.qtyApproved} of ${it.qty} ${it.unit})` : it.itemName)).join(', ')}</p>`
         : '',
       rejectedItems.length > 0
         ? `<p style="margin:6px 0;"><strong style="color:#dc2626;">✗ Rejected (${rejectedItems.length}):</strong> ${rejectedItems.map((it) => esc(it.itemName)).join(', ')}</p>`
