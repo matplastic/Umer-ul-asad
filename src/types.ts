@@ -467,6 +467,11 @@ export interface MaterialRequest {
   materialName: string;
   unit: string;
   qtyRequested: number;
+  // Set only when the manager approves LESS than qtyRequested (partial
+  // approval). Present + < qtyRequested means "partially approved" — the
+  // store issues/deducts this amount, not qtyRequested. Absent, or equal to
+  // qtyRequested, means the full requested quantity was approved.
+  qtyApproved?: number | null;
   reason?: string | null;
   requestedByName: string;
   requestedByRole: string;
