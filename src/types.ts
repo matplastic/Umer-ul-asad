@@ -498,6 +498,10 @@ export interface SupervisorPurchaseRequest {
   itemName: string;
   category: 'Tools' | 'Equipment' | 'Site' | 'Other';
   qty: number;
+  // Set only when the manager approves LESS than qty (partial approval).
+  // Present + < qty means "partially approved" — the purchase order should
+  // be printed for this amount, not the original qty.
+  qtyApproved?: number | null;
   unit: string;
   estimatedCost?: number | null;
   // Actual amount paid, entered alongside the bill once bought — spending
