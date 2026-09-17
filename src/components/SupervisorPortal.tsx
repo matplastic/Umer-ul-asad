@@ -515,7 +515,8 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
         { header: 'Requested By', dataKey: 'by' },
       ],
       rows: siblings.map(x => ({
-        item: x.itemName, category: x.category, qty: `${x.qty} ${x.unit}`,
+        item: x.itemName, category: x.category,
+        qty: x.qtyApproved != null && x.qtyApproved < x.qty ? `${x.qtyApproved} ${x.unit} (of ${x.qty} requested)` : `${x.qty} ${x.unit}`,
         cost: x.actualCost ? x.actualCost.toFixed(2) : x.estimatedCost ? x.estimatedCost.toFixed(2) : '—',
         purpose: x.purpose || '—', by: x.requestedByName,
       })),
@@ -1086,7 +1087,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${pStatusStyle(r.status)}`}>{r.status}</span>
                           </div>
                           <p className="text-xs text-slate-400 mt-1">
-                            {r.qty} {r.unit}
+                            {r.qtyApproved != null && r.qtyApproved < r.qty ? (
+                              <>{r.qtyApproved} of {r.qty} {r.unit} approved</>
+                            ) : (
+                              <>{r.qty} {r.unit}</>
+                            )}
                             {r.actualCost ? ` • Paid AED ${r.actualCost.toFixed(2)}` : r.estimatedCost ? ` • Est. AED ${r.estimatedCost.toFixed(2)}` : ''}
                             {' '}• Requested by {r.requestedByName} on {fmtDate(r.requestedAt)}
                             {r.sectionName ? ` • ${r.sectionName}` : ''}
