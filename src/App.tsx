@@ -3318,15 +3318,17 @@ export default function App() {
 
     const dualGroup = getDualGroupForStage(stageId);
     if (dualGroup) {
-      // This stage's pair (e.g. Skimmer Fitting & Lamination, or Mechanical
-      // Fitting & Skimmer Test) runs in parallel off the same gate index.
-      // Only move the pool forward once BOTH siblings in the pair are QC-approved.
+      // This stage's group (e.g. Skimmer Fitting & Lamination, or Mechanical
+      // Fitting / Skimmer Test / Mosaic) runs in parallel off the same gate
+      // index. Only move the pool forward once EVERY stage in the group is
+      // QC-approved — not just one other sibling, since a group can now
+      // have more than two members.
       const gateIdx = STAGES.findIndex(s => s.id === dualGroup[0]);
       if (isAtDualStageGate(pool.currentStageIndex)) {
-        const siblingId = dualGroup.find(id => id !== stageId)!;
-        const siblingApproved = pool.stageHistory[siblingId]?.status === 'APPROVED';
-        if (siblingApproved) {
-          const nextIndex = gateIdx + dualGroup.length; // past both stages in this pair
+        const otherIds = dualGroup.filter(id => id !== stageId);
+        const allSiblingsApproved = otherIds.every(id => pool.stageHistory[id]?.status === 'APPROVED');
+        if (allSiblingsApproved) {
+          const nextIndex = gateIdx + dualGroup.length; // past every stage in this group
           pool.currentStageIndex = nextIndex;
           advanced = true;
           unlockedStageName = nextIndex < STAGES.length ? STAGES[nextIndex].name : 'Final Completion Shipment';
@@ -3358,9 +3360,15 @@ export default function App() {
       }
     }
 
-    const dualWaitingNote = dualGroup && !advanced
-      ? ` Waiting on parallel stage "${STAGES.find(s => s.id === dualGroup.find(id => id !== stageId))?.name}" before advancing.`
-      : '';
+    const dualWaitingNote = (() => {
+      if (!dualGroup || advanced) return '';
+      const pendingNames = dualGroup
+        .filter(id => id !== stageId && pool.stageHistory[id]?.status !== 'APPROVED')
+        .map(id => STAGES.find(s => s.id === id)?.name)
+        .filter(Boolean);
+      if (pendingNames.length === 0) return '';
+      return ` Waiting on parallel stage${pendingNames.length > 1 ? 's' : ''} ${pendingNames.map(n => `"${n}"`).join(', ')} before advancing.`;
+    })();
 
     const newLog: ActivityLog = {
       id: `log_${Date.now()}`,
