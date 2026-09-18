@@ -15,20 +15,24 @@ export const STAGES: StageDefinition[] = [
   { id: 'acrylic', name: 'Acrylic', defaultTeamsCount: 3, color: '#6366f1' }, // Indigo
 ];
 
-// Each inner array is a pair of stages that run in PARALLEL on the shop
+// Each inner array is a set of stages that run in PARALLEL on the shop
 // floor, sharing one "gate" slot in STAGES:
 //  - Skimmer Fitting / Lamination: skimmer boxes get set into the shell
 //    during the lamination layup, not after it.
-//  - Mechanical Fitting / Skimmer Test: either can be started first; a pool
-//    sits at whichever index the gate begins at and is visible on BOTH
-//    boards at once.
-// Within a pair, each stage is claimed, worked, and QC-signed off
-// independently. The pool only advances past the pair once BOTH stages in
-// it have been APPROVED by QC. Each pair's two stages must be adjacent in
-// STAGES (this is what makes a single "gate index" meaningful for them).
+//  - Mechanical Fitting / Skimmer Test / Mosaic (door_cutting): any of the
+//    three can be started first in any order — different teams pick up
+//    whichever they get to first. A pool sits at whichever index the gate
+//    begins at and is visible on ALL three boards at once.
+// Within a group, each stage is claimed, worked, and QC-signed off
+// independently. The pool only advances past the group once EVERY stage in
+// it has been APPROVED by QC — the group's card/checklist/board for each
+// stage shows that stage as done as soon as ITS OWN sign-off lands, even
+// while the pool is still waiting on the others.
+// A group's stages must be adjacent in STAGES (this is what makes a single
+// "gate index" meaningful for them), and can be any length >= 2.
 export const DUAL_STAGE_GROUPS: StageId[][] = [
   ['skimmer_fitting', 'lamination'],
-  ['mechanical_fitting', 'skimmer_test'],
+  ['mechanical_fitting', 'skimmer_test', 'door_cutting'],
 ];
 
 // Flattened membership list — safe to use anywhere the old single-pair
