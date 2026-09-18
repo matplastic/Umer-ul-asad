@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pool, StageId, ActivityLog, IncomingMaterial, ChecklistTemplate, ChecklistResult } from '../types';
-import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate } from '../data/mockData';
+import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex } from '../data/mockData';
 import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw, Clock, PauseCircle, PackageSearch } from 'lucide-react';
 import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
 import { DailyDefectReport } from './DailyDefectReport';
@@ -267,9 +267,10 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       // shared Skimmer Fitting / Lamination gate, land on whichever sibling
       // stage is actually still pending QC, not just STAGES[currentStageIndex].
       if (isAtDualStageGate(nextPool.currentStageIndex)) {
-        const pendingSibling = DUAL_STAGE_IDS.find((id) => nextPool.stageHistory[id]?.status === 'PENDING_INSPECTION')
-          || DUAL_STAGE_IDS.find((id) => nextPool.stageHistory[id]?.status !== 'APPROVED')
-          || DUAL_STAGE_IDS[0];
+        const gateGroup = getDualGroupForIndex(nextPool.currentStageIndex) || DUAL_STAGE_IDS;
+        const pendingSibling = gateGroup.find((id) => nextPool.stageHistory[id]?.status === 'PENDING_INSPECTION')
+          || gateGroup.find((id) => nextPool.stageHistory[id]?.status !== 'APPROVED')
+          || gateGroup[0];
         setReviewStageId(pendingSibling);
       } else {
         setReviewStageId(null);
@@ -870,9 +871,12 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                 const isSelected = pool.id === activePoolId;
                 const atDualGateRow = isAtDualStageGate(pool.currentStageIndex);
                 const dualRowStageId = atDualGateRow
-                  ? (DUAL_STAGE_IDS.find((id) => pool.stageHistory[id]?.status === 'PENDING_INSPECTION')
-                    || DUAL_STAGE_IDS.find((id) => pool.stageHistory[id]?.status !== 'APPROVED')
-                    || DUAL_STAGE_IDS[0])
+                  ? (() => {
+                      const gateGroup = getDualGroupForIndex(pool.currentStageIndex) || DUAL_STAGE_IDS;
+                      return gateGroup.find((id) => pool.stageHistory[id]?.status === 'PENDING_INSPECTION')
+                        || gateGroup.find((id) => pool.stageHistory[id]?.status !== 'APPROVED')
+                        || gateGroup[0];
+                    })()
                   : null;
                 const activeStage = atDualGateRow
                   ? STAGES.find((s) => s.id === dualRowStageId) || null
