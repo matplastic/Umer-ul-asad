@@ -101,8 +101,11 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
       const projectPools = pools.filter(p => p.projectName === project);
 
       const stageCounts: Record<string, number> = {};
+      const stagePools: Record<string, Pool[]> = {};
       STAGES.forEach((stage, idx) => {
-        stageCounts[stage.id] = projectPools.filter(p => poolIsAtStage(p, stage, idx)).length;
+        const matches = projectPools.filter(p => poolIsAtStage(p, stage, idx));
+        stageCounts[stage.id] = matches.length;
+        stagePools[stage.id] = matches;
       });
 
       const completedPools = projectPools.filter(p => !!p.completedAt || p.currentStageIndex >= STAGES.length);
@@ -112,7 +115,9 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
         planning: planningPools.length,
         planningPools,
         released: projectPools.length,
+        releasedPools: projectPools,
         stageCounts,
+        stagePools,
         completed: completedPools.length,
         completedPools,
         total: planningPools.length + projectPools.length,
@@ -256,6 +261,12 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
     });
   };
 
+  // Joins a list of pools' numbers for one export cell. Excel/PDF cells both
+  // render plain newlines fine, so pool numbers stack one-per-line inside
+  // the cell rather than running into an unreadable single-line list.
+  const poolNoList = (list: Pool[] | undefined): string =>
+    list && list.length > 0 ? list.map(p => p.poolNo).join('\n') : '—';
+
   const runExport = async (format: 'pdf' | 'excel') => {
     const isWip = viewMode === 'wip';
     const rows = isWip ? wipRows : completionRows;
@@ -274,7 +285,6 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
             { header: 'Released', dataKey: 'released' },
             ...STAGES.map(s => ({ header: s.name, dataKey: s.id })),
             { header: 'Completed', dataKey: 'completed' },
-            { header: 'Total', dataKey: 'total' },
           ]
         : [
             { header: 'Project', dataKey: 'project' },
@@ -283,18 +293,22 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
             { header: 'Final Completed', dataKey: 'finalCompleted' },
           ];
 
+      // Every stage/status column lists the actual pool numbers behind it
+      // (one per line) instead of just a count — the count is still
+      // available on-screen by clicking the cell, but the exported
+      // file is what people take into meetings, so it needs the real
+      // pool numbers.
       const flatRows = rows.map((r: any) => {
         const obj: Record<string, any> = { project: r.project };
         if (isWip) {
-          obj.planning = r.planning;
-          obj.released = r.released;
-          STAGES.forEach(s => { obj[s.id] = r.stageCounts[s.id] || 0; });
-          obj.completed = r.completed;
-          obj.total = r.total;
+          obj.planning = poolNoList(r.planningPools);
+          obj.released = poolNoList(r.releasedPools);
+          STAGES.forEach(s => { obj[s.id] = poolNoList(r.stagePools[s.id]); });
+          obj.completed = poolNoList(r.completedPools);
         } else {
-          obj.released = r.released;
-          STAGES.forEach(s => { obj[s.id] = r.stageCounts[s.id] || 0; });
-          obj.finalCompleted = r.finalCompleted;
+          obj.released = poolNoList(r.releasedInRange);
+          STAGES.forEach(s => { obj[s.id] = poolNoList(r.stagePools[s.id]); });
+          obj.finalCompleted = poolNoList(r.finalCompletedPools);
         }
         return obj;
       });
@@ -309,7 +323,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
         exportToExcel(
           flatRows.map(r => {
             const obj: Record<string, any> = {};
-            columns.forEach(c => { obj[c.header] = r[c.dataKey] ?? 0; });
+            columns.forEach(c => { obj[c.header] = r[c.dataKey] ?? '—'; });
             return obj;
           }),
           filenameBase,
@@ -369,12 +383,16 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
         <p className="text-[11px] text-indigo-500 mt-1 font-semibold">Click any number in the table to see the exact pool numbers and dates.</p>
       </div>
 
-      {/* Filters */}
-      {viewMode === 'completions' && (
-        <div className="flex flex-col md:flex-row gap-3">
-          <DateRangeFilter value={dateRange} onChange={setDateRange} />
-        </div>
-      )}
+      {/* Filters — both date range and project are visible here, before the
+          Export buttons below, regardless of which view is active. */}
+      <div className="flex flex-col md:flex-row gap-3">
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
+        {viewMode === 'wip' && (
+          <p className="text-[11px] text-slate-400 self-center">
+            This view is always a live snapshot — the date range above only applies to the Stage Completions view.
+          </p>
+        )}
+      </div>
 
       <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider shrink-0">
