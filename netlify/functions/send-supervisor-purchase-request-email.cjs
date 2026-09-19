@@ -53,7 +53,7 @@ exports.handler = async (event) => {
       <tr>
         <td style="padding:6px 8px 6px 0; border-bottom:1px solid #e2e8f0;">
           <div style="font-weight:600;">${it.itemName || ''}</div>
-          <div style="color:#94a3b8; font-size:11px;">${it.category || ''}</div>
+          <div style="color:#94a3b8; font-size:11px;">${it.category || ''}${it.erpCode ? ` • ERP #${it.erpCode}` : ''}</div>
         </td>
         <td style="padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${it.qty ?? ''} ${it.unit || ''}</td>
         <td style="padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${it.estimatedCost ? 'AED ' + it.estimatedCost : '—'}</td>
