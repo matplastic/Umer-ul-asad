@@ -496,6 +496,10 @@ export interface SupervisorPurchaseRequest {
   // Reject for the whole batch instead of a separate email per item.
   batchId?: string | null;
   itemName: string;
+  // Snapshot of the matching Material's erpCode at request time (Purchase
+  // Requests are now hard-required to match an existing Store inventory
+  // item — see pAddToCart in SupervisorPortal.tsx). Printed on the PO.
+  erpCode?: string | null;
   category: 'Tools' | 'Equipment' | 'Site' | 'Other';
   qty: number;
   // Set only when the manager approves LESS than qty (partial approval).
