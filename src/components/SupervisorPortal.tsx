@@ -408,6 +408,14 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const [pShowForm, setPShowForm] = useState(false);
   const [pDraftItem, setPDraftItem] = useState<Partial<SupervisorPurchaseRequest>>({ category: 'Tools', qty: 1, unit: 'pcs' });
   const [pCart, setPCart] = useState<Partial<SupervisorPurchaseRequest>[]>([]);
+  // Purchase Requests are hard-required to match an existing Store inventory
+  // item by exact name — this is what pAddToCart checks before allowing the
+  // item onto the request. Computed here (not inline in JSX) so both the
+  // form's warning message and the Add button's disabled state agree.
+  const pMatchedMaterial = useMemo(() => {
+    const typed = (pDraftItem.itemName || '').trim().toLowerCase();
+    return typed ? materials.find(m => m.name.toLowerCase() === typed) : undefined;
+  }, [pDraftItem.itemName, materials]);
   const [pStatusFilter, setPStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
   const [pBillTargetId, setPBillTargetId] = useState<string | null>(null);
   const [pBillForm, setPBillForm] = useState<{ actualCost: string; file: File | null }>({ actualCost: '', file: null });
@@ -440,14 +448,14 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   };
 
   const pAddToCart = () => {
-    if (!pDraftItem.itemName || !pDraftItem.qty) return;
+    if (!pDraftItem.itemName || !pDraftItem.qty || !pMatchedMaterial) return;
     setPCart(prev => [...prev, pDraftItem]);
     setPDraftItem({ category: pDraftItem.category, qty: 1, unit: pDraftItem.unit || 'pcs' });
   };
   const pRemoveFromCart = (idx: number) => setPCart(prev => prev.filter((_, i) => i !== idx));
 
   const pSubmitCart = async () => {
-    const items = pCart.length > 0 ? pCart : (pDraftItem.itemName && pDraftItem.qty ? [pDraftItem] : []);
+    const items = pCart.length > 0 ? pCart : (pDraftItem.itemName && pDraftItem.qty && pMatchedMaterial ? [pDraftItem] : []);
     if (items.length === 0) return;
     setPSending(true);
 
@@ -460,6 +468,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       id: uid(),
       batchId,
       itemName: it.itemName!,
+      erpCode: it.erpCode || null,
       category: (it.category as any) || 'Tools',
       qty: Number(it.qty) || 1,
       unit: it.unit || 'pcs',
@@ -481,7 +490,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
         requestedByName,
         purpose: records[0].purpose,
         sectionName,
-        items: records.map(r => ({ id: r.id, itemName: r.itemName, category: r.category, qty: r.qty, unit: r.unit, estimatedCost: r.estimatedCost })),
+        items: records.map(r => ({ id: r.id, itemName: r.itemName, erpCode: r.erpCode, category: r.category, qty: r.qty, unit: r.unit, estimatedCost: r.estimatedCost })),
       });
     } catch (err) { console.warn('[SupervisorPortal] Purchase request email notify failed:', err); }
 
@@ -508,6 +517,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       subtitle: `${siblings.length > 1 ? `Batch of ${siblings.length} items` : `Request ID: ${r.id}`}  •  Approved ${latestDecision?.decidedAt ? fmtDate(latestDecision.decidedAt) : ''} by ${latestDecision?.decidedByName || ''}`,
       columns: [
         { header: 'Item', dataKey: 'item' },
+        { header: 'ERP No.', dataKey: 'erpCode' },
         { header: 'Category', dataKey: 'category' },
         { header: 'Qty', dataKey: 'qty' },
         { header: 'Est. Cost (AED)', dataKey: 'cost' },
@@ -515,7 +525,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
         { header: 'Requested By', dataKey: 'by' },
       ],
       rows: siblings.map(x => ({
-        item: x.itemName, category: x.category,
+        item: x.itemName, erpCode: x.erpCode || '—', category: x.category,
         qty: x.qtyApproved != null && x.qtyApproved < x.qty ? `${x.qtyApproved} ${x.unit} (of ${x.qty} requested)` : `${x.qty} ${x.unit}`,
         cost: x.actualCost ? x.actualCost.toFixed(2) : x.estimatedCost ? x.estimatedCost.toFixed(2) : '—',
         purpose: x.purpose || '—', by: x.requestedByName,
@@ -1083,6 +1093,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-black text-white">{r.itemName}</span>
+                            {r.erpCode && <span className="text-[10px] font-mono text-slate-500">ERP #{r.erpCode}</span>}
                             <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded-full">{r.category}</span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${pStatusStyle(r.status)}`}>{r.status}</span>
                           </div>
@@ -1158,34 +1169,76 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
                 <div className="space-y-3 border border-dashed border-slate-700 rounded-lg p-3">
                   <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{pCart.length > 0 ? 'Add Another Item' : 'Item Details'}</p>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">Item Name *</label>
-                    <input value={pDraftItem.itemName || ''} onChange={e => setPDraftItem(p => ({ ...p, itemName: e.target.value }))}
-                      placeholder="e.g. Drill machine, Safety harness, Scaffolding clamps"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-xs font-semibold text-slate-400 block mb-1">Category</label>
-                      <select value={pDraftItem.category || 'Tools'} onChange={e => setPDraftItem(p => ({ ...p, category: e.target.value as any }))}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500">
-                        <option value="Tools">Tools</option>
-                        <option value="Equipment">Equipment</option>
-                        <option value="Site">Site</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-slate-400 block mb-1">Qty</label>
-                      <input type="number" min={1} value={pDraftItem.qty ?? 1} onChange={e => setPDraftItem(p => ({ ...p, qty: Number(e.target.value) }))}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-slate-400 block mb-1">Unit</label>
-                      <input value={pDraftItem.unit || 'pcs'} onChange={e => setPDraftItem(p => ({ ...p, unit: e.target.value }))}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
-                    </div>
-                  </div>
+                  {(() => {
+                    const typedName = (pDraftItem.itemName || '').trim();
+                    const matchedMaterial = pMatchedMaterial;
+                    const suggestions = typedName.length >= 2
+                      ? materials.filter(m => m.name.toLowerCase().includes(typedName.toLowerCase())).slice(0, 8)
+                      : [];
+                    return (
+                      <>
+                        <div>
+                          <label className="text-xs font-semibold text-slate-400 block mb-1">Item Name *</label>
+                          <input
+                            list="pr-item-suggestions"
+                            value={pDraftItem.itemName || ''}
+                            onChange={e => {
+                              const name = e.target.value;
+                              const match = materials.find(m => m.name.toLowerCase() === name.trim().toLowerCase());
+                              setPDraftItem(p => ({ ...p, itemName: name, unit: match ? match.unit : p.unit, erpCode: match ? match.erpCode : null }));
+                            }}
+                            placeholder="Start typing — must match Store inventory (e.g. Mask, Drill machine)"
+                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                          <datalist id="pr-item-suggestions">
+                            {suggestions.map(m => <option key={m.id} value={m.name} />)}
+                          </datalist>
+                          {typedName.length >= 2 && (
+                            matchedMaterial ? (
+                              <p className="text-[10px] text-emerald-400 font-semibold mt-1">
+                                ✓ Found in Store inventory — unit set to "{matchedMaterial.unit}"{matchedMaterial.erpCode ? ` • ERP #${matchedMaterial.erpCode}` : ''}
+                              </p>
+                            ) : suggestions.length === 0 ? (
+                              <p className="text-[10px] text-amber-400 font-semibold mt-1">
+                                Not found in Store inventory — this item can't be requested yet. Please contact the Store department to add it to inventory first.
+
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-slate-500 mt-1">
+                                Pick a match from the suggestions, or keep typing to request a new item name.
+                              </p>
+                            )
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-400 block mb-1">Category</label>
+                            <select value={pDraftItem.category || 'Tools'} onChange={e => setPDraftItem(p => ({ ...p, category: e.target.value as any }))}
+                              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500">
+                              <option value="Tools">Tools</option>
+                              <option value="Equipment">Equipment</option>
+                              <option value="Site">Site</option>
+                              <option value="Other">Other</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs font-semibold text-slate-400 block mb-1">Qty *</label>
+                            <input type="number" min={1} value={pDraftItem.qty ?? 1} onChange={e => setPDraftItem(p => ({ ...p, qty: Number(e.target.value) }))}
+                              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                          </div>
+                          <div>
+                            <label className="text-xs font-semibold text-slate-400 block mb-1">
+                              Unit {matchedMaterial && <span className="text-emerald-400 normal-case">(from inventory)</span>}
+                            </label>
+                            <input
+                              value={pDraftItem.unit || 'pcs'}
+                              readOnly={!!matchedMaterial}
+                              onChange={e => setPDraftItem(p => ({ ...p, unit: e.target.value }))}
+                              className={`w-full bg-slate-800 border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 ${matchedMaterial ? 'border-emerald-700 text-emerald-300 cursor-not-allowed' : 'border-slate-700'}`} />
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                   <div>
                     <label className="text-xs font-semibold text-slate-400 block mb-1">Estimated Cost (AED, optional)</label>
                     <input type="number" min={0} value={pDraftItem.estimatedCost ?? ''} onChange={e => setPDraftItem(p => ({ ...p, estimatedCost: e.target.value ? Number(e.target.value) : null }))}
@@ -1196,14 +1249,15 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                     <textarea value={pDraftItem.purpose || ''} onChange={e => setPDraftItem(p => ({ ...p, purpose: e.target.value }))} rows={2}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none" />
                   </div>
-                  <button onClick={pAddToCart} disabled={!pDraftItem.itemName || !pDraftItem.qty}
+                  <button onClick={pAddToCart} disabled={!pDraftItem.itemName || !pDraftItem.qty || !pMatchedMaterial}
+                    title={!pMatchedMaterial ? 'Item must match an existing Store inventory item' : undefined}
                     className="w-full text-sm font-bold text-orange-400 bg-orange-950/30 hover:bg-orange-900/30 disabled:opacity-40 py-2 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                     <Plus className="h-4 w-4" /> Add Item to Request
                   </button>
                 </div>
 
                 <div className="flex gap-2 pt-2">
-                  <button onClick={pSubmitCart} disabled={(pCart.length === 0 && !pDraftItem.itemName) || pSending}
+                  <button onClick={pSubmitCart} disabled={(pCart.length === 0 && (!pDraftItem.itemName || !pMatchedMaterial)) || pSending}
                     className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                     <Save className="h-4 w-4" /> {pSending ? 'Sending…' : `Submit ${pCart.length > 1 ? `${pCart.length} Items` : pCart.length === 1 ? '1 Item' : ''} to Manager`}
                   </button>
