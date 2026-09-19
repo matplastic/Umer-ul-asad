@@ -68,7 +68,7 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
     <tr>
       <td style="padding:8px 8px 8px 0; border-bottom:1px solid #e2e8f0;">
         <div style="font-weight:600; color:#0f172a;">${esc(it.itemName)}</div>
-        <div style="color:#64748b; font-size:12px;">Requested: ${esc(it.qty)} ${esc(it.unit)}${it.estimatedCost ? ` • AED ${esc(it.estimatedCost)}` : ''}</div>
+        <div style="color:#64748b; font-size:12px;">Requested: ${esc(it.qty)} ${esc(it.unit)}${it.erpCode ? ` • ERP #${esc(it.erpCode)}` : ''}${it.estimatedCost ? ` • AED ${esc(it.estimatedCost)}` : ''}</div>
       </td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">
         <div style="margin-bottom:6px;">
