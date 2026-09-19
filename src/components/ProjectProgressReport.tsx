@@ -63,9 +63,12 @@ function getDefaultRange(): DateRange {
  * Both views can be exported per-project as PDF or Excel.
  */
 export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ pools, plannedPools = [] }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>('wip');
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultRange());
+  const [viewMode, setViewMode] = useState<ViewMode>('wip');  const [dateRange, setDateRange] = useState<DateRange>(getDefaultRange());
   const [projectFilter, setProjectFilter] = useState<string>('all');
+  // 'all' or a specific section key ('planning' | 'released' | a stage id |
+  // 'completed'/'finalCompleted') — lets someone pull e.g. "just the pools
+  // released for Skyros" instead of the whole matrix every time.
+  const [sectionFilter, setSectionFilter] = useState<string>('all');
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('landscape');
   const [isExporting, setIsExporting] = useState(false);
   const [drillDown, setDrillDown] = useState<DrillDownState | null>(null);
@@ -261,15 +264,45 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
     });
   };
 
-  // Joins a list of pools' numbers for one export cell. Excel/PDF cells both
-  // render plain newlines fine, so pool numbers stack one-per-line inside
-  // the cell rather than running into an unreadable single-line list.
-  const poolNoList = (list: Pool[] | undefined): string =>
-    list && list.length > 0 ? list.map(p => p.poolNo).join('\n') : '—';
+  // The exportable "sections" for the active view — each is one column of
+  // the on-screen matrix, but for export purposes each becomes its own
+  // labeled group of real rows (Project / Section / Pool No / Date), so
+  // Excel gets Pool No as an actual column people can sort/filter, not text
+  // crammed into one cell. sectionFilter narrows this list to just one
+  // (e.g. "Released") so someone can pull a single clean list per project.
+  type Section = { key: string; label: string; getPools: (row: any) => Pool[]; getDate: (p: Pool) => string; getNote?: (p: Pool) => string | undefined };
+
+  const wipSections: Section[] = useMemo(() => [
+    { key: 'planning', label: 'Planning', getPools: (r) => r.planningPools, getDate: (p) => fmtDate(p.createdAt), getNote: (p) => p.poolType || undefined },
+    { key: 'released', label: 'Released', getPools: (r) => r.releasedPools, getDate: (p) => fmtDate(p.createdAt) },
+    ...STAGES.map((s): Section => ({
+      key: s.id,
+      label: `Currently at ${s.name}`,
+      getPools: (r) => r.stagePools[s.id] || [],
+      getDate: (p) => fmtDate(p.stageHistory[s.id]?.startTime),
+      getNote: (p) => (p.stageHistory[s.id]?.status || '').replace(/_/g, ' ') || undefined,
+    })),
+    { key: 'completed', label: 'Fully Completed', getPools: (r) => r.completedPools, getDate: (p) => fmtDate(p.completedAt) },
+  ], []);
+
+  const completionSections: Section[] = useMemo(() => [
+    { key: 'released', label: 'Released from Planning', getPools: (r) => r.releasedInRange, getDate: (p) => fmtDate(p.createdAt) },
+    ...STAGES.map((s): Section => ({
+      key: s.id,
+      label: `${s.name} — Approved in period`,
+      getPools: (r) => r.stagePools[s.id] || [],
+      getDate: (p) => fmtDate(p.stageHistory[s.id]?.inspectionTime || p.stageHistory[s.id]?.endTime),
+      getNote: (p) => p.stageHistory[s.id]?.teamName || undefined,
+    })),
+    { key: 'finalCompleted', label: 'Final Completed', getPools: (r) => r.finalCompletedPools, getDate: (p) => fmtDate(p.completedAt) },
+  ], []);
+
+  const activeSections = viewMode === 'wip' ? wipSections : completionSections;
 
   const runExport = async (format: 'pdf' | 'excel') => {
     const isWip = viewMode === 'wip';
     const rows = isWip ? wipRows : completionRows;
+    const sections = sectionFilter === 'all' ? activeSections : activeSections.filter(s => s.key === sectionFilter);
 
     if (rows.length === 0) {
       alert('No records found for the current filters.');
@@ -278,54 +311,56 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
 
     setIsExporting(true);
     try {
-      const columns = isWip
-        ? [
-            { header: 'Project', dataKey: 'project' },
-            { header: 'Planning', dataKey: 'planning' },
-            { header: 'Released', dataKey: 'released' },
-            ...STAGES.map(s => ({ header: s.name, dataKey: s.id })),
-            { header: 'Completed', dataKey: 'completed' },
-          ]
-        : [
-            { header: 'Project', dataKey: 'project' },
-            { header: 'Released', dataKey: 'released' },
-            ...STAGES.map(s => ({ header: s.name, dataKey: s.id })),
-            { header: 'Final Completed', dataKey: 'finalCompleted' },
-          ];
-
-      // Every stage/status column lists the actual pool numbers behind it
-      // (one per line) instead of just a count — the count is still
-      // available on-screen by clicking the cell, but the exported
-      // file is what people take into meetings, so it needs the real
-      // pool numbers.
-      const flatRows = rows.map((r: any) => {
-        const obj: Record<string, any> = { project: r.project };
-        if (isWip) {
-          obj.planning = poolNoList(r.planningPools);
-          obj.released = poolNoList(r.releasedPools);
-          STAGES.forEach(s => { obj[s.id] = poolNoList(r.stagePools[s.id]); });
-          obj.completed = poolNoList(r.completedPools);
-        } else {
-          obj.released = poolNoList(r.releasedInRange);
-          STAGES.forEach(s => { obj[s.id] = poolNoList(r.stagePools[s.id]); });
-          obj.finalCompleted = poolNoList(r.finalCompletedPools);
-        }
-        return obj;
+      // Long/detail format: one real row per pool, with Pool No as its own
+      // column — this is what makes it usable in Excel (sort, filter,
+      // pivot) instead of a wide matrix with pool numbers stuffed into cells.
+      const detailRows: { project: string; section: string; poolNo: string; date: string; note: string }[] = [];
+      rows.forEach((r: any) => {
+        sections.forEach((sec) => {
+          const pools = sec.getPools(r);
+          pools.forEach((p: Pool) => {
+            detailRows.push({
+              project: r.project,
+              section: sec.label,
+              poolNo: p.poolNo,
+              date: sec.getDate(p),
+              note: sec.getNote?.(p) || '—',
+            });
+          });
+        });
       });
 
-      const filenameBase = isWip ? 'Project_Status_WIP_Report' : 'Project_Stage_Completions_Report';
-      const title = isWip ? 'Project Status Report (Current Snapshot)' : 'Project Stage Completions Report';
-      const filterSummary = isWip
-        ? [projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects', `${rows.length} project(s)`, 'Live snapshot — not date-filtered'].join('  •  ')
-        : [`Period: ${dateRange.startDate} to ${dateRange.endDate}`, projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects', `${rows.length} project(s)`].join('  •  ');
+      const columns = [
+        { header: 'Project', dataKey: 'project' },
+        { header: 'Section', dataKey: 'section' },
+        { header: 'Pool No', dataKey: 'poolNo' },
+        { header: 'Date', dataKey: 'date' },
+        { header: 'Note', dataKey: 'note' },
+      ];
+
+      const sectionLabel = sectionFilter === 'all' ? null : activeSections.find(s => s.key === sectionFilter)?.label;
+      const filenameBase = [
+        isWip ? 'Project_Status_WIP' : 'Project_Stage_Completions',
+        projectFilter !== 'all' ? projectFilter.replace(/[^a-zA-Z0-9]+/g, '_') : null,
+        sectionLabel ? sectionLabel.replace(/[^a-zA-Z0-9]+/g, '_') : null,
+      ].filter(Boolean).join('_');
+      const title = [
+        isWip ? 'Project Status Report' : 'Project Stage Completions Report',
+        sectionLabel ? `— ${sectionLabel}` : null,
+      ].filter(Boolean).join(' ');
+      const filterSummary = (isWip
+        ? [projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects', sectionLabel ? `Section: ${sectionLabel}` : 'All Sections', 'Live snapshot — not date-filtered']
+        : [`Period: ${dateRange.startDate} to ${dateRange.endDate}`, projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects', sectionLabel ? `Section: ${sectionLabel}` : 'All Sections']
+      ).join('  •  ');
+
+      if (detailRows.length === 0) {
+        alert('No pools found for the current filters.');
+        return;
+      }
 
       if (format === 'excel') {
         exportToExcel(
-          flatRows.map(r => {
-            const obj: Record<string, any> = {};
-            columns.forEach(c => { obj[c.header] = r[c.dataKey] ?? '—'; });
-            return obj;
-          }),
+          detailRows.map(r => ({ Project: r.project, Section: r.section, 'Pool No': r.poolNo, Date: r.date, Note: r.note })),
           filenameBase,
           title.slice(0, 31)
         );
@@ -334,7 +369,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           title,
           subtitle: filterSummary,
           columns,
-          rows: flatRows,
+          rows: detailRows,
           filename: filenameBase,
           orientation: pdfOrientation,
           deptLine: 'Management Dashboard — Project Progress Report',
@@ -357,7 +392,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
         </div>
         <div className="flex gap-1.5 flex-wrap">
           <button
-            onClick={() => setViewMode('wip')}
+            onClick={() => { setViewMode('wip'); setSectionFilter('all'); }}
             data-testid="project-report-view-wip"
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               viewMode === 'wip' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -366,7 +401,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
             <ClipboardList className="h-3.5 w-3.5" /> Current Status (Live Snapshot)
           </button>
           <button
-            onClick={() => setViewMode('completions')}
+            onClick={() => { setViewMode('completions'); setSectionFilter('all'); }}
             data-testid="project-report-view-completions"
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               viewMode === 'completions' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -410,6 +445,16 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
 
+        <select
+          value={sectionFilter}
+          onChange={(e) => setSectionFilter(e.target.value)}
+          data-testid="project-report-section-filter"
+          className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        >
+          <option value="all">All Sections (full report)</option>
+          {activeSections.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+
         <div className="flex items-center gap-1.5 ml-auto">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">PDF Layout</span>
           <div className="flex bg-slate-100 rounded-lg p-0.5">
@@ -432,12 +477,12 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           </div>
         </div>
 
-        {projectFilter !== 'all' && (
+        {(projectFilter !== 'all' || sectionFilter !== 'all') && (
           <button
-            onClick={() => setProjectFilter('all')}
+            onClick={() => { setProjectFilter('all'); setSectionFilter('all'); }}
             className="flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-slate-700 cursor-pointer"
           >
-            <X className="h-3 w-3" /> Clear filter
+            <X className="h-3 w-3" /> Clear filters
           </button>
         )}
 
