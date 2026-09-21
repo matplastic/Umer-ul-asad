@@ -526,7 +526,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       ],
       rows: siblings.map(x => ({
         item: x.itemName, erpCode: x.erpCode || '—', category: x.category,
-        qty: x.qtyApproved != null && x.qtyApproved < x.qty ? `${x.qtyApproved} ${x.unit} (of ${x.qty} requested)` : `${x.qty} ${x.unit}`,
+        qty: `${x.qtyApproved != null ? x.qtyApproved : x.qty} ${x.unit}`,
         cost: x.actualCost ? x.actualCost.toFixed(2) : x.estimatedCost ? x.estimatedCost.toFixed(2) : '—',
         purpose: x.purpose || '—', by: x.requestedByName,
       })),
