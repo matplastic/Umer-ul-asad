@@ -101,6 +101,16 @@ export async function dbGetEmployeePunchesInRange(startDate: string, endDate: st
 const COLLECTION_BACKED: Record<string, boolean> = {
   pools: true,
   teams: true,
+  // Added after 226 pools released for one project (Samana Portafino) hit
+  // this exact 1 MiB single-document limit: the plannedPools status update
+  // (PLANNED → RELEASED) silently failed to save while the new live pool
+  // (collection-backed, safe) still got created — so the pool showed up
+  // BOTH still in the Planning queue AND live on the shop floor at once.
+  // Run migration script migrate-planned-pools.js BEFORE this deploys, or
+  // existing planned-pool records will appear to vanish (the app will start
+  // reading from the new empty `plannedPools` collection instead of the old
+  // system_state/plannedPools document).
+  plannedPools: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
