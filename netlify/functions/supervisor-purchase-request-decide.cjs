@@ -22,6 +22,14 @@
 //   FIREBASE_PROJECT_ID
 //   FIREBASE_CLIENT_EMAIL
 //   FIREBASE_PRIVATE_KEY
+//
+// Also, to auto-email the approved Purchase Order to Store staff (added
+// per request — see emailPoToStore below):
+//   RESEND_API_KEY, SUPERVISOR_EMAIL_FROM (optional)
+//   PO_STORE_EMAILS — comma-separated list of Store staff addresses, e.g.
+//     "store1@matglobal.tech,store2@matglobal.tech"
+//   (or STORE_STAFF_EMAIL_1 + STORE_STAFF_EMAIL_2 as two separate vars —
+//   either works, PO_STORE_EMAILS wins if both are set)
 
 const { initializeApp, getApps, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
@@ -41,6 +49,86 @@ function getAdminDb() {
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Builds the same PO layout the Supervisor Portal prints (item / ERP No /
+// category / approved qty / cost / purpose / requested by), and emails it
+// straight to Store's staff the moment a batch is (at least partially)
+// approved — so Store doesn't have to wait for the supervisor to print and
+// hand it over.
+//
+// Env var: PO_STORE_EMAILS — comma-separated (e.g.
+// "store1@matglobal.tech,store2@matglobal.tech"). Falls back to
+// STORE_STAFF_EMAIL_1 + STORE_STAFF_EMAIL_2 if that's what's configured.
+async function emailPoToStore({ event, batchId, id, approvedItems, requestedByName, sectionName }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const combined = (process.env.PO_STORE_EMAILS || '').split(',').map((e) => e.trim()).filter(Boolean);
+  const pair = [process.env.STORE_STAFF_EMAIL_1, process.env.STORE_STAFF_EMAIL_2].filter(Boolean);
+  const storeEmails = combined.length > 0 ? combined : pair;
+
+  if (!apiKey || storeEmails.length === 0) {
+    console.warn('[supervisor-purchase-request-decide] RESEND_API_KEY or PO_STORE_EMAILS/STORE_STAFF_EMAIL_1/2 not set — PO email to Store skipped.');
+    return;
+  }
+
+  const siteUrl = process.env.APP_BASE_URL || `https://${event.headers.host}`;
+  const logoUrl = `${siteUrl}/logo.png`;
+  const from = process.env.SUPERVISOR_EMAIL_FROM || 'MAT Plastic Factory <onboarding@resend.dev>';
+  const generatedAt = new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  const rows = approvedItems.map((it) => `
+    <tr>
+      <td style="padding:8px 8px 8px 0; border-bottom:1px solid #e2e8f0; font-weight:600;">${esc(it.itemName)}</td>
+      <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; color:#475569; font-size:12px;">${it.erpCode ? esc(it.erpCode) : '—'}</td>
+      <td style="padding:8px 0; border-bottom:1px solid #e2e8f0;">${esc(it.category)}</td>
+      <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${esc(it.qtyApproved != null ? it.qtyApproved : it.qty)} ${esc(it.unit)}</td>
+    </tr>`).join('');
+
+  const html = `
+    <div style="font-family:Arial,sans-serif; max-width:600px; margin:0 auto; color:#1e293b;">
+      <div style="background:#0f172a; padding:20px 24px; border-radius:10px 10px 0 0; display:flex; align-items:center; gap:12px;">
+        <img src="${logoUrl}" alt="MAT Plastic Industries LLC" style="height:34px; width:auto; display:inline-block; vertical-align:middle;" />
+        <h2 style="color:#fff; margin:0; font-size:15px; text-transform:uppercase; display:inline-block; vertical-align:middle;">MAT Plastic Industries LLC — Factory Supervisor Portal</h2>
+      </div>
+      <div style="border:1px solid #e2e8f0; border-top:none; padding:24px; border-radius:0 0 10px 10px;">
+        <h3 style="margin-top:0;">Purchase Order</h3>
+        <p style="color:#64748b; font-size:12px; margin:0 0 16px;">
+          Request ID: ${esc(batchId || id)} • Approved ${esc(generatedAt)} by Manager (email)
+          ${sectionName ? ` • ${esc(sectionName)}` : ''}
+          ${requestedByName ? `<br/>Requested by ${esc(requestedByName)}` : ''}
+        </p>
+        <table style="width:100%; border-collapse:collapse; font-size:14px;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:6px 8px 6px 0; border-bottom:2px solid #0f172a; color:#64748b; font-size:11px; text-transform:uppercase;">Item</th>
+              <th style="text-align:left; padding:6px 0; border-bottom:2px solid #0f172a; color:#64748b; font-size:11px; text-transform:uppercase;">ERP No.</th>
+              <th style="text-align:left; padding:6px 0; border-bottom:2px solid #0f172a; color:#64748b; font-size:11px; text-transform:uppercase;">Category</th>
+              <th style="text-align:right; padding:6px 0; border-bottom:2px solid #0f172a; color:#64748b; font-size:11px; text-transform:uppercase;">Approved Qty</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <p style="color:#94a3b8; font-size:12px; margin-top:20px;">This is the approved Purchase Order for the item${approvedItems.length > 1 ? 's' : ''} above. Please proceed with purchasing.</p>
+      </div>
+    </div>`;
+
+  const subject = approvedItems.length > 1
+    ? `Approved PO: ${approvedItems.length} items`
+    : `Approved PO: ${approvedItems[0].itemName}`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: storeEmails, subject, html }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      console.error('[supervisor-purchase-request-decide] Resend error sending PO to Store:', res.status, detail);
+    }
+  } catch (err) {
+    console.error('[supervisor-purchase-request-decide] Failed to send PO to Store:', err);
+  }
 }
 
 function page(title, message, ok) {
@@ -234,6 +322,21 @@ exports.handler = async (event) => {
 
     await ref.set({ data: arr });
 
+    if (approvedItems.length > 0) {
+      // Fire-and-forget-ish, but awaited so Netlify doesn't freeze the
+      // function before the Resend call completes; errors are caught and
+      // logged inside emailPoToStore so a Store-email failure never blocks
+      // the manager's decision from being recorded (already saved above).
+      await emailPoToStore({
+        event,
+        batchId,
+        id,
+        approvedItems,
+        requestedByName: arr.find((r) => (batchId ? r.batchId === batchId : r.id === id))?.requestedByName,
+        sectionName: arr.find((r) => (batchId ? r.batchId === batchId : r.id === id))?.sectionName,
+      });
+    }
+
     const summary = [
       approvedItems.length > 0
         ? `<p style="margin:6px 0;"><strong style="color:#16a34a;">✓ Approved (${approvedItems.length}):</strong> ${approvedItems.map((it) => esc(it.qtyApproved < it.qty ? `${it.itemName} (${it.qtyApproved} of ${it.qty} ${it.unit})` : it.itemName)).join(', ')}</p>`
@@ -242,7 +345,7 @@ exports.handler = async (event) => {
         ? `<p style="margin:6px 0;"><strong style="color:#dc2626;">✗ Rejected (${rejectedItems.length}):</strong> ${rejectedItems.map((it) => esc(it.itemName)).join(', ')}</p>`
         : '',
       approvedItems.length > 0
-        ? `<p style="margin:14px 0 0; color:#64748b; font-size:13px;">The supervisor can now print the purchase order${approvedItems.length > 1 ? 's' : ''} and proceed with buying.</p>`
+        ? `<p style="margin:14px 0 0; color:#64748b; font-size:13px;">The Purchase Order${approvedItems.length > 1 ? 's have' : ' has'} been emailed to Store directly — the supervisor can also print it${approvedItems.length > 1 ? 's' : ''} as a backup.</p>`
         : '',
     ].join('');
 
