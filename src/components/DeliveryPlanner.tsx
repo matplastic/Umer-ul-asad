@@ -17,6 +17,21 @@ function currentStageLabel(pool: Pool): string {
   return stage ? stage.name : 'Unknown';
 }
 
+// True once QC has approved the pool's project-level "auto-ready" stage
+// (see Pool.deliveryReadyStageId) — lets a project be delivered as soon as
+// e.g. just Lamination or just Mosaic is done, without waiting for every
+// parallel stage after Lamination to finish.
+function isAutoReady(pool: Pool): boolean {
+  if (!pool.deliveryReadyStageId) return false;
+  return pool.stageHistory?.[pool.deliveryReadyStageId]?.status === 'APPROVED';
+}
+
+// Single source of truth for "is this pool ready to go out" — combines the
+// manual Mark Ready toggle, the delivered flag, and the auto-ready rule.
+function poolIsReady(pool: Pool): boolean {
+  return !!(pool.isDelivered || pool.readyForDelivery || isAutoReady(pool));
+}
+
 // Days remaining until the scheduled date, counting today as day 0.
 // Negative = overdue.
 // 'Today' as a plain YYYY-MM-DD in UAE time — not the browser's local date,
@@ -340,6 +355,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
   const [dateInput, setDateInput] = useState('');
   const [notesInput, setNotesInput] = useState('');
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [ruleSavedMsg, setRuleSavedMsg] = useState<string | null>(null);
 
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [readyFilter, setReadyFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
@@ -397,7 +413,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
       .filter(p => projectFilter === 'all' || p.projectName === projectFilter)
       .filter(p => {
         if (readyFilter === 'all') return true;
-        const isReady = p.isDelivered || p.readyForDelivery;
+        const isReady = poolIsReady(p);
         return readyFilter === 'ready' ? isReady : !isReady;
       })
       .filter(p => !q || p.poolNo.toLowerCase().includes(q) || p.projectName.toLowerCase().includes(q))
@@ -461,7 +477,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
         'Current Stage': currentStageLabel(p),
         'Delivery Date': p.scheduledDeliveryDate,
         'Days Remaining': p.isDelivered ? 'Delivered' : daysRemaining(p.scheduledDeliveryDate!.slice(0, 10)),
-        'Ready for Delivery': p.isDelivered ? 'Delivered' : p.readyForDelivery ? 'Yes' : 'No',
+        'Ready for Delivery': p.isDelivered ? 'Delivered' : poolIsReady(p) ? 'Yes' : 'No',
         'Notes': p.deliveryPlanNotes || '',
       }));
 
@@ -494,7 +510,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
           stage: currentStageLabel(p),
           date: p.scheduledDeliveryDate,
           days: p.isDelivered ? 'Delivered' : daysRemaining(p.scheduledDeliveryDate!.slice(0, 10)),
-          ready: p.isDelivered ? 'Delivered' : p.readyForDelivery ? 'Yes' : 'No',
+          ready: p.isDelivered ? 'Delivered' : poolIsReady(p) ? 'Yes' : 'No',
           notes: p.deliveryPlanNotes || '',
         })),
       filename: 'delivery_schedule_selected_dates',
@@ -543,7 +559,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
       'Current Stage': currentStageLabel(p),
       'Delivery Date': p.scheduledDeliveryDate,
       'Days Remaining': p.isDelivered ? 'Delivered' : daysRemaining(p.scheduledDeliveryDate!.slice(0, 10)),
-      'Ready for Delivery': p.isDelivered ? 'Delivered' : p.readyForDelivery ? 'Yes' : 'No',
+      'Ready for Delivery': p.isDelivered ? 'Delivered' : poolIsReady(p) ? 'Yes' : 'No',
       'Notes': p.deliveryPlanNotes || '',
     }));
 
@@ -692,7 +708,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
                   stage: currentStageLabel(p),
                   date: p.scheduledDeliveryDate,
                   days: p.isDelivered ? 'Delivered' : daysRemaining(p.scheduledDeliveryDate!.slice(0, 10)),
-                  ready: p.isDelivered ? 'Delivered' : p.readyForDelivery ? 'Yes' : 'No',
+                  ready: p.isDelivered ? 'Delivered' : poolIsReady(p) ? 'Yes' : 'No',
                   notes: p.deliveryPlanNotes || '',
                 })),
                 filename: 'delivery_schedule_report',
@@ -748,6 +764,39 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
           </select>
         </div>
 
+        {/* Per-project auto-ready rule: once picked, every pool in this
+            project is treated as ready for delivery the moment QC approves
+            THIS stage — even though pools now sit in every parallel stage
+            after Lamination at once (Mechanical/Skimmer Test/Mosaic). Only
+            shows once a single project is picked above, since the rule
+            applies project-wide. */}
+        {projectFilter !== 'all' && onUpdatePool && (() => {
+          const projectPools = pools.filter(p => p.projectName === projectFilter);
+          const currentRule = projectPools.find(p => p.deliveryReadyStageId)?.deliveryReadyStageId || '';
+          const applyRule = (stageId: string) => {
+            projectPools.forEach(p => onUpdatePool(p.id, { deliveryReadyStageId: stageId || null }));
+            setRuleSavedMsg(stageId ? `Saved — ${projectFilter} pools auto-ready once ${STAGES.find(s => s.id === stageId)?.name} is QC-approved.` : `Cleared — ${projectFilter} pools now only go ready via manual/Mark Ready or full completion.`);
+            setTimeout(() => setRuleSavedMsg(null), 4000);
+          };
+          return (
+            <div className="flex items-center gap-2 flex-wrap px-1 py-2 bg-indigo-50/60 border border-indigo-100 rounded-xl">
+              <PackageCheck className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+              <label className="text-[11px] font-bold text-indigo-800 shrink-0">
+                Auto-ready {projectFilter} once:
+              </label>
+              <select
+                value={currentRule}
+                onChange={(e) => applyRule(e.target.value)}
+                className="text-xs border border-indigo-200 rounded-lg px-2.5 py-1.5 font-semibold text-indigo-800 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              >
+                <option value="">No rule — manual only</option>
+                {STAGES.map(s => <option key={s.id} value={s.id}>{s.name} is QC-approved</option>)}
+              </select>
+              {ruleSavedMsg && <span className="text-[10.5px] font-bold text-indigo-600">{ruleSavedMsg}</span>}
+            </div>
+          );
+        })()}
+
         {scheduledPools.length > 0 && (
           <div className="flex items-center justify-between gap-2 px-1">
             <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 cursor-pointer select-none">
@@ -784,7 +833,7 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
               const dt = new Date(Date.UTC(gy, (gm || 1) - 1, gd || 1));
               const dayLabel = isNaN(dt.getTime()) ? group.date : dt.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
               const overdueCount = group.pools.filter(p => !p.isDelivered && daysRemaining(group.date) < 0).length;
-              const readyCount = group.pools.filter(p => p.readyForDelivery || p.isDelivered).length;
+              const readyCount = group.pools.filter(p => poolIsReady(p)).length;
               return (
                 <div key={group.date} className="border border-slate-100 rounded-xl overflow-hidden">
                   <div className="flex items-center justify-between px-3.5 py-2 bg-slate-50 border-b border-slate-100">
@@ -830,19 +879,29 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
                               {style.label}
                             </span>
                             {!pool.isDelivered && (
-                              <button
-                                onClick={() => onUpdatePool && onUpdatePool(pool.id, { readyForDelivery: !pool.readyForDelivery })}
-                                disabled={!onUpdatePool}
-                                title={pool.readyForDelivery ? 'Marked ready — click to undo' : 'Mark this pool ready for delivery'}
-                                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-pointer disabled:opacity-50 transition-colors ${
-                                  pool.readyForDelivery
-                                    ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200'
-                                    : 'bg-white text-slate-400 border-slate-200 hover:border-emerald-300 hover:text-emerald-600'
-                                }`}
-                              >
-                                <PackageCheck className="h-3 w-3" />
-                                {pool.readyForDelivery ? 'Ready' : 'Mark Ready'}
-                              </button>
+                              isAutoReady(pool) ? (
+                                <span
+                                  title={`Auto-ready — ${STAGES.find(s => s.id === pool.deliveryReadyStageId)?.name || pool.deliveryReadyStageId} was QC-approved`}
+                                  className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-100 text-emerald-700 border-emerald-300"
+                                >
+                                  <PackageCheck className="h-3 w-3" />
+                                  Auto-Ready ({STAGES.find(s => s.id === pool.deliveryReadyStageId)?.name || pool.deliveryReadyStageId})
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => onUpdatePool && onUpdatePool(pool.id, { readyForDelivery: !pool.readyForDelivery })}
+                                  disabled={!onUpdatePool}
+                                  title={pool.readyForDelivery ? 'Marked ready — click to undo' : pool.deliveryReadyStageId ? `Waiting on ${STAGES.find(s => s.id === pool.deliveryReadyStageId)?.name || pool.deliveryReadyStageId} to be QC-approved — or mark ready manually now` : 'Mark this pool ready for delivery'}
+                                  className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-pointer disabled:opacity-50 transition-colors ${
+                                    pool.readyForDelivery
+                                      ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200'
+                                      : 'bg-white text-slate-400 border-slate-200 hover:border-emerald-300 hover:text-emerald-600'
+                                  }`}
+                                >
+                                  <PackageCheck className="h-3 w-3" />
+                                  {pool.readyForDelivery ? 'Ready' : 'Mark Ready'}
+                                </button>
+                              )
                             )}
                             <button
                               onClick={() => loadPool(pool)}
