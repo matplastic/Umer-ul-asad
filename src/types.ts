@@ -144,6 +144,13 @@ export interface Pool {
   // get set once it has actually left. Lets the Delivery Planner report
   // show "X of Y ready" per delivery date before the truck even shows up.
   readyForDelivery?: boolean;
+  // Per-project delivery rule (set from the Delivery Planner, applied to
+  // every pool in that project): once QC approves THIS stage for the pool,
+  // it's treated as ready for delivery automatically — even if later
+  // parallel stages (e.g. Mechanical/Skimmer Test/Mosaic, which now all run
+  // after Lamination at once) haven't been approved yet. Null/unset means
+  // no auto-rule — only the manual readyForDelivery toggle above applies.
+  deliveryReadyStageId?: string | null;
   deliveryPlanNotes?: string | null;
   // QC HOLD: when true, no team/kiosk may claim this pool at its current
   // stage until QC releases it. The pool stays visible on stage boards
