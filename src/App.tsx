@@ -4334,18 +4334,6 @@ export default function App() {
 
       </div>
 
-      {/* Floating QR Scanner trigger — handy for shop floor quick lookup */}
-      {loggedInUser && (
-        <button
-          onClick={() => setIsScannerOpen(true)}
-          data-testid="qr-scanner-fab"
-          className="fixed bottom-6 right-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-4 shadow-2xl shadow-indigo-900/30 transition-all hover:scale-110 cursor-pointer z-40"
-          title="Scan Pool QR Code"
-        >
-          <Camera className="h-5 w-5" />
-        </button>
-      )}
-
       {/* QR Scanner overlay */}
       {isScannerOpen && (
         <QRScanner
