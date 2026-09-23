@@ -73,23 +73,29 @@ Respond ONLY with JSON matching this exact shape, nothing else:
 {"intent":"hold_pool"|"release_hold"|"skip_stage"|"find_pool"|"stats"|"chat","poolNo":string|null,"reason":string|null,"skipOption":"SKIPPED"|"CARRIED_ON_SITE"|null,"metric":"pools_by_stage"|"pools_on_hold"|"pools_total"|null,"reply":string}`;
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+    const callGemini = async (model) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents: [{ role: 'user', parts: [{ text: message }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.2,
-        },
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
       }),
     });
+
+    // See ai-command-qc.cjs for why this fallback exists — same reasoning.
+    let res = await callGemini('gemini-flash-latest');
+    if (!res.ok && res.status === 404) {
+      console.warn('[ai-command-management] gemini-flash-latest 404\'d, retrying with pinned gemini-3.6-flash...');
+      res = await callGemini('gemini-3.6-flash');
+    }
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       console.error('[ai-command-management] Gemini API error:', res.status, detail);
-      return json(200, { intent: 'chat', reply: "Couldn't reach the AI service just now — please try again in a moment." });
+      let googleMsg = '';
+      try { googleMsg = JSON.parse(detail)?.error?.message || ''; } catch {}
+      return json(200, { intent: 'chat', reply: `AI service error (HTTP ${res.status})${googleMsg ? ': ' + googleMsg : ''} — please try again in a moment.` });
     }
 
     const data = await res.json();
