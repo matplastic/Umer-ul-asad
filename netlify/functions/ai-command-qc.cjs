@@ -1,15 +1,18 @@
 // Netlify Function — Quality Inspector "Ask AI" command parser.
 //
 // Takes a natural-language message from a QC inspector (e.g. "reject pool
-// P-102 skimmer test, crack in the shell") plus a list of pools currently
-// awaiting inspection, and asks Gemini to turn that into ONE structured
-// proposed action. This function NEVER touches Firestore and never
-// executes anything — it only returns a proposal. The actual reject/defect
-// write happens client-side, through the exact same onRejectStage /
-// onLogDefect handlers the manual "Reject" button already uses, only after
-// the inspector clicks Confirm in the UI. This keeps the AI layer strictly
-// advisory: a misheard pool number or misread reason can never silently
-// reject the wrong pool.
+// P-102 skimmer test, crack in the shell", "pass P-102", or "pass all
+// pending lamination") plus a list of pools currently awaiting inspection,
+// and asks Gemini to turn that into ONE structured proposed action —
+// including, for "pass_bulk", a stage name to match against every pool
+// currently pending at that stage. This function NEVER touches Firestore
+// and never executes anything — it only returns a proposal. The matching
+// against real pending pools/stages, and the actual reject/pass/defect
+// writes, all happen client-side through the exact same onRejectStage /
+// onApproveStage / onLogDefect handlers the manual buttons already use,
+// only after the inspector clicks Confirm in the UI. This keeps the AI
+// layer strictly advisory: a misheard pool number, stage, or reason can
+// never silently reject/pass the wrong thing.
 //
 // Env var needed: GEMINI_API_KEY (from https://aistudio.google.com/apikey —
 // separate from RESEND_API_KEY / Firebase vars, free tier is enough for this).
@@ -53,13 +56,15 @@ ${poolList || '(none currently pending)'}
 
 Rules:
 - intent "reject": inspector wants to reject a specific pool at its current pending stage. Requires you to identify poolNo from the list above (exact match to the Pool No column — never invent a pool number that isn't in the list) and extract the rejection reason in the inspector's own words. Also produce a short defectType (3-6 words describing the defect, e.g. "Crack in shell surface") and a severity guess ("minor", "major", or "critical" — default "major" if unclear).
+- intent "pass": inspector wants to approve/pass ONE specific pool at its current pending stage (e.g. "pass P-102", "P-102 looks good, approve it", "approve pool 14"). Requires poolNo from the list above (exact match — never invent one). Optionally extract short approval notes into "reason" (e.g. "Looks good, no issues") — use null if the inspector gave none.
+- intent "pass_bulk": inspector wants to pass/approve ALL pools currently pending at a particular stage (e.g. "pass all pending lamination", "approve everything waiting for skimmer fitting", "clear all skimmer fitting"). Extract "stageQuery" as the exact stage name copied verbatim from after "stage:" in the list above for the stage they mean — do not paraphrase it. Use null for stageQuery if you can't confidently match a stage name that appears in the list.
 - intent "details": inspector is asking about a specific pool's status/history/details. Extract poolNo if they named one (must match the list above), else null.
-- intent "chat": anything else — greetings, unclear requests, or a pool/reason you can't confidently match. Use "reply" to ask a clarifying question or explain what you need.
-- If the inspector's message doesn't clearly match any pool in the list, use intent "chat" and say so — do NOT guess a pool number that isn't listed.
+- intent "chat": anything else — greetings, unclear requests, or a pool/reason/stage you can't confidently match. Use "reply" to ask a clarifying question or explain what you need.
+- If the inspector's message doesn't clearly match any pool or stage in the list, use intent "chat" and say so — do NOT guess a pool number or stage that isn't listed.
 - "reply" is always a short (1-2 sentence) natural-language message to show the inspector, in plain factory-floor English.
 
 Respond ONLY with JSON matching this exact shape, nothing else:
-{"intent":"reject"|"details"|"chat","poolNo":string|null,"reason":string|null,"defectType":string|null,"severity":"minor"|"major"|"critical"|null,"reply":string}`;
+{"intent":"reject"|"pass"|"pass_bulk"|"details"|"chat","poolNo":string|null,"stageQuery":string|null,"reason":string|null,"defectType":string|null,"severity":"minor"|"major"|"critical"|null,"reply":string}`;
 
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
@@ -102,8 +107,9 @@ Respond ONLY with JSON matching this exact shape, nothing else:
     }
 
     return json(200, {
-      intent: ['reject', 'details', 'chat'].includes(parsed.intent) ? parsed.intent : 'chat',
+      intent: ['reject', 'pass', 'pass_bulk', 'details', 'chat'].includes(parsed.intent) ? parsed.intent : 'chat',
       poolNo: parsed.poolNo || null,
+      stageQuery: parsed.stageQuery || null,
       reason: parsed.reason || null,
       defectType: parsed.defectType || null,
       severity: ['minor', 'major', 'critical'].includes(parsed.severity) ? parsed.severity : 'major',
