@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Pool, StageId, ActivityLog, IncomingMaterial, ChecklistTemplate, ChecklistResult } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex } from '../data/mockData';
-import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw, Clock, PauseCircle, PackageSearch } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw, Clock, PauseCircle, PackageSearch, Mic, MicOff } from 'lucide-react';
 import { QCDefectPanel, QCDefectBadge, QCDefect } from './QCDefectPanel';
 import { DailyDefectReport } from './DailyDefectReport';
 import { dbFetchIncomingMaterials, dbDecideIncomingQc, dbFetchChecklistTemplates } from '../lib/firebaseService';
 import { ChecklistPanel } from './ChecklistPanel';
 import { SPCDashboard } from './SPCDashboard';
+import { useVoiceCommand } from '../lib/useVoiceCommand';
 
 interface UndoClaimRequest {
   id: string;
@@ -109,6 +110,20 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const [filterMode, setFilterMode] = useState<'pending' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [reviewStageId, setReviewStageId] = useState<StageId | null>(null);
+  // Voice input for the Ask AI box — dictates into the same text box and
+  // auto-sends, exactly as if typed + Enter. The AI still only ever
+  // PROPOSES an action (see aiPending/aiPendingBulk above), so a
+  // mis-transcribed word can't silently reject/pass the wrong pool — the
+  // inspector reviews and clicks Confirm either way. Defined further down
+  // via a stable ref so this hook (declared once, near the top) can call
+  // the latest handleAiSend without a declaration-order problem.
+  const handleAiSendRef = useRef<(messageOverride?: string) => void>(() => {});
+  const aiVoice = useVoiceCommand({
+    onResult: (transcript) => {
+      setAiInput(transcript);
+      handleAiSendRef.current(transcript);
+    },
+  });
 
   // ---------- QC Inspection Checklists ----------
   const [checklistTemplates, setChecklistTemplates] = useState<ChecklistTemplate[]>([]);
@@ -354,8 +369,8 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     return STAGES[pool.currentStageIndex].id;
   };
 
-  const handleAiSend = async () => {
-    const message = aiInput.trim();
+  const handleAiSend = async (messageOverride?: string) => {
+    const message = (messageOverride ?? aiInput).trim();
     if (!message || aiLoading) return;
     setAiMessages((m) => [...m, { role: 'user', text: message }]);
     setAiInput('');
@@ -454,6 +469,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       setAiLoading(false);
     }
   };
+  handleAiSendRef.current = handleAiSend;
 
   const handleAiConfirmAction = () => {
     if (!aiPending) return;
@@ -1534,18 +1550,36 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                   </div>
                 </div>
               )}
+              {aiVoice.isListening && (
+                <div className="text-xs text-indigo-500 italic px-1">
+                  🎙️ Listening{aiVoice.interimTranscript ? `: "${aiVoice.interimTranscript}"` : '…'}
+                </div>
+              )}
+              {aiVoice.error && (
+                <div className="text-xs text-rose-500 px-1">{aiVoice.error}</div>
+              )}
             </div>
             <div className="p-2.5 border-t border-slate-200 flex gap-2">
               <input
                 value={aiInput}
                 onChange={(e) => setAiInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleAiSend(); }}
-                placeholder="Type a command…"
+                placeholder="Type or use the mic…"
                 disabled={aiLoading}
                 className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
               />
+              {aiVoice.isSupported && (
+                <button
+                  onClick={aiVoice.toggle}
+                  disabled={aiLoading}
+                  title={aiVoice.isListening ? 'Stop listening' : 'Speak a command'}
+                  className={`cursor-pointer text-white text-xs font-bold px-3 rounded-lg disabled:opacity-40 ${aiVoice.isListening ? 'bg-rose-600 hover:bg-rose-700 animate-pulse' : 'bg-slate-700 hover:bg-slate-800'}`}
+                >
+                  {aiVoice.isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                </button>
+              )}
               <button
-                onClick={handleAiSend}
+                onClick={() => handleAiSend()}
                 disabled={aiLoading || !aiInput.trim()}
                 className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold px-3 rounded-lg"
               >
