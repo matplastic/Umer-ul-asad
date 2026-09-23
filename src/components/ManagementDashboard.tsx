@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
-import { STAGES } from '../data/mockData';
+import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex } from '../data/mockData';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
@@ -31,8 +31,9 @@ import {
   Edit2, Plus, Trash2, UserPlus, Check, X, Briefcase, FolderPlus,
   ShieldCheck, ShieldAlert, Activity, Cloud, Loader2, CheckCircle2, HardDrive,
   Lock, Unlock, Info, Calendar, CalendarClock, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes, FileDown,
-  UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck, Printer
+  UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck, Printer, Mic, MicOff, XCircle
 } from 'lucide-react';
+import { useVoiceCommand } from '../lib/useVoiceCommand';
 
 interface ManagementDashboardProps {
   pools: Pool[];
@@ -93,6 +94,11 @@ interface ManagementDashboardProps {
   onFinishStage?: (poolId: string, stageId: StageId) => void;
   onQuickBatchComplete?: (poolIds: string[], stageId: StageId, teamId: string) => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
+  // Reused from the Quality Inspector's Hold/Release Hold handlers — both
+  // are reversible (a hold can always be released), so they're safe to
+  // also expose through the Management "Ask AI" widget below.
+  onHoldPool?: (poolId: string, inspectorName: string, reason?: string) => void;
+  onReleaseHold?: (poolId: string, inspectorName: string) => void;
   onRequestUndoClaim?: (poolId: string, stageId: StageId, teamName: string, reason: string) => void;
   onRefresh?: () => void;
   isSyncing?: boolean;
@@ -151,6 +157,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   onFinishStage,
   onQuickBatchComplete,
   onSkipOrCarryOnSite,
+  onHoldPool,
+  onReleaseHold,
   onRequestUndoClaim,
   onRefresh,
   isSyncing,
@@ -173,6 +181,154 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [defectHeatmapDateFrom, setDefectHeatmapDateFrom] = useState<string>('');
   const [defectHeatmapDateTo, setDefectHeatmapDateTo] = useState<string>('');
   const [defectHeatmapTeamSearch, setDefectHeatmapTeamSearch] = useState<string>('');
+
+  // ── Ask AI (Management) ───────────────────────────────────────────────
+  // Same advisory-only pattern as the Quality Inspector's Ask AI: the
+  // Netlify function (ai-command-management.cjs) only ever PROPOSES an
+  // action. Nothing is written until the manager clicks Confirm, and
+  // Confirm calls the exact same onHoldPool/onReleaseHold/
+  // onSkipOrCarryOnSite handlers the manual buttons already use. See the
+  // top-of-file comment in ai-command-management.cjs for the deliberate
+  // scope boundary (no delete/purge/restore actions here).
+  const [mgmtAiOpen, setMgmtAiOpen] = useState(false);
+  const [mgmtAiMessages, setMgmtAiMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
+  const [mgmtAiInput, setMgmtAiInput] = useState('');
+  const [mgmtAiLoading, setMgmtAiLoading] = useState(false);
+  const [mgmtAiPending, setMgmtAiPending] = useState<{
+    type: 'hold' | 'release' | 'skip';
+    poolId: string; poolNo: string; projectName: string; stageId: StageId; stageName: string;
+    reason: string; skipOption: 'SKIPPED' | 'CARRIED_ON_SITE';
+  } | null>(null);
+  const mgmtHandleAiSendRef = useRef<(messageOverride?: string) => void>(() => {});
+  const mgmtAiVoice = useVoiceCommand({
+    onResult: (transcript) => {
+      setMgmtAiInput(transcript);
+      mgmtHandleAiSendRef.current(transcript);
+    },
+  });
+
+  // Active (not fully completed) pools, with the same dual-gate sibling
+  // resolution used across the app — needed so "hold P-102" or "skip
+  // lamination for P-102" targets the actual current stage for pools
+  // parked at a shared Skimmer Fitting / Lamination gate.
+  const mgmtActivePools = pools.filter((p) => !p.completedAt);
+  const mgmtResolveStageIdForPool = (pool: Pool): StageId => {
+    if (isAtDualStageGate(pool.currentStageIndex)) {
+      const gateGroup = getDualGroupForIndex(pool.currentStageIndex) || DUAL_STAGE_IDS;
+      return (gateGroup.find((id) => pool.stageHistory[id]?.status === 'PENDING_INSPECTION')
+        || gateGroup.find((id) => pool.stageHistory[id]?.status !== 'APPROVED')
+        || gateGroup[0]) as StageId;
+    }
+    return STAGES[Math.min(pool.currentStageIndex, STAGES.length - 1)].id;
+  };
+
+  const handleMgmtAiSend = async (messageOverride?: string) => {
+    const message = (messageOverride ?? mgmtAiInput).trim();
+    if (!message || mgmtAiLoading) return;
+    setMgmtAiMessages((m) => [...m, { role: 'user', text: message }]);
+    setMgmtAiInput('');
+    setMgmtAiLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/ai-command-management', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          pools: mgmtActivePools.map((p) => {
+            const stageId = mgmtResolveStageIdForPool(p);
+            return {
+              poolNo: p.poolNo,
+              projectName: p.projectName,
+              stageId,
+              stageName: STAGES.find((s) => s.id === stageId)?.name,
+              isOnHold: !!p.isOnHold,
+            };
+          }),
+        }),
+      });
+      const data = await res.json();
+
+      if ((data.intent === 'hold_pool' || data.intent === 'release_hold' || data.intent === 'skip_stage') && data.poolNo) {
+        const pool = mgmtActivePools.find((p) => p.poolNo.toLowerCase() === data.poolNo.toLowerCase());
+        if (!pool) {
+          setMgmtAiMessages((m) => [...m, { role: 'assistant', text: `Couldn't find an active pool matching "${data.poolNo}".` }]);
+        } else {
+          const stageId = mgmtResolveStageIdForPool(pool);
+          const stageName = STAGES.find((s) => s.id === stageId)?.name || stageId;
+          if (data.intent === 'release_hold' && !pool.isOnHold) {
+            setMgmtAiMessages((m) => [...m, { role: 'assistant', text: `${pool.poolNo} isn't currently on hold.` }]);
+          } else {
+            setMgmtAiPending({
+              type: data.intent === 'hold_pool' ? 'hold' : data.intent === 'release_hold' ? 'release' : 'skip',
+              poolId: pool.id, poolNo: pool.poolNo, projectName: pool.projectName,
+              stageId, stageName, reason: data.reason || '',
+              skipOption: data.skipOption || 'SKIPPED',
+            });
+            setMgmtAiMessages((m) => [...m, { role: 'assistant', text: data.reply || `Ready — confirm below.` }]);
+          }
+        }
+      } else if (data.intent === 'find_pool' && data.poolNo) {
+        const pool = pools.find((p) => p.poolNo.toLowerCase() === data.poolNo.toLowerCase());
+        if (!pool) {
+          setMgmtAiMessages((m) => [...m, { role: 'assistant', text: `Couldn't find pool "${data.poolNo}".` }]);
+        } else {
+          const stageName = pool.currentStageIndex < STAGES.length ? STAGES[pool.currentStageIndex].name : 'Completed';
+          const holdNote = pool.isOnHold ? ` — ON HOLD${pool.holdInfo?.reason ? ` (${pool.holdInfo.reason})` : ''}` : '';
+          setMgmtAiMessages((m) => [...m, { role: 'assistant', text: `${pool.poolNo} (${pool.projectName}) — currently at ${stageName}${holdNote}.` }]);
+        }
+      } else if (data.intent === 'stats') {
+        let text = data.reply || '';
+        if (data.metric === 'pools_by_stage') {
+          const counts: Record<string, number> = {};
+          mgmtActivePools.forEach((p) => {
+            const stageId = mgmtResolveStageIdForPool(p);
+            const stageName = STAGES.find((s) => s.id === stageId)?.name || stageId;
+            counts[stageName] = (counts[stageName] || 0) + 1;
+          });
+          const lines = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name}: ${n}`);
+          text = lines.length ? lines.join(' • ') : 'No active pools right now.';
+        } else if (data.metric === 'pools_on_hold') {
+          const held = mgmtActivePools.filter((p) => p.isOnHold);
+          text = held.length
+            ? `${held.length} pool${held.length === 1 ? '' : 's'} on hold: ${held.map((p) => p.poolNo).join(', ')}`
+            : 'No pools are currently on hold.';
+        } else if (data.metric === 'pools_total') {
+          text = `${mgmtActivePools.length} active pool${mgmtActivePools.length === 1 ? '' : 's'} in the system right now.`;
+        }
+        setMgmtAiMessages((m) => [...m, { role: 'assistant', text: text || "I can answer questions about pools per stage, pools on hold, or total active pools." }]);
+      } else {
+        setMgmtAiMessages((m) => [...m, { role: 'assistant', text: data.reply || "Sorry, I didn't understand that." }]);
+      }
+    } catch (err) {
+      setMgmtAiMessages((m) => [...m, { role: 'assistant', text: "Couldn't reach the AI service — please try again." }]);
+    } finally {
+      setMgmtAiLoading(false);
+    }
+  };
+  mgmtHandleAiSendRef.current = handleMgmtAiSend;
+
+  const handleMgmtAiConfirm = () => {
+    if (!mgmtAiPending) return;
+    const inspectorName = currentUserName || 'Management';
+    if (mgmtAiPending.type === 'hold' && onHoldPool) {
+      onHoldPool(mgmtAiPending.poolId, inspectorName, mgmtAiPending.reason || undefined);
+      setMgmtAiMessages((m) => [...m, { role: 'assistant', text: `✓ Put ${mgmtAiPending.poolNo} on hold.` }]);
+    } else if (mgmtAiPending.type === 'release' && onReleaseHold) {
+      onReleaseHold(mgmtAiPending.poolId, inspectorName);
+      setMgmtAiMessages((m) => [...m, { role: 'assistant', text: `✓ Released hold on ${mgmtAiPending.poolNo}.` }]);
+    } else if (mgmtAiPending.type === 'skip' && onSkipOrCarryOnSite) {
+      onSkipOrCarryOnSite(mgmtAiPending.poolId, mgmtAiPending.stageId, mgmtAiPending.skipOption, inspectorName);
+      setMgmtAiMessages((m) => [...m, { role: 'assistant', text: `✓ Marked ${mgmtAiPending.poolNo} at ${mgmtAiPending.stageName} as ${mgmtAiPending.skipOption === 'SKIPPED' ? 'skipped' : 'carried on site'}.` }]);
+    } else {
+      setMgmtAiMessages((m) => [...m, { role: 'assistant', text: "That action isn't wired up in this environment." }]);
+    }
+    setMgmtAiPending(null);
+  };
+
+  const handleMgmtAiCancel = () => {
+    setMgmtAiMessages((m) => [...m, { role: 'assistant', text: 'Cancelled — nothing was changed.' }]);
+    setMgmtAiPending(null);
+  };
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'delivery' | 'site_deliveries'>('analytics');
   const [deliverySubTab, setDeliverySubTab] = useState<'confirm' | 'planner' | 'report'>('confirm');
@@ -8963,6 +9119,107 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         )}
 
+      </div>
+
+      {/* ── Ask AI (Management) ──────────────────────────────────────────────
+          Advisory only — see ai-command-management.cjs and
+          handleMgmtAiConfirm above. Nothing is written to Firestore until
+          the manager clicks Confirm on a proposed action. Deliberately
+          scoped to hold/release/skip — see the comment at the top of
+          ai-command-management.cjs for why delete/purge/restore aren't
+          exposed here. */}
+      <div className="fixed bottom-5 right-5 z-40">
+        {mgmtAiOpen ? (
+          <div className="w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ maxHeight: '70vh' }}>
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-900 text-white">
+              <span className="text-sm font-bold">Ask AI — Management</span>
+              <button onClick={() => setMgmtAiOpen(false)} className="cursor-pointer text-slate-300 hover:text-white">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50" style={{ minHeight: 160 }}>
+              {mgmtAiMessages.length === 0 && (
+                <p className="text-xs text-slate-400 text-center mt-6 px-2">
+                  Try: "hold P-102, waiting on customer", "release hold on P-102", "skip lamination for P-102", "how many pools on hold", or "details on P-088".
+                </p>
+              )}
+              {mgmtAiMessages.map((m, i) => (
+                <div key={i} className={`text-xs rounded-xl px-3 py-2 max-w-[90%] whitespace-pre-wrap ${
+                  m.role === 'user' ? 'bg-indigo-600 text-white ml-auto' : 'bg-white border border-slate-200 text-slate-700'
+                }`}>
+                  {m.text}
+                </div>
+              ))}
+              {mgmtAiLoading && <div className="text-xs text-slate-400 italic">Thinking…</div>}
+
+              {mgmtAiPending && (
+                <div className={`border-2 rounded-xl p-3 space-y-2 ${mgmtAiPending.type === 'skip' ? 'bg-sky-50 border-sky-300' : mgmtAiPending.type === 'release' ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50 border-amber-300'}`}>
+                  <p className={`text-xs font-bold ${mgmtAiPending.type === 'skip' ? 'text-sky-800' : mgmtAiPending.type === 'release' ? 'text-emerald-800' : 'text-amber-800'}`}>
+                    {mgmtAiPending.type === 'hold' ? 'Confirm hold' : mgmtAiPending.type === 'release' ? 'Confirm release hold' : `Confirm ${mgmtAiPending.skipOption === 'SKIPPED' ? 'skip' : 'carry on site'}`}
+                  </p>
+                  <p className="text-xs text-slate-700">
+                    Pool <strong>{mgmtAiPending.poolNo}</strong> ({mgmtAiPending.projectName}) at <strong>{mgmtAiPending.stageName}</strong>
+                  </p>
+                  {mgmtAiPending.reason && <p className="text-xs text-slate-600">Reason: {mgmtAiPending.reason}</p>}
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={handleMgmtAiConfirm}
+                      className={`cursor-pointer flex-1 text-white text-xs font-bold py-1.5 rounded-lg ${mgmtAiPending.type === 'skip' ? 'bg-sky-600 hover:bg-sky-700' : mgmtAiPending.type === 'release' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+                    >
+                      Confirm
+                    </button>
+                    <button onClick={handleMgmtAiCancel} className="cursor-pointer flex-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 text-xs font-bold py-1.5 rounded-lg">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+              {mgmtAiVoice.isListening && (
+                <div className="text-xs text-indigo-500 italic px-1">
+                  🎙️ Listening{mgmtAiVoice.interimTranscript ? `: "${mgmtAiVoice.interimTranscript}"` : '…'}
+                </div>
+              )}
+              {mgmtAiVoice.error && (
+                <div className="text-xs text-rose-500 px-1">{mgmtAiVoice.error}</div>
+              )}
+            </div>
+            <div className="p-2.5 border-t border-slate-200 flex gap-2">
+              <input
+                value={mgmtAiInput}
+                onChange={(e) => setMgmtAiInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleMgmtAiSend(); }}
+                placeholder="Type or use the mic…"
+                disabled={mgmtAiLoading}
+                className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+              />
+              {mgmtAiVoice.isSupported && (
+                <button
+                  onClick={mgmtAiVoice.toggle}
+                  disabled={mgmtAiLoading}
+                  title={mgmtAiVoice.isListening ? 'Stop listening' : 'Speak a command'}
+                  className={`cursor-pointer text-white text-xs font-bold px-3 rounded-lg disabled:opacity-40 ${mgmtAiVoice.isListening ? 'bg-rose-600 hover:bg-rose-700 animate-pulse' : 'bg-slate-700 hover:bg-slate-800'}`}
+                >
+                  {mgmtAiVoice.isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                </button>
+              )}
+              <button
+                onClick={() => handleMgmtAiSend()}
+                disabled={mgmtAiLoading || !mgmtAiInput.trim()}
+                className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold px-3 rounded-lg"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setMgmtAiOpen(true)}
+            className="cursor-pointer flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold px-4 py-3 rounded-full shadow-xl"
+          >
+            <Compass className="h-4 w-4" />
+            Ask AI
+          </button>
+        )}
       </div>
 
     </div>
