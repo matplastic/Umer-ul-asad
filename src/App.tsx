@@ -4175,6 +4175,8 @@ export default function App() {
             onFinishStage={handleFinishStage}
             onQuickBatchComplete={handleQuickBatchComplete}
             onSkipOrCarryOnSite={handleSkipOrCarryOnSite}
+            onHoldPool={handleHoldPool}
+            onReleaseHold={handleReleaseHold}
             onRequestUndoClaim={handleRequestUndoClaim}
             onRefresh={refreshFromCloud}
             isSyncing={isSyncing}
