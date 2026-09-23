@@ -82,6 +82,18 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const [confirmHoldAction, setConfirmHoldAction] = useState<{ poolId: string; poolNo: string; type: 'HOLD' | 'RELEASE' } | null>(null);
   const heldPoolsList = pools.filter(p => p.isOnHold);
   const [selectedInspector, setSelectedInspector] = useState(currentUserName || inspectors[0]?.name || '');
+  // "Ask AI" assistant — see ai-command-qc.cjs. The function only ever
+  // PROPOSES an action; nothing is written until the inspector clicks
+  // Confirm, and Confirm calls the exact same onRejectStage/onLogDefect
+  // props the manual buttons use. No new mutation path is introduced.
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiPending, setAiPending] = useState<{
+    poolId: string; poolNo: string; projectName: string; stageId: StageId; stageName: string;
+    reason: string; defectType: string | null; severity: 'minor' | 'major' | 'critical';
+  } | null>(null);
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
   const [uploadedPicture, setUploadedPicture] = useState<string | null>(null);
@@ -318,6 +330,106 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     setReviewerNotes('');
     setUploadedPicture(null);
     setActivePoolId(null);
+  };
+
+  // Same dual-gate sibling resolution used everywhere else in this file
+  // (see the useEffect above and the click handler below) — needed so the
+  // AI assistant rejects the actual pending stage, not just
+  // STAGES[currentStageIndex], for pools parked at a shared gate.
+  const resolveStageIdForPool = (pool: Pool): StageId => {
+    if (isAtDualStageGate(pool.currentStageIndex)) {
+      const gateGroup = getDualGroupForIndex(pool.currentStageIndex) || DUAL_STAGE_IDS;
+      return (gateGroup.find((id) => pool.stageHistory[id]?.status === 'PENDING_INSPECTION')
+        || gateGroup.find((id) => pool.stageHistory[id]?.status !== 'APPROVED')
+        || gateGroup[0]) as StageId;
+    }
+    return STAGES[pool.currentStageIndex].id;
+  };
+
+  const handleAiSend = async () => {
+    const message = aiInput.trim();
+    if (!message || aiLoading) return;
+    setAiMessages((m) => [...m, { role: 'user', text: message }]);
+    setAiInput('');
+    setAiLoading(true);
+    try {
+      const res = await fetch('/.netlify/functions/ai-command-qc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          pools: pendingPools.map((p) => ({
+            poolNo: p.poolNo,
+            projectName: p.projectName,
+            stageId: resolveStageIdForPool(p),
+            stageName: STAGES.find(s => s.id === resolveStageIdForPool(p))?.name,
+          })),
+        }),
+      });
+      const data = await res.json();
+
+      if (data.intent === 'reject' && data.poolNo) {
+        const pool = pendingPools.find(p => p.poolNo.toLowerCase() === data.poolNo.toLowerCase());
+        if (!pool) {
+          setAiMessages((m) => [...m, { role: 'assistant', text: `Couldn't find a pending pool matching "${data.poolNo}".` }]);
+        } else {
+          const stageId = resolveStageIdForPool(pool);
+          const stageName = STAGES.find(s => s.id === stageId)?.name || stageId;
+          setAiPending({
+            poolId: pool.id, poolNo: pool.poolNo, projectName: pool.projectName,
+            stageId, stageName, reason: data.reason || '(no reason given)',
+            defectType: data.defectType, severity: data.severity || 'major',
+          });
+          setAiMessages((m) => [...m, { role: 'assistant', text: data.reply || `Ready to reject ${pool.poolNo} at ${stageName} — confirm below.` }]);
+        }
+      } else if (data.intent === 'details' && data.poolNo) {
+        const pool = pools.find(p => p.poolNo.toLowerCase() === data.poolNo.toLowerCase());
+        if (!pool) {
+          setAiMessages((m) => [...m, { role: 'assistant', text: `Couldn't find pool "${data.poolNo}".` }]);
+        } else {
+          const stageName = pool.currentStageIndex < STAGES.length ? STAGES[pool.currentStageIndex].name : 'Completed';
+          const historyLines = STAGES
+            .filter(s => pool.stageHistory[s.id] && pool.stageHistory[s.id]!.status !== 'NOT_STARTED')
+            .map(s => `${s.name}: ${pool.stageHistory[s.id]!.status}`)
+            .join(' • ');
+          setAiMessages((m) => [...m, { role: 'assistant', text: `${pool.poolNo} (${pool.projectName}) — currently at ${stageName}.\n${historyLines || 'No stage history yet.'}` }]);
+        }
+      } else {
+        setAiMessages((m) => [...m, { role: 'assistant', text: data.reply || "Sorry, I didn't understand that." }]);
+      }
+    } catch (err) {
+      setAiMessages((m) => [...m, { role: 'assistant', text: "Couldn't reach the AI service — please try again." }]);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleAiConfirmReject = () => {
+    if (!aiPending) return;
+    onRejectStage(aiPending.poolId, aiPending.stageId, selectedInspector, aiPending.reason, undefined);
+    if (onLogDefect && aiPending.defectType) {
+      onLogDefect({
+        id: `defect_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        stageId: aiPending.stageId,
+        stageName: aiPending.stageName,
+        poolId: aiPending.poolId,
+        poolNo: aiPending.poolNo,
+        projectName: aiPending.projectName,
+        defectType: aiPending.defectType,
+        severity: aiPending.severity,
+        status: 'open',
+        loggedBy: selectedInspector,
+        loggedAt: new Date().toISOString(),
+        notes: aiPending.reason,
+      });
+    }
+    setAiMessages((m) => [...m, { role: 'assistant', text: `✓ Rejected ${aiPending.poolNo} at ${aiPending.stageName}${aiPending.defectType ? ' and logged the defect' : ''}.` }]);
+    setAiPending(null);
+  };
+
+  const handleAiCancel = () => {
+    setAiMessages((m) => [...m, { role: 'assistant', text: 'Cancelled — nothing was changed.' }]);
+    setAiPending(null);
   };
 
   const handleReject = () => {
@@ -1271,6 +1383,84 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
         </div>
       </div>
       )}
+
+      {/* ── Ask AI (Quality Inspector) ──────────────────────────────────────────
+          Advisory only — see ai-command-qc.cjs and handleAiConfirmReject
+          above. Nothing is written to Firestore until the inspector clicks
+          Confirm on a proposed action. */}
+      <div className="fixed bottom-5 right-5 z-40">
+        {aiOpen ? (
+          <div className="w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ maxHeight: '70vh' }}>
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-900 text-white">
+              <span className="text-sm font-bold">Ask AI — Quality Inspector</span>
+              <button onClick={() => setAiOpen(false)} className="cursor-pointer text-slate-300 hover:text-white">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50" style={{ minHeight: 160 }}>
+              {aiMessages.length === 0 && (
+                <p className="text-xs text-slate-400 text-center mt-6 px-2">
+                  Try: "reject P-102 skimmer test, crack in the shell" or "details on P-088".
+                </p>
+              )}
+              {aiMessages.map((m, i) => (
+                <div key={i} className={`text-xs rounded-xl px-3 py-2 max-w-[90%] whitespace-pre-wrap ${
+                  m.role === 'user' ? 'bg-indigo-600 text-white ml-auto' : 'bg-white border border-slate-200 text-slate-700'
+                }`}>
+                  {m.text}
+                </div>
+              ))}
+              {aiLoading && <div className="text-xs text-slate-400 italic">Thinking…</div>}
+
+              {aiPending && (
+                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 space-y-2">
+                  <p className="text-xs font-bold text-amber-800">Confirm rejection</p>
+                  <p className="text-xs text-amber-700">
+                    Pool <strong>{aiPending.poolNo}</strong> ({aiPending.projectName}) at <strong>{aiPending.stageName}</strong>
+                  </p>
+                  <p className="text-xs text-amber-700">Reason: {aiPending.reason}</p>
+                  {aiPending.defectType && (
+                    <p className="text-xs text-amber-700">Defect: {aiPending.defectType} ({aiPending.severity})</p>
+                  )}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={handleAiConfirmReject} className="cursor-pointer flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold py-1.5 rounded-lg">
+                      Confirm Reject
+                    </button>
+                    <button onClick={handleAiCancel} className="cursor-pointer flex-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 text-xs font-bold py-1.5 rounded-lg">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="p-2.5 border-t border-slate-200 flex gap-2">
+              <input
+                value={aiInput}
+                onChange={(e) => setAiInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAiSend(); }}
+                placeholder="Type a command…"
+                disabled={aiLoading}
+                className="flex-1 text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+              />
+              <button
+                onClick={handleAiSend}
+                disabled={aiLoading || !aiInput.trim()}
+                className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold px-3 rounded-lg"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAiOpen(true)}
+            className="cursor-pointer flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold px-4 py-3 rounded-full shadow-xl"
+          >
+            <Compass className="h-4 w-4" />
+            Ask AI
+          </button>
+        )}
+      </div>
     </div>
   );
 };
