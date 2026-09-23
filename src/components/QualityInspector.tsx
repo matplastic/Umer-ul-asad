@@ -91,8 +91,16 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiPending, setAiPending] = useState<{
+    type: 'reject' | 'pass';
     poolId: string; poolNo: string; projectName: string; stageId: StageId; stageName: string;
     reason: string; defectType: string | null; severity: 'minor' | 'major' | 'critical';
+  } | null>(null);
+  // Bulk "pass all pending <stage>" — matched client-side against the real
+  // pendingPools list (never trusted from the model), so the confirm button
+  // can only ever pass pools that are genuinely pending right now.
+  const [aiPendingBulk, setAiPendingBulk] = useState<{
+    stageQuery: string;
+    pools: { poolId: string; poolNo: string; projectName: string; stageId: StageId; stageName: string }[];
   } | null>(null);
   const [activePoolId, setActivePoolId] = useState<string | null>(null);
   const [reviewerNotes, setReviewerNotes] = useState('');
@@ -376,11 +384,54 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
           const stageId = resolveStageIdForPool(pool);
           const stageName = STAGES.find(s => s.id === stageId)?.name || stageId;
           setAiPending({
+            type: 'reject',
             poolId: pool.id, poolNo: pool.poolNo, projectName: pool.projectName,
             stageId, stageName, reason: data.reason || '(no reason given)',
             defectType: data.defectType, severity: data.severity || 'major',
           });
           setAiMessages((m) => [...m, { role: 'assistant', text: data.reply || `Ready to reject ${pool.poolNo} at ${stageName} — confirm below.` }]);
+        }
+      } else if (data.intent === 'pass' && data.poolNo) {
+        const pool = pendingPools.find(p => p.poolNo.toLowerCase() === data.poolNo.toLowerCase());
+        if (!pool) {
+          setAiMessages((m) => [...m, { role: 'assistant', text: `Couldn't find a pending pool matching "${data.poolNo}".` }]);
+        } else {
+          const stageId = resolveStageIdForPool(pool);
+          const stageName = STAGES.find(s => s.id === stageId)?.name || stageId;
+          setAiPending({
+            type: 'pass',
+            poolId: pool.id, poolNo: pool.poolNo, projectName: pool.projectName,
+            stageId, stageName, reason: data.reason || '',
+            defectType: null, severity: 'minor',
+          });
+          setAiMessages((m) => [...m, { role: 'assistant', text: data.reply || `Ready to pass ${pool.poolNo} at ${stageName} — confirm below.` }]);
+        }
+      } else if (data.intent === 'pass_bulk') {
+        const query = String(data.stageQuery || '').trim().toLowerCase();
+        // Ground truth is pendingPools, not anything the model listed — a
+        // stage-name match here can only ever select pools that are
+        // genuinely pending inspection right now.
+        const matches = query
+          ? pendingPools.filter((p) => {
+              const stageId = resolveStageIdForPool(p);
+              const stageName = (STAGES.find(s => s.id === stageId)?.name || '').toLowerCase();
+              return stageName.includes(query) || query.includes(stageName);
+            })
+          : [];
+        if (!query) {
+          setAiMessages((m) => [...m, { role: 'assistant', text: data.reply || 'Which stage should I pass everything for?' }]);
+        } else if (matches.length === 0) {
+          setAiMessages((m) => [...m, { role: 'assistant', text: `No pools are currently pending inspection at a stage matching "${data.stageQuery}".` }]);
+        } else {
+          setAiPendingBulk({
+            stageQuery: data.stageQuery,
+            pools: matches.map((p) => {
+              const stageId = resolveStageIdForPool(p);
+              const stageName = STAGES.find(s => s.id === stageId)?.name || stageId;
+              return { poolId: p.id, poolNo: p.poolNo, projectName: p.projectName, stageId, stageName };
+            }),
+          });
+          setAiMessages((m) => [...m, { role: 'assistant', text: data.reply || `Found ${matches.length} pool${matches.length === 1 ? '' : 's'} pending at a stage matching "${data.stageQuery}" — confirm below to pass all.` }]);
         }
       } else if (data.intent === 'details' && data.poolNo) {
         const pool = pools.find(p => p.poolNo.toLowerCase() === data.poolNo.toLowerCase());
@@ -404,32 +455,49 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     }
   };
 
-  const handleAiConfirmReject = () => {
+  const handleAiConfirmAction = () => {
     if (!aiPending) return;
-    onRejectStage(aiPending.poolId, aiPending.stageId, selectedInspector, aiPending.reason, undefined);
-    if (onLogDefect && aiPending.defectType) {
-      onLogDefect({
-        id: `defect_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        stageId: aiPending.stageId,
-        stageName: aiPending.stageName,
-        poolId: aiPending.poolId,
-        poolNo: aiPending.poolNo,
-        projectName: aiPending.projectName,
-        defectType: aiPending.defectType,
-        severity: aiPending.severity,
-        status: 'open',
-        loggedBy: selectedInspector,
-        loggedAt: new Date().toISOString(),
-        notes: aiPending.reason,
-      });
+    if (aiPending.type === 'reject') {
+      onRejectStage(aiPending.poolId, aiPending.stageId, selectedInspector, aiPending.reason, undefined);
+      if (onLogDefect && aiPending.defectType) {
+        onLogDefect({
+          id: `defect_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          stageId: aiPending.stageId,
+          stageName: aiPending.stageName,
+          poolId: aiPending.poolId,
+          poolNo: aiPending.poolNo,
+          projectName: aiPending.projectName,
+          defectType: aiPending.defectType,
+          severity: aiPending.severity,
+          status: 'open',
+          loggedBy: selectedInspector,
+          loggedAt: new Date().toISOString(),
+          notes: aiPending.reason,
+        });
+      }
+      setAiMessages((m) => [...m, { role: 'assistant', text: `✓ Rejected ${aiPending.poolNo} at ${aiPending.stageName}${aiPending.defectType ? ' and logged the defect' : ''}.` }]);
+    } else {
+      // Same handler the manual "Approve" button uses — no checklistResult,
+      // exactly like passing a stage that has no active checklist template.
+      onApproveStage(aiPending.poolId, aiPending.stageId, selectedInspector, aiPending.reason || 'Passed via Ask AI', undefined, undefined);
+      setAiMessages((m) => [...m, { role: 'assistant', text: `✓ Passed ${aiPending.poolNo} at ${aiPending.stageName}.` }]);
     }
-    setAiMessages((m) => [...m, { role: 'assistant', text: `✓ Rejected ${aiPending.poolNo} at ${aiPending.stageName}${aiPending.defectType ? ' and logged the defect' : ''}.` }]);
     setAiPending(null);
+  };
+
+  const handleAiConfirmBulkPass = () => {
+    if (!aiPendingBulk) return;
+    aiPendingBulk.pools.forEach((p) => {
+      onApproveStage(p.poolId, p.stageId, selectedInspector, 'Passed via Ask AI — bulk pass', undefined, undefined);
+    });
+    setAiMessages((m) => [...m, { role: 'assistant', text: `✓ Passed ${aiPendingBulk.pools.length} pool${aiPendingBulk.pools.length === 1 ? '' : 's'} matching "${aiPendingBulk.stageQuery}".` }]);
+    setAiPendingBulk(null);
   };
 
   const handleAiCancel = () => {
     setAiMessages((m) => [...m, { role: 'assistant', text: 'Cancelled — nothing was changed.' }]);
     setAiPending(null);
+    setAiPendingBulk(null);
   };
 
   const handleReject = () => {
@@ -1385,9 +1453,9 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       )}
 
       {/* ── Ask AI (Quality Inspector) ──────────────────────────────────────────
-          Advisory only — see ai-command-qc.cjs and handleAiConfirmReject
-          above. Nothing is written to Firestore until the inspector clicks
-          Confirm on a proposed action. */}
+          Advisory only — see ai-command-qc.cjs and handleAiConfirmAction /
+          handleAiConfirmBulkPass above. Nothing is written to Firestore
+          until the inspector clicks Confirm on a proposed action. */}
       <div className="fixed bottom-5 right-5 z-40">
         {aiOpen ? (
           <div className="w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ maxHeight: '70vh' }}>
@@ -1400,7 +1468,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50" style={{ minHeight: 160 }}>
               {aiMessages.length === 0 && (
                 <p className="text-xs text-slate-400 text-center mt-6 px-2">
-                  Try: "reject P-102 skimmer test, crack in the shell" or "details on P-088".
+                  Try: "reject P-102, crack in the shell", "pass P-102", "pass all pending lamination", or "details on P-088".
                 </p>
               )}
               {aiMessages.map((m, i) => (
@@ -1413,18 +1481,52 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
               {aiLoading && <div className="text-xs text-slate-400 italic">Thinking…</div>}
 
               {aiPending && (
-                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 space-y-2">
-                  <p className="text-xs font-bold text-amber-800">Confirm rejection</p>
-                  <p className="text-xs text-amber-700">
+                <div className={`border-2 rounded-xl p-3 space-y-2 ${aiPending.type === 'pass' ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50 border-amber-300'}`}>
+                  <p className={`text-xs font-bold ${aiPending.type === 'pass' ? 'text-emerald-800' : 'text-amber-800'}`}>
+                    {aiPending.type === 'pass' ? 'Confirm pass' : 'Confirm rejection'}
+                  </p>
+                  <p className={`text-xs ${aiPending.type === 'pass' ? 'text-emerald-700' : 'text-amber-700'}`}>
                     Pool <strong>{aiPending.poolNo}</strong> ({aiPending.projectName}) at <strong>{aiPending.stageName}</strong>
                   </p>
-                  <p className="text-xs text-amber-700">Reason: {aiPending.reason}</p>
-                  {aiPending.defectType && (
-                    <p className="text-xs text-amber-700">Defect: {aiPending.defectType} ({aiPending.severity})</p>
+                  {aiPending.type === 'pass' ? (
+                    aiPending.reason && <p className="text-xs text-emerald-700">Notes: {aiPending.reason}</p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-amber-700">Reason: {aiPending.reason}</p>
+                      {aiPending.defectType && (
+                        <p className="text-xs text-amber-700">Defect: {aiPending.defectType} ({aiPending.severity})</p>
+                      )}
+                    </>
                   )}
                   <div className="flex gap-2 pt-1">
-                    <button onClick={handleAiConfirmReject} className="cursor-pointer flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold py-1.5 rounded-lg">
-                      Confirm Reject
+                    <button
+                      onClick={handleAiConfirmAction}
+                      className={`cursor-pointer flex-1 text-white text-xs font-bold py-1.5 rounded-lg ${aiPending.type === 'pass' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}
+                    >
+                      {aiPending.type === 'pass' ? 'Confirm Pass' : 'Confirm Reject'}
+                    </button>
+                    <button onClick={handleAiCancel} className="cursor-pointer flex-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 text-xs font-bold py-1.5 rounded-lg">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {aiPendingBulk && (
+                <div className="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-3 space-y-2">
+                  <p className="text-xs font-bold text-emerald-800">
+                    Confirm pass — {aiPendingBulk.pools.length} pool{aiPendingBulk.pools.length === 1 ? '' : 's'}
+                  </p>
+                  <div className="max-h-28 overflow-y-auto space-y-1">
+                    {aiPendingBulk.pools.map((p) => (
+                      <p key={p.poolId} className="text-xs text-emerald-700">
+                        <strong>{p.poolNo}</strong> ({p.projectName}) — {p.stageName}
+                      </p>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={handleAiConfirmBulkPass} className="cursor-pointer flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-1.5 rounded-lg">
+                      Confirm Pass All
                     </button>
                     <button onClick={handleAiCancel} className="cursor-pointer flex-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 text-xs font-bold py-1.5 rounded-lg">
                       Cancel
