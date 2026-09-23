@@ -62,7 +62,7 @@ Respond ONLY with JSON matching this exact shape, nothing else:
 {"intent":"reject"|"details"|"chat","poolNo":string|null,"reason":string|null,"defectType":string|null,"severity":"minor"|"major"|"critical"|null,"reply":string}`;
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
