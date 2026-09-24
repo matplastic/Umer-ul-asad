@@ -64,13 +64,19 @@ Rules:
 - intent "release_hold": manager wants to release/unhold a specific pool that is ON HOLD (e.g. "release hold on P-102", "unhold pool 14"). Requires poolNo from the list above, and it should currently be marked "ON HOLD" — if it isn't on hold, still return this intent with the poolNo and let the client explain, do not silently switch intents.
 - intent "skip_stage": manager wants to mark a specific pool's CURRENT stage as skipped or carried out on-site (e.g. "skip lamination for P-102", "mark P-102 as carried on site"). Requires poolNo from the list above, and "skipOption" as either "SKIPPED" or "CARRIED_ON_SITE" (default "SKIPPED" if the manager didn't specify which).
 - intent "find_pool": manager is asking about a specific pool's status/details. Extract poolNo if named (must match the list above), else null.
-- intent "stats": manager is asking a question about overall system state rather than acting on one pool — counts, breakdowns, how many pools are where, how many are on hold, etc. (e.g. "how many pools are pending lamination", "how many pools are on hold", "how many active pools do we have"). Extract "metric" as ONE of: "pools_by_stage" (breakdown of active pools per stage), "pools_on_hold" (list/count of held pools), "pools_total" (total active pool count), or null if the question doesn't match any of these — in that case use intent "chat" instead and explain what stats are available.
+- intent "stats": manager is asking a question about overall system state rather than acting on one pool — counts, breakdowns, how many pools are where, how many are on hold, attendance, delivery progress, etc. (e.g. "how many pools are pending lamination", "how many pools are on hold", "how many active pools do we have", "who is absent today", "how many pools delivered for Samana Portafino"). Extract "metric" as ONE of:
+  - "pools_by_stage" (breakdown of active pools per stage)
+  - "pools_on_hold" (list/count of held pools)
+  - "pools_total" (total active pool count)
+  - "pools_delivered_by_project" (how many pools have been delivered — extract the project name they mentioned into "projectName"; if they didn't name a project, set "projectName" to null and it'll cover all projects)
+  - "employees_absent_today" (who/how many staff are absent today — this always means TODAY, there is no date parameter)
+  - or null if the question doesn't match any of these — in that case use intent "chat" instead and explain what stats are available.
 - intent "chat": anything else — greetings, unclear requests, a request for an action this assistant doesn't support (e.g. deleting data, purging records, editing employees — say plainly that's not available here and must be done manually in the relevant tab), or a pool/reason you can't confidently match. Use "reply" to ask a clarifying question or explain.
 - If the manager's message doesn't clearly match any pool in the list, use intent "chat" and say so — do NOT guess a pool number that isn't listed.
 - "reply" is always a short (1-2 sentence) natural-language message to show the manager, in plain factory-floor English.
 
 Respond ONLY with JSON matching this exact shape, nothing else:
-{"intent":"hold_pool"|"release_hold"|"skip_stage"|"find_pool"|"stats"|"chat","poolNo":string|null,"reason":string|null,"skipOption":"SKIPPED"|"CARRIED_ON_SITE"|null,"metric":"pools_by_stage"|"pools_on_hold"|"pools_total"|null,"reply":string}`;
+{"intent":"hold_pool"|"release_hold"|"skip_stage"|"find_pool"|"stats"|"chat","poolNo":string|null,"reason":string|null,"skipOption":"SKIPPED"|"CARRIED_ON_SITE"|null,"metric":"pools_by_stage"|"pools_on_hold"|"pools_total"|"pools_delivered_by_project"|"employees_absent_today"|null,"projectName":string|null,"reply":string}`;
 
   try {
     const callGemini = async (model) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
@@ -137,7 +143,8 @@ Respond ONLY with JSON matching this exact shape, nothing else:
       poolNo: parsed.poolNo || null,
       reason: parsed.reason || null,
       skipOption: ['SKIPPED', 'CARRIED_ON_SITE'].includes(parsed.skipOption) ? parsed.skipOption : 'SKIPPED',
-      metric: ['pools_by_stage', 'pools_on_hold', 'pools_total'].includes(parsed.metric) ? parsed.metric : null,
+      metric: ['pools_by_stage', 'pools_on_hold', 'pools_total', 'pools_delivered_by_project', 'employees_absent_today'].includes(parsed.metric) ? parsed.metric : null,
+      projectName: parsed.projectName || null,
       reply: parsed.reply || '',
     });
   } catch (err) {
