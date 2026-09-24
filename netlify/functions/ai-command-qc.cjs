@@ -77,25 +77,36 @@ Respond ONLY with JSON matching this exact shape, nothing else:
       }),
     });
 
-    // gemini-flash-latest always resolves to Google's current Flash model,
-    // so this shouldn't normally need the fallback — but Google's API has
-    // had brief spells where even a correctly-listed model 404s from
-    // generateContent for no visible reason (a known live issue, not
-    // specific to this app), so one retry against the pinned GA model name
-    // costs nothing and avoids a false "AI isn't working" report over what
-    // is actually a transient upstream hiccup.
-    let res = await callGemini('gemini-flash-latest');
-    if (!res.ok && res.status === 404) {
-      console.warn('[ai-command-qc] gemini-flash-latest 404\'d, retrying with pinned gemini-3.6-flash...');
-      res = await callGemini('gemini-3.6-flash');
+    // Try several models in order rather than failing on the first error.
+    // 404 means that particular model name isn't resolvable right now;
+    // 429/503 mean Google's servers are overloaded for that model — a
+    // DIFFERENT model is usually still available even when the main one
+    // is under heavy demand, since they're served from separate capacity
+    // pools. gemini-flash-lite-latest in particular tends to have more
+    // headroom than the full Flash model during peak load.
+    const modelChain = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-flash-lite-latest'];
+    let res = null;
+    let lastDetail = '';
+    for (const model of modelChain) {
+      res = await callGemini(model);
+      if (res.ok) break;
+      if (res.status === 404 || res.status === 429 || res.status === 503) {
+        lastDetail = await res.text().catch(() => '');
+        console.warn(`[ai-command-qc] ${model} failed (${res.status}), trying next model...`);
+        continue;
+      }
+      break; // some other error (e.g. 400 bad request) — retrying won't help
     }
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      console.error('[ai-command-qc] Gemini API error:', res.status, detail);
+      const detail = lastDetail || await res.text().catch(() => '');
+      console.error('[ai-command-qc] Gemini API error (all models tried):', res.status, detail);
       let googleMsg = '';
       try { googleMsg = JSON.parse(detail)?.error?.message || ''; } catch {}
-      return json(200, { intent: 'chat', reply: `AI service error (HTTP ${res.status})${googleMsg ? ': ' + googleMsg : ''} — please try again in a moment.` });
+      const friendly = res.status === 429 || res.status === 503
+        ? 'The AI service is busy right now — please try again in a few seconds.'
+        : `AI service error (HTTP ${res.status})${googleMsg ? ': ' + googleMsg : ''} — please try again in a moment.`;
+      return json(200, { intent: 'chat', reply: friendly });
     }
 
     const data = await res.json();
