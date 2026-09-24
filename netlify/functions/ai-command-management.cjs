@@ -83,19 +83,33 @@ Respond ONLY with JSON matching this exact shape, nothing else:
       }),
     });
 
-    // See ai-command-qc.cjs for why this fallback exists — same reasoning.
-    let res = await callGemini('gemini-flash-latest');
-    if (!res.ok && res.status === 404) {
-      console.warn('[ai-command-management] gemini-flash-latest 404\'d, retrying with pinned gemini-3.6-flash...');
-      res = await callGemini('gemini-3.6-flash');
+    // See ai-command-qc.cjs for why this multi-model fallback exists — same
+    // reasoning: try several models in order rather than failing on the
+    // first 404/429/503, since a different model is usually still
+    // available even when the main one is overloaded.
+    const modelChain = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-flash-lite-latest'];
+    let res = null;
+    let lastDetail = '';
+    for (const model of modelChain) {
+      res = await callGemini(model);
+      if (res.ok) break;
+      if (res.status === 404 || res.status === 429 || res.status === 503) {
+        lastDetail = await res.text().catch(() => '');
+        console.warn(`[ai-command-management] ${model} failed (${res.status}), trying next model...`);
+        continue;
+      }
+      break;
     }
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      console.error('[ai-command-management] Gemini API error:', res.status, detail);
+      const detail = lastDetail || await res.text().catch(() => '');
+      console.error('[ai-command-management] Gemini API error (all models tried):', res.status, detail);
       let googleMsg = '';
       try { googleMsg = JSON.parse(detail)?.error?.message || ''; } catch {}
-      return json(200, { intent: 'chat', reply: `AI service error (HTTP ${res.status})${googleMsg ? ': ' + googleMsg : ''} — please try again in a moment.` });
+      const friendly = res.status === 429 || res.status === 503
+        ? 'The AI service is busy right now — please try again in a few seconds.'
+        : `AI service error (HTTP ${res.status})${googleMsg ? ': ' + googleMsg : ''} — please try again in a moment.`;
+      return json(200, { intent: 'chat', reply: friendly });
     }
 
     const data = await res.json();
