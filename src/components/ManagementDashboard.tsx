@@ -190,6 +190,39 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   // onSkipOrCarryOnSite handlers the manual buttons already use. See the
   // top-of-file comment in ai-command-management.cjs for the deliberate
   // scope boundary (no delete/purge/restore actions here).
+  //
+  // Attendance data (leaves/medicals/siteDeployed) isn't normally loaded
+  // here — it's HR Portal's own local state — so it's fetched once, lazily,
+  // just for the "who's absent today" style question. mgmtAttendanceLoaded
+  // guards against re-fetching on every message.
+  const [mgmtLeaves, setMgmtLeaves] = useState<any[]>([]);
+  const [mgmtMedicals, setMgmtMedicals] = useState<any[]>([]);
+  const [mgmtSiteDeployed, setMgmtSiteDeployed] = useState<any[]>([]);
+  const [mgmtAttendanceLoaded, setMgmtAttendanceLoaded] = useState(false);
+  const ensureMgmtAttendanceData = async () => {
+    if (mgmtAttendanceLoaded) return;
+    try {
+      const [l, m, sd] = await Promise.all([dbFetchHRLeaves(), dbFetchHRMedicals(), dbFetchHRSiteDeployed()]);
+      setMgmtLeaves(Array.isArray(l) ? l : []);
+      setMgmtMedicals(Array.isArray(m) ? m : []);
+      setMgmtSiteDeployed(Array.isArray(sd) ? sd : []);
+      setMgmtAttendanceLoaded(true);
+    } catch (err) {
+      console.error('[Ask AI Management] Failed to load attendance data:', err);
+    }
+  };
+  // Same rule as HR Portal's attendance report: deployedAt/returnedAt are
+  // full timestamps, only the date portion is compared, and the return day
+  // itself counts as back-at-factory (no longer deployed).
+  const mgmtIsDeployedOnDate = (entry: any, dateStr: string) => {
+    const startDate = String(entry.deployedAt || '').slice(0, 10);
+    if (dateStr < startDate) return false;
+    if (entry.returnedAt) {
+      const endDate = String(entry.returnedAt).slice(0, 10);
+      if (dateStr >= endDate) return false;
+    }
+    return true;
+  };
   const [mgmtAiOpen, setMgmtAiOpen] = useState(false);
   const [mgmtAiMessages, setMgmtAiMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
   const [mgmtAiInput, setMgmtAiInput] = useState('');
@@ -228,6 +261,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setMgmtAiMessages((m) => [...m, { role: 'user', text: message }]);
     setMgmtAiInput('');
     setMgmtAiLoading(true);
+    await ensureMgmtAttendanceData(); // cheap no-op once loaded; needed before any attendance-related stats question below
     try {
       const res = await fetch('/.netlify/functions/ai-command-management', {
         method: 'POST',
@@ -294,8 +328,37 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             : 'No pools are currently on hold.';
         } else if (data.metric === 'pools_total') {
           text = `${mgmtActivePools.length} active pool${mgmtActivePools.length === 1 ? '' : 's'} in the system right now.`;
+        } else if (data.metric === 'pools_delivered_by_project') {
+          const projectNameQuery = (data.projectName || '').trim().toLowerCase();
+          const matchingPools = projectNameQuery
+            ? pools.filter((p) => p.projectName.toLowerCase().includes(projectNameQuery))
+            : pools;
+          const delivered = matchingPools.filter((p) => p.isDelivered);
+          if (projectNameQuery && matchingPools.length === 0) {
+            text = `Couldn't find a project matching "${data.projectName}".`;
+          } else {
+            const projectLabel = projectNameQuery ? matchingPools[0].projectName : 'all projects';
+            text = `${delivered.length} of ${matchingPools.length} pool${matchingPools.length === 1 ? '' : 's'} delivered for ${projectLabel}.`;
+          }
+        } else if (data.metric === 'employees_absent_today') {
+          const today = new Date().toISOString().slice(0, 10);
+          const isTodaySunday = new Date(today + 'T00:00:00').getDay() === 0;
+          if (isTodaySunday) {
+            text = "Today's Sunday — company holiday, so nobody is flagged absent.";
+          } else {
+            const deployedIds = new Set(mgmtSiteDeployed.filter((d) => mgmtIsDeployedOnDate(d, today)).map((d) => d.employeeId));
+            const presentIds = new Set((employeePunches || []).filter((p) => p.date === today && p.punchType === 'IN').map((p) => p.employeeId));
+            const leaveIds = new Set(mgmtLeaves.filter((l) => l.status === 'Approved' && today >= l.fromDate && today <= l.toDate).map((l) => l.employeeId));
+            const medicalIds = new Set(mgmtMedicals.filter((m) => m.date === today).map((m) => m.employeeId));
+            const absentees = (employees || []).filter((e) =>
+              !presentIds.has(e.id) && !e.nonPunching && !deployedIds.has(e.id) && !leaveIds.has(e.id) && !medicalIds.has(e.id)
+            );
+            text = absentees.length
+              ? `${absentees.length} absent today: ${absentees.map((e) => e.name).join(', ')}`
+              : 'Nobody is unaccounted for today — full attendance.';
+          }
         }
-        setMgmtAiMessages((m) => [...m, { role: 'assistant', text: text || "I can answer questions about pools per stage, pools on hold, or total active pools." }]);
+        setMgmtAiMessages((m) => [...m, { role: 'assistant', text: text || "I can answer questions about pools per stage, pools on hold, total active pools, pools delivered per project, or who's absent today." }]);
       } else {
         setMgmtAiMessages((m) => [...m, { role: 'assistant', text: data.reply || "Sorry, I didn't understand that." }]);
       }
