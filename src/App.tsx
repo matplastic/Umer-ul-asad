@@ -69,6 +69,7 @@ import {
   dbSaveTeam,
   dbSaveLog,
   dbSavePool,
+  dbSendQcInspectionEmail,
   subscribeToLiveState
 } from './lib/firebaseService';
 
@@ -3197,6 +3198,10 @@ export default function App() {
     }
     setLogs(updatedLogs);
     saveState(updatedPools, updatedTeams, updatedLogs);
+    dbSendQcInspectionEmail({
+      poolId: pool.id, poolNo: pool.poolNo, projectName: pool.projectName,
+      stageId, stageName: STAGES.find(s => s.id === stageId)?.name, teamName: team?.name,
+    }).catch(console.error);
   };
 
   // 4b. Quick Batch Complete — for "quickStage" stages (e.g. Skimmer Test)
@@ -3250,6 +3255,14 @@ export default function App() {
     poolsRef.current = updatedPools;
     setLogs(updatedLogs);
     saveState(updatedPools, teams, updatedLogs);
+    poolIds.forEach((poolId) => {
+      const pool = updatedPools.find(p => p.id === poolId);
+      if (!pool) return;
+      dbSendQcInspectionEmail({
+        poolId: pool.id, poolNo: pool.poolNo, projectName: pool.projectName,
+        stageId, stageName: STAGES.find(s => s.id === stageId)?.name, teamName: team.name,
+      }).catch(console.error);
+    });
   };
 
   // 5. Approve Stage (By Quality Inspector)
