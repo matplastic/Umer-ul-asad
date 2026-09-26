@@ -3615,6 +3615,30 @@ export async function dbSendSupervisorPurchaseRequestEmail(batch: {
   }
 }
 
+// --- QC Inspection email notification (pool ready for QC) ---
+// Fired whenever a stage's status flips to PENDING_INSPECTION — see
+// handleFinishStage / handleQuickBatchComplete in App.tsx. Same
+// fire-and-forget pattern as the other email dispatchers above: a failure
+// here should never block the stage-completion write that already
+// succeeded locally/in Firestore.
+export async function dbSendQcInspectionEmail(payload: {
+  poolId: string; poolNo: string; projectName: string; stageId: string; stageName?: string; teamName?: string;
+}): Promise<void> {
+  try {
+    const res = await fetch('/.netlify/functions/send-qc-inspection-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      console.error('[dbSendQcInspectionEmail] Email function returned an error:', res.status, detail);
+    }
+  } catch (err) {
+    console.warn('[dbSendQcInspectionEmail] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
+  }
+}
+
 // --- Site Deliveries (Management dispatches → Site Team confirms receipt) ---
 // Low-volume, occasional-write data (a handful of deliveries a day at most),
 // so this uses the same simple whole-array system_state/{name} pattern as
