@@ -24,6 +24,11 @@ export interface StageDefinition {
   // Claim -> Start Timer -> Finish flow is overkill. These stages get a
   // checklist UI instead: tick several pools, send them all to QA at once.
   quickStage?: boolean;
+  // Marks stages (e.g. Mechanical Fitting) where a team wants to pick up
+  // SEVERAL pools in one go. The stage keeps its normal Claim -> Start ->
+  // Finish flow per pool, but gets a tick-list on top so a team can tick
+  // however many pools it wants and claim them all with one tap.
+  batchClaim?: boolean;
 }
 
 export type StageStatus = 
