@@ -5,6 +5,9 @@ import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, 
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 import { QCDefectBadge, QCDefect } from './QCDefectPanel';
 
+// 'QUICK_TEST' = skimmer-test style, 'CLAIM_START' = claim + start timers, 'FINISH' = finish + send to QA
+type BatchMode = 'QUICK_TEST' | 'CLAIM_START' | 'FINISH';
+
 interface StageDashboardProps {
   stage: StageDefinition;
   pools: Pool[];
@@ -21,7 +24,7 @@ interface StageDashboardProps {
   isSyncing?: boolean;
   qcDefects?: QCDefect[];
   onWorkerLogout?: () => void;
-  onQuickBatchComplete?: (poolIds: string[], stageId: StageId, teamId: string) => void;
+  onQuickBatchComplete?: (poolIds: string[], stageId: StageId, teamId: string, mode?: BatchMode) => void;
 }
 
 export const StageDashboard: React.FC<StageDashboardProps> = ({
@@ -325,6 +328,32 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
             />
           ) : (
           <>
+          {/* Batch claim checklist — teams tick as many pools as they want
+              and claim them all at once (e.g. Mechanical Fitting). */}
+          {stage.batchClaim && (
+            <BatchClaimChecklist
+              stage={stage}
+              activeTeam={activeTeam}
+              availablePools={availablePools}
+              claimedCount={myClaimedPools.length}
+              maxClaims={maxClaims}
+              onClaimPool={onClaimPool}
+              onBatchAction={onQuickBatchComplete}
+            />
+          )}
+
+          {/* Batch finish checklist — tick every pool your team has
+              finished and send them all to QA in one tap. */}
+          {stage.batchClaim && (
+            <BatchFinishChecklist
+              stage={stage}
+              activeTeam={activeTeam}
+              pools={[...myReworkPools, ...myClaimedPools]}
+              onBatchAction={onQuickBatchComplete}
+              onFinishStage={onFinishStage}
+            />
+          )}
+
           {/* Active Team workstation */}
           <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
             <h3 className="text-sm font-black text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2 mb-4 flex items-center gap-1.5">
@@ -368,7 +397,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                   <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 px-1">
                     <span className="uppercase tracking-wider">Claimed Pools</span>
                     <span className="font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                      {myClaimedPools.length} / {maxClaims}
+                      {stage.batchClaim ? myClaimedPools.length : `${myClaimedPools.length} / ${maxClaims}`}
                     </span>
                   </div>
                 )}
@@ -1454,6 +1483,304 @@ const QuickTestChecklist: React.FC<QuickTestChecklistProps> = ({ stage, activeTe
           )}
         </div>
       )}
+    </div>
+  );
+};
+
+// -----------------------------------------------------------------------
+// BatchClaimChecklist
+// -----------------------------------------------------------------------
+// Used for "batchClaim" stages like Mechanical Fitting, where real hands-on
+// time is needed per pool (so Start/Finish timers still apply), but a team
+// wants to take several pools at once. The team ticks as many pools as it
+// wants and claims them all with one tap; each claimed pool then appears
+// as its own card in the workstation with its own Start / Finish controls.
+interface BatchClaimChecklistProps {
+  stage: StageDefinition;
+  activeTeam?: Team;
+  availablePools: Pool[];
+  claimedCount: number;
+  maxClaims: number;
+  onClaimPool: (poolId: string, teamId: string, stageId: StageId) => void;
+  onBatchAction?: (poolIds: string[], stageId: StageId, teamId: string, mode?: BatchMode) => void;
+}
+
+const BatchClaimChecklist: React.FC<BatchClaimChecklistProps> = ({ stage, activeTeam, availablePools, claimedCount, maxClaims, onClaimPool, onBatchAction }) => {
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [justClaimed, setJustClaimed] = useState(0);
+
+  // Pools QC has put on hold can't be claimed by anyone until released.
+  const claimable = availablePools.filter((p) => !p.isOnHold);
+  const slotsLeft = Math.max(0, maxClaims - claimedCount);
+
+  // Drop ticks for pools that are no longer claimable (claimed by another
+  // team in the meantime, put on hold, etc.).
+  const claimableIds = new Set(claimable.map((p) => p.id));
+  const validChecked = Array.from(checkedIds).filter((id) => claimableIds.has(id));
+
+  const toggle = (poolId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(poolId)) next.delete(poolId);
+      else if (next.size < slotsLeft) next.add(poolId);
+      return next;
+    });
+  };
+
+  const selectAll = () => setCheckedIds(new Set(claimable.slice(0, slotsLeft).map((p) => p.id)));
+  const clearAll = () => setCheckedIds(new Set());
+
+  const handleClaim = () => {
+    if (!activeTeam || validChecked.length === 0) return;
+    const ids = validChecked.slice(0, slotsLeft);
+    if (onBatchAction) {
+      // One write: claims every ticked pool AND starts all their timers.
+      onBatchAction(ids, stage.id, activeTeam.id, 'CLAIM_START');
+    } else {
+      ids.forEach((id) => onClaimPool(id, activeTeam.id, stage.id));
+    }
+    setCheckedIds(new Set());
+    setJustClaimed(ids.length);
+    setTimeout(() => setJustClaimed(0), 2500);
+  };
+
+  return (
+    <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+      <h3 className="text-sm font-black text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2 mb-4 flex items-center gap-1.5">
+        <CheckSquare className="h-4 w-4 text-slate-400" />
+        Select Pools to Claim: {activeTeam ? activeTeam.name : 'Unassigned'}
+      </h3>
+
+      {!activeTeam ? (
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-2">
+          <p className="font-bold flex items-center gap-1.5">
+            <AlertTriangle className="h-4.5 w-4.5 text-amber-600" />
+            Select a Team to Interact
+          </p>
+          <p className="text-slate-600 leading-relaxed">
+            Choose a Team assignment in the header dropdown, then tick as many pools as your team wants to take.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-100 rounded-lg p-2.5">
+            Tick the pools your team wants to work on, then claim and start them all in one tap — every pool's timer starts immediately.
+          </p>
+
+          {claimable.length === 0 ? (
+            <div className="text-center py-8 bg-slate-50 border border-slate-100 border-dashed rounded-xl">
+              <p className="text-xs font-bold text-slate-500">No pools waiting for {stage.name}</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  {validChecked.length} of {claimable.length} selected
+                </span>
+                <div className="flex gap-2">
+                  <button onClick={selectAll} className="text-[10px] font-bold text-rose-600 hover:text-rose-700 cursor-pointer">
+                    Select All
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button onClick={clearAll} className="text-[10px] font-bold text-slate-400 hover:text-slate-600 cursor-pointer">
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+                {claimable.map((pool) => {
+                  const checked = checkedIds.has(pool.id);
+                  const isRework = pool.stageHistory[stage.id]?.status === 'REJECTED';
+                  return (
+                    <label
+                      key={pool.id}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                        checked ? 'bg-rose-50 border-rose-200' : 'bg-slate-50/50 border-slate-100 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggle(pool.id)}
+                        className="h-4 w-4 accent-rose-600 cursor-pointer"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <span className="font-mono text-[11px] font-black text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">
+                          {pool.poolNo}
+                        </span>
+                        <span className="text-xs font-bold text-slate-800 ml-2">{pool.projectName}</span>
+                        {isRework && (
+                          <span className="text-[9px] font-black px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded uppercase ml-2">
+                            Rework
+                          </span>
+                        )}
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          {pool.shape} · {pool.dimensions}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={handleClaim}
+                disabled={validChecked.length === 0}
+                className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed shadow-sm"
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+                <span>Claim &amp; Start {validChecked.length || ''} Selected Pool{validChecked.length === 1 ? '' : 's'}</span>
+              </button>
+
+              {justClaimed > 0 && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] rounded-lg text-center font-bold">
+                  {justClaimed} pool{justClaimed === 1 ? '' : 's'} claimed and started.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// -----------------------------------------------------------------------
+// BatchFinishChecklist
+// -----------------------------------------------------------------------
+// Companion to BatchClaimChecklist. Lists the pools this team is currently
+// working (timer running) so it can tick everything it has finished and
+// send them ALL to QA in a single tap. Durations are still calculated per
+// pool from each pool's own start time.
+interface BatchFinishChecklistProps {
+  stage: StageDefinition;
+  activeTeam?: Team;
+  pools: Pool[];
+  onBatchAction?: (poolIds: string[], stageId: StageId, teamId: string, mode?: BatchMode) => void;
+  onFinishStage: (poolId: string, stageId: StageId) => void;
+}
+
+const BatchFinishChecklist: React.FC<BatchFinishChecklistProps> = ({ stage, activeTeam, pools, onBatchAction, onFinishStage }) => {
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [justSent, setJustSent] = useState(0);
+
+  // Only pools with a running timer that QC isn't holding, de-duplicated
+  // (a rework pool can appear in both source lists).
+  const seen = new Set<string>();
+  const finishable = pools.filter((p) => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return p.stageHistory[stage.id]?.status === 'IN_PROGRESS' && !p.isOnHold;
+  });
+
+  const finishableIds = new Set(finishable.map((p) => p.id));
+  const validChecked = Array.from(checkedIds).filter((id) => finishableIds.has(id));
+
+  const toggle = (poolId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(poolId)) next.delete(poolId);
+      else next.add(poolId);
+      return next;
+    });
+  };
+
+  const selectAll = () => setCheckedIds(new Set(finishable.map((p) => p.id)));
+  const clearAll = () => setCheckedIds(new Set());
+
+  const handleFinish = () => {
+    if (!activeTeam || validChecked.length === 0) return;
+    if (onBatchAction) {
+      onBatchAction(validChecked, stage.id, activeTeam.id, 'FINISH');
+    } else {
+      validChecked.forEach((id) => onFinishStage(id, stage.id));
+    }
+    setJustSent(validChecked.length);
+    setCheckedIds(new Set());
+    setTimeout(() => setJustSent(0), 2500);
+  };
+
+  // Nothing to show until a team is selected and has pools running.
+  if (!activeTeam || (finishable.length === 0 && justSent === 0)) return null;
+
+  return (
+    <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+      <h3 className="text-sm font-black text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2 mb-4 flex items-center gap-1.5">
+        <CheckSquare className="h-4 w-4 text-slate-400" />
+        Finish Pools: {activeTeam.name}
+      </h3>
+
+      <div className="space-y-3">
+        <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-100 rounded-lg p-2.5">
+          Tick every pool your team has finished, then send them all to QA in one tap — each pool&apos;s finish time is recorded automatically.
+        </p>
+
+        {finishable.length > 0 && (
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                {validChecked.length} of {finishable.length} selected
+              </span>
+              <div className="flex gap-2">
+                <button onClick={selectAll} className="text-[10px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer">
+                  Select All
+                </button>
+                <span className="text-slate-300">|</span>
+                <button onClick={clearAll} className="text-[10px] font-bold text-slate-400 hover:text-slate-600 cursor-pointer">
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+              {finishable.map((pool) => {
+                const checked = checkedIds.has(pool.id);
+                const hist = pool.stageHistory[stage.id];
+                return (
+                  <label
+                    key={pool.id}
+                    className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                      checked ? 'bg-blue-50 border-blue-200' : 'bg-slate-50/50 border-slate-100 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(pool.id)}
+                      className="h-4 w-4 accent-blue-600 cursor-pointer"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <span className="font-mono text-[11px] font-black text-slate-600 bg-slate-200/60 px-1.5 py-0.5 rounded">
+                        {pool.poolNo}
+                      </span>
+                      <span className="text-xs font-bold text-slate-800 ml-2">{pool.projectName}</span>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        Started: {hist?.startTime ? new Date(hist.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'Timer running...'}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={handleFinish}
+              disabled={validChecked.length === 0}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed shadow-sm"
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              <span>Finish {validChecked.length || ''} Selected Pool{validChecked.length === 1 ? '' : 's'} &amp; Send to QA</span>
+            </button>
+          </>
+        )}
+
+        {justSent > 0 && (
+          <div className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] rounded-lg text-center font-bold">
+            {justSent} pool{justSent === 1 ? '' : 's'} sent to Quality Inspection Queue.
+          </div>
+        )}
+      </div>
     </div>
   );
 };
