@@ -950,6 +950,33 @@ export default function App() {
     };
   }, []);
 
+  // SELF-HEAL for the "same pool number, same project, twice" bug: a plan
+  // still marked PLANNED although a live pool with that exact project +
+  // pool number already exists is a leftover of a lost status write (see the
+  // plannedPools changedIds fix in saveState). Repair it in place — targeted,
+  // one record at a time, so this can never overwrite anything else — so it
+  // stops showing in the planning queue (and can't be published a second
+  // time). healedPlanIdsRef stops repeat attempts for the same record.
+  const healedPlanIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!cloudHydratedRef.current) return;
+    if (pools.length === 0 || plannedPools.length === 0) return;
+    const key = (proj: string, no: string) => `${proj.trim().toLowerCase()}||${no.trim().toLowerCase()}`;
+    const liveByKey = new Map(pools.map(lp => [key(lp.projectName, lp.poolNo), lp.id]));
+    const toHeal: PlannedPool[] = [];
+    plannedPools.forEach(pp => {
+      if (pp.status !== 'PLANNED' || healedPlanIdsRef.current.has(pp.id)) return;
+      const liveId = liveByKey.get(key(pp.projectName, pp.poolNo));
+      if (liveId) toHeal.push({ ...pp, status: 'RELEASED', releasedPoolId: liveId });
+    });
+    if (toHeal.length === 0) return;
+    toHeal.forEach(h => healedPlanIdsRef.current.add(h.id));
+    const byId = new Map(toHeal.map(h => [h.id, h]));
+    setPlannedPools(prev => prev.map(pp => byId.get(pp.id) || pp));
+    toHeal.forEach(h => dbSavePlannedPool(h).catch(console.error));
+    console.warn(`[self-heal] Marked ${toHeal.length} planned pool(s) as RELEASED because a live pool with the same project + number already exists.`);
+  }, [pools, plannedPools]);
+
   // ONE-TIME BACKFILL: projects that were created before the projectsSummary
   // sync existed on handleCreatePool/handleCreatePoolBatch (e.g. Tiger,
   // Skyros, Miami) have pools in `pools`/`plannedPools` but no row in
@@ -1190,6 +1217,16 @@ export default function App() {
     const changedIds: Record<string, string[]> = {};
     if (changed.teams) changedIds.teams = findChangedIds(teams, safeTeams);
     if (changed.pools) changedIds.pools = findChangedIds(pools, safePools);
+    // DUPLICATE-POOL FIX: without this, plannedPools fell back to the broad
+    // merge where THIS tab's whole local copy wins for every record. A tab
+    // still showing a pool as PLANNED (stale snapshot, second device, a
+    // moment before a live update arrived) would then overwrite that pool's
+    // RELEASED status back to PLANNED on any unrelated planning save — the
+    // plan reappeared in the queue right next to its already-published live
+    // pool ("same number, same project, twice"). Now only the records this
+    // action actually changed are taken from local; everything else keeps
+    // the server's live value.
+    if (changed.plannedPools) changedIds.plannedPools = findChangedIds(plannedPools, safePlanned);
 
     saveChangedCollectionsToFirestore(changed, changedIds)
       .then((result) => {
@@ -2821,6 +2858,22 @@ export default function App() {
       return null;
     }
 
+    // DUPLICATE-POOL GUARD: if a live pool with this exact project + pool
+    // number already exists, never spawn a second one — just repair the
+    // plan's status to point at the existing live pool. Reads poolsRef (the
+    // freshest state) rather than the render-time `pools` closure.
+    const existingLive = poolsRef.current.find(lp =>
+      lp.poolNo.trim().toLowerCase() === design.poolNo.trim().toLowerCase() &&
+      lp.projectName.trim().toLowerCase() === design.projectName.trim().toLowerCase()
+    );
+    if (existingLive) {
+      const healed: PlannedPool = { ...design, status: 'RELEASED', releasedPoolId: existingLive.id };
+      setPlannedPools(prev => prev.map(pp => pp.id === planId ? healed : pp));
+      dbSavePlannedPool(healed).catch(console.error);
+      alert(`Pool ${design.poolNo} (${design.projectName}) is already live on the shop floor — it was NOT published again. The planning record has been corrected.`);
+      return null;
+    }
+
     // Now spawn the LIVE pool card
     const livePoolId = `pool_${Date.now()}`;
     const newPool: Pool = {
@@ -2886,13 +2939,28 @@ export default function App() {
     const releases: { planId: string; newPool: Pool }[] = [];
     const newLogs: ActivityLog[] = [];
 
+    // DUPLICATE-POOL GUARD (see handleReleasePlannedPool): key = project +
+    // pool number. Seeded from the freshest live pools, and extended as this
+    // batch creates pools so two plans with the same key in ONE batch can't
+    // both spawn a live pool either.
+    const liveKey = (proj: string, no: string) => `${proj.trim().toLowerCase()}||${no.trim().toLowerCase()}`;
+    const liveByKey = new Map<string, string>(poolsRef.current.map(lp => [liveKey(lp.projectName, lp.poolNo), lp.id]));
+    const healedPlans: PlannedPool[] = [];
+
     plannedPools.forEach((design, idx) => {
       if (!idSet.has(design.id)) return;
       if (design.status !== 'PLANNED') {
         skipped.push(design.poolNo);
         return;
       }
+      const existingLiveId = liveByKey.get(liveKey(design.projectName, design.poolNo));
+      if (existingLiveId) {
+        skipped.push(design.poolNo);
+        healedPlans.push({ ...design, status: 'RELEASED', releasedPoolId: existingLiveId });
+        return;
+      }
       const livePoolId = `pool_${Date.now()}_${idx}`;
+      liveByKey.set(liveKey(design.projectName, design.poolNo), livePoolId);
       const newPool: Pool = {
         id: livePoolId,
         projectName: design.projectName,
@@ -2922,15 +2990,23 @@ export default function App() {
       });
     });
 
+    // Plans whose live pool already existed: repair their status, publish nothing.
+    if (healedPlans.length > 0) {
+      const healedById = new Map(healedPlans.map(h => [h.id, h]));
+      setPlannedPools(prev => prev.map(pp => healedById.get(pp.id) || pp));
+      healedPlans.forEach(h => dbSavePlannedPool(h).catch(console.error));
+    }
+
     if (releases.length === 0) {
       return { releasedCount: 0, skipped };
     }
 
     const releasedPoolIdByPlanId = new Map(releases.map(r => [r.planId, r.newPool.id]));
+    const healedByIdForState = new Map(healedPlans.map(h => [h.id, h]));
     const updatedPlans = plannedPools.map(p =>
       releasedPoolIdByPlanId.has(p.id)
         ? { ...p, status: 'RELEASED' as const, releasedPoolId: releasedPoolIdByPlanId.get(p.id)! }
-        : p
+        : (healedByIdForState.get(p.id) || p)
     );
     const updatedPools = [...pools, ...releases.map(r => r.newPool)];
     const updatedLogs = [...newLogs, ...logs];
