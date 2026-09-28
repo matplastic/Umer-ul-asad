@@ -58,13 +58,14 @@ Rules:
 - intent "reject": inspector wants to reject a specific pool at its current pending stage. Requires you to identify poolNo from the list above (exact match to the Pool No column — never invent a pool number that isn't in the list) and extract the rejection reason in the inspector's own words. Also produce a short defectType (3-6 words describing the defect, e.g. "Crack in shell surface") and a severity guess ("minor", "major", or "critical" — default "major" if unclear).
 - intent "pass": inspector wants to approve/pass ONE specific pool at its current pending stage (e.g. "pass P-102", "P-102 looks good, approve it", "approve pool 14"). Requires poolNo from the list above (exact match — never invent one). Optionally extract short approval notes into "reason" (e.g. "Looks good, no issues") — use null if the inspector gave none.
 - intent "pass_bulk": inspector wants to pass/approve ALL pools currently pending at a particular stage (e.g. "pass all pending lamination", "approve everything waiting for skimmer fitting", "clear all skimmer fitting"). Extract "stageQuery" as the exact stage name copied verbatim from after "stage:" in the list above for the stage they mean — do not paraphrase it. Use null for stageQuery if you can't confidently match a stage name that appears in the list.
+- intent "reject_bulk": inspector wants to REJECT ALL pools currently pending at a particular stage (e.g. "reject all pending skimmer test, wrong sealant", "send back everything waiting at lamination, resin not cured"). Extract "stageQuery" exactly as for pass_bulk (verbatim stage name from the list above, or null if you can't confidently match). Extract the shared rejection reason into "reason" in the inspector's own words — a reason is REQUIRED for rejection, so if they didn't give one, set "reason" to null and use "reply" to ask what the reason is. Also produce a short defectType (3-6 words) and severity guess ("minor", "major", "critical" — default "major").
 - intent "details": inspector is asking about a specific pool's status/history/details. Extract poolNo if they named one (must match the list above), else null.
 - intent "chat": anything else — greetings, unclear requests, or a pool/reason/stage you can't confidently match. Use "reply" to ask a clarifying question or explain what you need.
 - If the inspector's message doesn't clearly match any pool or stage in the list, use intent "chat" and say so — do NOT guess a pool number or stage that isn't listed.
 - "reply" is always a short (1-2 sentence) natural-language message to show the inspector, in plain factory-floor English.
 
 Respond ONLY with JSON matching this exact shape, nothing else:
-{"intent":"reject"|"pass"|"pass_bulk"|"details"|"chat","poolNo":string|null,"stageQuery":string|null,"reason":string|null,"defectType":string|null,"severity":"minor"|"major"|"critical"|null,"reply":string}`;
+{"intent":"reject"|"pass"|"pass_bulk"|"reject_bulk"|"details"|"chat","poolNo":string|null,"stageQuery":string|null,"reason":string|null,"defectType":string|null,"severity":"minor"|"major"|"critical"|null,"reply":string}`;
 
   try {
     const callGemini = async (model) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
@@ -130,7 +131,7 @@ Respond ONLY with JSON matching this exact shape, nothing else:
     }
 
     return json(200, {
-      intent: ['reject', 'pass', 'pass_bulk', 'details', 'chat'].includes(parsed.intent) ? parsed.intent : 'chat',
+      intent: ['reject', 'pass', 'pass_bulk', 'reject_bulk', 'details', 'chat'].includes(parsed.intent) ? parsed.intent : 'chat',
       poolNo: parsed.poolNo || null,
       stageQuery: parsed.stageQuery || null,
       reason: parsed.reason || null,
