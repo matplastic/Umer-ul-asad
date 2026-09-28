@@ -7,7 +7,7 @@ export const STAGES: StageDefinition[] = [
   { id: 'cladding', name: 'Cladding', defaultTeamsCount: 4, color: '#8b5cf6' }, // Purple
   { id: 'skimmer_fitting', name: 'Skimmer Fitting', defaultTeamsCount: 4, color: '#f97316', quickStage: true }, // Orange
   { id: 'lamination', name: 'Lamination', defaultTeamsCount: 5, color: '#ec4899' }, // Pink
-  { id: 'mechanical_fitting', name: 'Mechanical Fitting', defaultTeamsCount: 4, color: '#f43f5e' }, // Rose/Red
+  { id: 'mechanical_fitting', name: 'Mechanical Fitting', defaultTeamsCount: 4, color: '#f43f5e', batchClaim: true }, // Rose/Red
   { id: 'skimmer_test', name: 'Skimmer Test', defaultTeamsCount: 3, color: '#f97316', quickStage: true }, // Orange
   { id: 'door_cutting', name: 'Mosaic', defaultTeamsCount: 3, color: '#84cc16' }, // Lime
   { id: 'mosaic', name: 'Grouting', defaultTeamsCount: 6, color: '#10b981' }, // Emerald
@@ -80,6 +80,7 @@ export const isAtDualStageGate = (currentStageIndex: number): boolean =>
 // drying/curing need ever applies elsewhere.
 export const STAGE_MAX_CONCURRENT_CLAIMS: Partial<Record<StageId, number>> = {
   door_cutting: 3, // "Mosaic" on the floor
+  mechanical_fitting: 50, // Teams tick as many pools as they want (batch claim checklist)
 };
 
 export const getMaxConcurrentClaims = (stageId: StageId): number =>
