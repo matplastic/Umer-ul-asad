@@ -141,6 +141,10 @@ export default function App() {
   const teamsRef = useRef<Team[]>(teams);
   useEffect(() => { poolsRef.current = pools; }, [pools]);
   useEffect(() => { teamsRef.current = teams; }, [teams]);
+  // Same idea for logs: batch actions (e.g. claiming several pools in a row)
+  // must append to the LATEST logs, not a stale render-time copy.
+  const logsRef = useRef<ActivityLog[]>([]);
+  useEffect(() => { logsRef.current = logs; }, [logs]);
 
   const [inspectors, setInspectors] = useState<{ id: string; name: string; title: string }[]>([]);
   const [engineers, setEngineers] = useState<{ id: string; name: string; title: string }[]>([]);
@@ -3069,7 +3073,7 @@ export default function App() {
     });
 
     const newLog: ActivityLog = {
-      id: `log_${Date.now()}`,
+      id: `log_${Date.now()}_${pool.id}`,
       timestamp: new Date().toISOString(),
       poolId: pool.id,
       poolNo: pool.poolNo,
@@ -3081,13 +3085,14 @@ export default function App() {
       notes: `Claimed available shell card. Commencing workstation setup.`
     };
 
-    const updatedLogs = [...logs, newLog];
+    const updatedLogs = [...(logsRef.current.length >= logs.length ? logsRef.current : logs), newLog];
 
     setPools(updatedPools);
     poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
     setTeams(updatedTeams);
     teamsRef.current = updatedTeams; // keep ref in sync for any immediately-following action
     setLogs(updatedLogs);
+    logsRef.current = updatedLogs; // keep ref in sync for any immediately-following action
     saveState(updatedPools, updatedTeams, updatedLogs);
   };
 
@@ -3280,11 +3285,175 @@ export default function App() {
     }).catch(console.error);
   };
 
+  // 4a. Batch Claim + Start — claims every ticked pool for the team and
+  // starts all of their production timers in ONE state update. Done as a
+  // single write (instead of looping handleClaimPool + handleStartStage) so
+  // the team doc, pool docs and logs can never be overwritten by a stale
+  // copy between the individual calls.
+  const handleBatchClaimStart = (poolIds: string[], stageId: StageId, teamId: string) => {
+    if (poolIds.length === 0) return;
+    const team = teamsRef.current.find(t => t.id === teamId);
+    if (!team) return;
+
+    let slots = getMaxConcurrentClaims(stageId) - getClaimedPoolIds(team).length;
+    if (slots <= 0) return;
+
+    const nowStr = new Date().toISOString();
+    const updatedPools = [...poolsRef.current];
+    let updatedTeam: Team = team;
+    const newLogs: ActivityLog[] = [];
+
+    poolIds.forEach((poolId) => {
+      if (slots <= 0) return;
+      const idx = updatedPools.findIndex(p => p.id === poolId);
+      if (idx === -1) return;
+      const current = updatedPools[idx];
+      if (current.isOnHold) return; // QC HOLD: cannot be claimed
+      const curHist = current.stageHistory[stageId];
+      const st = curHist?.status ?? 'NOT_STARTED';
+      const claimable = (st === 'NOT_STARTED' || st === 'REJECTED' || st === 'SKIPPED') && !curHist?.teamId;
+      if (!claimable) return; // already claimed by someone else / already moving
+
+      // SYNC FIX: clone pool + stageHistory (see handleClaimPool)
+      const pool = { ...current, stageHistory: { ...current.stageHistory } };
+      updatedPools[idx] = pool;
+      const stageHist = { ...pool.stageHistory[stageId] };
+      stageHist.teamId = teamId;
+      stageHist.teamName = team.name;
+      stageHist.status = 'IN_PROGRESS';
+      stageHist.startTime = nowStr;
+      pool.stageHistory[stageId] = stageHist;
+
+      updatedTeam = { ...updatedTeam, status: 'BUSY' as const, ...addClaimedPool(updatedTeam, poolId) };
+      slots -= 1;
+
+      newLogs.push({
+        id: `log_${Date.now()}_${poolId}_claimstart`,
+        timestamp: nowStr,
+        poolId: pool.id,
+        poolNo: pool.poolNo,
+        projectName: pool.projectName,
+        stageId,
+        type: 'STAGE_STARTED',
+        teamName: team.name,
+        operatorName: team.name,
+        notes: `Claimed and started stage timer (batch checklist).`,
+      });
+    });
+
+    if (newLogs.length === 0) return;
+
+    const updatedTeams = teamsRef.current.map(t => (t.id === teamId ? updatedTeam : t));
+    const updatedLogs = [...(logsRef.current.length >= logs.length ? logsRef.current : logs), ...newLogs];
+    setPools(updatedPools);
+    poolsRef.current = updatedPools;
+    setTeams(updatedTeams);
+    teamsRef.current = updatedTeams;
+    setLogs(updatedLogs);
+    logsRef.current = updatedLogs;
+    saveState(updatedPools, updatedTeams, updatedLogs);
+  };
+
+  // 4a-2. Batch Finish — finishes every ticked IN_PROGRESS pool of this team
+  // and sends them all to QA in one write. Same duration maths as
+  // handleFinishStage (minutes since start, minus any QC-hold time).
+  const handleBatchFinish = (poolIds: string[], stageId: StageId, teamId: string) => {
+    if (poolIds.length === 0) return;
+    const team = teamsRef.current.find(t => t.id === teamId);
+    if (!team) return;
+
+    const nowStr = new Date().toISOString();
+    const updatedPools = [...poolsRef.current];
+    const newLogs: ActivityLog[] = [];
+    const finishedIds: string[] = [];
+
+    poolIds.forEach((poolId) => {
+      const idx = updatedPools.findIndex(p => p.id === poolId);
+      if (idx === -1) return;
+      const current = updatedPools[idx];
+      const curHist = current.stageHistory[stageId];
+      if (!curHist || curHist.status !== 'IN_PROGRESS' || curHist.teamId !== teamId) return;
+      if (current.isOnHold) return; // clock is paused while QC holds it
+
+      const pool = { ...current, stageHistory: { ...current.stageHistory } };
+      updatedPools[idx] = pool;
+      const stageHist = { ...pool.stageHistory[stageId] };
+      stageHist.status = 'PENDING_INSPECTION';
+      stageHist.endTime = nowStr;
+      if (stageHist.startTime) {
+        const msDiff = new Date(nowStr).getTime() - new Date(stageHist.startTime).getTime();
+        const heldMs = stageHist.heldMs || 0;
+        stageHist.durationMinutes = Math.max(1, Math.round((msDiff - heldMs) / 60000));
+      } else {
+        stageHist.durationMinutes = 45; // same safe default as handleFinishStage
+      }
+      pool.stageHistory[stageId] = stageHist;
+      finishedIds.push(poolId);
+
+      newLogs.push({
+        id: `log_${Date.now()}_${poolId}_batchfinish`,
+        timestamp: nowStr,
+        poolId: pool.id,
+        poolNo: pool.poolNo,
+        projectName: pool.projectName,
+        stageId,
+        type: 'STAGE_FINISHED',
+        teamName: team.name,
+        operatorName: team.name,
+        notes: `Stage fabrication completed in ${stageHist.durationMinutes} mins. Sent to Quality Inspection Queue (batch finish).`,
+      });
+    });
+
+    if (finishedIds.length === 0) return;
+
+    // Any finished pool that was one of this team's rework pools leaves that
+    // list now that it's back with QC (same as handleFinishStage).
+    const updatedTeams = (team.reworkPoolIds || []).some(id => finishedIds.includes(id))
+      ? teamsRef.current.map(t => t.id === teamId
+          ? { ...t, reworkPoolIds: (t.reworkPoolIds || []).filter(id => !finishedIds.includes(id)) }
+          : t)
+      : teamsRef.current;
+
+    const updatedLogs = [...(logsRef.current.length >= logs.length ? logsRef.current : logs), ...newLogs];
+    setPools(updatedPools);
+    poolsRef.current = updatedPools;
+    if (updatedTeams !== teamsRef.current) {
+      setTeams(updatedTeams);
+      teamsRef.current = updatedTeams;
+    }
+    setLogs(updatedLogs);
+    logsRef.current = updatedLogs;
+    saveState(updatedPools, updatedTeams, updatedLogs);
+
+    finishedIds.forEach((poolId) => {
+      const pool = updatedPools.find(p => p.id === poolId);
+      if (!pool) return;
+      dbSendQcInspectionEmail({
+        poolId: pool.id, poolNo: pool.poolNo, projectName: pool.projectName,
+        stageId, stageName: STAGES.find(s => s.id === stageId)?.name, teamName: team.name,
+      }).catch(console.error);
+    });
+  };
+
   // 4b. Quick Batch Complete — for "quickStage" stages (e.g. Skimmer Test)
   // where the real task takes seconds per pool. Ticks several pools at once
   // and sends all of them straight to QA in a single click, instead of
   // making the team Claim -> Start Timer -> Finish each pool individually.
-  const handleQuickBatchComplete = (poolIds: string[], stageId: StageId, teamId: string) => {
+  //
+  // The optional 4th `mode` argument reuses this same prop for the batch
+  // tick-lists on "batchClaim" stages (e.g. Mechanical Fitting), so no extra
+  // props have to be threaded through the portals:
+  //   'QUICK_TEST'  -> (default) skimmer-test style: straight to QA
+  //   'CLAIM_START' -> claim every ticked pool AND start all their timers
+  //   'FINISH'      -> finish every ticked pool and send them all to QA
+  const handleQuickBatchComplete = (
+    poolIds: string[],
+    stageId: StageId,
+    teamId: string,
+    mode: 'QUICK_TEST' | 'CLAIM_START' | 'FINISH' = 'QUICK_TEST'
+  ) => {
+    if (mode === 'CLAIM_START') return handleBatchClaimStart(poolIds, stageId, teamId);
+    if (mode === 'FINISH') return handleBatchFinish(poolIds, stageId, teamId);
     if (poolIds.length === 0) return;
     const team = teamsRef.current.find(t => t.id === teamId);
     if (!team) return;
