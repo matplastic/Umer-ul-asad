@@ -450,9 +450,21 @@ export function subscribeToLiveState(
 // past a few hundred KB no matter how much history piles up — and nothing
 // inside a month's document is ever trimmed or removed, only appended to.
 // ─────────────────────────────────────────────────────────────────────────────
+// SHARD SIZE FIX: one document per MONTH turned out to be too big at real
+// factory volume — September 2026 alone reached ~1.1 MB and every archive
+// write after that point failed (Firestore's hard limit is 1 MiB per
+// document), silently leaving the rest of the month un-archived. Shards are
+// now one document per ~7-day block of the month (days 1-7 = w1, 8-14 = w2,
+// 15-21 = w3, 22-28 = w4, 29-31 = w5), i.e. roughly a quarter of the size
+// of a month, with a wide safety margin. Older monthly documents
+// ("logsArchive_2026-08" etc.) are left untouched and are still read by
+// dbFetchActivityLogsInRange, so no history is lost.
 function archiveShardName(timestampISO: string): string {
-  // '2026-08-10T09:15:00.000Z' -> 'logsArchive_2026-08'
-  return `logsArchive_${timestampISO.slice(0, 7)}`;
+  // '2026-09-24T09:15:00.000Z' -> 'logsArchive_2026-09-w4'
+  const month = timestampISO.slice(0, 7);
+  const day = parseInt(timestampISO.slice(8, 10), 10) || 1;
+  const week = Math.min(5, Math.floor((day - 1) / 7) + 1);
+  return `logsArchive_${month}-w${week}`;
 }
 
 // Best-effort archive write. Never throws — if it fails (e.g. brief network
@@ -501,11 +513,21 @@ export async function dbFetchActivityLogsInRange(startDate: string, endDate: str
       if (m > 12) { m = 1; y++; }
     }
 
-    const results = await Promise.all(
-      months.map(month => getFirestoreDocArray(`logsArchive_${month}`))
-    );
+    // Each month can live in the legacy single monthly document AND/OR the
+    // newer weekly shards (see archiveShardName) — read all of them.
+    const shardNames = months.flatMap(month => [
+      `logsArchive_${month}`,
+      ...[1, 2, 3, 4, 5].map(w => `logsArchive_${month}-w${w}`),
+    ]);
+    const results = await Promise.all(shardNames.map(name => getFirestoreDocArray(name)));
     const all = results.flat() as ActivityLog[];
+    // De-dupe by id: the same log can legitimately appear in both the old
+    // monthly document and a new weekly shard (the archive re-sends
+    // overlapping recent logs on each save).
+    const seen = new Set<string>();
     return all.filter(l => {
+      if (!l || !l.id || !l.timestamp || seen.has(l.id)) return false;
+      seen.add(l.id);
       const d = l.timestamp.slice(0, 10);
       return d >= startDate && d <= endDate;
     });
