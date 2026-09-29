@@ -52,6 +52,7 @@ import {
   collection,
   getDocs,
   writeBatch,
+  deleteDoc,
 } from 'firebase/firestore';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1585,6 +1586,17 @@ export async function dbDeleteMonthlyTarget(id: string) {
 // like dbDeleteEmployee/dbDeletePool/etc, so the delete is real and permanent
 // regardless of what any other tab's local array looks like.
 export async function dbDeleteTeam(teamId: string) {
+  // STALE-PATH FIX: this always wrote to the legacy system_state/teams
+  // array document, even after 'teams' moved to the collection-backed
+  // teams/{teamId} path dbSyncTeams actually uses. Nothing currently calls
+  // this function (deletes go through handleUpdateTeams -> dbSyncTeams),
+  // but it was a live trap for the day something did call it directly —
+  // it would report success while leaving the real, live team document
+  // completely untouched. Route it the same way dbSyncTeams does.
+  if (isCollectionBacked('teams')) {
+    await deleteDoc(doc(clientDb, 'teams', String(teamId)));
+    return { success: true };
+  }
   const base = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
   if (!base) {
     await updateFirestoreDocArray('teams', (arr) => arr.filter(item => item.id !== teamId), true);
@@ -1700,6 +1712,32 @@ export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [],
         }
       }
       idsToWrite = changedSet;
+    }
+
+    // DUPLICATE-LOGIN-CODE GUARD: a login code must be unique — it's how a
+    // worker checks in on a shared kiosk (see handleTeamCodeSubmit in
+    // App.tsx, which just does teams.find(t => t.code === code) — first
+    // match wins). Two team docs sharing a code is how "Sonu Yadav" ended up
+    // with a stale BUSY record and a new IDLE one both claiming code 6388:
+    // checking in could silently resolve to the WRONG (old, stuck) record,
+    // which looks exactly like being unable to claim new pools. Reject the
+    // write here rather than only checking in the UI, since that catch can
+    // be bypassed by stale local state (see the long comment above this
+    // function) — this is the one place nothing gets persisted without
+    // passing through.
+    const codeCounts = new Map<string, number>();
+    updatedArr.forEach((t) => {
+      const code = (t?.code || '').trim();
+      if (code) codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
+    });
+    const dupeCode = [...codeCounts.entries()].find(([, count]) => count > 1);
+    if (dupeCode) {
+      const clashing = updatedArr.filter((t) => (t?.code || '').trim() === dupeCode[0]).map((t) => `${t.name} (${t.id})`);
+      throw new Error(
+        `Refusing to save: login code "${dupeCode[0]}" would be shared by more than one team — ${clashing.join(' and ')}. ` +
+        `Give each team a different code (this is very likely the cause of a worker being unable to claim pools — ` +
+        `their check-in may be resolving to the wrong, stuck team record).`
+      );
     }
 
     // The actual fix: only write documents for ids that were genuinely
