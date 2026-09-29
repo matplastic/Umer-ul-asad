@@ -192,15 +192,28 @@ exports.handler = async (event) => {
   const nowIso = new Date().toISOString();
   const inspectorLabel = 'QC (email)';
   const newStageHist = { ...stageHist };
-  const teamsToUpdate = new Map(); // teamId -> team doc data (mutated in place)
+  // FIELD-SCOPED WRITES ONLY: teamsToUpdate stores just the fields each
+  // team needs changed (activePoolId/extraPoolIds/reworkPoolIds/status),
+  // never a full document. Earlier this held a full snapshot read at the
+  // top of the request and wrote it back whole with .set() at the end —
+  // if the kiosk (or anything else) touched that SAME team doc in between
+  // (a worker checking in, a code/section change, another pool's approval
+  // touching the same team), that blind overwrite silently reverted it
+  // back to the stale copy. That's what caused a team to lose its
+  // workstation/section assignment ("WORKSTATION: UNASSIGNED") right after
+  // an email approval — exactly the class of race the rest of this
+  // codebase's dbSyncTeams was specifically built to eliminate. Only the
+  // fields actually being changed are ever written here now.
+  const teamSnapshots = new Map(); // teamId -> snapshot read (read-only, for deciding values)
+  const teamFieldUpdates = new Map(); // teamId -> { field: value } (the ONLY thing written)
 
   const getTeam = async (teamId) => {
     if (!teamId) return null;
-    if (teamsToUpdate.has(teamId)) return teamsToUpdate.get(teamId);
+    if (teamSnapshots.has(teamId)) return teamSnapshots.get(teamId);
     const snap = await db.collection('teams').doc(teamId).get();
     if (!snap.exists) return null;
     const data = { id: teamId, ...snap.data() };
-    teamsToUpdate.set(teamId, data);
+    teamSnapshots.set(teamId, data);
     return data;
   };
 
@@ -229,12 +242,11 @@ exports.handler = async (event) => {
       const nextExtra = (team.extraPoolIds || []).filter((id) => id !== poolId);
       const nextRework = (team.reworkPoolIds || []).filter((id) => id !== poolId);
       const stillHoldingSomething = !!nextActive || nextExtra.length > 0;
-      teamsToUpdate.set(originalTeamId, {
-        ...team,
+      teamFieldUpdates.set(originalTeamId, {
         activePoolId: nextActive,
         extraPoolIds: nextExtra,
         reworkPoolIds: nextRework,
-        status: stillHoldingSomething ? team.status : 'IDLE',
+        ...(stillHoldingSomething ? {} : { status: 'IDLE' }),
       });
     }
 
@@ -295,20 +307,22 @@ exports.handler = async (event) => {
       const existing = team.reworkPoolIds || [];
       const nextRework = existing.includes(poolId) ? existing : [...existing, poolId];
       const heldNormally = team.activePoolId === poolId || (team.extraPoolIds || []).includes(poolId);
-      teamsToUpdate.set(teamId, {
-        ...team,
+      teamFieldUpdates.set(teamId, {
         reworkPoolIds: nextRework,
-        activePoolId: heldNormally && team.activePoolId === poolId ? null : team.activePoolId,
-        extraPoolIds: heldNormally ? (team.extraPoolIds || []).filter((id) => id !== poolId) : (team.extraPoolIds || []),
+        ...(heldNormally && team.activePoolId === poolId ? { activePoolId: null } : {}),
+        ...(heldNormally ? { extraPoolIds: (team.extraPoolIds || []).filter((id) => id !== poolId) } : {}),
       });
     }
   }
 
   // ── Commit: pool doc, any touched team docs, and an optional defect ──
+  // .update() (field-scoped), never .set() (full overwrite) — see the
+  // comment above teamSnapshots/teamFieldUpdates for why that matters.
   const writes = [poolRef.set(pool)];
-  for (const [teamId, teamData] of teamsToUpdate) {
-    const { id, ...rest } = teamData;
-    writes.push(db.collection('teams').doc(teamId).set(rest));
+  for (const [teamId, fields] of teamFieldUpdates) {
+    if (Object.keys(fields).length > 0) {
+      writes.push(db.collection('teams').doc(teamId).update(fields));
+    }
   }
 
   let defectId = null;
