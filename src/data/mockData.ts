@@ -86,6 +86,29 @@ export const STAGE_MAX_CONCURRENT_CLAIMS: Partial<Record<StageId, number>> = {
 export const getMaxConcurrentClaims = (stageId: StageId): number =>
   STAGE_MAX_CONCURRENT_CLAIMS[stageId] ?? 1;
 
+// ── Conditional 2nd claim while the 1st is awaiting QC ─────────────────────
+// Steel Fabrication through Lamination: a team may start a SECOND pool
+// while their first is sitting in PENDING_INSPECTION at the same stage,
+// instead of standing idle waiting for QC to get to it. This is NOT a flat
+// capacity bump like STAGE_MAX_CONCURRENT_CLAIMS above (which always allows
+// N at once, working or not) — it only opens up once the held pool has
+// actually been SENT to QC, and only ever by exactly one extra pool. Once
+// claimed, the 2nd pool behaves like any normal claim (counts toward the
+// capacity check, shows as its own card, etc.) — this only changes whether
+// the claim is ALLOWED in the first place.
+const EARLY_SEQUENTIAL_STAGE_IDS: StageId[] = [
+  'steel_fabrication', 'steel_primer', 'plumbing', 'cladding', 'skimmer_fitting', 'lamination',
+];
+export const allowsExtraClaimWhileAwaitingQC = (stageId: StageId): boolean =>
+  EARLY_SEQUENTIAL_STAGE_IDS.includes(stageId);
+
+// Both the claim-handler (source of truth) and the StageDashboard UI need
+// this exact same "is the held pool actually awaiting QC at this stage"
+// check, so it lives here once rather than being duplicated differently in
+// each place.
+export const isPoolAwaitingQcAtStage = (pool: { stageHistory: Record<string, { status?: string } | undefined> } | undefined, stageId: StageId): boolean =>
+  !!pool && pool.stageHistory[stageId]?.status === 'PENDING_INSPECTION';
+
 // Generate teams based on STAGES
 export const generateDefaultTeams = (): Team[] => {
   const teams: Team[] = [];
