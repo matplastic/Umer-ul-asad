@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pool, StageId, Team, StageDefinition } from '../types';
-import { STAGES, DUAL_STAGE_IDS, getDualGroupForIndex, getMaxConcurrentClaims } from '../data/mockData';
+import { STAGES, DUAL_STAGE_IDS, getDualGroupForIndex, getMaxConcurrentClaims, allowsExtraClaimWhileAwaitingQC, isPoolAwaitingQcAtStage } from '../data/mockData';
 import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw, PauseCircle } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 import { QCDefectBadge, QCDefect } from './QCDefectPanel';
@@ -194,7 +194,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
   // every stage (unchanged behavior); 3 for Mosaic (door_cutting), since
   // glue drying time means a team can start a 2nd/3rd pool instead of
   // sitting idle waiting for the 1st to dry.
-  const maxClaims = getMaxConcurrentClaims(stage.id);
+  const baseMaxClaims = getMaxConcurrentClaims(stage.id);
 
   // Pool(s) claimed by the CURRENT active team (if any selected).
   // Primary source: activeTeam.activePoolId + activeTeam.extraPoolIds (the
@@ -212,6 +212,15 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
             !(activeTeam.reworkPoolIds || []).includes(p.id) // don't double-show a rework pool here too
           )
         : []);
+
+  // Mirrors the same conditional 2nd-claim rule App.tsx's claim handler
+  // enforces server-side (see allowsExtraClaimWhileAwaitingQC in
+  // mockData.ts) — purely so this button isn't stuck showing "disabled"
+  // when the backend would actually allow the claim. The handler is the
+  // real gate; this only keeps the UI from lying about it.
+  const maxClaims = (baseMaxClaims === 1 && allowsExtraClaimWhileAwaitingQC(stage.id) && myClaimedPools.length === 1 && isPoolAwaitingQcAtStage(myClaimedPools[0], stage.id))
+    ? 2
+    : baseMaxClaims;
 
   const getHistFor = (pool: Pool) => pool.stageHistory[stage.id] || { stageId: stage.id, status: 'NOT_STARTED', rejectionCount: 0 };
 
