@@ -3,7 +3,7 @@ import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPoo
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
-import { STAGES, getDualGroupForStage, isAtDualStageGate, getInitialData, createEmptyHistory, getMaxConcurrentClaims } from './data/mockData';
+import { STAGES, getDualGroupForStage, isAtDualStageGate, getInitialData, createEmptyHistory, getMaxConcurrentClaims, allowsExtraClaimWhileAwaitingQC, isPoolAwaitingQcAtStage } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { AutoPrintMaterialSlip } from './components/AutoPrintMaterialSlip';
 import { LoginScreen } from './components/LoginScreen';
@@ -3040,7 +3040,18 @@ export default function App() {
     // drying time means a team can start a new pool instead of sitting idle.
     const team = teamsRef.current.find(t => t.id === teamId);
     if (!team) return;
-    const maxClaims = getMaxConcurrentClaims(stageId);
+    let maxClaims = getMaxConcurrentClaims(stageId);
+    // Steel Fabrication through Lamination: allow exactly one extra claim,
+    // but only once the team's currently-held pool at this same stage has
+    // actually been sent to QC (PENDING_INSPECTION) — not while it's still
+    // being worked. See allowsExtraClaimWhileAwaitingQC in mockData.ts.
+    if (maxClaims === 1 && allowsExtraClaimWhileAwaitingQC(stageId)) {
+      const heldIds = getClaimedPoolIds(team);
+      if (heldIds.length === 1) {
+        const heldPool = poolsRef.current.find(p => p.id === heldIds[0]);
+        if (isPoolAwaitingQcAtStage(heldPool, stageId)) maxClaims = 2;
+      }
+    }
     if (getClaimedPoolIds(team).length >= maxClaims) return;
 
     // QC HOLD GUARD: a pool placed on hold by Quality cannot be claimed by
