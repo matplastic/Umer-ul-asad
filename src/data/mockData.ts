@@ -71,15 +71,16 @@ export const isAtDualStageGate = (currentStageIndex: number): boolean =>
 
 // ── Multi-pool claim capacity ──────────────────────────────────────────────
 // Almost every stage limits a team to ONE actively-claimed pool at a time
-// (Team.activePoolId). The Mosaic stage (internal id `door_cutting` — note
-// the display name/id swap with the `mosaic` id, which is actually
-// "Grouting") is the one exception: mosaic glue needs time to dry between
-// tiles, so a team can start a second and third pool while earlier ones are
-// drying rather than sit idle. Overflow claims beyond the first land in
-// Team.extraPoolIds (see types.ts). Add other stages here if the same
-// drying/curing need ever applies elsewhere.
+// (Team.activePoolId). The exceptions: the Mosaic stage (internal id
+// `door_cutting` — note the display name/id swap with the `mosaic` id, which
+// is actually "Grouting"), where glue needs time to dry between tiles, so a
+// team can start a second and third pool while earlier ones are drying; and
+// Steel Fabrication, where a team can pick up and continue up to 4 pools at
+// once. Overflow claims beyond the first land in Team.extraPoolIds (see
+// types.ts). Add other stages here if the same need ever applies elsewhere.
 export const STAGE_MAX_CONCURRENT_CLAIMS: Partial<Record<StageId, number>> = {
   door_cutting: 3, // "Mosaic" on the floor
+  steel_fabrication: 4, // Steel section: teams can pick and continue up to 4 pools
   mechanical_fitting: 50, // Teams tick as many pools as they want (batch claim checklist)
 };
 
