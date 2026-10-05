@@ -331,8 +331,20 @@ export default function App() {
   const handleTeamCodeSubmit = () => {
     const code = teamCodeInput.trim();
     if (!code) { setTeamCodeError('Enter your team code.'); return; }
-    const match = teams.find(t => t.code && t.code === code);
-    if (!match) { setTeamCodeError('Code not recognized. Ask your supervisor.'); return; }
+    const matches = teams.filter(t => t.code && t.code === code);
+    if (matches.length === 0) { setTeamCodeError('Code not recognized. Ask your supervisor.'); return; }
+    // GUARD: a code shared by several team records (or a record with no id) used
+    // to silently resolve to the first one — a worker then "claimed" pools as a
+    // team with no id, so the claim never took effect but kept piling up.
+    if (matches.length > 1) {
+      setTeamCodeError('This code is used by more than one team record. Ask Management to remove the duplicate in Teams Allocation.');
+      return;
+    }
+    const match = matches[0];
+    if (!match.id) {
+      setTeamCodeError('This team record is damaged (no ID). Ask Management to remove and re-create it in Teams Allocation.');
+      return;
+    }
     setWorkerTeamId(match.id);
     setSelectedStageId(match.stageId);
     setWorkerCheckedIn(true);
@@ -3030,6 +3042,8 @@ export default function App() {
     // Find the pool
     const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
     if (poolIndex === -1) return;
+    // A claim with no team id would match every id-less team record at once.
+    if (!teamId) return;
 
     // Verify the team has a free NORMAL work slot. We deliberately check
     // the claimed-pool count here, not team.status — status stays 'BUSY'
@@ -3052,6 +3066,10 @@ export default function App() {
         if (isPoolAwaitingQcAtStage(heldPool, stageId)) maxClaims = 2;
       }
     }
+    // IDEMPOTENT CLAIM: clicking Claim again on a pool this team already holds
+    // used to append the same pool id to extraPoolIds each time (one record had
+    // the same pool 5 times) and write a new STAGE_STARTED log per click.
+    if (getClaimedPoolIds(team).includes(poolId)) return;
     if (getClaimedPoolIds(team).length >= maxClaims) return;
 
     // QC HOLD GUARD: a pool placed on hold by Quality cannot be claimed by
