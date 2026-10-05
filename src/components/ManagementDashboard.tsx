@@ -1408,8 +1408,28 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const handleDeleteTeam = (teamId: string) => {
     const team = teams.find(t => t.id === teamId);
     if (!team) return;
-    if (isTeamBusy(teamId)) {
+    // Pools that REALLY point at this team record right now (not just the
+    // team's own BUSY flag, which can be stale on duplicate/broken records).
+    const liveLinked = pools.filter(p =>
+      Object.values(p.stageHistory || {}).some((h: any) =>
+        h?.teamId === teamId && (h.status === 'IN_PROGRESS' || h.status === 'PENDING_INSPECTION' || h.status === 'REJECTED')
+      )
+    );
+    const isDuplicate = teams.some(t => t.id !== teamId && (
+      t.name.trim().toLowerCase() === team.name.trim().toLowerCase() ||
+      (!!t.code && t.code === team.code)
+    ));
+    if (liveLinked.length > 0) {
+      alert(`Cannot delete "${team.name}" — it is genuinely working on ${liveLinked.length} active pool(s): ${liveLinked.map(p => `${p.projectName} #${p.poolNo}`).join(', ')}.`);
+      return;
+    }
+    if (isTeamBusy(teamId) && !isDuplicate) {
       alert("Cannot delete a shop floor team while they are currently assigned to an active pool build!");
+      return;
+    }
+    if (isTeamBusy(teamId) && isDuplicate) {
+      if (!window.confirm(`"${team.name}" shows BUSY but no pool is really being worked by this record, and another record has the same name/code (stale duplicate).\n\nDelete this duplicate record?`)) return;
+      if (onUpdateTeams) onUpdateTeams(teams.filter(t => t.id !== teamId));
       return;
     }
     if (window.confirm(`Dissolve and remove "${team.name}" labor team from the manufacturing setup?`)) {
@@ -2403,6 +2423,15 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
   const handleSaveTeamName = (id: string) => {
     if (!editTeamName.trim()) return;
+    // Same unique-name rule as handleCreateTeam: renaming used to skip this
+    // check, which is how one name (e.g. a person's) could end up on several
+    // different team records at once.
+    const clash = teams.find(t => t.id !== id && t.name.trim().toLowerCase() === editTeamName.trim().toLowerCase());
+    if (clash) {
+      const clashStage = STAGES.find(s => s.id === clash.stageId)?.name || clash.stageId;
+      alert(`"${clash.name}" is already used by another team (${clashStage}). Team names must be unique — pick a different name.`);
+      return;
+    }
     const updated = teams.map(t => t.id === id ? { ...t, name: editTeamName.trim() } : t);
     onUpdateTeams?.(updated);
     setEditingTeamId(null);
@@ -5905,7 +5934,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         return (
                           <div key={team.id} className="p-2 border border-slate-50 hover:bg-slate-50/55 rounded-lg text-xs">
                             <div className="flex justify-between items-center font-bold">
-                              <span className="text-slate-800">{team.name}</span>
+                              <span className="text-slate-800 flex items-center gap-1 min-w-0">
+                                <span className="truncate">{team.name}</span>
+                                {teams.some(t => t.id !== team.id && t.name.trim().toLowerCase() === team.name.trim().toLowerCase()) && (
+                                  <span
+                                    className="text-[8px] px-1 rounded bg-rose-50 border border-rose-200 text-rose-600 font-black shrink-0"
+                                    title={`Another team record has this same name. This record's id: ${team.id}`}
+                                  >
+                                    DUPLICATE
+                                  </span>
+                                )}
+                              </span>
                               <span className={`text-[9px] px-1.5 rounded-full font-black ${
                                 !isBusy ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' : 'bg-amber-50 border border-amber-100 text-amber-750 text-amber-700'
                               }`}>
@@ -7918,6 +7957,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               <p className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded mt-0.5 inline-block text-slate-500 border border-slate-200 font-bold bg-white">
                                 Status: <strong className={isTeamBusy(team.id) ? 'text-amber-600' : 'text-emerald-700'}>{isTeamBusy(team.id) ? 'BUSY' : 'IDLE'}</strong>
                               </p>
+                              {teams.some(t => t.id !== team.id && (t.name.trim().toLowerCase() === team.name.trim().toLowerCase() || (!!t.code && t.code === team.code))) && (
+                                <p className="text-[10px] font-bold mt-1 text-rose-600">
+                                  DUPLICATE · pools linked to this record: {pools.filter(p => Object.values(p.stageHistory || {}).some((h: any) => h?.teamId === team.id)).length}
+                                  <span className="text-slate-400 font-normal"> (the real one has pools linked; delete the ones with 0)</span>
+                                </p>
+                              )}
                             </div>
                           )}
 
