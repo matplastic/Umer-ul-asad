@@ -10,7 +10,7 @@ interface ProjectProgressReportProps {
   plannedPools?: PlannedPool[];
 }
 
-type ViewMode = 'wip' | 'completions';
+type ViewMode = 'wip' | 'completions' | 'summary';
 
 interface DrillDownState {
   project: string;
@@ -28,6 +28,28 @@ function fmtDate(d?: string | null): string {
   if (!d) return '—';
   const dt = new Date(d);
   return isNaN(dt.getTime()) ? '—' : dt.toLocaleString('en-GB');
+}
+
+// Date a pool was actually delivered: explicit deliveredAt, else fall back to
+// completedAt (same rule PlanningDepartment uses for legacy records).
+function deliveredDateOf(p: Pool): string | null {
+  if (!p.isDelivered && !p.deliveredAt) return null;
+  return p.deliveredAt || p.completedAt || null;
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+function monthRange(year: number, monthIdx: number): DateRange {
+  const lastDay = new Date(year, monthIdx + 1, 0).getDate();
+  return { startDate: `${year}-${pad2(monthIdx + 1)}-01`, endDate: `${year}-${pad2(monthIdx + 1)}-${pad2(lastDay)}` };
+}
+
+function yearRange(year: number): DateRange {
+  return { startDate: `${year}-01-01`, endDate: `${year}-12-31` };
 }
 
 function getDefaultRange(): DateRange {
@@ -170,6 +192,55 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
     }).filter(row => row.totalEvents > 0 || projectFilter !== 'all');
   }, [activeProjects, plannedPools, pools, dateRange, projectFilter]);
 
+  // ── View: Project Summary — per project: Planned (waiting), Published and
+  // Delivered. Published/Delivered are DATE-FILTERED event counts; the
+  // "Live" columns and All-time columns are whole-project snapshots. ──
+  const summaryRows = useMemo(() => {
+    const { startDate, endDate } = dateRange;
+    return activeProjects.map(project => {
+      const projectPools = pools.filter(p => p.projectName === project);
+      const plannedWaiting = plannedPools.filter(p => p.projectName === project && p.status === 'PLANNED');
+
+      const publishedInRange = projectPools.filter(p => inDateRange(p.createdAt, startDate, endDate));
+      const deliveredInRange = projectPools.filter(p => inDateRange(deliveredDateOf(p), startDate, endDate));
+
+      const publishedAll = projectPools;
+      const deliveredAll = projectPools.filter(p => !!p.isDelivered || !!p.deliveredAt);
+      const livePools = projectPools.filter(p => !p.isDelivered && !p.deliveredAt);
+      const inStockPools = livePools.filter(p => !!p.completedAt || p.currentStageIndex >= STAGES.length);
+      const inProductionPools = livePools.filter(p => !p.completedAt && p.currentStageIndex < STAGES.length);
+
+      return {
+        project,
+        plannedWaiting,
+        publishedInRange,
+        deliveredInRange,
+        publishedAll,
+        deliveredAll,
+        livePools,
+        inProductionPools,
+        inStockPools,
+        grandTotal: plannedWaiting.length + projectPools.length,
+      };
+    }).filter(r => r.grandTotal > 0 || projectFilter !== 'all');
+  }, [activeProjects, plannedPools, pools, dateRange, projectFilter]);
+
+  const summaryTotals = useMemo(() => {
+    const t = { planned: 0, publishedInRange: 0, deliveredInRange: 0, publishedAll: 0, deliveredAll: 0, live: 0, inProduction: 0, inStock: 0, grandTotal: 0 };
+    summaryRows.forEach(r => {
+      t.planned += r.plannedWaiting.length;
+      t.publishedInRange += r.publishedInRange.length;
+      t.deliveredInRange += r.deliveredInRange.length;
+      t.publishedAll += r.publishedAll.length;
+      t.deliveredAll += r.deliveredAll.length;
+      t.live += r.livePools.length;
+      t.inProduction += r.inProductionPools.length;
+      t.inStock += r.inStockPools.length;
+      t.grandTotal += r.grandTotal;
+    });
+    return t;
+  }, [summaryRows]);
+
   const grandTotals = useMemo(() => {
     if (viewMode === 'wip') {
       const totals: Record<string, number> = { planning: 0, released: 0, completed: 0, total: 0 };
@@ -264,6 +335,14 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
     });
   };
 
+  const openSummaryDrillDown = (project: string, columnLabel: string, list: Pool[], dateGetter: (p: Pool) => string | null | undefined) => {
+    setDrillDown({
+      project,
+      columnLabel,
+      rows: list.map(p => ({ poolNo: p.poolNo, date: fmtDate(dateGetter(p)), extra: p.isDelivered ? 'Delivered' : (p.completedAt ? 'In stock' : 'In production') })),
+    });
+  };
+
   // The exportable "sections" for the active view — each is one column of
   // the on-screen matrix, but for export purposes each becomes its own
   // labeled group of real rows (Project / Section / Pool No / Date), so
@@ -297,11 +376,22 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
     { key: 'finalCompleted', label: 'Final Completed', getPools: (r) => r.finalCompletedPools, getDate: (p) => fmtDate(p.completedAt) },
   ], []);
 
-  const activeSections = viewMode === 'wip' ? wipSections : completionSections;
+  const summarySections: Section[] = useMemo(() => [
+    { key: 'planned', label: 'Planned (not yet published)', getPools: (r) => r.plannedWaiting, getDate: (p) => fmtDate(p.createdAt), getNote: (p) => p.poolType || undefined },
+    { key: 'publishedInRange', label: 'Published — in period', getPools: (r) => r.publishedInRange, getDate: (p) => fmtDate(p.createdAt) },
+    { key: 'deliveredInRange', label: 'Delivered — in period', getPools: (r) => r.deliveredInRange, getDate: (p) => fmtDate(deliveredDateOf(p)) },
+    { key: 'inProduction', label: 'Currently In Production', getPools: (r) => r.inProductionPools, getDate: (p) => fmtDate(p.createdAt) },
+    { key: 'inStock', label: 'Completed — In Stock (not delivered)', getPools: (r) => r.inStockPools, getDate: (p) => fmtDate(p.completedAt) },
+    { key: 'deliveredAll', label: 'Delivered — all time', getPools: (r) => r.deliveredAll, getDate: (p) => fmtDate(deliveredDateOf(p)) },
+    { key: 'publishedAll', label: 'Published — all time', getPools: (r) => r.publishedAll, getDate: (p) => fmtDate(p.createdAt) },
+  ], []);
+
+  const activeSections = viewMode === 'wip' ? wipSections : viewMode === 'completions' ? completionSections : summarySections;
 
   const runExport = async (format: 'pdf' | 'excel') => {
     const isWip = viewMode === 'wip';
-    const rows = isWip ? wipRows : completionRows;
+    const isSummary = viewMode === 'summary';
+    const rows: any[] = isWip ? wipRows : isSummary ? summaryRows : completionRows;
     const sections = sectionFilter === 'all' ? activeSections : activeSections.filter(s => s.key === sectionFilter);
 
     if (rows.length === 0) {
@@ -340,18 +430,83 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
 
       const sectionLabel = sectionFilter === 'all' ? null : activeSections.find(s => s.key === sectionFilter)?.label;
       const filenameBase = [
-        isWip ? 'Project_Status_WIP' : 'Project_Stage_Completions',
+        isWip ? 'Project_Status_WIP' : isSummary ? 'Project_Summary_Published_Delivered' : 'Project_Stage_Completions',
         projectFilter !== 'all' ? projectFilter.replace(/[^a-zA-Z0-9]+/g, '_') : null,
         sectionLabel ? sectionLabel.replace(/[^a-zA-Z0-9]+/g, '_') : null,
       ].filter(Boolean).join('_');
       const title = [
-        isWip ? 'Project Status Report' : 'Project Stage Completions Report',
+        isWip ? 'Project Status Report' : isSummary ? 'Project Summary Report' : 'Project Stage Completions Report',
         sectionLabel ? `— ${sectionLabel}` : null,
       ].filter(Boolean).join(' ');
       const filterSummary = (isWip
         ? [projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects', sectionLabel ? `Section: ${sectionLabel}` : 'All Sections', 'Live snapshot — not date-filtered']
         : [`Period: ${dateRange.startDate} to ${dateRange.endDate}`, projectFilter !== 'all' ? `Project: ${projectFilter}` : 'All Projects', sectionLabel ? `Section: ${sectionLabel}` : 'All Sections']
       ).join('  •  ');
+
+      // Summary view with all sections selected → export the count table
+      // (one row per project + a TOTAL row) instead of the pool-level list.
+      if (isSummary && sectionFilter === 'all') {
+        const countRows = summaryRows.map(r => ({
+          project: r.project,
+          planned: r.plannedWaiting.length,
+          published: r.publishedInRange.length,
+          delivered: r.deliveredInRange.length,
+          inProduction: r.inProductionPools.length,
+          inStock: r.inStockPools.length,
+          deliveredAll: r.deliveredAll.length,
+          publishedAll: r.publishedAll.length,
+          total: r.grandTotal,
+        }));
+        countRows.push({
+          project: 'TOTAL',
+          planned: summaryTotals.planned,
+          published: summaryTotals.publishedInRange,
+          delivered: summaryTotals.deliveredInRange,
+          inProduction: summaryTotals.inProduction,
+          inStock: summaryTotals.inStock,
+          deliveredAll: summaryTotals.deliveredAll,
+          publishedAll: summaryTotals.publishedAll,
+          total: summaryTotals.grandTotal,
+        });
+        if (format === 'excel') {
+          exportToExcel(
+            countRows.map(r => ({
+              Project: r.project,
+              'Planned (Not Published)': r.planned,
+              'Published (Period)': r.published,
+              'Delivered (Period)': r.delivered,
+              'Currently In Production': r.inProduction,
+              'Completed In Stock': r.inStock,
+              'Delivered (All Time)': r.deliveredAll,
+              'Published (All Time)': r.publishedAll,
+              'Total Pools': r.total,
+            })),
+            filenameBase,
+            'Project Summary'
+          );
+        } else {
+          await exportTablePdf({
+            title,
+            subtitle: filterSummary,
+            columns: [
+              { header: 'Project', dataKey: 'project' },
+              { header: 'Planned', dataKey: 'planned' },
+              { header: 'Published (Period)', dataKey: 'published' },
+              { header: 'Delivered (Period)', dataKey: 'delivered' },
+              { header: 'In Production', dataKey: 'inProduction' },
+              { header: 'In Stock', dataKey: 'inStock' },
+              { header: 'Delivered (All)', dataKey: 'deliveredAll' },
+              { header: 'Published (All)', dataKey: 'publishedAll' },
+              { header: 'Total', dataKey: 'total' },
+            ],
+            rows: countRows,
+            filename: filenameBase,
+            orientation: pdfOrientation,
+            deptLine: 'Management Dashboard — Project Progress Report',
+          });
+        }
+        return;
+      }
 
       if (detailRows.length === 0) {
         alert('No pools found for the current filters.');
@@ -380,7 +535,31 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
     }
   };
 
-  const rows = viewMode === 'wip' ? wipRows : completionRows;
+  const rows: any[] = viewMode === 'wip' ? wipRows : viewMode === 'summary' ? summaryRows : completionRows;
+
+  const yearOptions = useMemo(() => {
+    const thisYear = new Date().getFullYear();
+    const years = new Set<number>([thisYear]);
+    pools.forEach(p => {
+      [p.createdAt, p.completedAt, p.deliveredAt].forEach(d => {
+        const y = d ? parseInt(String(d).slice(0, 4), 10) : NaN;
+        if (!isNaN(y) && y > 2000) years.add(y);
+      });
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [pools]);
+
+  const [pickMonth, setPickMonth] = useState<string>('');
+  const [pickYear, setPickYear] = useState<string>(String(new Date().getFullYear()));
+
+  const applyMonthYear = (monthStr: string, yearStr: string) => {
+    setPickMonth(monthStr);
+    setPickYear(yearStr);
+    const y = parseInt(yearStr, 10);
+    if (isNaN(y)) return;
+    if (monthStr === '') setDateRange(yearRange(y));
+    else setDateRange(monthRange(y, parseInt(monthStr, 10)));
+  };
 
   return (
     <div className="space-y-5 animate-fadeIn">
@@ -409,9 +588,20 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> Stage Completions (Cumulative, by date)
           </button>
+          <button
+            onClick={() => { setViewMode('summary'); setSectionFilter('all'); }}
+            data-testid="project-report-view-summary"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              viewMode === 'summary' ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <Boxes className="h-3.5 w-3.5" /> Project Summary (Published / Delivered)
+          </button>
         </div>
         <p className="text-[11px] text-slate-400 mt-2">
-          {viewMode === 'wip'
+          {viewMode === 'summary'
+            ? 'Per project: Planned (not yet published), Published and Delivered in the selected period, pools currently in production, and all-time totals. Pick Today / Week / Month / Year / Custom, or choose an exact month and year below.'
+            : viewMode === 'wip'
             ? 'Whole-project totals right now — Planning (not yet released), Released to production, where those released pools currently sit stage-by-stage, and Completed. Not affected by the date filter below.'
             : 'How many pools had each stage approved within the selected period (e.g. how many Steel done, how many Primer done), plus releases from Planning and final completions in that window.'}
         </p>
@@ -422,6 +612,26 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           Export buttons below, regardless of which view is active. */}
       <div className="flex flex-col md:flex-row gap-3">
         <DateRangeFilter value={dateRange} onChange={setDateRange} />
+        <div className="bg-white border border-slate-100 rounded-2xl px-3 py-2 shadow-sm flex items-center gap-2 self-start">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Month / Year</span>
+          <select
+            value={pickMonth}
+            onChange={(e) => applyMonthYear(e.target.value, pickYear)}
+            data-testid="project-report-month-picker"
+            className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          >
+            <option value="">Whole year</option>
+            {MONTH_NAMES.map((m, i) => <option key={m} value={String(i)}>{m}</option>)}
+          </select>
+          <select
+            value={pickYear}
+            onChange={(e) => applyMonthYear(pickMonth, e.target.value)}
+            data-testid="project-report-year-picker"
+            className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          >
+            {yearOptions.map(y => <option key={y} value={String(y)}>{y}</option>)}
+          </select>
+        </div>
         {viewMode === 'wip' && (
           <p className="text-[11px] text-slate-400 self-center">
             This view is always a live snapshot — the date range above only applies to the Stage Completions view.
@@ -506,7 +716,89 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
         </div>
       </div>
 
-      {/* Matrix table */}
+      {/* Project Summary table: Planned / Published / Delivered per project + totals */}
+      {viewMode === 'summary' && (
+        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-x-auto">
+          <div className="px-3 pt-3 text-[11px] text-slate-400">
+            Period: <span className="font-mono font-bold text-slate-600">{dateRange.startDate}</span> to <span className="font-mono font-bold text-slate-600">{dateRange.endDate}</span> — Published and Delivered (Period) columns follow this range; the other columns are live totals.
+          </div>
+          <table className="min-w-full text-xs mt-2">
+            <thead>
+              <tr className="border-b border-slate-100">
+                <th className="text-left font-bold text-slate-500 uppercase tracking-wider px-3 py-2.5 sticky left-0 bg-white">Project</th>
+                <th className="text-center font-bold text-amber-600 uppercase tracking-wider px-3 py-2.5">Planned<br /><span className="text-[9px] normal-case font-semibold text-slate-400">not published</span></th>
+                <th className="text-center font-bold text-sky-600 uppercase tracking-wider px-3 py-2.5">Published<br /><span className="text-[9px] normal-case font-semibold text-slate-400">in period</span></th>
+                <th className="text-center font-bold text-emerald-600 uppercase tracking-wider px-3 py-2.5">Delivered<br /><span className="text-[9px] normal-case font-semibold text-slate-400">in period</span></th>
+                <th className="text-center font-bold text-indigo-600 uppercase tracking-wider px-3 py-2.5">In Production<br /><span className="text-[9px] normal-case font-semibold text-slate-400">now</span></th>
+                <th className="text-center font-bold text-slate-500 uppercase tracking-wider px-3 py-2.5">In Stock<br /><span className="text-[9px] normal-case font-semibold text-slate-400">not delivered</span></th>
+                <th className="text-center font-bold text-emerald-700 uppercase tracking-wider px-3 py-2.5">Delivered<br /><span className="text-[9px] normal-case font-semibold text-slate-400">all time</span></th>
+                <th className="text-center font-bold text-sky-700 uppercase tracking-wider px-3 py-2.5">Published<br /><span className="text-[9px] normal-case font-semibold text-slate-400">all time</span></th>
+                <th className="text-center font-bold text-slate-700 uppercase tracking-wider px-3 py-2.5">Total Pools</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summaryRows.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="text-center text-slate-400 py-8">No data for the selected filters.</td>
+                </tr>
+              )}
+              {summaryRows.map(r => {
+                const cell = (count: number, color: string, hover: string, onClick: () => void) => (
+                  <td
+                    className={`px-3 py-2 text-center font-mono ${color} ${count > 0 ? `cursor-pointer ${hover} hover:underline font-bold` : ''}`}
+                    onClick={() => count > 0 && onClick()}
+                  >
+                    {count}
+                  </td>
+                );
+                return (
+                  <tr key={r.project} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <td className="px-3 py-2 font-bold text-slate-700 sticky left-0 bg-white whitespace-nowrap">{r.project}</td>
+                    {cell(r.plannedWaiting.length, 'text-amber-700', 'hover:bg-amber-50', () =>
+                      setDrillDown({
+                        project: r.project,
+                        columnLabel: 'Planned (not yet published)',
+                        rows: r.plannedWaiting.map(p => ({ poolNo: p.poolNo, date: fmtDate(p.createdAt), extra: p.poolType || undefined })),
+                      })
+                    )}
+                    {cell(r.publishedInRange.length, 'text-sky-700', 'hover:bg-sky-50', () =>
+                      openSummaryDrillDown(r.project, 'Published — in period', r.publishedInRange, p => p.createdAt))}
+                    {cell(r.deliveredInRange.length, 'text-emerald-700', 'hover:bg-emerald-50', () =>
+                      openSummaryDrillDown(r.project, 'Delivered — in period', r.deliveredInRange, p => deliveredDateOf(p)))}
+                    {cell(r.inProductionPools.length, 'text-indigo-700', 'hover:bg-indigo-50', () =>
+                      openSummaryDrillDown(r.project, 'Currently In Production', r.inProductionPools, p => p.createdAt))}
+                    {cell(r.inStockPools.length, 'text-slate-600', 'hover:bg-slate-100', () =>
+                      openSummaryDrillDown(r.project, 'Completed — In Stock (not delivered)', r.inStockPools, p => p.completedAt))}
+                    {cell(r.deliveredAll.length, 'text-emerald-700', 'hover:bg-emerald-50', () =>
+                      openSummaryDrillDown(r.project, 'Delivered — all time', r.deliveredAll, p => deliveredDateOf(p)))}
+                    {cell(r.publishedAll.length, 'text-sky-700', 'hover:bg-sky-50', () =>
+                      openSummaryDrillDown(r.project, 'Published — all time', r.publishedAll, p => p.createdAt))}
+                    <td className="px-3 py-2 text-center font-mono font-bold text-slate-800">{r.grandTotal}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {summaryRows.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-50/70">
+                  <td className="px-3 py-2.5 font-black text-slate-700 sticky left-0 bg-slate-50/70">Grand Total</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-amber-700">{summaryTotals.planned}</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-sky-700">{summaryTotals.publishedInRange}</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-emerald-700">{summaryTotals.deliveredInRange}</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-indigo-700">{summaryTotals.inProduction}</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-slate-700">{summaryTotals.inStock}</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-emerald-700">{summaryTotals.deliveredAll}</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-sky-700">{summaryTotals.publishedAll}</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-slate-900">{summaryTotals.grandTotal}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
+      {/* Matrix table (Current Status / Stage Completions views) */}
+      {viewMode !== 'summary' && (
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-x-auto">
         <table className="min-w-full text-xs">
           <thead>
@@ -635,6 +927,7 @@ export const ProjectProgressReport: React.FC<ProjectProgressReportProps> = ({ po
           )}
         </table>
       </div>
+      )}
 
       {/* Drill-down modal — pool numbers + dates behind whichever cell was clicked */}
       {drillDown && (
