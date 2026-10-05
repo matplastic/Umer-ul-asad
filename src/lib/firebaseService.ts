@@ -212,7 +212,14 @@ async function commitInChunks(ops: Array<(batch: ReturnType<typeof writeBatch>) 
 // array-document pattern, so callers see no difference.
 async function collectionGetAll(name: string): Promise<any[]> {
   const snap = await getDocs(collection(clientDb, name));
-  return snap.docs.map(d => d.data());
+  // Records whose body has no `id` field used to load with id === undefined,
+  // which made them match every other id-less record (and `t.id === undefined`
+  // lookups). Fall back to the Firestore document id so each record is unique
+  // and can be found/deleted.
+  return snap.docs.map(d => {
+    const data = d.data();
+    return data && data.id ? data : { ...data, id: d.id };
+  });
 }
 
 // Write a full array into a collection-backed collection, but ONLY touch
@@ -361,7 +368,7 @@ export function subscribeToLiveState(
         onSnapshot(
           collection(clientDb, name),
           snap => {
-            callback({ collection: name, data: snap.docs.map(d => d.data()) });
+            callback({ collection: name, data: snap.docs.map(d => { const data = d.data(); return data && data.id ? data : { ...data, id: d.id }; }) });
           },
           err => console.warn(`[liveSync] ${name} (collection) subscription error:`, err)
         )
@@ -1687,6 +1694,16 @@ export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [],
       return current;
     }
 
+    // ID GUARD: a team without an id would be written to a document literally
+    // named "undefined" and collide with every other id-less team.
+    const idless = localTeams.filter((t) => !t?.id);
+    if (idless.length > 0) {
+      throw new Error(
+        `Refusing to save: ${idless.length} team record(s) have no ID (${idless.map((t) => t?.name || '?').join(', ')}). ` +
+        `Remove or re-create them in Teams Allocation first.`
+      );
+    }
+
     const removedSet = new Set(removedIds);
     const localById = new Map(localTeams.map((t) => [t?.id, t]));
     let updatedArr: any[];
@@ -1730,7 +1747,14 @@ export async function dbSyncTeams(localTeams: Team[], removedIds: string[] = [],
       const code = (t?.code || '').trim();
       if (code) codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
     });
-    const dupeCode = [...codeCounts.entries()].find(([, count]) => count > 1);
+    // Only block when the write itself CREATES or CHANGES a team involved in
+    // the clash. Pre-existing duplicates the caller isn't touching must not
+    // block unrelated saves — and above all must not block DELETING the
+    // duplicates (removing one of three same-code records still leaves two).
+    const dupeCode = [...codeCounts.entries()].find(([code, count]) =>
+      count > 1 &&
+      updatedArr.some((t) => (t?.code || '').trim() === code && idsToWrite.has(t?.id) && !removedSet.has(t?.id))
+    );
     if (dupeCode) {
       const clashing = updatedArr.filter((t) => (t?.code || '').trim() === dupeCode[0]).map((t) => `${t.name} (${t.id})`);
       throw new Error(
