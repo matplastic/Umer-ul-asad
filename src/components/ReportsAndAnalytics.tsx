@@ -2,11 +2,12 @@ import React, { useState, useMemo } from 'react';
 import { Pool, ActivityLog, ProjectSummary, MonthlyTarget, Employee, PlannedPool, Team, EmployeePunch } from '../types';
 import { QCDefect } from './QCDefectPanel';
 import { AllReportsTab } from './AllReportsTab';
+import { SupervisorPurchaseReport } from './SupervisorPurchaseReport';
 import { STAGES } from '../data/mockData';
 import {
   BarChart3, FileText, Download, Printer, TrendingUp, AlertTriangle,
   Calendar, Target, Activity, Layers, FileSpreadsheet, PieChart as PieIcon,
-  Clock, Zap, ArrowDown, ArrowUp
+  Clock, Zap, ArrowDown, ArrowUp, ShoppingCart
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -27,7 +28,7 @@ interface ReportsAndAnalyticsProps {
   qcDefects?: QCDefect[];
 }
 
-type TabId = 'analytics' | 'reports' | 'exports' | 'all';
+type TabId = 'analytics' | 'reports' | 'exports' | 'all' | 'purchases';
 
 export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
   pools, plannedPools, projectsSummary, monthlyTargets, employees, logs, teams, employeePunches = [], qcDefects = []
@@ -52,6 +53,7 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
         <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 self-start md:self-center">
           {[
             { id: 'all' as TabId, label: 'All Reports', icon: FileSpreadsheet },
+            { id: 'purchases' as TabId, label: 'Purchase Requests', icon: ShoppingCart },
             { id: 'analytics' as TabId, label: 'Live Analytics', icon: TrendingUp },
             { id: 'reports' as TabId, label: 'PDF Reports', icon: FileText },
             { id: 'exports' as TabId, label: 'Excel Exports', icon: FileSpreadsheet },
@@ -75,6 +77,9 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
 
       {tab === 'all' && (
         <AllReportsTab pools={pools} logs={logs} employees={employees} employeePunches={employeePunches} />
+      )}
+      {tab === 'purchases' && (
+        <SupervisorPurchaseReport />
       )}
       {tab === 'analytics' && (
         <AnalyticsTab pools={pools} logs={logs} monthlyTargets={monthlyTargets} projectsSummary={projectsSummary} />
