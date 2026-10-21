@@ -170,6 +170,20 @@ export const DEFECT_STATUS_CONFIG = {
   closed:   { label: 'Closed (NCR)', color: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: CheckCircle2 },
 };
 
+// Safe lookups: an old/odd record with an unrecognised severity or status used
+// to make these undefined and crash the whole screen (white screen).
+const FALLBACK_SEVERITY = { label: 'Unknown', color: 'bg-slate-50 text-slate-500 border-slate-200', dot: 'bg-slate-400' };
+const FALLBACK_STATUS = { label: 'Unknown', color: 'bg-slate-50 text-slate-500 border-slate-200', icon: AlertTriangle };
+const getSeverityCfg = (v: any) => (DEFECT_SEVERITY_CONFIG as any)[v] || FALLBACK_SEVERITY;
+const getStatusCfg = (v: any) => (DEFECT_STATUS_CONFIG as any)[v] || FALLBACK_STATUS;
+const formatLoggedAt = (iso: any) => {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // QCDefectBadge — tiny status chip shown on pool cards in every portal
 // ─────────────────────────────────────────────────────────────────────────────
@@ -178,11 +192,12 @@ interface QCDefectBadgeProps {
 }
 
 export const QCDefectBadge: React.FC<QCDefectBadgeProps> = ({ defects }) => {
-  if (!defects || defects.length === 0) return null;
+  if (!Array.isArray(defects) || defects.length === 0) return null;
+  const safeDefects = defects.filter(Boolean);
 
-  const openDefects = defects.filter(d => d.status === 'open' || d.status === 'on_hold');
-  const holdDefects = defects.filter(d => d.status === 'on_hold');
-  const hasCritical = defects.some(d => d.severity === 'critical' && d.status !== 'released');
+  const openDefects = safeDefects.filter(d => d.status === 'open' || d.status === 'on_hold');
+  const holdDefects = safeDefects.filter(d => d.status === 'on_hold');
+  const hasCritical = safeDefects.some(d => d.severity === 'critical' && d.status !== 'released');
 
   if (openDefects.length === 0) return null;
 
@@ -245,7 +260,7 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
   const [ncrDraft, setNcrDraft] = useState<Record<string, { rootCause: string; correctiveAction: string; owner: string; dueDate: string }>>({});
   const [ncrFormOpenFor, setNcrFormOpenFor] = useState<string | null>(null);
 
-  const poolDefects = existingDefects.filter(d => d.poolId === poolId && d.stageId === stageId);
+  const poolDefects = (Array.isArray(existingDefects) ? existingDefects : []).filter(d => d && d.poolId === poolId && d.stageId === stageId);
   const activeDefects = poolDefects.filter(d => d.status !== 'released' && d.status !== 'rejected');
 
   const handleSubmit = () => {
@@ -452,8 +467,8 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
       ) : (
         <div className="divide-y divide-slate-100">
           {poolDefects.map(defect => {
-            const sevCfg = DEFECT_SEVERITY_CONFIG[defect.severity];
-            const stCfg = DEFECT_STATUS_CONFIG[defect.status];
+            const sevCfg = getSeverityCfg(defect.severity);
+            const stCfg = getStatusCfg(defect.status);
             const StatusIcon = stCfg.icon;
 
             return (
@@ -473,7 +488,7 @@ export const QCDefectPanel: React.FC<QCDefectPanelProps> = ({
                     <p className="text-[11px] text-slate-500 leading-snug">{defect.notes}</p>
                   )}
                   <p className="text-[10px] text-slate-400 font-mono">
-                    {defect.loggedBy} · {new Date(defect.loggedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    {defect.loggedBy} · {formatLoggedAt(defect.loggedAt)}
                     {defect.releasedBy && ` · Released by ${defect.releasedBy}`}
                   </p>
                 </div>
