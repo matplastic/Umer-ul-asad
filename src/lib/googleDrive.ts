@@ -44,10 +44,39 @@ export const auth = getAuth(app);
 // polling instead of trying to "auto-detect" it (auto-detect still starts
 // with a QUIC probe that can hang on some of these networks).
 // ─────────────────────────────────────────────────────────────────────────
-import { initializeFirestore } from 'firebase/firestore';
-export const clientDb = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-});
+import {
+  initializeFirestore,
+  getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
+
+// OFFLINE COPY: Firestore keeps its own offline copy of everything the app
+// reads, in the browser's IndexedDB (hundreds of MB, managed automatically,
+// shared safely between open tabs). Writes made while offline are saved there
+// too and uploaded by Firestore itself when the connection returns. This
+// replaces copying big lists into localStorage (5 MB limit), which was
+// crashing the app with "exceeded the quota". If IndexedDB is unavailable we
+// fall back to the previous behaviour and localStorage caching stays on
+// (see src/lib/safeStorage.ts, which checks this flag).
+let firestoreInstance: ReturnType<typeof initializeFirestore>;
+let persistentCacheActive = false;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
+  persistentCacheActive = typeof indexedDB !== 'undefined';
+} catch (e) {
+  console.warn('Persistent Firestore cache unavailable, using default:', e);
+  try {
+    firestoreInstance = initializeFirestore(app, { experimentalForceLongPolling: true });
+  } catch {
+    firestoreInstance = getFirestore(app);
+  }
+}
+(globalThis as any).__matFirestorePersistent = persistentCacheActive;
+export const clientDb = firestoreInstance;
 
 // Request Google Drive scopes
 const provider = new GoogleAuthProvider();
