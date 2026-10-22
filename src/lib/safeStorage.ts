@@ -42,6 +42,18 @@ const CACHE_KEYS = [
   'hr_medicals', 'hr_leaves', 'hr_accidents',
 ];
 
+// Big lists that live in Firestore. When Firestore's own offline copy
+// (IndexedDB) is active — flagged by googleDrive.ts — these are no longer
+// copied into localStorage at all; the stale old copy is removed the first time
+// the app would have refreshed it (i.e. after the cloud data has loaded).
+// A collection that still has an un-uploaded queued write keeps its cache.
+const NO_LOCAL_CACHE = new Set([
+  'apex_logs', 'apex_pools', 'apex_teams', 'apex_planned_pools',
+  'apex_projects_summary', 'apex_employee_punches', 'apex_trolleys',
+  'apex_qc_defects', 'apex_employees', 'apex_monthly_targets',
+  'apex_inspectors', 'apex_engineers',
+]);
+
 const norm = (s: string) =>
   s.toLowerCase().replace(/^apex_/, '').replace(/[_-]/g, '');
 
@@ -53,6 +65,24 @@ function install() {
     const original = proto.setItem;
 
     proto.setItem = function (key: string, value: string) {
+      if (
+        this === window.localStorage &&
+        NO_LOCAL_CACHE.has(key) &&
+        (globalThis as any).__matFirestorePersistent === true
+      ) {
+        let queued = false;
+        try {
+          const raw = this.getItem('apex_pending_firestore_writes');
+          if (raw && raw !== '[]') {
+            const q = JSON.parse(raw);
+            queued = Array.isArray(q) && q.some((x: any) => x?.docName && norm(String(x.docName)) === norm(key));
+          }
+        } catch { queued = true; /* if unsure, keep caching */ }
+        if (!queued) {
+          try { this.removeItem(key); } catch { /* ignore */ }
+          return;
+        }
+      }
       try {
         return original.call(this, key, value);
       } catch (err) {
