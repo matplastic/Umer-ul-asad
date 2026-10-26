@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pool, StageId, Team, StageDefinition } from '../types';
-import { STAGES, DUAL_STAGE_IDS, getDualGroupForIndex, getMaxConcurrentClaims, allowsExtraClaimWhileAwaitingQC, isPoolAwaitingQcAtStage } from '../data/mockData';
+import { STAGES, DUAL_STAGE_IDS, getDualGroupForIndex, getMaxConcurrentClaims, UNLIMITED_CLAIMS, allowsExtraClaimWhileAwaitingQC, isPoolAwaitingQcAtStage } from '../data/mockData';
 import { Play, CheckSquare, Users, AlertTriangle, Clock, ChevronRight, Compass, Printer, X, Cloud, Loader2, CheckCircle2, Eye, RefreshCw, PauseCircle } from 'lucide-react';
 import { uploadToGoogleDrive } from '../lib/googleDrive';
 import { QCDefectBadge, QCDefect } from './QCDefectPanel';
@@ -399,14 +399,15 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                 </div>
 
                 {/* Claimed pool information block(s). Most stages allow just
-                    one at a time; Mosaic (door_cutting) allows up to 3
-                    concurrently, so each claimed pool renders as its own
+                    one at a time; Mosaic (door_cutting) and Steel
+                    Fabrication let a team claim as many as it wants, so
+                    each claimed pool renders as its own
                     independent card with its own Start/Finish/Undo controls. */}
                 {maxClaims > 1 && (
                   <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 px-1">
                     <span className="uppercase tracking-wider">Claimed Pools</span>
                     <span className="font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                      {stage.batchClaim ? myClaimedPools.length : `${myClaimedPools.length} / ${maxClaims}`}
+                      {stage.batchClaim || maxClaims >= UNLIMITED_CLAIMS ? myClaimedPools.length : `${myClaimedPools.length} / ${maxClaims}`}
                     </span>
                   </div>
                 )}
