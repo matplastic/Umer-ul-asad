@@ -78,10 +78,17 @@ export const isAtDualStageGate = (currentStageIndex: number): boolean =>
 // Steel Fabrication, where a team can pick up and continue up to 4 pools at
 // once. Overflow claims beyond the first land in Team.extraPoolIds (see
 // types.ts). Add other stages here if the same need ever applies elsewhere.
+//
+// UNLIMITED_CLAIMS: stages where a team may claim as many pools as it wants.
+// It is a high ceiling rather than a true "no limit" so the claim handler and
+// the UI can keep using one simple numeric check. The UI shows just the count
+// (e.g. "7") instead of "7 / 50" when a stage uses this value.
+export const UNLIMITED_CLAIMS = 50;
+
 export const STAGE_MAX_CONCURRENT_CLAIMS: Partial<Record<StageId, number>> = {
-  door_cutting: 3, // "Mosaic" on the floor
-  steel_fabrication: 4, // Steel section: teams can pick and continue up to 4 pools
-  mechanical_fitting: 50, // Teams tick as many pools as they want (batch claim checklist)
+  door_cutting: UNLIMITED_CLAIMS, // "Mosaic" on the floor — claim as many as the team wants
+  steel_fabrication: UNLIMITED_CLAIMS, // Steel Fabrication — claim as many as the team wants
+  mechanical_fitting: UNLIMITED_CLAIMS, // Teams tick as many pools as they want (batch claim checklist)
 };
 
 export const getMaxConcurrentClaims = (stageId: StageId): number =>
