@@ -6500,7 +6500,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   <span className="text-[10px] text-slate-500 block mt-0.5 font-sans">Fabrication & Moulding</span>
                 </div>
                 <div className="bg-slate-50 p-4 border border-slate-100 rounded-xl">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Quality Assurance</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Quality Control</span>
                   <span className="text-2xl font-black font-mono text-pink-650 text-pink-600">
                     {employees.filter(e => e.department === 'Quality Control').length}
                   </span>
@@ -8604,7 +8604,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         <option value="dual_worker_trolley">🔒 Dual Lock: Shop Floor + Trolley Ledger</option>
                         <option value="trolley_prod">Trolley Production Ledger</option>
                         <option value="planning_department">Planning Department Portal</option>
-                        <option value="quality_inspector">Quality Assurance Panel</option>
+                        <option value="quality_inspector">Quality Control Panel</option>
                         <option value="production_engineer">Production Eng. Release</option>
                         <option value="section_dashboard">Section TV Display</option>
                         <option value="factory_entrance">Factory Entrance TV</option>
@@ -8949,7 +8949,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   { key: 'management', title: 'Executive Management', subtitle: 'Central Admin & Overrides', default: '1234', color: 'border-blue-150 hover:bg-blue-50/10' },
                   { key: 'planning_department', title: 'Planning Department', subtitle: 'Scheduling & Target Tools', default: '1111', color: 'border-indigo-150 hover:bg-indigo-50/10' },
                   { key: 'production_engineer', title: 'Production Engineering', subtitle: 'Fabrication Releases & Queues', default: '2222', color: 'border-amber-150 hover:bg-amber-50/10' },
-                  { key: 'quality_inspector', title: 'Quality Assurance', subtitle: 'NCR/Scrap Audit Actions', default: '3333', color: 'border-emerald-150 hover:bg-emerald-50/10' },
+                  { key: 'quality_inspector', title: 'Quality Control', subtitle: 'NCR/Scrap Audit Actions', default: '3333', color: 'border-emerald-150 hover:bg-emerald-50/10' },
                   { key: 'stage_worker', title: 'Stage Shop Floor', subtitle: 'Workers Claiming Checkpoint', default: '4444', color: 'border-purple-150 hover:bg-purple-50/10' },
                   { key: 'trolley_prod', title: 'Trolley Production', subtitle: 'Yield & Fabrications Tracker', default: '5555', color: 'border-rose-150 hover:bg-rose-50/10' },
                   { key: 'factory_entrance', title: 'Factory Entrance TV', subtitle: 'Informational logistics display', default: '6666', color: 'border-cyan-150 hover:bg-cyan-50/10' },
