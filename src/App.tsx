@@ -3950,7 +3950,7 @@ export default function App() {
                   stationLock.role === 'management' ? 'Management Center Only' :
                   stationLock.role === 'trolley_prod' ? 'Trolley Production Ledger' :
                   stationLock.role === 'planning_department' ? 'Planning Dept. Portal' :
-                  stationLock.role === 'quality_inspector' ? 'Quality Assurance Panel' :
+                  stationLock.role === 'quality_inspector' ? 'Quality Control Panel' :
                   stationLock.role === 'production_engineer' ? 'Production Eng. Release' :
                   stationLock.role === 'section_dashboard' ? 'Section TV Display' :
                   stationLock.role === 'factory_entrance' ? 'Factory Entrance TV' :
