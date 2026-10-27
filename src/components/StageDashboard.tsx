@@ -531,7 +531,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             <span>⚠</span> Request QA to Undo Claim
                           </button>
                           <p className="text-[9.5px] text-slate-400 mt-1.5 leading-tight">
-                            Sends a request to Quality Assurance to unclaim this pool so the correct team can pick it.
+                            Sends a request to Quality Control to unclaim this pool so the correct team can pick it.
                           </p>
                         </div>
                       )}
