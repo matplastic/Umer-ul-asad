@@ -3786,7 +3786,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { value: 'management', label: 'Executive Management' },
     { value: 'planning_department', label: 'Planning Department' },
     { value: 'production_engineer', label: 'Production Engineering' },
-    { value: 'quality_inspector', label: 'Quality Assurance' },
+    { value: 'quality_inspector', label: 'Quality Control' },
     { value: 'stage_worker', label: 'Stage Shop Floor' },
     { value: 'trolley_prod', label: 'Trolley Production Supervisor' },
     { value: 'factory_supervisor', label: 'Factory Supervisor' },
@@ -4156,7 +4156,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <div className="md:col-span-2">
                 <label className="text-[11px] font-bold uppercase text-slate-500">Additional Portal Access (optional)</label>
                 <p className="text-[10px] text-slate-400 mt-0.5 mb-2">
-                  Check any other portals this person should be able to switch into — e.g. Management + Quality Assurance
+                  Check any other portals this person should be able to switch into — e.g. Management + Quality Control
                   only, with everything else (HR, Store, etc.) staying hidden from them. Leave everything unchecked besides
                   the primary role above for a single-portal account, same as before.
                 </p>
