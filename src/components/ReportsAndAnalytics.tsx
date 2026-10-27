@@ -3,6 +3,7 @@ import { Pool, ActivityLog, ProjectSummary, MonthlyTarget, Employee, PlannedPool
 import { QCDefect } from './QCDefectPanel';
 import { AllReportsTab } from './AllReportsTab';
 import { SupervisorPurchaseReport } from './SupervisorPurchaseReport';
+import { LiveAnalyticsTab } from './LiveAnalyticsTab';
 import { STAGES } from '../data/mockData';
 import {
   BarChart3, FileText, Download, Printer, TrendingUp, AlertTriangle,
@@ -82,7 +83,15 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
         <SupervisorPurchaseReport />
       )}
       {tab === 'analytics' && (
-        <AnalyticsTab pools={pools} logs={logs} monthlyTargets={monthlyTargets} projectsSummary={projectsSummary} />
+        <LiveAnalyticsTab
+          pools={pools}
+          logs={logs}
+          monthlyTargets={monthlyTargets}
+          projectsSummary={projectsSummary}
+          plannedPools={plannedPools}
+          teams={teams}
+          qcDefects={qcDefects}
+        />
       )}
       {tab === 'reports' && (
         <ReportsTab pools={pools} projectsSummary={projectsSummary} monthlyTargets={monthlyTargets} employees={employees} logs={logs} qcDefects={qcDefects} />
@@ -97,261 +106,6 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
           logs={logs}
           teams={teams}
         />
-      )}
-    </div>
-  );
-};
-
-// ═════════════════════════════════════════════════════════════════════════════
-// TAB 1 — Live Analytics
-// ═════════════════════════════════════════════════════════════════════════════
-const AnalyticsTab: React.FC<{
-  pools: Pool[];
-  logs: ActivityLog[];
-  monthlyTargets: MonthlyTarget[];
-  projectsSummary: ProjectSummary[];
-}> = ({ pools, logs, monthlyTargets, projectsSummary }) => {
-
-  // ── KPI scorecards
-  const totalPools = pools.length;
-  const inProduction = pools.filter(p => !p.isDelivered && !p.completedAt).length;
-  const completedPools = pools.filter(p => !!p.completedAt && !p.isDelivered).length;
-  const deliveredPools = pools.filter(p => p.isDelivered).length;
-  const totalRejections = pools.reduce(
-    (sum, p) => sum + Object.values(p.stageHistory || {}).reduce((s, h: any) => s + (h?.rejectionCount || 0), 0),
-    0
-  );
-
-  // ── Stage dwell-time analysis (bottleneck detector)
-  const stageStats = useMemo(() => {
-    return STAGES.map((stage) => {
-      const histories = pools
-        .map(p => p.stageHistory?.[stage.id])
-        .filter(h => h && h.durationMinutes && h.durationMinutes > 0);
-      const durations = histories.map(h => h!.durationMinutes!);
-      const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
-      const max = durations.length ? Math.max(...durations) : 0;
-      const inFlight = pools.filter(p => p.currentStageIndex === STAGES.indexOf(stage)).length;
-      const rejections = pools.reduce(
-        (s, p) => s + (p.stageHistory?.[stage.id]?.rejectionCount || 0),
-        0
-      );
-      return {
-        stage: stage.name.split(' ').slice(0, 2).join(' '),
-        fullName: stage.name,
-        avg: Math.round(avg),
-        max: Math.round(max),
-        inFlight,
-        rejections,
-        color: stage.color,
-      };
-    });
-  }, [pools]);
-
-  const bottleneck = useMemo(() => {
-    const sorted = [...stageStats].filter(s => s.avg > 0).sort((a, b) => b.avg - a.avg);
-    return sorted[0] || null;
-  }, [stageStats]);
-
-  // ── Production trend (last 30 days)
-  const trendData = useMemo(() => {
-    const days: Record<string, { date: string; created: number; approved: number; delivered: number }> = {};
-    const now = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(5, 10);
-      days[key] = { date: key, created: 0, approved: 0, delivered: 0 };
-    }
-    logs.forEach(log => {
-      if (!log.timestamp) return;
-      const key = log.timestamp.slice(5, 10);
-      if (!days[key]) return;
-      if (log.type === 'CREATED') days[key].created++;
-      if (log.type === 'APPROVED') days[key].approved++;
-      if (log.type === 'DELIVERED') days[key].delivered++;
-    });
-    return Object.values(days);
-  }, [logs]);
-
-  // ── Project completion breakdown (pie)
-  const projectPie = useMemo(() => {
-    return projectsSummary.slice(0, 6).map((p, idx) => ({
-      name: p.projectName,
-      value: p.deliveredPools,
-      color: ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#06b6d4', '#a855f7'][idx % 6],
-    }));
-  }, [projectsSummary]);
-
-  // ── Orientation split
-  const orientationSplit = useMemo(() => {
-    const counts: Record<string, number> = { Normal: 0, Mirror: 0 };
-    pools.forEach(p => {
-      counts[p.orientation] = (counts[p.orientation] || 0) + 1;
-    });
-    return [
-      { name: 'Normal', value: counts.Normal, color: '#3b82f6' },
-      { name: 'Mirror', value: counts.Mirror, color: '#a855f7' },
-    ];
-  }, [pools]);
-
-  const currentMonthTarget = monthlyTargets.find(t => t.id === new Date().toISOString().slice(0, 7));
-  const monthProgress = currentMonthTarget
-    ? Math.round((deliveredPools / Math.max(currentMonthTarget.mainTarget, 1)) * 100)
-    : null;
-
-  return (
-    <div className="space-y-6 animate-fadeIn">
-      {/* KPI scorecards row */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <KpiCard label="Total Pools" value={totalPools} icon={Layers} color="indigo" testid="kpi-total" />
-        <KpiCard label="In Production" value={inProduction} icon={Activity} color="amber" testid="kpi-inprod" />
-        <KpiCard label="Completed" value={completedPools} icon={Target} color="emerald" testid="kpi-completed" />
-        <KpiCard label="Delivered" value={deliveredPools} icon={Zap} color="violet" testid="kpi-delivered" />
-        <KpiCard label="Rejections" value={totalRejections} icon={AlertTriangle} color="rose" testid="kpi-rejections" />
-      </div>
-
-      {/* Bottleneck alert */}
-      {bottleneck && (
-        <div className="bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-100 rounded-2xl p-4 flex items-center gap-4">
-          <div className="bg-rose-100 text-rose-600 rounded-xl p-3">
-            <AlertTriangle className="h-6 w-6" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-extrabold text-slate-800 text-sm">Bottleneck Detected: {bottleneck.fullName}</h3>
-            <p className="text-xs text-slate-600 mt-0.5">
-              Average dwell time at this stage is <span className="font-bold text-rose-700">{bottleneck.avg} min</span> — the slowest in your factory. Worst case: {bottleneck.max} min. {bottleneck.inFlight} pool(s) currently waiting here.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Production trend */}
-      <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-indigo-600" />
-              30-Day Production Trend
-            </h3>
-            <p className="text-xs text-slate-400">Pool creations, approvals, and deliveries over the last month.</p>
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={260}>
-          <AreaChart data={trendData}>
-            <defs>
-              <linearGradient id="gCreated" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="gApproved" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#10b981" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="gDelivered" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} />
-            <YAxis tick={{ fontSize: 10, fill: '#64748b' }} />
-            <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Area type="monotone" dataKey="created" stroke="#6366f1" fill="url(#gCreated)" strokeWidth={2} />
-            <Area type="monotone" dataKey="approved" stroke="#10b981" fill="url(#gApproved)" strokeWidth={2} />
-            <Area type="monotone" dataKey="delivered" stroke="#f59e0b" fill="url(#gDelivered)" strokeWidth={2} />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Stage dwell-time + Pies */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm lg:col-span-2">
-          <h3 className="font-extrabold text-slate-800 text-sm mb-1 flex items-center gap-2">
-            <Clock className="h-4 w-4 text-indigo-600" />
-            Average Dwell Time by Stage (minutes)
-          </h3>
-          <p className="text-xs text-slate-400 mb-4">Lower is faster. Highlights factory bottlenecks at a glance.</p>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={stageStats}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="stage" tick={{ fontSize: 9, fill: '#64748b' }} angle={-25} textAnchor="end" height={70} />
-              <YAxis tick={{ fontSize: 10, fill: '#64748b' }} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} />
-              <Bar dataKey="avg" radius={[6, 6, 0, 0]}>
-                {stageStats.map((s, idx) => (
-                  <Cell key={idx} fill={s.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-          <h3 className="font-extrabold text-slate-800 text-sm mb-1 flex items-center gap-2">
-            <PieIcon className="h-4 w-4 text-indigo-600" />
-            Orientation Split
-          </h3>
-          <p className="text-xs text-slate-400 mb-2">Normal vs Mirror across all pools.</p>
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={orientationSplit} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={3}>
-                {orientationSplit.map((s, idx) => (
-                  <Cell key={idx} fill={s.color} />
-                ))}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Project delivery breakdown */}
-      {projectPie.length > 0 && (
-        <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-          <h3 className="font-extrabold text-slate-800 text-sm mb-1 flex items-center gap-2">
-            <Target className="h-4 w-4 text-indigo-600" />
-            Top Projects by Delivered Pools
-          </h3>
-          <p className="text-xs text-slate-400 mb-4">Shows revenue concentration — which clients drive most output.</p>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={projectPie} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#475569' }} width={130} />
-              <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
-              <Bar dataKey="value" radius={[0, 6, 6, 0]}>
-                {projectPie.map((s, idx) => (
-                  <Cell key={idx} fill={s.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* Month progress */}
-      {currentMonthTarget && monthProgress !== null && (
-        <div className="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-xs uppercase font-bold text-indigo-200 tracking-wider">{currentMonthTarget.monthName} Target</p>
-              <h3 className="text-3xl font-black mt-1">{deliveredPools} / {currentMonthTarget.mainTarget} pools delivered</h3>
-            </div>
-            <div className="text-right">
-              <div className="text-5xl font-black">{monthProgress}%</div>
-              <p className="text-xs text-indigo-200 mt-1">{monthProgress >= 100 ? 'Target hit ✓' : `${currentMonthTarget.mainTarget - deliveredPools} pools to go`}</p>
-            </div>
-          </div>
-          <div className="bg-white/20 rounded-full h-3 overflow-hidden">
-            <div
-              className="bg-white h-full transition-all"
-              style={{ width: `${Math.min(monthProgress, 100)}%` }}
-            />
-          </div>
-        </div>
       )}
     </div>
   );
