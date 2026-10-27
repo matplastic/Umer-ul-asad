@@ -18,7 +18,7 @@ const ROLE_LABELS: Record<ViewRole, string> = {
   management: 'Executive Management',
   planning_department: 'Planning Department',
   production_engineer: 'Production Engineering',
-  quality_inspector: 'Quality Assurance',
+  quality_inspector: 'Quality Control',
   stage_worker: 'Stage Shop Floor',
   trolley_prod: 'Trolley Production Supervisor',
   factory_supervisor: 'Factory Supervisor',
