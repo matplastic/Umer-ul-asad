@@ -105,7 +105,7 @@ const NAV_ITEMS: { role: ViewRole; label: string; icon: React.ElementType; testI
   { role: 'factory_entrance', label: 'Entrance TV', icon: Monitor },
   { role: 'planning_department', label: 'Planning Dept.', icon: ClipboardList },
   { role: 'production_engineer', label: 'Production Eng.', icon: Wrench },
-  { role: 'quality_inspector', label: 'Quality Assurance', icon: Shield },
+  { role: 'quality_inspector', label: 'Quality Control', icon: Shield },
   { role: 'stage_worker', label: 'Shop Floor', icon: HardHat },
   { role: 'section_dashboard', label: 'Section TVs', icon: Tv },
   { role: 'trolley_prod', label: 'Trolley Prod.', icon: Boxes },
