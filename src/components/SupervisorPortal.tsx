@@ -1100,6 +1100,8 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                           <p className="text-xs text-slate-400 mt-1">
                             {r.qtyApproved != null && r.qtyApproved < r.qty ? (
                               <>{r.qtyApproved} of {r.qty} {r.unit} approved</>
+                            ) : r.qtyApproved != null && r.qtyApproved > r.qty ? (
+                              <>{r.qtyApproved} {r.unit} approved <span className="text-amber-400 font-bold">(requested {r.qty})</span></>
                             ) : (
                               <>{r.qty} {r.unit}</>
                             )}
