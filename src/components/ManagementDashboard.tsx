@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex } from '../data/mockData';
+import { useRejectionData } from '../lib/useRejectionData';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
@@ -2155,45 +2156,32 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [rejectionToDate, setRejectionToDate] = useState<string>(todayStr);
   const [rejectionStageFilter, setRejectionStageFilter] = useState<StageId | 'ALL'>('ALL');
 
-  const rejectionLogsRaw = logs.filter(l => {
-    if (l.type !== 'REJECTED') return false;
-    const d = toLocalDateStr(l.timestamp);
-    const inRange = rejectionFilterMode === 'day'
-      ? d === rejectionFilterDate
-      : d >= rejectionFromDate && d <= rejectionToDate;
-    if (!inRange) return false;
-    if (rejectionStageFilter !== 'ALL' && l.stageId !== rejectionStageFilter) return false;
-    return true;
-  }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-  const rejectionRows = rejectionLogsRaw.map(l => {
-    const stage = STAGES.find(s => s.id === l.stageId);
-    const pool = pools.find(p => p.id === l.poolId);
-    const team = teams.find(t => (l.teamId ? t.id === l.teamId : t.name === l.teamName));
-    return {
-      id: l.id,
-      poolNo: l.poolNo,
-      projectName: l.projectName,
-      poolType: pool?.poolType || 'Type 3',
-      stageName: stage?.name || l.stageId,
-      stageColor: stage?.color || '#94a3b8',
-      teamName: team?.name || l.teamName || 'Unknown Team',
-      inspectorName: l.operatorName || '—',
-      notes: l.notes || '—',
-      date: toLocalDateStr(l.timestamp),
-      time: new Date(l.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-    };
+  // Rejection Log data: live logs + the permanent archive + stage records.
+  // (The live `logs` list only holds the latest ~200 events, so filtering it
+  // alone hid almost every older rejection.)
+  const {
+    rows: rejectionRows,
+    total: rejectionTotal,
+    recordCount: rejectionRecordCount,
+    loading: rejectionLoading,
+  } = useRejectionData({
+    logs, pools, teams,
+    mode: rejectionFilterMode,
+    day: rejectionFilterDate,
+    from: rejectionFromDate,
+    to: rejectionToDate,
+    stageFilter: rejectionStageFilter,
   });
 
   const rejectionsByStage = STAGES.map(stage => ({
     stage,
-    count: rejectionRows.filter(r => r.stageName === stage.name).length,
+    count: rejectionRows.filter(r => r.stageId === stage.id).reduce((sum, r) => sum + r.weight, 0),
   })).filter(s => s.count > 0).sort((a, b) => b.count - a.count);
 
   const rejectionsByPoolMap = rejectionRows.reduce((acc: Record<string, { poolNo: string; projectName: string; count: number }>, r) => {
     const key = `${r.projectName}__${r.poolNo}`;
     if (!acc[key]) acc[key] = { poolNo: r.poolNo, projectName: r.projectName, count: 0 };
-    acc[key].count += 1;
+    acc[key].count += r.weight;
     return acc;
   }, {});
   const rejectionsByPool = (Object.values(rejectionsByPoolMap) as { poolNo: string; projectName: string; count: number }[])
@@ -5697,7 +5685,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     ? new Date(rejectionFilterDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
                     : `${rejectionFromDate} to ${rejectionToDate}`}
                 </p>
-                <p className="text-2xl font-extrabold mt-1">{rejectionRows.length} pool rejection{rejectionRows.length === 1 ? '' : 's'}</p>
+                <p className="text-2xl font-extrabold mt-1">{rejectionTotal} pool rejection{rejectionTotal === 1 ? '' : 's'}</p>
+                {rejectionLoading && <p className="text-[11px] text-slate-400 mt-1">Loading full history…</p>}
+                {!rejectionLoading && rejectionRecordCount > 0 && (
+                  <p className="text-[11px] text-amber-300 mt-1 max-w-md">
+                    {rejectionRecordCount} of these come from older stage records (no detailed log kept) — they show the last inspection date and note only.
+                  </p>
+                )}
               </div>
               <div className="flex gap-4 flex-wrap justify-end">
                 {rejectionsByStage.map(s => (
@@ -5712,7 +5706,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             {rejectionRows.length === 0 ? (
               <div className="text-center py-16 bg-white border border-slate-100 rounded-2xl">
                 <AlertTriangle className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm font-bold text-slate-500">No rejections recorded for this filter.</p>
+                <p className="text-sm font-bold text-slate-500">{rejectionLoading ? 'Loading full history…' : 'No rejections recorded for this filter.'}</p>
                 <p className="text-xs text-slate-400 mt-1">Try another date, range, or stage.</p>
               </div>
             ) : (
@@ -5735,6 +5729,14 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             >
                               {r.stageName}
                             </span>
+                            {r.source === 'record' && (
+                              <span
+                                className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 bg-amber-50 text-amber-700 border border-amber-200"
+                                title="Older rejection: no individual log entry was kept. Date is the last inspection of this stage."
+                              >
+                                Stage record · {r.weight}× rework
+                              </span>
+                            )}
                           </div>
                           <div className="text-right flex-shrink-0">
                             <p className="text-[10px] font-bold text-slate-500">{r.date}</p>
