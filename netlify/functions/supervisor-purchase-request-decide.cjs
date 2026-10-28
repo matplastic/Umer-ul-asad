@@ -81,7 +81,7 @@ async function emailPoToStore({ event, batchId, id, approvedItems, requestedByNa
       <td style="padding:8px 8px 8px 0; border-bottom:1px solid #e2e8f0; font-weight:600;">${esc(it.itemName)}</td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; color:#475569; font-size:12px;">${it.erpCode ? esc(it.erpCode) : '—'}</td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0;">${esc(it.category)}</td>
-      <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${esc(it.qtyApproved != null ? it.qtyApproved : it.qty)} ${esc(it.unit)}</td>
+      <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${esc(it.qtyApproved != null ? it.qtyApproved : it.qty)} ${esc(it.unit)}${it.qtyApproved != null && Number(it.qtyApproved) !== Number(it.qty) ? `<div style="font-size:11px; color:#94a3b8;">requested ${esc(it.qty)}</div>` : ''}</td>
     </tr>`).join('');
 
   const html = `
@@ -131,6 +131,12 @@ async function emailPoToStore({ event, batchId, id, approvedItems, requestedByNa
   }
 }
 
+// The manager may approve MORE than the supervisor asked for (e.g. requested
+// 10, manager decides 15 are needed). To catch a typo such as 150 instead of
+// 15, anything above this multiple of the requested quantity is refused with a
+// clear message instead of silently creating a huge Purchase Order.
+const MAX_APPROVE_MULTIPLE = 10;
+
 function page(title, message, ok) {
   return `<html><head><title>${esc(title)}</title></head>
     <body style="font-family:Arial,sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; background:#0f172a; padding:20px 0;">
@@ -169,8 +175,9 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
         </div>
         <div style="font-size:12px; color:#64748b;">
           Approve qty:
-          <input type="number" name="qty_${esc(it.id)}" value="${esc(it.qty)}" min="0" max="${esc(it.qty)}" step="any"
+          <input type="number" name="qty_${esc(it.id)}" value="${esc(it.qty)}" min="0" step="any" data-req="${esc(it.qty)}" oninput="qtyHint(this)"
             style="width:80px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; text-align:right;" /> ${esc(it.unit)}
+          <div id="hint_${esc(it.id)}" style="font-size:11px; font-weight:600; min-height:14px; margin-top:3px;"></div>
         </div>
       </td>
     </tr>`).join('');
@@ -218,13 +225,26 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
           <button type="submit" style="background:#0f172a; color:#fff; border:none; padding:14px 28px; border-radius:8px; font-weight:700; font-size:15px; cursor:pointer; width:100%;">
             Submit Decision${pendingItems.length > 1 ? 's' : ''}
           </button>
-          <p style="color:#94a3b8; font-size:12px; margin-top:16px; text-align:center;">Nothing happens until you click the button above. Each item can be approved or rejected on its own, and you can lower the "Approve qty" box below the requested amount to approve less — the remainder is automatically marked Rejected.</p>
+          <p style="color:#94a3b8; font-size:12px; margin-top:16px; text-align:center;">Nothing happens until you click the button above. Each item can be approved or rejected on its own. You can change the "Approve qty" box to approve less or more than was requested (for example requested 10, approve 15) — the supervisor and Store will see the quantity you approve.</p>
         </form>` : `
         <table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:16px;">
           <tbody>${decidedRows}</tbody>
         </table>
         <p style="color:#94a3b8; font-size:12px; margin-top:16px;">Every item in this request has already been decided.</p>`}
       </div>
+      <script>
+        function qtyHint(el) {
+          var req = parseFloat(el.getAttribute('data-req'));
+          var v = parseFloat(el.value);
+          var h = document.getElementById('hint_' + el.name.slice(4));
+          if (!h) return;
+          if (isNaN(v) || v === req) { h.textContent = ''; return; }
+          var d = Math.round((v - req) * 1000) / 1000;
+          if (v <= 0) { h.style.color = '#dc2626'; h.textContent = 'Qty 0 = this item will be rejected'; }
+          else if (v > req) { h.style.color = '#d97706'; h.textContent = '▲ ' + d + ' MORE than requested (' + req + ')'; }
+          else { h.style.color = '#0f766e'; h.textContent = '▼ ' + Math.abs(d) + ' less than requested (' + req + ')'; }
+        }
+      </script>
     </body></html>`;
 }
 
@@ -291,6 +311,23 @@ exports.handler = async (event) => {
       return html('Already Decided', 'Every item in this request was already decided.', true);
     }
 
+    // Validate every approve quantity BEFORE saving anything, so a typo
+    // never half-applies a decision.
+    for (const i of pendingIndices) {
+      const item = arr[i];
+      if (body.get(`decision_${item.id}`) === 'reject') continue;
+      const requested = Number(item.qty);
+      const raw = Number(body.get(`qty_${item.id}`));
+      if (Number.isFinite(raw) && requested > 0 && raw > requested * MAX_APPROVE_MULTIPLE) {
+        return html(
+          'Quantity Too High',
+          `<p>The approve quantity for <strong>${esc(item.itemName)}</strong> is <strong>${esc(raw)} ${esc(item.unit)}</strong>, which is more than ${MAX_APPROVE_MULTIPLE}× the requested ${esc(requested)} ${esc(item.unit)}.</p><p>Nothing was saved. Please go back and check the quantity, then submit again.</p>`,
+          false,
+          400
+        );
+      }
+    }
+
     const decidedAt = new Date().toISOString();
     const approvedItems = [];
     const rejectedItems = [];
@@ -303,17 +340,23 @@ exports.handler = async (event) => {
       let approveQty = requestedQty;
       if (choice === 'approve') {
         const raw = Number(body.get(`qty_${item.id}`));
-        approveQty = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), requestedQty) : requestedQty;
+        // Manager may approve less OR more than requested; never negative.
+        approveQty = Number.isFinite(raw) ? Math.max(raw, 0) : requestedQty;
         if (approveQty <= 0) choice = 'reject';
       }
 
       const partial = choice === 'approve' && approveQty < requestedQty;
+      const increased = choice === 'approve' && approveQty > requestedQty;
       const decided = {
         ...item,
         status: choice === 'approve' ? 'Approved' : 'Rejected',
         qtyApproved: choice === 'approve' ? approveQty : null,
         decidedByName: 'Manager (email)',
-        decisionNotes: partial ? `Partially approved: ${approveQty} of ${requestedQty} ${item.unit}` : (item.decisionNotes || null),
+        decisionNotes: partial
+          ? `Partially approved: ${approveQty} of ${requestedQty} ${item.unit}`
+          : increased
+            ? `Increased by manager: ${approveQty} approved vs ${requestedQty} requested ${item.unit}`
+            : (item.decisionNotes || null),
         decidedAt,
       };
       arr[i] = decided;
@@ -339,7 +382,7 @@ exports.handler = async (event) => {
 
     const summary = [
       approvedItems.length > 0
-        ? `<p style="margin:6px 0;"><strong style="color:#16a34a;">✓ Approved (${approvedItems.length}):</strong> ${approvedItems.map((it) => esc(it.qtyApproved < it.qty ? `${it.itemName} (${it.qtyApproved} of ${it.qty} ${it.unit})` : it.itemName)).join(', ')}</p>`
+        ? `<p style="margin:6px 0;"><strong style="color:#16a34a;">✓ Approved (${approvedItems.length}):</strong> ${approvedItems.map((it) => esc(it.qtyApproved < it.qty ? `${it.itemName} (${it.qtyApproved} of ${it.qty} ${it.unit})` : it.qtyApproved > it.qty ? `${it.itemName} (${it.qtyApproved} ${it.unit} — requested ${it.qty})` : it.itemName)).join(', ')}</p>`
         : '',
       rejectedItems.length > 0
         ? `<p style="margin:6px 0;"><strong style="color:#dc2626;">✗ Rejected (${rejectedItems.length}):</strong> ${rejectedItems.map((it) => esc(it.itemName)).join(', ')}</p>`
