@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pool, ActivityLog, ProjectSummary, MonthlyTarget, PlannedPool, Team, StageHistory } from '../types';
 import { QCDefect } from './QCDefectPanel';
 import { STAGES, getDualGroupForIndex } from '../data/mockData';
 import {
   Layers, Activity, Target, Zap, AlertTriangle, Clock, TrendingUp, PauseCircle, Truck,
   ShieldCheck, ClipboardList, Download, Users, FolderKanban, CalendarClock, PieChart as PieIcon,
-  CheckCircle2, XCircle, History, Package, Gauge
+  CheckCircle2, XCircle, History, Package, Gauge, X, Search
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -108,6 +108,147 @@ const inRange = (day: string, start: string, end: string) => !!day && day >= sta
 
 const approvalDay = (h?: StageHistory | null) => toDay(h?.inspectionTime || h?.endTime || null);
 
+const STATUS_LABEL: Record<string, string> = {
+  NOT_STARTED: 'Waiting', IN_PROGRESS: 'In progress', PENDING_INSPECTION: 'Awaiting QC',
+  REJECTED: 'Rework', APPROVED: 'Approved', SKIPPED: 'Skipped', CARRIED_ON_SITE: 'On site',
+};
+
+// Status of a pool at a given stage IF it is currently parked there (else null).
+// Parallel-gate stages (Mechanical / Skimmer Test / Mosaic, Skimmer Fitting /
+// Lamination) all count a pool that sits at their shared gate.
+const statusAtStage = (p: Pool, stageId: string, idx: number): string | null => {
+  if (p.isDelivered || p.currentStageIndex >= STAGES.length) return null;
+  const group = getDualGroupForIndex(p.currentStageIndex);
+  const atStage = p.currentStageIndex === idx || (group ? (group as string[]).includes(stageId) : false);
+  if (!atStage) return null;
+  return ((p.stageHistory as any)?.[stageId] as StageHistory | undefined)?.status || 'NOT_STARTED';
+};
+
+const histOf = (p: Pool, stageId: string) => (p.stageHistory as any)?.[stageId] as StageHistory | undefined;
+
+// Where a pool is right now, in words (used by every pool list).
+const currentStageText = (p: Pool): string => {
+  if (p.isDelivered) return 'Delivered';
+  if (p.currentStageIndex >= STAGES.length) return 'Production complete';
+  const group = getDualGroupForIndex(p.currentStageIndex);
+  const ids = group ? (group as string[]) : [STAGES[p.currentStageIndex].id];
+  return ids.map(id => STAGES.find(s => s.id === id)?.name || id).join(' + ');
+};
+
+const poolNote = (p: Pool): string => {
+  if (p.isDelivered) return `Delivered ${toDay(p.deliveredAt) || ''}`.trim();
+  if (p.currentStageIndex >= STAGES.length) return p.scheduledDeliveryDate ? `Ready · due ${toDay(p.scheduledDeliveryDate)}` : 'Ready · no delivery date';
+  const group = getDualGroupForIndex(p.currentStageIndex);
+  const ids = group ? (group as string[]) : [STAGES[p.currentStageIndex].id];
+  const parts = ids.map(id => ({ name: STAGES.find(s => s.id === id)?.name || id, st: histOf(p, id)?.status || 'NOT_STARTED' }));
+  const text = parts.length === 1
+    ? (STATUS_LABEL[parts[0].st] || parts[0].st)
+    : parts.map(x => `${x.name}: ${STATUS_LABEL[x.st] || x.st}`).join(' · ');
+  return p.isOnHold ? `${text} · ON HOLD` : text;
+};
+
+const sortPools = (list: Pool[]) =>
+  [...list].sort((a, b) => (a.projectName || '').localeCompare(b.projectName || '') || (a.poolNo || '').localeCompare(b.poolNo || '', undefined, { numeric: true }));
+
+// ─── drill-down (click a card → see the pool numbers behind it) ─────────────
+interface DrillData {
+  title: string;
+  subtitle?: string;
+  columns: string[];
+  rows: string[][];
+}
+
+const DRILL_DISPLAY_CAP = 1000;
+
+const DrillModal: React.FC<{ data: DrillData; onClose: () => void }> = ({ data, onClose }) => {
+  const [q, setQ] = useState('');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const query = q.trim().toLowerCase();
+  const filtered = query ? data.rows.filter(r => r.join(' ').toLowerCase().includes(query)) : data.rows;
+  const shown = filtered.slice(0, DRILL_DISPLAY_CAP);
+
+  const doExport = () => {
+    exportToExcel(
+      filtered.map(r => {
+        const o: Record<string, string> = {};
+        data.columns.forEach((c, i) => { o[c] = r[i] ?? ''; });
+        return o;
+      }),
+      data.title.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'Pool_List',
+      'Pools'
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} data-testid="analytics-drilldown">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-slate-100">
+          <div className="min-w-0">
+            <h3 className="font-black text-slate-800 text-base leading-tight">{data.title}</h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {fmtInt(data.rows.length)} record(s){data.subtitle ? ` · ${data.subtitle}` : ''}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 cursor-pointer shrink-0" aria-label="Close">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-slate-50">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              autoFocus
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="Search pool no, project, stage, team…"
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            />
+          </div>
+          {query && <span className="text-[11px] text-slate-400">{fmtInt(filtered.length)} match(es)</span>}
+          <ExportBtn onClick={doExport} />
+        </div>
+
+        <div className="overflow-auto px-2 pb-3">
+          {shown.length === 0 ? (
+            <div className="text-center text-xs text-slate-400 py-12">Nothing to show.</div>
+          ) : (
+            <table className="min-w-full text-xs">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b border-slate-100">
+                  <th className="px-3 py-2.5 text-left font-bold text-slate-400 text-[10px] w-10">#</th>
+                  {data.columns.map((c, i) => (
+                    <th key={c + i} className="px-3 py-2.5 text-left font-bold text-slate-500 uppercase tracking-wider text-[10px] whitespace-nowrap">{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((r, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/60">
+                    <td className="px-3 py-2 font-mono text-slate-300">{i + 1}</td>
+                    {r.map((cell, j) => (
+                      <td key={j} className={`px-3 py-2 ${j === 0 ? 'font-mono font-black text-slate-800 whitespace-nowrap' : 'text-slate-600'}`}>{cell || '—'}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {filtered.length > DRILL_DISPLAY_CAP && (
+            <p className="text-[11px] text-slate-400 px-3 pt-2">Showing the first {fmtInt(DRILL_DISPLAY_CAP)} of {fmtInt(filtered.length)}. Use Excel to get the full list.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── small UI pieces ────────────────────────────────────────────────────────
 const Card: React.FC<{ title?: React.ReactNode; subtitle?: string; right?: React.ReactNode; className?: string; children: React.ReactNode }> =
   ({ title, subtitle, right, className = '', children }) => (
@@ -136,14 +277,20 @@ const KPI_COLORS: Record<string, string> = {
   teal: 'bg-teal-50 text-teal-700',
 };
 
-const Kpi: React.FC<{ label: string; value: React.ReactNode; sub?: string; icon: any; color: string; testid?: string }> =
-  ({ label, value, sub, icon: Icon, color, testid }) => (
-    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm" data-testid={testid}>
+const Kpi: React.FC<{ label: string; value: React.ReactNode; sub?: string; icon: any; color: string; testid?: string; onClick?: () => void }> =
+  ({ label, value, sub, icon: Icon, color, testid, onClick }) => (
+    <div
+      className={`bg-white border border-slate-100 rounded-2xl p-4 shadow-sm ${onClick ? 'cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all' : ''}`}
+      data-testid={testid}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{label}</p>
           <p className="text-2xl font-black text-slate-800 mt-1 leading-none">{value}</p>
           {sub && <p className="text-[10px] text-slate-400 mt-1.5 leading-snug">{sub}</p>}
+          {onClick && <p className="text-[10px] font-bold text-indigo-500 mt-1.5">View pools →</p>}
         </div>
         <div className={`${KPI_COLORS[color] || KPI_COLORS.slate} rounded-xl p-2.5 shrink-0`}>
           <Icon className="h-4 w-4" />
@@ -152,8 +299,8 @@ const Kpi: React.FC<{ label: string; value: React.ReactNode; sub?: string; icon:
     </div>
   );
 
-const AlertTile: React.FC<{ tone: 'rose' | 'amber' | 'sky' | 'emerald'; icon: any; title: string; value: string; detail: string }> =
-  ({ tone, icon: Icon, title, value, detail }) => {
+const AlertTile: React.FC<{ tone: 'rose' | 'amber' | 'sky' | 'emerald'; icon: any; title: string; value: string; detail: string; onClick?: () => void }> =
+  ({ tone, icon: Icon, title, value, detail, onClick }) => {
     const tones = {
       rose: 'from-rose-50 to-white border-rose-100 text-rose-600 bg-rose-100',
       amber: 'from-amber-50 to-white border-amber-100 text-amber-600 bg-amber-100',
@@ -161,12 +308,17 @@ const AlertTile: React.FC<{ tone: 'rose' | 'amber' | 'sky' | 'emerald'; icon: an
       emerald: 'from-emerald-50 to-white border-emerald-100 text-emerald-600 bg-emerald-100',
     }[tone].split(' ');
     return (
-      <div className={`bg-gradient-to-r ${tones[0]} ${tones[1]} border ${tones[2]} rounded-2xl p-4 flex items-start gap-3`}>
+      <div
+        onClick={onClick}
+        role={onClick ? 'button' : undefined}
+        className={`bg-gradient-to-r ${tones[0]} ${tones[1]} border ${tones[2]} rounded-2xl p-4 flex items-start gap-3 ${onClick ? 'cursor-pointer hover:shadow-md transition-all' : ''}`}
+      >
         <div className={`${tones[4]} ${tones[3]} rounded-xl p-2.5 shrink-0`}><Icon className="h-5 w-5" /></div>
         <div className="min-w-0">
           <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{title}</p>
           <p className="font-black text-slate-800 text-base leading-tight mt-0.5">{value}</p>
           <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{detail}</p>
+          {onClick && <p className="text-[10px] font-bold text-indigo-500 mt-1">View pools →</p>}
         </div>
       </div>
     );
@@ -193,6 +345,7 @@ const EmptyNote: React.FC<{ text: string }> = ({ text }) => (
 // ─── main component ─────────────────────────────────────────────────────────
 export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets, projectsSummary, plannedPools, teams, qcDefects }) => {
   const [period, setPeriod] = useState<Period>('30d');
+  const [drill, setDrill] = useState<DrillData | null>(null);
   const range = useMemo(() => periodRange(period), [period]);
   const today = isoDay(new Date());
   const periodLabel = PERIOD_OPTIONS.find(o => o.id === period)?.label || '';
@@ -203,15 +356,28 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
     return m;
   }, []);
 
-  // ── pool buckets (current state) ──────────────────────────────────────────
+  // ── SCOPE: the pools the filter covers ─────────────────────────────────────
+  // Same rule as the Management dashboard's shop-floor date range: pools are
+  // included by their production RELEASE date. "All time" = every pool. All
+  // the status numbers, queues, projects and delivery lists below use this set.
+  const scoped = useMemo(
+    () => (period === 'all' ? pools : pools.filter(p => inRange(toDay(p.createdAt), range.start, range.end))),
+    [pools, range, period]
+  );
+  const scopedIds = useMemo(() => new Set(scoped.map(p => p.id)), [scoped]);
+  const scopedPlanned = useMemo(
+    () => plannedPools.filter(p => p.status === 'PLANNED' && (period === 'all' || inRange(toDay(p.createdAt), range.start, range.end))),
+    [plannedPools, range, period]
+  );
+
+  // ── pool buckets (factory status for the selected period) ─────────────────
   const state = useMemo(() => {
-    const active = pools.filter(p => !p.isDelivered && p.currentStageIndex < STAGES.length);
-    const ready = pools.filter(p => !p.isDelivered && p.currentStageIndex >= STAGES.length);
-    const delivered = pools.filter(p => !!p.isDelivered);
+    const active = scoped.filter(p => !p.isDelivered && p.currentStageIndex < STAGES.length);
+    const ready = scoped.filter(p => !p.isDelivered && p.currentStageIndex >= STAGES.length);
+    const delivered = scoped.filter(p => !!p.isDelivered);
     const onHold = active.filter(p => !!p.isOnHold);
-    const planned = plannedPools.filter(p => p.status === 'PLANNED');
-    return { active, ready, delivered, onHold, planned };
-  }, [pools, plannedPools]);
+    return { active, ready, delivered, onHold, planned: scopedPlanned };
+  }, [scoped, scopedPlanned]);
 
   // ── stage metrics ─────────────────────────────────────────────────────────
   const stageStats = useMemo(() => {
@@ -223,17 +389,13 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
       pools.forEach(p => {
         const h = (p.stageHistory as any)?.[stage.id] as StageHistory | undefined;
 
-        // where is this pool right now?
-        if (!p.isDelivered && p.currentStageIndex < STAGES.length) {
-          const group = getDualGroupForIndex(p.currentStageIndex);
-          const atStage = p.currentStageIndex === idx || (group ? group.includes(stage.id) : false);
-          if (atStage) {
-            const st = h?.status || 'NOT_STARTED';
-            if (st === 'NOT_STARTED') waiting++;
-            else if (st === 'IN_PROGRESS') inProgress++;
-            else if (st === 'PENDING_INSPECTION') awaitingQc++;
-            else if (st === 'REJECTED') rework++;
-          }
+        // where is this pool right now? (only pools inside the filter scope)
+        if (scopedIds.has(p.id)) {
+          const st = statusAtStage(p, stage.id, idx);
+          if (st === 'NOT_STARTED') waiting++;
+          else if (st === 'IN_PROGRESS') inProgress++;
+          else if (st === 'PENDING_INSPECTION') awaitingQc++;
+          else if (st === 'REJECTED') rework++;
         }
 
         if (!h) return;
@@ -267,7 +429,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
         firstPassRate: approvedAll > 0 ? Math.round((firstPass / approvedAll) * 100) : 0,
       };
     });
-  }, [pools, range]);
+  }, [pools, range, scopedIds]);
 
   const totals = useMemo(() => {
     const approvedAll = stageStats.reduce((s, x) => s + x.approvedAll, 0);
@@ -423,7 +585,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
     const contract = new Map<string, number>();
     projectsSummary.forEach(s => contract.set((s.projectName || '').trim().toLowerCase(), s.totalPools));
     const map = new Map<string, { project: string; total: number; active: number; ready: number; delivered: number; rejections: number; onHold: number; overdue: number }>();
-    pools.forEach(p => {
+    scoped.forEach(p => {
       const name = (p.projectName || 'Unassigned').trim();
       const k = name.toLowerCase();
       let r = map.get(k);
@@ -439,13 +601,13 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
     return Array.from(map.entries())
       .map(([k, r]) => ({ ...r, contract: contract.get(k) ?? null }))
       .sort((a, b) => b.active - a.active || b.total - a.total);
-  }, [pools, projectsSummary, today]);
+  }, [scoped, projectsSummary, today]);
 
   // ── delivery outlook ──────────────────────────────────────────────────────
   const delivery = useMemo(() => {
     const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return isoDay(d); };
     const in7 = addDays(7), in30 = addDays(30);
-    const scheduled = pools.filter(p => !p.isDelivered && p.scheduledDeliveryDate);
+    const scheduled = scoped.filter(p => !p.isDelivered && p.scheduledDeliveryDate);
     const buckets = { overdue: 0, week: 0, month: 0, later: 0 };
     const readyCount = { overdue: 0, week: 0, month: 0, later: 0 };
     scheduled.forEach(p => {
@@ -462,8 +624,8 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
         return { poolNo: p.poolNo, project: p.projectName, scheduled: d, days, stage, ready: !!(p.readyForDelivery || p.currentStageIndex >= STAGES.length) };
       })
       .sort((a, b) => a.days - b.days);
-    return { buckets, readyCount, list, unscheduled: pools.filter(p => !p.isDelivered && !p.scheduledDeliveryDate).length };
-  }, [pools, today]);
+    return { buckets, readyCount, list, unscheduled: scoped.filter(p => !p.isDelivered && !p.scheduledDeliveryDate).length };
+  }, [scoped, today]);
 
   // ── month target ──────────────────────────────────────────────────────────
   const monthTarget = useMemo(() => {
@@ -486,15 +648,15 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
   // ── mix ───────────────────────────────────────────────────────────────────
   const orientationSplit = useMemo(() => {
     const c: Record<string, number> = {};
-    pools.forEach(p => { const k = p.orientation || 'Unknown'; c[k] = (c[k] || 0) + 1; });
+    scoped.forEach(p => { const k = p.orientation || 'Unknown'; c[k] = (c[k] || 0) + 1; });
     return Object.entries(c).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#a855f7', '#94a3b8'][i % 3] }));
-  }, [pools]);
+  }, [scoped]);
 
   const typeSplit = useMemo(() => {
     const c: Record<string, number> = {};
-    pools.forEach(p => { const k = p.poolType || 'Unspecified'; c[k] = (c[k] || 0) + 1; });
+    scoped.forEach(p => { const k = p.poolType || 'Unspecified'; c[k] = (c[k] || 0) + 1; });
     return Object.entries(c).map(([name, value], i) => ({ name, value, color: PALETTE[i % PALETTE.length] })).sort((a, b) => b.value - a.value);
-  }, [pools]);
+  }, [scoped]);
 
   const recent = useMemo(
     () => [...logs].filter(l => l.timestamp).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 12),
@@ -534,6 +696,135 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
     'Delivery_Outlook', 'Delivery'
   );
 
+  // ── drill-down builders (click a card / number → list the pools) ──────────
+  const scopeText = period === 'all' ? 'all pools' : `pools released ${range.start} → ${range.end}`;
+  const periodText = period === 'all' ? 'all time' : `${range.start} → ${range.end}`;
+
+  const openPoolList = (title: string, list: Pool[], subtitle?: string) => setDrill({
+    title,
+    subtitle: subtitle ?? scopeText,
+    columns: ['Pool No', 'Project', 'Released', 'Stage', 'Status'],
+    rows: sortPools(list).map(p => [p.poolNo, p.projectName, toDay(p.createdAt), currentStageText(p), poolNote(p)]),
+  });
+
+  const openDeliveredList = (title: string, list: Pool[], subtitle: string) => setDrill({
+    title,
+    subtitle,
+    columns: ['Pool No', 'Project', 'Released', 'Delivered', 'Lead Time'],
+    rows: [...list]
+      .sort((a, b) => toDay(b.deliveredAt).localeCompare(toDay(a.deliveredAt)))
+      .map(p => {
+        const a = toDay(p.createdAt), b = toDay(p.deliveredAt);
+        const d = a && b ? Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000) : null;
+        return [p.poolNo, p.projectName, a, b, d !== null && d >= 0 ? `${d} d` : ''];
+      }),
+  });
+
+  const QUEUE_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'PENDING_INSPECTION', 'REJECTED'];
+  const openStagePools = (stageId: string, stageName: string, filter: string) => {
+    const idx = stageIndexById[stageId];
+    const matched = scoped
+      .map(p => ({ p, st: statusAtStage(p, stageId, idx) }))
+      .filter(x => x.st && (filter === 'QUEUE' ? QUEUE_STATUSES.includes(x.st) : x.st === filter));
+    const label = filter === 'QUEUE' ? 'in queue' : (STATUS_LABEL[filter] || filter).toLowerCase();
+    setDrill({
+      title: `${stageName} — pools ${label}`,
+      subtitle: scopeText,
+      columns: ['Pool No', 'Project', 'Released', 'Status Here', 'Team', 'Started'],
+      rows: matched
+        .sort((a, b) => (a.p.projectName || '').localeCompare(b.p.projectName || '') || (a.p.poolNo || '').localeCompare(b.p.poolNo || '', undefined, { numeric: true }))
+        .map(({ p, st }) => {
+          const h = histOf(p, stageId);
+          return [p.poolNo, p.projectName, toDay(p.createdAt), STATUS_LABEL[st as string] || String(st), h?.teamName || '', toDay(h?.startTime)];
+        }),
+    });
+  };
+
+  const approvalRows = (onlyStageId?: string): string[][] => {
+    const out: { key: string; row: string[] }[] = [];
+    pools.forEach(p => {
+      STAGES.forEach(stage => {
+        if (onlyStageId && stage.id !== onlyStageId) return;
+        const h = histOf(p, stage.id);
+        if (!h || h.status !== 'APPROVED') return;
+        const day = approvalDay(h);
+        if (!inRange(day, range.start, range.end)) return;
+        const m = minutesOf(h);
+        out.push({ key: day, row: [p.poolNo, p.projectName, stage.name, h.teamName || '', day, m ? fmtMin(m) : '', Number(h.rejectionCount) > 0 ? `${h.rejectionCount} rework` : 'First pass'] });
+      });
+    });
+    return out.sort((a, b) => b.key.localeCompare(a.key)).map(x => x.row);
+  };
+  const approvalColumns = ['Pool No', 'Project', 'Stage', 'Team', 'Approved On', 'Time Taken', 'Result'];
+
+  const openApprovals = (stageId?: string, stageName?: string) => setDrill({
+    title: stageName ? `${stageName} — QC approvals` : 'QC approvals (all stages)',
+    subtitle: `approved ${periodText}`,
+    columns: approvalColumns,
+    rows: approvalRows(stageId),
+  });
+
+  const openRejections = () => setDrill({
+    title: 'Rejections',
+    subtitle: `rejected ${periodText}`,
+    columns: ['Pool No', 'Project', 'Stage', 'Team', 'Date', 'Notes'],
+    rows: logs
+      .filter(l => l.type === 'REJECTED' && inRange(toDay(l.timestamp), range.start, range.end))
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .map(l => [l.poolNo, l.projectName, STAGES.find(x => x.id === l.stageId)?.name || String(l.stageId), l.teamName || '', toDay(l.timestamp), (l.notes || '').slice(0, 140)]),
+  });
+
+  const openFirstPass = () => setDrill({
+    title: 'Stage sign-offs that needed rework',
+    subtitle: 'all time — stages QC rejected at least once before approving',
+    columns: ['Pool No', 'Project', 'Stage', 'Team', 'Rework Count'],
+    rows: (() => {
+      const out: string[][] = [];
+      pools.forEach(p => STAGES.forEach(stage => {
+        const h = histOf(p, stage.id);
+        if (h && h.status === 'APPROVED' && Number(h.rejectionCount) > 0) out.push([p.poolNo, p.projectName, stage.name, h.teamName || '', String(h.rejectionCount)]);
+      }));
+      return out.sort((a, b) => Number(b[4]) - Number(a[4]));
+    })(),
+  });
+
+  const openOnHold = () => setDrill({
+    title: 'Pools on QC hold',
+    subtitle: scopeText,
+    columns: ['Pool No', 'Project', 'Stage', 'Held By', 'Held On', 'Reason'],
+    rows: sortPools(state.onHold).map(p => [
+      p.poolNo, p.projectName,
+      STAGES.find(x => x.id === p.holdInfo?.stageAtHold)?.name || currentStageText(p),
+      p.holdInfo?.heldBy || '', toDay(p.holdInfo?.heldAt), p.holdInfo?.reason || '',
+    ]),
+  });
+
+  const openPlanned = () => setDrill({
+    title: 'Planned pools (not yet released)',
+    subtitle: period === 'all' ? 'all planned pools' : `planned ${range.start} → ${range.end}`,
+    columns: ['Pool No', 'Project', 'Type', 'Orientation', 'Planned On'],
+    rows: [...state.planned]
+      .sort((a, b) => (a.projectName || '').localeCompare(b.projectName || '') || (a.poolNo || '').localeCompare(b.poolNo || '', undefined, { numeric: true }))
+      .map(p => [p.poolNo, p.projectName, p.poolType || '', String(p.orientation || ''), toDay(p.createdAt)]),
+  });
+
+  const openOverdue = () => setDrill({
+    title: 'Overdue deliveries',
+    subtitle: `${scopeText} · past their scheduled delivery date`,
+    columns: ['Pool No', 'Project', 'Scheduled', 'Days Late', 'Stage', 'Ready To Go Out'],
+    rows: delivery.list.filter(r => r.days < 0).sort((a, b) => a.days - b.days).map(r => [r.poolNo, r.project, r.scheduled, `${Math.abs(r.days)} d`, r.stage, r.ready ? 'Yes' : 'No']),
+  });
+
+  const openDefects = () => setDrill({
+    title: 'Open quality defects',
+    subtitle: 'defects that are open or on hold',
+    columns: ['Pool No', 'Project', 'Defect', 'Severity', 'Stage', 'Status', 'Logged By', 'Logged On'],
+    rows: qcDefects
+      .filter(d => d.status === 'open' || d.status === 'on_hold')
+      .sort((a, b) => (b.loggedAt || '').localeCompare(a.loggedAt || ''))
+      .map(d => [d.poolNo, d.projectName, d.defectType, d.severity, d.stageName || String(d.stageId), d.status.replace('_', ' '), d.loggedBy, toDay(d.loggedAt)]),
+  });
+
   const wipChartData = stageStats.map(s => ({ name: s.short, Waiting: s.waiting, 'In Progress': s.inProgress, 'Awaiting QC': s.awaitingQc, Rework: s.rework }));
 
   return (
@@ -547,7 +838,10 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
           </span>
           <div>
             <p className="text-sm font-extrabold text-slate-800 leading-tight">Factory Performance Overview</p>
-            <p className="text-[11px] text-slate-400">Live data · {periodLabel}{period !== 'all' ? ` (${range.start} → ${range.end})` : ''}</p>
+            <p className="text-[11px] text-slate-400">
+              Live data · {periodLabel}{period !== 'all' ? ` (${range.start} → ${range.end})` : ''}
+              {period !== 'all' ? ' · pool counts cover pools released in this period' : ' · all pools'}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-1 bg-slate-100 p-1 rounded-xl self-start md:self-auto">
@@ -568,14 +862,16 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
 
       {/* ── KPI row 1: factory right now ── */}
       <div>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Factory status — right now</p>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">
+          Factory status — {period === 'all' ? 'all pools' : `pools released ${periodLabel.toLowerCase()}`}
+        </p>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          <Kpi label="Total Pools" value={fmtInt(pools.length)} sub="released to the floor" icon={Layers} color="indigo" testid="kpi-total" />
-          <Kpi label="In Production" value={fmtInt(state.active.length)} sub={`${fmtPct(state.active.length, pools.length)} of all pools`} icon={Activity} color="amber" testid="kpi-inprod" />
-          <Kpi label="Ready / In Stock" value={fmtInt(state.ready.length)} sub="finished, not yet delivered" icon={Package} color="emerald" testid="kpi-completed" />
-          <Kpi label="Delivered" value={fmtInt(state.delivered.length)} sub={`${fmtPct(state.delivered.length, pools.length)} of all pools`} icon={Zap} color="violet" testid="kpi-delivered" />
-          <Kpi label="Planned (Not Released)" value={fmtInt(state.planned.length)} sub="waiting in Planning" icon={ClipboardList} color="sky" testid="kpi-planned" />
-          <Kpi label="On QC Hold" value={fmtInt(state.onHold.length)} sub="blocked until QC releases" icon={PauseCircle} color={state.onHold.length ? 'rose' : 'slate'} testid="kpi-hold" />
+          <Kpi label="Total Pools" value={fmtInt(scoped.length)} sub={period === 'all' ? 'released to the floor' : 'released in this period'} icon={Layers} color="indigo" testid="kpi-total" onClick={() => openPoolList('All pools', scoped)} />
+          <Kpi label="In Production" value={fmtInt(state.active.length)} sub={`${fmtPct(state.active.length, scoped.length)} of these pools`} icon={Activity} color="amber" testid="kpi-inprod" onClick={() => openPoolList('Pools in production', state.active)} />
+          <Kpi label="Ready / In Stock" value={fmtInt(state.ready.length)} sub="finished, not yet delivered" icon={Package} color="emerald" testid="kpi-completed" onClick={() => openPoolList('Ready / in stock pools', state.ready)} />
+          <Kpi label="Delivered" value={fmtInt(state.delivered.length)} sub={`${fmtPct(state.delivered.length, scoped.length)} of these pools`} icon={Zap} color="violet" testid="kpi-delivered" onClick={() => openDeliveredList('Delivered pools', state.delivered, scopeText)} />
+          <Kpi label="Planned (Not Released)" value={fmtInt(state.planned.length)} sub="waiting in Planning" icon={ClipboardList} color="sky" testid="kpi-planned" onClick={openPlanned} />
+          <Kpi label="On QC Hold" value={fmtInt(state.onHold.length)} sub="blocked until QC releases" icon={PauseCircle} color={state.onHold.length ? 'rose' : 'slate'} testid="kpi-hold" onClick={openOnHold} />
         </div>
       </div>
 
@@ -583,12 +879,12 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
       <div>
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Performance — {periodLabel.toLowerCase()}</p>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          <Kpi label="Released" value={fmtInt(periodNums.released)} sub="new pools entered production" icon={TrendingUp} color="indigo" />
-          <Kpi label="Delivered" value={fmtInt(periodNums.delivered)} sub="pools handed over" icon={Truck} color="violet" />
-          <Kpi label="QC Approvals" value={fmtInt(totals.approvedPeriod)} sub="stage sign-offs" icon={CheckCircle2} color="emerald" />
-          <Kpi label="Rejections" value={fmtInt(periodNums.rejectionsPeriod)} sub={`${fmtInt(totals.rejections)} all time`} icon={XCircle} color="rose" testid="kpi-rejections" />
-          <Kpi label="First-Pass Yield" value={totals.approvedAll ? `${totals.firstPassYield}%` : '—'} sub="stages approved with no rework" icon={ShieldCheck} color="teal" />
-          <Kpi label="Avg Lead Time" value={periodNums.avgLeadDays ? `${periodNums.avgLeadDays.toFixed(1)} d` : '—'} sub="release → delivery" icon={Gauge} color="slate" />
+          <Kpi label="Released" value={fmtInt(periodNums.released)} sub="new pools entered production" icon={TrendingUp} color="indigo" onClick={() => openPoolList('Pools released in period', pools.filter(p => period === 'all' || inRange(toDay(p.createdAt), range.start, range.end)), `released ${periodText}`)} />
+          <Kpi label="Delivered" value={fmtInt(periodNums.delivered)} sub="pools handed over" icon={Truck} color="violet" onClick={() => openDeliveredList('Pools delivered in period', pools.filter(p => p.isDelivered && inRange(toDay(p.deliveredAt), range.start, range.end)), `delivered ${periodText}`)} />
+          <Kpi label="QC Approvals" value={fmtInt(totals.approvedPeriod)} sub="stage sign-offs" icon={CheckCircle2} color="emerald" onClick={() => openApprovals()} />
+          <Kpi label="Rejections" value={fmtInt(periodNums.rejectionsPeriod)} sub={`${fmtInt(totals.rejections)} all time`} icon={XCircle} color="rose" testid="kpi-rejections" onClick={openRejections} />
+          <Kpi label="First-Pass Yield" value={totals.approvedAll ? `${totals.firstPassYield}%` : '—'} sub="stages approved with no rework" icon={ShieldCheck} color="teal" onClick={openFirstPass} />
+          <Kpi label="Avg Lead Time" value={periodNums.avgLeadDays ? `${periodNums.avgLeadDays.toFixed(1)} d` : '—'} sub="release → delivery" icon={Gauge} color="slate" onClick={() => openDeliveredList('Delivered pools — lead time', pools.filter(p => p.isDelivered && inRange(toDay(p.deliveredAt), range.start, range.end)), `delivered ${periodText}`)} />
         </div>
       </div>
 
@@ -599,6 +895,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
             tone="rose" icon={AlertTriangle} title="Slowest stage"
             value={bottleneck.name}
             detail={`Average ${fmtMin(bottleneck.avg)} per pool (worst ${fmtMin(bottleneck.max)}) · ${bottleneck.queue} pool(s) in this stage now`}
+            onClick={() => openStagePools(bottleneck.id, bottleneck.name, 'QUEUE')}
           />
         ) : (
           <AlertTile tone="emerald" icon={CheckCircle2} title="Slowest stage" value="Not enough data" detail="Needs at least 3 completed pools per stage in this period" />
@@ -608,6 +905,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
             tone="amber" icon={Layers} title="Biggest queue"
             value={`${biggestQueue.name} — ${biggestQueue.queue} pools`}
             detail={`${biggestQueue.waiting} waiting · ${biggestQueue.inProgress} in progress · ${biggestQueue.awaitingQc} awaiting QC`}
+            onClick={() => openStagePools(biggestQueue.id, biggestQueue.name, 'QUEUE')}
           />
         ) : (
           <AlertTile tone="emerald" icon={Layers} title="Biggest queue" value="No queue" detail="No pools are waiting at any stage" />
@@ -616,11 +914,13 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
           tone={delivery.buckets.overdue > 0 ? 'rose' : 'emerald'} icon={CalendarClock} title="Overdue deliveries"
           value={`${delivery.buckets.overdue} pool(s)`}
           detail={delivery.buckets.overdue > 0 ? `${delivery.readyCount.overdue} of them are already ready to go out` : 'Nothing past its scheduled delivery date'}
+          onClick={delivery.buckets.overdue > 0 ? openOverdue : undefined}
         />
         <AlertTile
           tone={defectStats.openCount > 0 ? 'amber' : 'emerald'} icon={ShieldCheck} title="Open quality defects"
           value={`${defectStats.openCount} open`}
           detail={defectStats.openCount > 0 ? `${defectStats.openCritical} critical · ${state.onHold.length} pool(s) on hold` : 'No open defects'}
+          onClick={defectStats.openCount > 0 ? openDefects : undefined}
         />
       </div>
 
@@ -654,7 +954,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
         <Card
           className="xl:col-span-2"
           title={<><Layers className="h-4 w-4 text-indigo-600" /> Pipeline — Pools at Each Stage Right Now</>}
-          subtitle="Waiting to be claimed, being worked, awaiting QC sign-off, or sent back for rework."
+          subtitle={`Waiting to be claimed, being worked, awaiting QC sign-off, or sent back for rework — ${scopeText}.`}
         >
           <ResponsiveContainer width="100%" height={Math.max(320, STAGES.length * 30)}>
             <BarChart data={wipChartData} layout="vertical" margin={{ left: 10 }}>
@@ -694,7 +994,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
             </Card>
           )}
 
-          <Card title={<><PieIcon className="h-4 w-4 text-indigo-600" /> Orientation</>} subtitle="Normal vs Mirror across all pools.">
+          <Card title={<><PieIcon className="h-4 w-4 text-indigo-600" /> Orientation</>} subtitle={`Normal vs Mirror — ${scopeText}.`}>
             <ResponsiveContainer width="100%" height={170}>
               <PieChart>
                 <Pie data={orientationSplit} dataKey="value" nameKey="name" innerRadius={42} outerRadius={68} paddingAngle={3}>
@@ -711,7 +1011,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
       {/* ── Stage performance table ── */}
       <Card
         title={<><Clock className="h-4 w-4 text-indigo-600" /> Stage Performance</>}
-        subtitle={`Queue is live. Approvals, times and team output follow the period (${periodLabel.toLowerCase()}). Rejection rate = rejections ÷ (approvals + rejections), all time.`}
+        subtitle={`Queue counts cover ${scopeText}; approvals, times and team output follow the period (${periodLabel.toLowerCase()}). Click any number to see the pools. Rejection rate = rejections ÷ (approvals + rejections), all time.`}
         right={<ExportBtn onClick={exportStages} />}
       >
         <div className="overflow-x-auto -mx-1">
@@ -728,11 +1028,11 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
                   <td className="px-3 py-2 font-bold text-slate-700 whitespace-nowrap">
                     <span className="inline-block h-2 w-2 rounded-full mr-2 align-middle" style={{ background: s.color }} />{s.name}
                   </td>
-                  <td className="px-3 py-2 text-center font-mono text-slate-600">{s.waiting}</td>
-                  <td className="px-3 py-2 text-center font-mono text-blue-700">{s.inProgress}</td>
-                  <td className="px-3 py-2 text-center font-mono text-amber-700">{s.awaitingQc}</td>
-                  <td className={`px-3 py-2 text-center font-mono ${s.rework ? 'text-rose-700 font-bold' : 'text-slate-400'}`}>{s.rework}</td>
-                  <td className="px-3 py-2 text-center font-mono font-bold text-emerald-700">{s.approvedPeriod}</td>
+                  <td onClick={() => s.waiting > 0 && openStagePools(s.id, s.name, 'NOT_STARTED')} className={`px-3 py-2 text-center font-mono text-slate-600 ${s.waiting > 0 ? 'cursor-pointer hover:bg-slate-100 hover:underline' : ''}`}>{s.waiting}</td>
+                  <td onClick={() => s.inProgress > 0 && openStagePools(s.id, s.name, 'IN_PROGRESS')} className={`px-3 py-2 text-center font-mono text-blue-700 ${s.inProgress > 0 ? 'cursor-pointer hover:bg-blue-50 hover:underline' : ''}`}>{s.inProgress}</td>
+                  <td onClick={() => s.awaitingQc > 0 && openStagePools(s.id, s.name, 'PENDING_INSPECTION')} className={`px-3 py-2 text-center font-mono text-amber-700 ${s.awaitingQc > 0 ? 'cursor-pointer hover:bg-amber-50 hover:underline' : ''}`}>{s.awaitingQc}</td>
+                  <td onClick={() => s.rework > 0 && openStagePools(s.id, s.name, 'REJECTED')} className={`px-3 py-2 text-center font-mono ${s.rework ? 'text-rose-700 font-bold cursor-pointer hover:bg-rose-50 hover:underline' : 'text-slate-400'}`}>{s.rework}</td>
+                  <td onClick={() => s.approvedPeriod > 0 && openApprovals(s.id, s.name)} className={`px-3 py-2 text-center font-mono font-bold text-emerald-700 ${s.approvedPeriod > 0 ? 'cursor-pointer hover:bg-emerald-50 hover:underline' : ''}`}>{s.approvedPeriod}</td>
                   <td className="px-3 py-2 text-center font-mono text-slate-500">{fmtInt(s.approvedAll)}</td>
                   <td className="px-3 py-2 text-center font-mono text-slate-700">{fmtMin(s.avg)}</td>
                   <td className="px-3 py-2 text-center font-mono text-slate-500">{fmtMin(s.max)}</td>
@@ -868,7 +1168,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
       {/* ── Project progress ── */}
       <Card
         title={<><FolderKanban className="h-4 w-4 text-indigo-600" /> Project Progress</>}
-        subtitle="Every project with its live status. Contract total comes from the project summary; the rest is counted from pools on the floor."
+        subtitle={`Every project's live status for ${scopeText}. Contract total comes from the project summary.`}
         right={<ExportBtn onClick={exportProjects} />}
       >
         {projectRows.length === 0 ? (
@@ -916,7 +1216,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
       {/* ── Delivery outlook ── */}
       <Card
         title={<><Truck className="h-4 w-4 text-indigo-600" /> Delivery Outlook</>}
-        subtitle={`Pools with a scheduled delivery date that have not gone out yet. ${delivery.unscheduled} pool(s) in production have no date set.`}
+        subtitle={`Pools (${scopeText}) with a scheduled delivery date that have not gone out yet. ${delivery.unscheduled} pool(s) have no date set.`}
         right={<ExportBtn onClick={exportDelivery} />}
       >
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -965,7 +1265,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
 
       {/* ── Mix + recent activity ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card title={<><PieIcon className="h-4 w-4 text-indigo-600" /> Pool Types</>} subtitle="All pools by type.">
+        <Card title={<><PieIcon className="h-4 w-4 text-indigo-600" /> Pool Types</>} subtitle={`${scopeText.charAt(0).toUpperCase()}${scopeText.slice(1)}, by type.`}>
           <ResponsiveContainer width="100%" height={230}>
             <PieChart>
               <Pie data={typeSplit} dataKey="value" nameKey="name" innerRadius={45} outerRadius={80} paddingAngle={3}>
@@ -1006,6 +1306,8 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
           )}
         </Card>
       </div>
+
+      {drill && <DrillModal data={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 };
