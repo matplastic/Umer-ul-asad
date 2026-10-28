@@ -20,8 +20,9 @@ import { exportToExcel, exportTablePdf } from '../lib/exportUtils';
  * plus an exact Month + Year picker.
  *
  * Money note: estimatedCost is the cost of the whole item line (that is how
- * the supervisor portal's spending totals already treat it). For a partial
- * approval the approved value is the estimate scaled by approvedQty / qty.
+ * the supervisor portal's spending totals already treat it). When the manager
+ * approves a different quantity (less OR more than requested) the approved
+ * value is the estimate scaled by approvedQty / qty.
  * Quantities are NOT added up across items because units differ (pcs, kg, m…);
  * item-line counts and AED values are used instead.
  */
@@ -56,6 +57,10 @@ const approvedQtyOf = (r: SupervisorPurchaseRequest): number =>
 const isPartial = (r: SupervisorPurchaseRequest): boolean =>
   r.status === 'Approved' && r.qtyApproved != null && r.qtyApproved < r.qty;
 
+// The manager approved MORE than the supervisor requested (e.g. asked 10, approved 15).
+const isIncreased = (r: SupervisorPurchaseRequest): boolean =>
+  r.status === 'Approved' && r.qtyApproved != null && r.qtyApproved > r.qty;
+
 const requestedValueOf = (r: SupervisorPurchaseRequest): number => Number(r.estimatedCost) || 0;
 
 const approvedValueOf = (r: SupervisorPurchaseRequest): number => {
@@ -63,7 +68,7 @@ const approvedValueOf = (r: SupervisorPurchaseRequest): number => {
   const est = Number(r.estimatedCost) || 0;
   if (!est) return 0;
   const qty = Number(r.qty) || 0;
-  if (isPartial(r) && qty > 0) return est * ((r.qtyApproved as number) / qty);
+  if ((isPartial(r) || isIncreased(r)) && qty > 0) return est * ((r.qtyApproved as number) / qty);
   return est;
 };
 
@@ -88,6 +93,7 @@ interface GroupRow {
   items: number;
   approved: number;
   partial: number;
+  increased: number;
   rejected: number;
   pending: number;
   requestedValue: number;
@@ -182,13 +188,13 @@ export const SupervisorPurchaseReport: React.FC = () => {
       const { key, label } = groupKeyOf(r);
       let g = map.get(key);
       if (!g) {
-        g = { key, label, requests: 0, items: 0, approved: 0, partial: 0, rejected: 0, pending: 0, requestedValue: 0, approvedValue: 0, reqIds: new Set() };
+        g = { key, label, requests: 0, items: 0, approved: 0, partial: 0, increased: 0, rejected: 0, pending: 0, requestedValue: 0, approvedValue: 0, reqIds: new Set() };
         map.set(key, g);
       }
       g.reqIds.add(r.batchId || r.id);
       g.items += 1;
       if (r.status === 'Approved') {
-        if (isPartial(r)) g.partial += 1; else g.approved += 1;
+        if (isPartial(r)) g.partial += 1; else if (isIncreased(r)) g.increased += 1; else g.approved += 1;
       } else if (r.status === 'Rejected') g.rejected += 1;
       else g.pending += 1;
       g.requestedValue += requestedValueOf(r);
@@ -203,11 +209,11 @@ export const SupervisorPurchaseReport: React.FC = () => {
 
   const totals = useMemo(() => {
     const reqIds = new Set<string>();
-    const t = { requests: 0, items: 0, approved: 0, partial: 0, rejected: 0, pending: 0, requestedValue: 0, approvedValue: 0 };
+    const t = { requests: 0, items: 0, approved: 0, partial: 0, increased: 0, rejected: 0, pending: 0, requestedValue: 0, approvedValue: 0 };
     filtered.forEach(r => {
       reqIds.add(r.batchId || r.id);
       t.items += 1;
-      if (r.status === 'Approved') { if (isPartial(r)) t.partial += 1; else t.approved += 1; }
+      if (r.status === 'Approved') { if (isPartial(r)) t.partial += 1; else if (isIncreased(r)) t.increased += 1; else t.approved += 1; }
       else if (r.status === 'Rejected') t.rejected += 1;
       else t.pending += 1;
       t.requestedValue += requestedValueOf(r);
@@ -239,6 +245,7 @@ export const SupervisorPurchaseReport: React.FC = () => {
       'Items Requested': g.items,
       'Approved': g.approved,
       'Partially Approved': g.partial,
+      'Approved More Than Requested': g.increased,
       'Rejected': g.rejected,
       'Pending': g.pending,
       'Requested (AED)': Math.round(g.requestedValue * 100) / 100,
@@ -250,6 +257,7 @@ export const SupervisorPurchaseReport: React.FC = () => {
       'Items Requested': totals.items,
       'Approved': totals.approved,
       'Partially Approved': totals.partial,
+      'Approved More Than Requested': totals.increased,
       'Rejected': totals.rejected,
       'Pending': totals.pending,
       'Requested (AED)': Math.round(totals.requestedValue * 100) / 100,
@@ -271,7 +279,7 @@ export const SupervisorPurchaseReport: React.FC = () => {
       'Est. Cost (AED)': r.estimatedCost ?? '',
       'Approved Value (AED)': r.status === 'Approved' ? Math.round(approvedValueOf(r) * 100) / 100 : '',
       'Actual Cost (AED)': r.actualCost ?? '',
-      'Status': isPartial(r) ? 'Partially Approved' : r.status,
+      'Status': isPartial(r) ? 'Partially Approved' : isIncreased(r) ? 'Approved (Increased)' : r.status,
       'Decided By': r.decidedByName || '—',
       'Decision Date': fmtDateTime(r.decidedAt),
       'Purpose': r.purpose || '',
@@ -321,6 +329,7 @@ export const SupervisorPurchaseReport: React.FC = () => {
 
   const statusBadge = (r: SupervisorPurchaseRequest) => {
     if (r.status === 'Approved') {
+      if (isIncreased(r)) return <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-violet-50 text-violet-700 border border-violet-200">INCREASED</span>;
       return isPartial(r)
         ? <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-teal-50 text-teal-700 border border-teal-200">PARTIAL</span>
         : <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">APPROVED</span>;
@@ -412,10 +421,10 @@ export const SupervisorPurchaseReport: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
         {kpi('Requests', totals.requests, 'text-slate-800', 'emails / carts sent')}
         {kpi('Items Requested', totals.items, 'text-indigo-700', `AED ${money(totals.requestedValue)}`)}
-        {kpi('Approved', totals.approved + totals.partial, 'text-emerald-700', `AED ${money(totals.approvedValue)}${totals.partial ? ` · ${totals.partial} partial` : ''}`)}
+        {kpi('Approved', totals.approved + totals.partial + totals.increased, 'text-emerald-700', `AED ${money(totals.approvedValue)}${totals.partial ? ` · ${totals.partial} partial` : ''}${totals.increased ? ` · ${totals.increased} increased` : ''}`)}
         {kpi('Rejected', totals.rejected, 'text-rose-700')}
         {kpi('Pending', totals.pending, 'text-amber-700', 'waiting for manager')}
-        {kpi('Approval Rate', totals.items - totals.pending > 0 ? `${Math.round(((totals.approved + totals.partial) / (totals.items - totals.pending)) * 100)}%` : '—', 'text-violet-700', 'of decided items')}
+        {kpi('Approval Rate', totals.items - totals.pending > 0 ? `${Math.round(((totals.approved + totals.partial + totals.increased) / (totals.items - totals.pending)) * 100)}%` : '—', 'text-violet-700', 'of decided items')}
       </div>
 
       {/* Summary table */}
@@ -436,6 +445,7 @@ export const SupervisorPurchaseReport: React.FC = () => {
                 <th className="text-center font-bold text-indigo-600 uppercase tracking-wider px-3 py-2.5">Items Requested</th>
                 <th className="text-center font-bold text-emerald-600 uppercase tracking-wider px-3 py-2.5">Approved</th>
                 <th className="text-center font-bold text-teal-600 uppercase tracking-wider px-3 py-2.5">Partial</th>
+                <th className="text-center font-bold text-violet-600 uppercase tracking-wider px-3 py-2.5">Increased</th>
                 <th className="text-center font-bold text-rose-600 uppercase tracking-wider px-3 py-2.5">Rejected</th>
                 <th className="text-center font-bold text-amber-600 uppercase tracking-wider px-3 py-2.5">Pending</th>
                 <th className="text-right font-bold text-indigo-700 uppercase tracking-wider px-3 py-2.5 whitespace-nowrap">Requested AED</th>
@@ -444,7 +454,7 @@ export const SupervisorPurchaseReport: React.FC = () => {
             </thead>
             <tbody>
               {groups.length === 0 && (
-                <tr><td colSpan={9} className="text-center text-slate-400 py-8">No purchase requests for the selected filters.</td></tr>
+                <tr><td colSpan={10} className="text-center text-slate-400 py-8">No purchase requests for the selected filters.</td></tr>
               )}
               {groups.map(g => (
                 <tr
@@ -457,6 +467,7 @@ export const SupervisorPurchaseReport: React.FC = () => {
                   <td className="px-3 py-2 text-center font-mono font-bold text-indigo-700">{g.items}</td>
                   <td className="px-3 py-2 text-center font-mono font-bold text-emerald-700">{g.approved}</td>
                   <td className="px-3 py-2 text-center font-mono text-teal-700">{g.partial}</td>
+                  <td className="px-3 py-2 text-center font-mono text-violet-700">{g.increased}</td>
                   <td className="px-3 py-2 text-center font-mono text-rose-700">{g.rejected}</td>
                   <td className="px-3 py-2 text-center font-mono text-amber-700">{g.pending}</td>
                   <td className="px-3 py-2 text-right font-mono text-slate-700">{money(g.requestedValue)}</td>
@@ -472,6 +483,7 @@ export const SupervisorPurchaseReport: React.FC = () => {
                   <td className="px-3 py-2.5 text-center font-mono font-black text-indigo-700">{totals.items}</td>
                   <td className="px-3 py-2.5 text-center font-mono font-black text-emerald-700">{totals.approved}</td>
                   <td className="px-3 py-2.5 text-center font-mono font-black text-teal-700">{totals.partial}</td>
+                  <td className="px-3 py-2.5 text-center font-mono font-black text-violet-700">{totals.increased}</td>
                   <td className="px-3 py-2.5 text-center font-mono font-black text-rose-700">{totals.rejected}</td>
                   <td className="px-3 py-2.5 text-center font-mono font-black text-amber-700">{totals.pending}</td>
                   <td className="px-3 py-2.5 text-right font-mono font-black text-slate-800">{money(totals.requestedValue)}</td>
