@@ -404,6 +404,19 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'delivery' | 'site_deliveries' | 'warehouse'>('analytics');
   const [deliverySubTab, setDeliverySubTab] = useState<'confirm' | 'planner' | 'report'>('confirm');
 
+  // When a tab is opened, bring the tab bar to the top of the screen so the
+  // tab's content is immediately visible (the home overview is hidden for
+  // other tabs, so the bar moves up and the page would otherwise stay scrolled
+  // past it). Skipped on the very first render.
+  const tabScrollReady = useRef(false);
+  useEffect(() => {
+    if (!tabScrollReady.current) { tabScrollReady.current = true; return; }
+    const id = window.requestAnimationFrame(() => {
+      document.getElementById('mgmt-tabs-top')?.scrollIntoView({ block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [activeTab]);
+
   // KPI stat-card drill-down modal: which bucket ("Active in fabrication",
   // "Despatched and clear", "Total rework holds", "Assigned teams rate") is
   // currently being inspected, mirroring the Planning Department's
@@ -2520,6 +2533,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   return (
     <div className="space-y-6">
       
+      {/* HOME vs TAB VIEWS: the date filter, KPI cards, warehouse strip and live
+          operations panel belong to the home (Analytics) view only. Every other
+          tab opens on its own, right under the tab bar, so nothing has to be
+          scrolled past. The Pools Register keeps the date filter because its
+          list is filtered by it. */}
+      {(activeTab === 'analytics' || activeTab === 'pools') && (
+      <>
       {/* Date Filter Bar */}
       <div className="bg-white p-4 rounded-[var(--radius-card)] border border-neutral-200 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-shadow hover:shadow-[var(--shadow-elevation-1)]">
         <div className="flex items-center gap-3">
@@ -2575,6 +2595,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </div>
       </div>
 
+      </>
+      )}
+
+      {activeTab === 'analytics' && (
+      <>
       {/* KPI Stats cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
@@ -2908,6 +2933,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       )}
 
 
+      </>
+      )}
+
       {onRefreshAll && (
         <div className="flex items-center justify-end gap-3 px-1">
           {lastSyncTime && !isFullSyncing && (
@@ -2926,6 +2954,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
       {/* Tabs navigation — grouped by function, ERP-style with an animated sliding active pill per group */}
       <motion.div
+        id="mgmt-tabs-top"
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
