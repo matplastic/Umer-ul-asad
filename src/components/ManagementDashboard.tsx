@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex } from '../data/mockData';
 import { useRejectionData } from '../lib/useRejectionData';
+import { WarehouseRegister, WarehouseSummaryStrip } from './WarehouseRegister';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
@@ -34,6 +35,7 @@ import {
   Lock, Unlock, Info, Calendar, CalendarClock, HelpCircle, Trophy, Award, Crown, Star, Sparkles, Boxes, FileDown,
   UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck, Printer, Mic, MicOff, XCircle
 } from 'lucide-react';
+import { Warehouse as WarehouseIcon } from 'lucide-react';
 import { useVoiceCommand } from '../lib/useVoiceCommand';
 
 interface ManagementDashboardProps {
@@ -89,6 +91,9 @@ interface ManagementDashboardProps {
   onDeletePlannedPool?: (id: string) => void;
   onDeletePool?: (poolId: string, inspectorName?: string) => void;
   onUpdatePool?: (poolId: string, updates: Partial<Pool>) => void;
+  // Warehouse tab: record pools received in the warehouse / undo a wrong entry
+  onWarehouseReceive?: (poolIds: string[], info: { receivedAt: string; receivedBy: string; note: string }) => void;
+  onWarehouseReturn?: (poolIds: string[]) => void;
   // Shop Floor Monitor tab — lets management act as any team, no code/PIN needed
   onClaimPool?: (poolId: string, teamId: string, stageId: StageId) => void;
   onStartStage?: (poolId: string, stageId: StageId) => void;
@@ -153,6 +158,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   onDeletePlannedPool,
   onDeletePool,
   onUpdatePool,
+  onWarehouseReceive,
+  onWarehouseReturn,
   onClaimPool,
   onStartStage,
   onFinishStage,
@@ -394,7 +401,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setMgmtAiPending(null);
   };
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'delivery' | 'site_deliveries'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'delivery' | 'site_deliveries' | 'warehouse'>('analytics');
   const [deliverySubTab, setDeliverySubTab] = useState<'confirm' | 'planner' | 'report'>('confirm');
 
   // KPI stat-card drill-down modal: which bucket ("Active in fabrication",
@@ -2627,6 +2634,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
       </div>
 
+      {/* Factory vs Warehouse: where the undelivered pools are right now */}
+      <WarehouseSummaryStrip pools={pools} onOpen={() => setActiveTab('warehouse')} />
+
       {/* Live Operations & Quality Summary section */}
       <div className="bg-neutral-50 p-6 rounded-[var(--radius-card)] border border-neutral-200 space-y-4">
         <div className="flex items-center justify-between">
@@ -2948,6 +2958,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'shop_floor', label: 'Shop Floor Monitor', icon: HardHat, elId: 'tab-mgmt-shop-floor' },
               { id: 'delivery', label: 'Delivery', icon: Truck, elId: 'tab-mgmt-delivery' },
               { id: 'site_deliveries', label: 'Site Deliveries', icon: Truck, elId: 'tab-mgmt-site-deliveries' },
+              { id: 'warehouse', label: 'Warehouse', icon: WarehouseIcon, elId: 'tab-mgmt-warehouse' },
               { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
               { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
             ],
@@ -7423,6 +7434,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             {deliverySubTab === 'report' && (
               <DeliveryReport pools={pools} />
             )}
+          </div>
+        )}
+
+        {activeTab === 'warehouse' && (
+          <div className="animate-fadeIn">
+            <WarehouseRegister
+              pools={pools}
+              currentUserName={currentUserName}
+              onReceive={(ids, info) => onWarehouseReceive && onWarehouseReceive(ids, info)}
+              onReturn={(ids) => onWarehouseReturn && onWarehouseReturn(ids)}
+            />
           </div>
         )}
 
