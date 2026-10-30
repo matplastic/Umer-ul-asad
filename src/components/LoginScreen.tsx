@@ -29,6 +29,7 @@ const ROLE_LABELS: Record<ViewRole, string> = {
   section_supervisor: 'Section Supervisor',
   reports_analytics: 'Reports & Analytics',
   site_team: 'Site Team — Delivery Receiving',
+  warehouse: 'Warehouse — Pool Receiving',
 };
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, idleLoggedOut }) => {
