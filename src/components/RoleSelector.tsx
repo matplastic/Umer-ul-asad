@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ViewRole, StageId } from '../types';
 import { STAGES } from '../data/mockData';
 import { getAllowedRoles } from '../lib/authClient';
-import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight, Factory, Truck } from 'lucide-react';
+import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight, Factory, Truck, PackageCheck } from 'lucide-react';
 
 interface RoleSelectorProps {
   currentRole: ViewRole;
@@ -115,6 +115,7 @@ const NAV_ITEMS: { role: ViewRole; label: string; icon: React.ElementType; testI
   { role: 'factory_supervisor', label: 'Factory Supervisor', icon: Factory, testId: 'role-factory-supervisor' },
   { role: 'reports_analytics', label: 'Reports & Analytics', icon: FileBarChart, testId: 'role-reports-analytics' },
   { role: 'site_team', label: 'Site Team (Receiving)', icon: Truck, testId: 'role-site-team' },
+  { role: 'warehouse', label: 'Warehouse', icon: PackageCheck, testId: 'role-warehouse' },
 ];
 
 const LOCKED_LABELS: Partial<Record<ViewRole, { label: string; icon: React.ElementType }>> = {
