@@ -167,6 +167,16 @@ export interface Pool {
     reason?: string;
     stageAtHold: string;
   } | null;
+  // WAREHOUSE: set when this pool was sent from the factory to the warehouse
+  // and the Warehouse person recorded it as RECEIVED. All four are empty for a
+  // pool that is still in the factory (every pool created before the
+  // warehouse existed), so no data migration is needed.
+  //   in warehouse = !isDelivered && warehouseReceivedAt
+  //   in factory   = !isDelivered && !warehouseReceivedAt
+  warehouseName?: string | null;
+  warehouseReceivedAt?: string | null; // ISO date-time it arrived
+  warehouseReceivedBy?: string | null; // who entered it
+  warehouseNote?: string | null; // optional remark (truck, damage…)
 }
 
 export interface PlannedPool {
@@ -256,7 +266,8 @@ export type ViewRole =
   | 'section_supervisor'
   | 'factory_supervisor'
   | 'reports_analytics'
-  | 'site_team';
+  | 'site_team'
+  | 'warehouse';
 
 export interface ProjectSummary {
   id: string;
