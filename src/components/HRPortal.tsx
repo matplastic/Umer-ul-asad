@@ -3797,6 +3797,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { value: 'section_supervisor', label: 'Section Supervisor' },
     { value: 'reports_analytics', label: 'Reports & Analytics' },
     { value: 'site_team', label: 'Site Deliveries' },
+    { value: 'warehouse', label: 'Warehouse (Pool Receiving)' },
   ];
 
   const AccountsTab = () => {
