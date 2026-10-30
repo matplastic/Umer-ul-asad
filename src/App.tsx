@@ -24,6 +24,7 @@ import { ReportsAndAnalytics } from './components/ReportsAndAnalytics';
 import { QRScanner } from './components/QRCodeModule';
 import { QCDefect } from './components/QCDefectPanel';
 import { SiteDeliveryTracker } from './components/SiteDeliveryTracker';
+import { WarehouseRegister, WAREHOUSE_NAME } from './components/WarehouseRegister';
 import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera, HardHat } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
@@ -2160,6 +2161,30 @@ export default function App() {
     saveState(updatedPools, teams, logs);
   };
 
+  // WAREHOUSE: record several pools as received in the warehouse in ONE save.
+  // (Calling handleUpdatePool once per pool would let each call overwrite the
+  // previous one, because every call starts from the same stale `pools`.)
+  const handleWarehouseReceive = (poolIds: string[], info: { receivedAt: string; receivedBy: string; note: string }) => {
+    const ids = new Set(poolIds);
+    const updatedPools = poolsRef.current.map(p => ids.has(p.id)
+      ? { ...p, warehouseName: WAREHOUSE_NAME, warehouseReceivedAt: info.receivedAt, warehouseReceivedBy: info.receivedBy, warehouseNote: info.note || null }
+      : p);
+    poolsRef.current = updatedPools;
+    setPools(updatedPools);
+    saveState(updatedPools, teams, logs);
+  };
+
+  // Undo a mistaken warehouse entry: the pool goes back to "in factory".
+  const handleWarehouseReturn = (poolIds: string[]) => {
+    const ids = new Set(poolIds);
+    const updatedPools = poolsRef.current.map(p => ids.has(p.id)
+      ? { ...p, warehouseName: null, warehouseReceivedAt: null, warehouseReceivedBy: null, warehouseNote: null }
+      : p);
+    poolsRef.current = updatedPools;
+    setPools(updatedPools);
+    saveState(updatedPools, teams, logs);
+  };
+
   const handleDeletePool = async (poolId: string, operatorName: string) => {
     const targetPool = pools.find(p => p.id === poolId);
     if (!targetPool) return;
@@ -4282,6 +4307,8 @@ export default function App() {
             onBulkDeletePlannedPools={handleBulkDeletePlannedPools}
             onDeletePool={handleDeletePool}
             onUpdatePool={handleUpdatePool}
+            onWarehouseReceive={handleWarehouseReceive}
+            onWarehouseReturn={handleWarehouseReturn}
             onDeleteTrolley={handleDeleteTrolley}
             employeePunches={employeePunches}
             onAddEmployeePunch={handleSaveEmployeePunch}
@@ -4429,6 +4456,15 @@ export default function App() {
             mode="site_team"
             currentUserName={loggedInUser?.displayName || 'Site Team'}
             siteNames={Array.from(new Set([...pools, ...plannedPools].map(p => p.projectName).filter(Boolean)))}
+          />
+        )}
+
+        {currentRole === 'warehouse' && (
+          <WarehouseRegister
+            pools={pools}
+            currentUserName={loggedInUser?.displayName || 'Warehouse'}
+            onReceive={handleWarehouseReceive}
+            onReturn={handleWarehouseReturn}
           />
         )}
 
