@@ -5,13 +5,14 @@ import { STAGES, getDualGroupForIndex } from '../data/mockData';
 import {
   Layers, Activity, Target, Zap, AlertTriangle, Clock, TrendingUp, PauseCircle, Truck,
   ShieldCheck, ClipboardList, Download, Users, FolderKanban, CalendarClock, PieChart as PieIcon,
-  CheckCircle2, XCircle, History, Package, Gauge, X, Search
+  CheckCircle2, XCircle, History, Package, Gauge, X, Search, Factory, Warehouse as WarehouseIcon
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   PieChart, Pie, Cell, ComposedChart, Area, Line
 } from 'recharts';
 import { exportToExcel } from '../lib/exportUtils';
+import { WAREHOUSE_NAME } from './WarehouseRegister';
 
 /**
  * Live Analytics — the full factory picture on one page.
@@ -500,13 +501,15 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
         cursor.setDate(cursor.getDate() + 1);
       }
     }
-    const rows: Record<string, { label: string; released: number; approved: number; delivered: number; rejected: number }> = {};
-    keys.forEach(k => { rows[k.key] = { label: k.label, released: 0, approved: 0, delivered: 0, rejected: 0 }; });
+    const rows: Record<string, { label: string; released: number; approved: number; delivered: number; rejected: number; warehouse: number }> = {};
+    keys.forEach(k => { rows[k.key] = { label: k.label, released: 0, approved: 0, delivered: 0, rejected: 0, warehouse: 0 }; });
     const keyOf = (day: string) => (monthly ? day.slice(0, 7) : day);
 
     pools.forEach(p => {
       const c = toDay(p.createdAt);
       if (c && rows[keyOf(c)]) rows[keyOf(c)].released++;
+      const w = toDay(p.warehouseReceivedAt);
+      if (w && rows[keyOf(w)]) rows[keyOf(w)].warehouse++;
       if (p.isDelivered) {
         const d = toDay(p.deliveredAt);
         if (d && rows[keyOf(d)]) rows[keyOf(d)].delivered++;
@@ -525,6 +528,49 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
     });
     return keys.map(k => rows[k.key]);
   }, [pools, logs, range, period, today]);
+
+  // ── Factory vs Warehouse ──────────────────────────────────────────────────
+  // LOCATION of every pool that has not been delivered yet. Not affected by
+  // the release-date scope (stock is stock, whenever the pool was released).
+  // Date-wise receiving follows the period selector (by the day received).
+  const wh = useMemo(() => {
+    const undelivered = pools.filter(p => !p.isDelivered);
+    const inWarehouse = undelivered.filter(p => !!p.warehouseReceivedAt);
+    const inFactory = undelivered.filter(p => !p.warehouseReceivedAt);
+    const inFactoryFinished = inFactory.filter(p => p.currentStageIndex >= STAGES.length).length;
+
+    const byProject = new Map<string, { name: string; factory: number; warehouse: number }>();
+    undelivered.forEach(p => {
+      const name = (p.projectName || 'Unassigned').trim();
+      let r = byProject.get(name);
+      if (!r) { r = { name, factory: 0, warehouse: 0 }; byProject.set(name, r); }
+      if (p.warehouseReceivedAt) r.warehouse++; else r.factory++;
+    });
+    const projectBars = Array.from(byProject.values())
+      .sort((a, b) => (b.factory + b.warehouse) - (a.factory + a.warehouse))
+      .slice(0, 12)
+      .map(r => ({ name: r.name, Factory: r.factory, Warehouse: r.warehouse }));
+
+    // receipts in the period (includes pools delivered since)
+    const received = pools.filter(p => p.warehouseReceivedAt && inRange(toDay(p.warehouseReceivedAt), range.start, range.end));
+    const dayMap = new Map<string, Map<string, Pool[]>>();
+    received.forEach(p => {
+      const d = toDay(p.warehouseReceivedAt);
+      if (!dayMap.has(d)) dayMap.set(d, new Map());
+      const pm = dayMap.get(d)!;
+      const name = (p.projectName || 'Unassigned').trim();
+      if (!pm.has(name)) pm.set(name, []);
+      pm.get(name)!.push(p);
+    });
+    const dayRows = Array.from(dayMap.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([day, pm]) => {
+        const projects = Array.from(pm.entries()).map(([name, list]) => ({ name, list })).sort((a, b) => b.list.length - a.list.length);
+        return { day, total: projects.reduce((s, x) => s + x.list.length, 0), projects };
+      });
+
+    return { undelivered, inWarehouse, inFactory, inFactoryFinished, projectBars, received, dayRows };
+  }, [pools, range]);
 
   // ── quality / defects ─────────────────────────────────────────────────────
   const defectStats = useMemo(() => {
@@ -825,6 +871,28 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
       .map(d => [d.poolNo, d.projectName, d.defectType, d.severity, d.stageName || String(d.stageId), d.status.replace('_', ' '), d.loggedBy, toDay(d.loggedAt)]),
   });
 
+  const openWarehouseList = (title: string, list: Pool[], subtitle: string) => setDrill({
+    title,
+    subtitle,
+    columns: ['Pool No', 'Project', 'Received On', 'Received By', 'Remark', 'Production'],
+    rows: [...list]
+      .sort((a, b) => (b.warehouseReceivedAt || '').localeCompare(a.warehouseReceivedAt || '') || (a.projectName || '').localeCompare(b.projectName || '') || (a.poolNo || '').localeCompare(b.poolNo || '', undefined, { numeric: true }))
+      .map(p => [p.poolNo, p.projectName, toDay(p.warehouseReceivedAt), p.warehouseReceivedBy || '', p.warehouseNote || '', p.isDelivered ? 'Delivered' : currentStageText(p)]),
+  });
+
+  const exportWarehouseDays = () => {
+    const rows: Record<string, string | number>[] = [];
+    wh.dayRows.forEach(d => d.projects.forEach(pr => rows.push({
+      'Received Date': d.day,
+      'Project': pr.name,
+      'Pools Received': pr.list.length,
+      'Pool Numbers': [...pr.list].sort((a, b) => (a.poolNo || '').localeCompare(b.poolNo || '', undefined, { numeric: true })).map(p => p.poolNo).join(', '),
+      'Day Total': d.total,
+    })));
+    if (rows.length === 0) { alert('No warehouse receipts in this period.'); return; }
+    exportToExcel(rows, `Warehouse_Receipts_${range.start}_to_${range.end}`, 'Warehouse');
+  };
+
   const wipChartData = stageStats.map(s => ({ name: s.short, Waiting: s.waiting, 'In Progress': s.inProgress, 'Awaiting QC': s.awaitingQc, Rework: s.rework }));
 
   return (
@@ -888,6 +956,113 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
         </div>
       </div>
 
+      {/* ── Factory vs Warehouse ── */}
+      <Card
+        title={<><WarehouseIcon className="h-4 w-4 text-indigo-600" /> Factory vs {WAREHOUSE_NAME}</>}
+        subtitle={`Where the pools that have not been delivered are right now — all pools, the release-date filter does not apply. Date-wise receiving follows the period (${periodLabel.toLowerCase()}).`}
+        right={<ExportBtn onClick={exportWarehouseDays} label="Receipts Excel" />}
+      >
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+          <Kpi
+            label="In Factory" value={fmtInt(wh.inFactory.length)}
+            sub={`${wh.inFactoryFinished} finished · ${wh.inFactory.length - wh.inFactoryFinished} still in production`}
+            icon={Factory} color="amber" testid="kpi-in-factory"
+            onClick={() => openPoolList('Pools in the factory', wh.inFactory, 'not delivered, not in the warehouse')}
+          />
+          <Kpi
+            label="In Warehouse" value={fmtInt(wh.inWarehouse.length)}
+            sub={`${fmtPct(wh.inWarehouse.length, wh.undelivered.length)} of undelivered pools`}
+            icon={WarehouseIcon} color="indigo" testid="kpi-in-warehouse"
+            onClick={() => openWarehouseList(`Pools in ${WAREHOUSE_NAME}`, wh.inWarehouse, 'not delivered yet')}
+          />
+          <Kpi
+            label="Received in Period" value={fmtInt(wh.received.length)}
+            sub={`over ${wh.dayRows.length} day(s) · ${periodText}`}
+            icon={Package} color="emerald" testid="kpi-wh-received"
+            onClick={() => openWarehouseList(`Received in ${WAREHOUSE_NAME}`, wh.received, `received ${periodText}`)}
+          />
+          <Kpi
+            label="Undelivered Total" value={fmtInt(wh.undelivered.length)}
+            sub="factory + warehouse"
+            icon={Layers} color="slate"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div>
+            <p className="text-[11px] font-bold text-slate-500 mb-1">By project — factory vs warehouse (top 12)</p>
+            {wh.projectBars.length === 0 ? (
+              <EmptyNote text="No undelivered pools." />
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(220, wh.projectBars.length * 30)}>
+                <BarChart data={wh.projectBars} layout="vertical" margin={{ left: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#475569' }} width={110} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Factory" stackId="loc" fill="#f59e0b" />
+                  <Bar dataKey="Warehouse" stackId="loc" fill="#6366f1" radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+          <div>
+            <p className="text-[11px] font-bold text-slate-500 mb-1">Pools received in the warehouse — per {period === 'year' || period === 'all' ? 'month' : 'day'}</p>
+            <ResponsiveContainer width="100%" height={Math.max(220, wh.projectBars.length * 30)}>
+              <BarChart data={trend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" minTickGap={18} />
+                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="warehouse" name="Received in warehouse" fill="#6366f1" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <p className="text-[11px] font-bold text-slate-500 mb-2">Date-wise receipts — each day separately</p>
+          {wh.dayRows.length === 0 ? (
+            <EmptyNote text="No pools were received in the warehouse in this period." />
+          ) : (
+            <div className="overflow-x-auto max-h-80 overflow-y-auto -mx-1">
+              <table className="min-w-full text-xs">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-slate-100">
+                    <Th align="left">Date</Th><Th>Pools Received</Th><Th align="left">By Project</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wh.dayRows.map(d => (
+                    <tr
+                      key={d.day}
+                      onClick={() => openWarehouseList(`Received on ${d.day}`, d.projects.flatMap(x => x.list), `${d.total} pool(s) received that day`)}
+                      className="border-b border-slate-50 hover:bg-indigo-50/40 cursor-pointer"
+                    >
+                      <td className="px-3 py-2 font-bold text-slate-700 whitespace-nowrap">
+                        {new Date(`${d.day}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td className="px-3 py-2 text-center font-mono font-black text-indigo-700">{d.total}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          {d.projects.map(pr => (
+                            <span key={pr.name} className="px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-[11px] font-bold text-indigo-800">
+                              {pr.name} · {pr.list.length}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-[10px] text-slate-400 mt-2">Click a day to see the pool numbers. Pools received and later delivered still count on the day they were received.</p>
+        </div>
+      </Card>
+
       {/* ── Attention alerts ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
         {bottleneck ? (
@@ -945,6 +1120,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
             <Area type="monotone" dataKey="approved" name="QC approved" stroke="#10b981" fill="url(#gApp)" strokeWidth={2} />
             <Area type="monotone" dataKey="delivered" name="Delivered" stroke="#f59e0b" fill="url(#gDel)" strokeWidth={2} />
             <Line type="monotone" dataKey="rejected" name="Rejections" stroke="#ef4444" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="warehouse" name="Received in warehouse" stroke="#0ea5e9" strokeWidth={2} dot={false} strokeDasharray="5 3" />
           </ComposedChart>
         </ResponsiveContainer>
       </Card>
