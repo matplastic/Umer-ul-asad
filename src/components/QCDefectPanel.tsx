@@ -133,7 +133,10 @@ export const WORKSHOP_DEFECT_CATALOG: Partial<Record<string, string[]>> = {
     'Leakage',
     'Thickness',
   ],
-  mosaic: [
+  // The Mosaic stage (id 'door_cutting') now includes the grouting, so the Mosaic
+  // inspection sheet applies to it. Old defects logged under the retired 'mosaic'
+  // (Grouting) id are mapped here by canonicalStageId().
+  door_cutting: [
     'Flatness (Inside)', 'Flatness (Outside)',
     'Lippage (Inside)', 'Lippage (Outside)',
     'Leveling (Inside)', 'Leveling (Outside)',
@@ -153,7 +156,7 @@ export const WORKSHOP_TITLES: Partial<Record<string, string>> = {
   cladding: 'GRP Fixing Workshop',
   lamination: 'GRP Lamination Workshop',
   plumbing: 'Plumbing Inspection',
-  mosaic: 'Mosaic Inspection Report',
+  door_cutting: 'Mosaic Inspection Report',
 };
 
 export const DEFECT_SEVERITY_CONFIG = {

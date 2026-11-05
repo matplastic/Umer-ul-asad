@@ -1967,6 +1967,49 @@ export async function dbSaveTeam(team: Team) {
   }
 }
 
+// ── Mosaic + Grouting merge (one-time upgrade) ─────────────────────────────
+// Reads pools + teams straight from Firestore (not from the app's in-memory
+// copy, which may be a stale device cache) so the upgrade always starts from
+// the real current data.
+export async function dbFetchRawPoolsAndTeams(): Promise<{ pools: any[]; teams: any[] }> {
+  const [pools, teams] = await Promise.all([collectionGetAll('pools'), collectionGetAll('teams')]);
+  return { pools, teams };
+}
+
+// Saves the converted pools/teams. Each is written as a complete document
+// (set, not merge) so the removed legacy `mosaic` entries really disappear.
+// Also tries to keep a copy of the ORIGINAL pool records inside Firestore
+// (system_state/stageMergeBackup_*). That copy is best-effort: the
+// downloadable backup file the upgrade screen creates is the main safety net.
+export async function dbApplyStageMerge(
+  changedPools: any[],
+  changedTeams: any[],
+  originalPools: any[]
+): Promise<{ firestoreBackup: boolean }> {
+  let firestoreBackup = false;
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const originals = new Map(originalPools.map(p => [p.id, p]));
+    const toBackup = changedPools.map(p => originals.get(p.id)).filter(Boolean);
+    const CHUNK = 40;
+    for (let i = 0; i < toBackup.length; i += CHUNK) {
+      await setDoc(
+        doc(clientDb, 'system_state', `stageMergeBackup_${stamp}_${String(i / CHUNK + 1).padStart(2, '0')}`),
+        { data: removeUndefined(toBackup.slice(i, i + CHUNK)), createdAt: new Date().toISOString(), note: 'Pools exactly as they were BEFORE the Mosaic + Grouting merge' }
+      );
+    }
+    firestoreBackup = true;
+  } catch (e) {
+    console.warn('[stage merge] Firestore-side backup skipped:', e);
+  }
+
+  const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+  changedPools.forEach(p => ops.push(b => b.set(doc(clientDb, 'pools', String(p.id)), removeUndefined(p))));
+  changedTeams.forEach(t => ops.push(b => b.set(doc(clientDb, 'teams', String(t.id)), removeUndefined(t))));
+  if (ops.length > 0) await commitInChunks(ops);
+  return { firestoreBackup };
+}
+
 // 6. Fine-grained operations: Audit Activity logs
 export async function dbSaveLog(log: ActivityLog) {
   // Permanent archive write — never trimmed, never overwritten. Fire-and-forget

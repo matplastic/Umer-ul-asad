@@ -4,7 +4,7 @@ import { QCDefect } from './QCDefectPanel';
 import { AllReportsTab } from './AllReportsTab';
 import { SupervisorPurchaseReport } from './SupervisorPurchaseReport';
 import { LiveAnalyticsTab } from './LiveAnalyticsTab';
-import { STAGES } from '../data/mockData';
+import { STAGES, canonicalStageId } from '../data/mockData';
 import {
   BarChart3, FileText, Download, Printer, TrendingUp, AlertTriangle,
   Calendar, Target, Activity, Layers, FileSpreadsheet, PieChart as PieIcon,
@@ -192,7 +192,7 @@ const ReportsTab: React.FC<{
         time: l.timestamp ? new Date(l.timestamp).toLocaleTimeString('en-GB') : '—',
         project: l.projectName,
         pool: l.poolNo,
-        stage: STAGES.find(s => s.id === l.stageId)?.name || l.stageId,
+        stage: STAGES.find(s => s.id === canonicalStageId(l.stageId))?.name || l.stageId,
         type: l.type,
         op: l.operatorName,
         notes: (l.notes || '').slice(0, 80),
@@ -561,7 +561,7 @@ const ExportsTab: React.FC<{
       action: () => exportToExcel(
         logs.map(l => ({
           Timestamp: l.timestamp, Project: l.projectName, Pool: l.poolNo,
-          Stage: STAGES.find(s => s.id === l.stageId)?.name || l.stageId,
+          Stage: STAGES.find(s => s.id === canonicalStageId(l.stageId))?.name || l.stageId,
           Type: l.type, Operator: l.operatorName, Notes: l.notes || '',
         })),
         'Activity_Logs', 'Logs'

@@ -9,8 +9,9 @@ export const STAGES: StageDefinition[] = [
   { id: 'lamination', name: 'Lamination', defaultTeamsCount: 5, color: '#ec4899' }, // Pink
   { id: 'mechanical_fitting', name: 'Mechanical Fitting', defaultTeamsCount: 4, color: '#f43f5e', batchClaim: true }, // Rose/Red
   { id: 'skimmer_test', name: 'Skimmer Test', defaultTeamsCount: 3, color: '#f97316', quickStage: true }, // Orange
-  { id: 'door_cutting', name: 'Mosaic', defaultTeamsCount: 3, color: '#84cc16' }, // Lime
-  { id: 'mosaic', name: 'Grouting', defaultTeamsCount: 6, color: '#10b981' }, // Emerald
+  // Mosaic + Grouting are ONE stage now (merged Nov 2026): the team lays the tiles AND grouts them,
+  // with a single QC sign-off. Pools that were mid-way through Grouting were moved back into this stage.
+  { id: 'door_cutting', name: 'Mosaic', defaultTeamsCount: 6, color: '#84cc16' }, // Lime
   { id: 'grouting', name: 'Door Cutting', defaultTeamsCount: 4, color: '#14b8a6' }, // Teal
   { id: 'acrylic', name: 'Acrylic', defaultTeamsCount: 3, color: '#6366f1' }, // Indigo
 ];
@@ -91,6 +92,16 @@ export const STAGE_MAX_CONCURRENT_CLAIMS: Partial<Record<StageId, number>> = {
   mechanical_fitting: UNLIMITED_CLAIMS, // Teams tick as many pools as they want (batch claim checklist)
 };
 
+// ── Mosaic + Grouting merge ────────────────────────────────────────────────
+// The old Grouting stage (id 'mosaic') no longer exists. Old records may still
+// carry that id (activity logs, QC defects, accounts assigned to that section…),
+// so anything that looks a stage up by an id coming from stored data should run
+// it through canonicalStageId() first.
+export const STAGE_MODEL_VERSION = 2;
+export const LEGACY_STAGE_ALIASES: Record<string, StageId> = { mosaic: 'door_cutting' };
+export const canonicalStageId = (id: string | null | undefined): StageId | string =>
+  (id && LEGACY_STAGE_ALIASES[id]) || id || '';
+
 export const getMaxConcurrentClaims = (stageId: StageId): number =>
   STAGE_MAX_CONCURRENT_CLAIMS[stageId] ?? 1;
 
@@ -146,7 +157,6 @@ export const createEmptyHistory = (): { [key in StageId]: StageHistory } => {
     mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
     skimmer_test: { stageId: 'skimmer_test', status: 'NOT_STARTED', rejectionCount: 0 },
     door_cutting: { stageId: 'door_cutting', status: 'NOT_STARTED', rejectionCount: 0 },
-    mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
     grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
     acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
   };
@@ -233,7 +243,6 @@ const _UNUSED_getInitialData_LEGACY = () => {
         skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
         mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
-        mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
         grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
         acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
       }
@@ -263,7 +272,6 @@ const _UNUSED_getInitialData_LEGACY = () => {
         skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
         mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
-        mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
         grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
         acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
       }
@@ -316,7 +324,6 @@ const _UNUSED_getInitialData_LEGACY = () => {
         skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
         mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
-        mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
         grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
         acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
       }
@@ -416,18 +423,6 @@ const _UNUSED_getInitialData_LEGACY = () => {
           inspectionTime: dateMinusHours(69),
           rejectionCount: 0,
         },
-        mosaic: {
-          stageId: 'mosaic',
-          status: 'APPROVED',
-          teamId: 'mosaic_t5',
-          startTime: dateMinusHours(69),
-          endTime: dateMinusHours(45),
-          durationMinutes: 1440,
-          inspectorId: 'Insp. David',
-          inspectorNotes: 'Italian glass mosaic tiling installed beautifully. Grouting flawless.',
-          inspectionTime: dateMinusHours(44),
-          rejectionCount: 0,
-        },
         grouting: {
           stageId: 'grouting',
           status: 'APPROVED',
@@ -495,7 +490,6 @@ const _UNUSED_getInitialData_LEGACY = () => {
         skimmer_fitting: { stageId: 'skimmer_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
         lamination: { stageId: 'lamination', status: 'NOT_STARTED', rejectionCount: 0 },
         mechanical_fitting: { stageId: 'mechanical_fitting', status: 'NOT_STARTED', rejectionCount: 0 },
-        mosaic: { stageId: 'mosaic', status: 'NOT_STARTED', rejectionCount: 0 },
         grouting: { stageId: 'grouting', status: 'NOT_STARTED', rejectionCount: 0 },
         acrylic: { stageId: 'acrylic', status: 'NOT_STARTED', rejectionCount: 0 },
       }

@@ -610,9 +610,9 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
         const foundIdx = STAGES.findIndex(st => st.id === 'door_cutting');
         if (foundIdx !== -1) { matchedStageIndex = foundIdx; matchedStageName = STAGES[foundIdx].name; }
       } else if (s.includes('grout') || s.includes('grawt')) {
-        // "Grouting"/"Grawting" work now happens where the stage with id
-        // 'mosaic' used to be (renamed to "Grouting" in place — see note above).
-        const foundIdx = STAGES.findIndex(st => st.id === 'mosaic');
+        // Grouting is part of the Mosaic stage now (merged Nov 2026), so
+        // it resolves to the same stage as "mosaic"/"tile" above.
+        const foundIdx = STAGES.findIndex(st => st.id === 'door_cutting');
         if (foundIdx !== -1) { matchedStageIndex = foundIdx; matchedStageName = STAGES[foundIdx].name; }
       } else if (s.includes('acrylic') || s.includes('glass window') || s.includes('window fit')) {
         const foundIdx = STAGES.findIndex(st => st.id === 'acrylic');
@@ -3421,7 +3421,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 </div>
 
                 <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100/60 space-y-1">
-                  <span className="text-[10px] uppercase font-black text-amber-600 tracking-wider">08. Cosmetic Mosaic</span>
+                  <span className="text-[10px] uppercase font-black text-amber-600 tracking-wider">08. Mosaic (tiles + grouting)</span>
                   <input
                     type="number"
                     value={targetMosaic}
@@ -3431,7 +3431,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
                 </div>
 
                 <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100/60 space-y-1">
-                  <span className="text-[10px] uppercase font-black text-teal-600 tracking-wider">09. Grouting / Grawting</span>
+                  <span className="text-[10px] uppercase font-black text-teal-600 tracking-wider">09. Door Cutting</span>
                   <input
                     type="number"
                     value={targetGrouting}

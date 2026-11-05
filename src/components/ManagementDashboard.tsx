@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
-import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex } from '../data/mockData';
+import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex, canonicalStageId } from '../data/mockData';
 import { useRejectionData } from '../lib/useRejectionData';
 import { WarehouseRegister, WarehouseSummaryStrip } from './WarehouseRegister';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange } from '../lib/firebaseService';
@@ -2292,7 +2292,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     lamination: { badge: '🧱', description: 'Glass reinforcement layers hand lay-up' },
     mechanical_fitting: { badge: '⚙️', description: 'Valves, returns & structural framing fit' },
     skimmer_test: { badge: '🔧', description: 'Pressure & leak testing of skimmer boxes' },
-    door_cutting: { badge: '🧩', description: 'Italian tile design layout & finishing' },
+    door_cutting: { badge: '🧩', description: 'Tile laying, grouting & finishing' },
     mosaic: { badge: '🧽', description: 'Grout lines & joint sealing finish' },
     grouting: { badge: '✂️', description: 'Access panel & deck cut-outs' },
     acrylic: { badge: '🪟', description: 'Seaside panoramic viewing seals curing' },
@@ -3326,7 +3326,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 const actualMechanical = getActualForStage('mechanical_fitting');
                 const actualSkimmerTest = getActualForStage('skimmer_test');
                 const actualDoorCutting = getActualForStage('door_cutting');
-                const actualMosaicTarget = getActualForStage('mosaic');
                 const actualGroutingTarget = getActualForStage('grouting');
                 const actualAcrylicTarget = getActualForStage('acrylic');
 
@@ -3361,8 +3360,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   // Mosaic" actuals come from id 'door_cutting', and
                   // "Grouting / Grawting" actuals come from id 'mosaic'.
                   { name: 'Door Cutting', target: activeTarget.groutingTarget || 100, actual: actualGroutingTarget, color: 'text-lime-600', progressColor: 'bg-lime-600' },
-                  { name: 'Cosmetic Mosaic', target: activeTarget.doorCuttingTarget || 100, actual: actualDoorCutting, color: 'text-amber-600', progressColor: 'bg-amber-600' },
-                  { name: 'Grouting / Grawting', target: activeTarget.mosaicTarget || 100, actual: actualMosaicTarget, color: 'text-teal-600', progressColor: 'bg-teal-600' },
+                  // Mosaic + Grouting are ONE stage now (merged Nov 2026). Its target is the
+                  // 'Mosaic' target saved in Planning (mosaicTarget); the actuals come from the
+                  // merged stage (id 'door_cutting').
+                  { name: 'Mosaic (tiles + grouting)', target: activeTarget.mosaicTarget || 100, actual: actualDoorCutting, color: 'text-amber-600', progressColor: 'bg-amber-600' },
                   { name: 'Acrylic Window Fit', target: activeTarget.acrylicTarget || 100, actual: actualAcrylicTarget, color: 'text-rose-600', progressColor: 'bg-rose-600' },
                 ];
 
@@ -4060,7 +4061,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                 .filter(l => l.type === 'REJECTED' && l.poolNo === pn)
                                 .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
                                 .map(l => {
-                                  const stage = STAGES.find(s => s.id === l.stageId);
+                                  const stage = STAGES.find(s => s.id === canonicalStageId(l.stageId));
                                   return {
                                     id: l.id,
                                     stageName: stage?.name || l.stageId || 'Unknown Stage',
@@ -8199,7 +8200,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-2">
-                          <span className="font-semibold">{STAGES.find(s => s.id === log.stageId)?.name || log.stageId}</span>
+                          <span className="font-semibold">{STAGES.find(s => s.id === canonicalStageId(log.stageId))?.name || log.stageId}</span>
                         </td>
                         <td className="py-3 px-2">
                           {typeBadge}

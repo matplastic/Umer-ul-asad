@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pool, ActivityLog, ProjectSummary, MonthlyTarget, PlannedPool, Team, StageHistory } from '../types';
 import { QCDefect } from './QCDefectPanel';
-import { STAGES, getDualGroupForIndex } from '../data/mockData';
+import { STAGES, getDualGroupForIndex, canonicalStageId } from '../data/mockData';
 import {
   Layers, Activity, Target, Zap, AlertTriangle, Clock, TrendingUp, PauseCircle, Truck,
   ShieldCheck, ClipboardList, Download, Users, FolderKanban, CalendarClock, PieChart as PieIcon,
@@ -817,7 +817,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
     rows: logs
       .filter(l => l.type === 'REJECTED' && inRange(toDay(l.timestamp), range.start, range.end))
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-      .map(l => [l.poolNo, l.projectName, STAGES.find(x => x.id === l.stageId)?.name || String(l.stageId), l.teamName || '', toDay(l.timestamp), (l.notes || '').slice(0, 140)]),
+      .map(l => [l.poolNo, l.projectName, STAGES.find(x => x.id === canonicalStageId(l.stageId))?.name || String(l.stageId), l.teamName || '', toDay(l.timestamp), (l.notes || '').slice(0, 140)]),
   });
 
   const openFirstPass = () => setDrill({
@@ -1464,7 +1464,7 @@ export const LiveAnalyticsTab: React.FC<Props> = ({ pools, logs, monthlyTargets,
                     : l.type === 'REJECTED' ? 'bg-rose-50 text-rose-700 border-rose-200'
                     : l.type === 'CREATED' ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
                     : 'bg-slate-50 text-slate-600 border-slate-200';
-                const stageName = STAGES.find(s => s.id === l.stageId)?.name || l.stageId;
+                const stageName = STAGES.find(s => s.id === canonicalStageId(l.stageId))?.name || l.stageId;
                 const when = new Date(l.timestamp);
                 return (
                   <div key={l.id} className="flex items-center gap-3 text-xs py-1.5 border-b border-slate-50">

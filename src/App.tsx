@@ -25,6 +25,8 @@ import { QRScanner } from './components/QRCodeModule';
 import { QCDefect } from './components/QCDefectPanel';
 import { SiteDeliveryTracker } from './components/SiteDeliveryTracker';
 import { WarehouseRegister, WAREHOUSE_NAME } from './components/WarehouseRegister';
+import { StageMergeGate } from './components/StageMergeGate';
+import { needsStageMerge } from './lib/stageMerge';
 import { Info, RotateCcw, AlertCircle, HelpCircle, Wifi, WifiOff, RefreshCw, ShieldAlert, CheckCircle2, X, Camera, HardHat } from 'lucide-react';
 import { initAuth, googleSignIn, googleSignInRedirect, googleSignOut, checkRedirectResult } from './lib/googleDrive';
 import { 
@@ -3893,6 +3895,11 @@ export default function App() {
     return <LoginScreen onLoginSuccess={(user) => { setIdleLogoutNotice(false); handleLoginSuccess(user); }} idleLoggedOut={idleLogoutNotice} />;
   }
 
+  // True while any pool/team is still in the pre-merge format (Mosaic and Grouting
+  // as two stages). Waits for the first cloud load so a stale device cache
+  // never triggers it by itself.
+  const mergeGateActive = (firebaseStatus === 'connected' || firebaseStatus === 'error') && needsStageMerge(pools, teams);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-250 antialiased">
 
@@ -4067,6 +4074,18 @@ export default function App() {
 
       {/* Central View Dashboard Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* One-time upgrade (Mosaic + Grouting merged into one stage): until it
+            has been saved, every portal is replaced by this screen so nobody
+            works on pools whose stage positions are still in the old format. */}
+        {mergeGateActive && (
+          <StageMergeGate
+            pools={pools}
+            teams={teams}
+            isManagement={currentRole === 'management'}
+            isOnline={firebaseStatus === 'connected'}
+          />
+        )}
+        {!mergeGateActive && (<>
         <RoleContextPanel
           currentRole={currentRole}
           selectedStageId={selectedStageId}
@@ -4481,6 +4500,7 @@ export default function App() {
             qcDefects={qcDefects}
           />
         )}
+        </>)}
 
       </main>
 

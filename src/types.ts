@@ -9,10 +9,13 @@ export type StageId =
   | 'lamination'
   | 'mechanical_fitting'
   | 'skimmer_test'
-  | 'door_cutting'
-  | 'mosaic' 
-  | 'grouting'
+  | 'door_cutting' // shown as "Mosaic" — since the Mosaic + Grouting merge it covers BOTH jobs
+  | 'grouting' // shown as "Door Cutting"
   | 'acrylic';
+// The former "Grouting" stage had the id 'mosaic'. It was merged into the
+// Mosaic stage ('door_cutting'); the id is kept ONLY for reading old records
+// (see LEGACY_STAGE_ALIASES in data/mockData.ts and lib/stageMerge.ts).
+export type LegacyStageId = 'mosaic';
 
 export interface StageDefinition {
   id: StageId;
@@ -69,6 +72,10 @@ export interface StageHistory {
   // when the stage duration is calculated, so a QC hold pauses the
   // production timer instead of letting it keep counting.
   heldMs?: number;
+  // Set by the Mosaic + Grouting merge when this entry absorbed the old
+  // Grouting work of a pool that was mid-way through it: keeps the original
+  // (pre-merge) Mosaic and Grouting records for audit.
+  mergedFrom?: { mosaic?: Partial<StageHistory> | null; grouting?: Partial<StageHistory> | null; mergedAt: string };
 }
 
 // One checkpoint item inside a ChecklistTemplate.
@@ -136,7 +143,13 @@ export interface Pool {
   createdAt: string;
   completedAt?: string | null;
   currentStageIndex: number; // 0 to 7. 8 means fully completed.
-  stageHistory: { [key in StageId]: StageHistory };
+  // `mosaic` is the legacy (pre-merge) Grouting entry. It is only present on
+  // pools that already passed Grouting before the merge, as a read-only record.
+  stageHistory: { [key in StageId]: StageHistory } & { mosaic?: StageHistory };
+  // 2 = this pool uses the merged Mosaic + Grouting stage list (11 stages).
+  // Pools without it that still carry a `mosaic` history entry are old-format
+  // and are converted by the one-time upgrade (lib/stageMerge.ts).
+  stageModel?: number;
   isDelivered?: boolean;
   deliveredAt?: string | null;
   // DELIVERY PLANNING: a target date management commits to for this pool
@@ -722,9 +735,12 @@ export const SECTION_DEFINITIONS: SectionDefinition[] = [
   { id: 'mechanical_fitting', name: 'Mechanical Fitting' },
   { id: 'skimmer_test', name: 'Skimmer Test' },
   { id: 'door_cutting', name: 'Mosaic' },
-  { id: 'mosaic', name: 'Grouting' },
   { id: 'grouting', name: 'Door Cutting' },
   { id: 'acrylic', name: 'Acrylic' },
+  // Store / supervisor SECTION kept for old records: material requests and floor
+  // stock issued to the former Grouting section keep their id 'mosaic'. It is
+  // no longer a production stage (merged into Mosaic).
+  { id: 'mosaic', name: 'Grouting (now part of Mosaic)' },
 ];
 
 

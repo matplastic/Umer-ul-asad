@@ -62,8 +62,8 @@ const STAGES = [
   { id: 'lamination', name: 'Lamination' },
   { id: 'mechanical_fitting', name: 'Mechanical Fitting' },
   { id: 'skimmer_test', name: 'Skimmer Test' },
+  // Mosaic + Grouting are one stage now (merged Nov 2026). 'door_cutting' = Mosaic.
   { id: 'door_cutting', name: 'Mosaic' },
-  { id: 'mosaic', name: 'Grouting' },
   { id: 'grouting', name: 'Door Cutting' },
   { id: 'acrylic', name: 'Acrylic' },
 ];
@@ -119,6 +119,18 @@ exports.handler = async (event) => {
     return html('Pool Not Found', '<p>This pool no longer exists.</p>', false, 404);
   }
   const pool = poolSnap.data();
+
+  // The one-time Mosaic + Grouting upgrade has not been saved for this pool yet
+  // (its stage positions still use the old 12-stage list). Deciding now would
+  // write wrong positions, so ask the inspector to try again shortly.
+  if ((pool.stageModel || 1) < 2 && pool.stageHistory && pool.stageHistory.mosaic) {
+    return html(
+      'System Upgrade In Progress',
+      '<p>The Mosaic and Grouting stages are being combined into one. Management has to finish a one-time upgrade first — please open this link again in a few minutes, or use the QC portal.</p>',
+      false,
+      503
+    );
+  }
   const stageHist = pool.stageHistory?.[stageId];
 
   if (event.httpMethod === 'GET') {

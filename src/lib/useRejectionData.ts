@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityLog, Pool, StageId, Team } from '../types';
-import { STAGES } from '../data/mockData';
+import { STAGES, canonicalStageId } from '../data/mockData';
 import { dbFetchActivityLogsInRange } from './firebaseService';
 
 /**
@@ -110,7 +110,7 @@ export function useRejectionData({ logs, pools, teams, mode, day, from, to, stag
       const d = toLocalDateStr(l.timestamp);
       if (!inRange(d)) return;
       if (stageFilter !== 'ALL' && l.stageId !== stageFilter) return;
-      const stage = STAGES.find(s => s.id === l.stageId);
+      const stage = STAGES.find(s => s.id === canonicalStageId(l.stageId));
       const pool = poolById.get(l.poolId);
       const team = teams.find(t => (l.teamId ? t.id === l.teamId : t.name === l.teamName));
       out.push({

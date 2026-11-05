@@ -1,3 +1,4 @@
+import { canonicalStageId } from '../data/mockData';
 import React, { useMemo, useState } from 'react';
 import { ActivityLog, Pool } from '../types';
 import { QCDefect, WORKSHOP_DEFECT_CATALOG, WORKSHOP_TITLES } from './QCDefectPanel';
@@ -7,7 +8,7 @@ import {
 import { exportDailyDefectReportPdf } from '../lib/exportUtils';
 
 // The 6 workshops that have a printed paper form.
-const WORKSHOP_ORDER = ['steel_fabrication', 'steel_primer', 'cladding', 'lamination', 'plumbing', 'mosaic'];
+const WORKSHOP_ORDER = ['steel_fabrication', 'steel_primer', 'cladding', 'lamination', 'plumbing', 'door_cutting'];
 
 interface DailyDefectReportProps {
   logs: ActivityLog[];
@@ -45,7 +46,7 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({ logs, qcDe
   const approvedToday = useMemo(() => {
     const seen = new Map<string, { poolId: string; poolNo: string; projectName: string }>();
     logs
-      .filter(l => l.stageId === stageId && l.type === 'APPROVED' && l.timestamp?.slice(0, 10) === date)
+      .filter(l => canonicalStageId(l.stageId) === stageId && l.type === 'APPROVED' && l.timestamp?.slice(0, 10) === date)
       .forEach(l => { if (!seen.has(l.poolId)) seen.set(l.poolId, { poolId: l.poolId, poolNo: l.poolNo, projectName: l.projectName }); });
     return Array.from(seen.values());
   }, [logs, stageId, date]);
@@ -59,7 +60,7 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({ logs, qcDe
 
   // Defects logged (via QCDefectPanel) at this stage, on this date.
   const defectsToday = useMemo(() => {
-    return qcDefects.filter(d => d.stageId === stageId && d.loggedAt?.slice(0, 10) === date
+    return qcDefects.filter(d => canonicalStageId(d.stageId) === stageId && d.loggedAt?.slice(0, 10) === date
       && (projectFilter === 'all' || d.projectName === projectFilter));
   }, [qcDefects, stageId, date, projectFilter]);
 
