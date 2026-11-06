@@ -4507,10 +4507,10 @@ export default function App() {
       {/* Simple Footer */}
       <footer className="bg-white border-t border-slate-100 py-6 text-center text-xs text-slate-400">
         <div className="max-w-7xl mx-auto px-4">
-          <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Flow Scheduling Engine</p>
+          <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Syed Muhammad Umer Ul Asad</p>
         </div>
       </footer>
-
+S
       </div>
 
       </div>
