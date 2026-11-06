@@ -4510,7 +4510,7 @@ export default function App() {
           <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Syed Muhammad Umer Ul Asad</p>
         </div>
       </footer>
-S
+denis bacha
       </div>
 
       </div>
