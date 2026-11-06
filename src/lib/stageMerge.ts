@@ -25,6 +25,7 @@ import { STAGES, STAGE_MODEL_VERSION } from '../data/mockData';
  * `stageModel: 2`).
  */
 
+const MOSAIC_GATE_END_INDEX = STAGES.findIndex(s => s.id === 'door_cutting'); // last position of the shared gate
 const OLD_STAGE_COUNT = 12; // length of the stage list BEFORE the merge
 const OLD_GROUTING_INDEX = 9; // where the Grouting stage used to sit
 const GATE_START_INDEX = STAGES.findIndex(s => s.id === 'mechanical_fitting'); // start of the parallel gate
@@ -40,6 +41,8 @@ export type MergeAction =
   | 'folded_active_grouting' // Grouting was already in progress / at QC / rejected while Mosaic not approved
   | 'cleaned'; // nothing owed — empty Grouting placeholder removed
 
+export type ResetKind = 'claimed' | 'in_progress' | 'inspection';
+
 export const isOldFormatPool = (p: Pool): boolean =>
   (p.stageModel ?? 1) < STAGE_MODEL_VERSION && !!(p.stageHistory as any)?.mosaic;
 
@@ -54,8 +57,8 @@ const clean = <T extends Record<string, any>>(o: T): T => {
   return o;
 };
 
-export function migratePool(p: Pool, nowIso: string = new Date().toISOString()): { pool: Pool; action: MergeAction } {
-  if (!isOldFormatPool(p)) return { pool: p, action: 'none' };
+export function migratePool(p: Pool, nowIso: string = new Date().toISOString()): { pool: Pool; action: MergeAction; reset: ResetKind | null } {
+  if (!isOldFormatPool(p)) return { pool: p, action: 'none', reset: null };
 
   const sh: any = { ...(p.stageHistory as any) };
   const M: StageHistory | undefined = sh.door_cutting; // old "Mosaic"
@@ -119,9 +122,34 @@ export function migratePool(p: Pool, nowIso: string = new Date().toISOString()):
     }
   }
 
+  // EVERY Mosaic pool that is claimed by a team, being worked, or waiting for QC
+  // goes back to UNCLAIMED (waiting in the claim list, no team, no timer). The
+  // previous team / times are kept on the entry (mergedFrom.resetFrom) for
+  // audit. Rejected pools are left alone so their reason stays visible.
+  let reset: ResetKind | null = null;
+  const entry: StageHistory | undefined = sh.door_cutting;
+  if (!finished && action !== 'shifted' && entry && newIdx >= GATE_START_INDEX && newIdx <= MOSAIC_GATE_END_INDEX) {
+    if (entry.status === 'IN_PROGRESS') reset = 'in_progress';
+    else if (entry.status === 'PENDING_INSPECTION') reset = 'inspection';
+    else if (entry.status === 'NOT_STARTED' && entry.teamId) reset = 'claimed';
+    if (reset) {
+      const prior = (entry as any).mergedFrom || { mosaic: M ? { ...M } : null, grouting: G ? { ...G } : null, mergedAt: nowIso };
+      sh.door_cutting = clean({
+        stageId: 'door_cutting',
+        status: 'NOT_STARTED',
+        rejectionCount: entry.rejectionCount || 0,
+        mergedFrom: {
+          ...prior,
+          resetFrom: clean({ status: entry.status, teamId: entry.teamId, teamName: entry.teamName, startTime: entry.startTime, endTime: entry.endTime, durationMinutes: entry.durationMinutes }),
+        },
+      });
+    }
+  }
+
   return {
     pool: { ...p, currentStageIndex: newIdx, stageHistory: sh, stageModel: STAGE_MODEL_VERSION },
     action,
+    reset,
   };
 }
 
@@ -184,6 +212,10 @@ export interface StageMergeSummary {
   // team's claim limit and block it from claiming that pool again.
   staleClaimsReleased: number;
   teamsCleaned: number;
+  // Mosaic pools put back to unclaimed (their team is released)
+  resetToUnclaimed: { claimed: number; inProgress: number; inspection: number; total: number };
+  // What the Mosaic claim list looks like once the upgrade is saved
+  mosaicAfter: { waiting: number; rejected: number };
   // What the Mosaic stage will contain for pools that owe grouting work
   carriedIntoMosaic: {
     waitingToClaim: number;
@@ -206,13 +238,18 @@ export function planStageMerge(pools: Pool[], teams: Team[], nowIso: string = ne
   const actions: Record<MergeAction, number> = {
     none: 0, finished: 0, shifted: 0, back_to_mosaic_from_grouting: 0, reopened_at_gate: 0, folded_active_grouting: 0, cleaned: 0,
   };
+  const resetCounts = { claimed: 0, inProgress: 0, inspection: 0, total: 0 };
   const carried = { waitingToClaim: 0, inProgress: 0, awaitingQc: 0, rejected: [] as { poolNo: string; project: string; reason: string }[], total: 0 };
 
   const newPools: Pool[] = [];
   const changedPools: Pool[] = [];
   pools.forEach(p => {
-    const { pool, action } = migratePool(p, nowIso);
+    const { pool, action, reset } = migratePool(p, nowIso);
     actions[action]++;
+    if (reset) {
+      resetCounts.total++;
+      if (reset === 'claimed') resetCounts.claimed++; else if (reset === 'in_progress') resetCounts.inProgress++; else resetCounts.inspection++;
+    }
     newPools.push(pool);
     if (action !== 'none') {
       changedPools.push(pool);
@@ -253,6 +290,16 @@ export function planStageMerge(pools: Pool[], teams: Team[], nowIso: string = ne
       staleClaimsReleased: cleaned.released,
       teamsCleaned: cleaned.teamsCleaned,
       carriedIntoMosaic: carried,
+      resetToUnclaimed: resetCounts,
+      mosaicAfter: (() => {
+        let waiting = 0, rejected = 0;
+        newPools.forEach(p => {
+          if (p.isDelivered || p.currentStageIndex < GATE_START_INDEX || p.currentStageIndex > MOSAIC_GATE_END_INDEX) return;
+          const st = p.stageHistory.door_cutting?.status;
+          if (st === 'NOT_STARTED') waiting++; else if (st === 'REJECTED') rejected++;
+        });
+        return { waiting, rejected };
+      })(),
     },
   };
 }

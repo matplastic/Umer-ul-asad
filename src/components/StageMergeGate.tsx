@@ -110,6 +110,7 @@ export const StageMergeGate: React.FC<Props> = ({ pools, teams, isManagement, is
   // ── Management ──
   const c = s.carriedIntoMosaic;
   const a = s.actions;
+  const r = s.resetToUnclaimed;
   return (
     <div className="max-w-3xl mx-auto mt-8 bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-8 space-y-5" data-testid="stage-merge-gate">
       <div className="flex items-start gap-3">
@@ -125,41 +126,33 @@ export const StageMergeGate: React.FC<Props> = ({ pools, teams, isManagement, is
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
         <div className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-2xl font-black text-slate-800">{s.oldFormatPools}</p><p className="text-[10px] uppercase font-bold text-slate-400">pools to convert</p></div>
-        <div className="rounded-xl bg-lime-50 border border-lime-100 p-3"><p className="text-2xl font-black text-lime-700">{c.total}</p><p className="text-[10px] uppercase font-bold text-lime-700/70">still owe grouting → in Mosaic</p></div>
+        <div className="rounded-xl bg-lime-50 border border-lime-100 p-3"><p className="text-2xl font-black text-lime-700">{s.mosaicAfter.waiting}</p><p className="text-[10px] uppercase font-bold text-lime-700/70">waiting in Mosaic after the upgrade</p></div>
         <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-3"><p className="text-2xl font-black text-indigo-700">{a.shifted}</p><p className="text-[10px] uppercase font-bold text-indigo-700/70">at Door Cutting / Acrylic (moved up one)</p></div>
         <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3"><p className="text-2xl font-black text-emerald-700">{s.teamsMoved}</p><p className="text-[10px] uppercase font-bold text-emerald-700/70">Grouting teams → Mosaic</p></div>
       </div>
 
       <div className="rounded-xl border border-slate-100 p-4 text-sm text-slate-600 space-y-2">
-        <p className="font-bold text-slate-800">What the Mosaic list will contain for the {c.total} pool(s) that still owe grouting:</p>
+        <p className="font-bold text-slate-800">What the Mosaic claim list will look like after the upgrade:</p>
         <ul className="list-disc pl-5 space-y-0.5">
-          <li><strong>{c.waitingToClaim}</strong> waiting to be claimed</li>
-          <li><strong>{c.inProgress}</strong> being worked by a team (same team, same start time)</li>
-          <li><strong>{c.awaitingQc}</strong> waiting for QC</li>
-          <li><strong>{c.rejected.length}</strong> rejected — with the inspector's reason and the rejection count kept</li>
+          <li><strong>{s.mosaicAfter.waiting}</strong> pools waiting to be claimed</li>
+          <li><strong>{s.mosaicAfter.rejected}</strong> rejected pool(s) — status and the inspector's reason are kept</li>
         </ul>
-        {c.rejected.length > 0 && (
-          <div className="bg-rose-50 border border-rose-100 rounded-lg p-2 text-xs text-rose-700 space-y-0.5">
-            {c.rejected.slice(0, 8).map(r => <div key={`${r.project}-${r.poolNo}`}>#{r.poolNo} {r.project} — “{r.reason}”</div>)}
-          </div>
-        )}
-        <p className="text-xs text-slate-400">
-          Pools that already finished their Mosaic and are waiting at the gate for another stage (re-opened for the grouting): {a.reopened_at_gate}.
-          Pools that were at Grouting and go back into Mosaic: {a.back_to_mosaic_from_grouting}.
+        <p>
+          <strong>{r.total}</strong> Mosaic pool(s) go <strong>back to unclaimed</strong>:
+          {' '}{r.claimed} claimed, {r.inProgress} being worked, {r.inspection} waiting for QC.
+          Their teams are released and the timer is cleared (the previous team and times are kept in the pool's history).
+          These pools can be claimed again by any Mosaic team.
+        </p>
+        <p className="text-xs text-slate-500">
+          Of the waiting pools, {c.total} still owed grouting: {a.back_to_mosaic_from_grouting} were at Grouting and {a.reopened_at_gate} had Mosaic approved and were waiting at the gate.
           Delivered pools keep their old Grouting record for history.
         </p>
-        {s.staleClaimsReleased > 0 && (
-          <p className="text-xs text-slate-500">
-            Clean-up: <strong>{s.staleClaimsReleased}</strong> leftover claim(s) on {s.teamsCleaned} team(s) are released — pools a team still listed although they were
-            already delivered, approved, deleted, or are now waiting unclaimed. They were using up the team's claim limit.
-          </p>
-        )}
         {s.teamNames.length > 0 && (
           <p className="text-xs text-slate-500 flex items-start gap-1.5"><Users className="h-3.5 w-3.5 mt-0.5 shrink-0" /> Teams moving to Mosaic: {s.teamNames.join(', ')}</p>
         )}
         {s.staleClaimsReleased > 0 && (
           <p className="text-xs text-slate-500">
-            Also tidied: <strong>{s.staleClaimsReleased}</strong> leftover claim(s) on <strong>{s.teamsCleaned}</strong> team(s) — pools a team still listed although they were already delivered, approved, deleted or re-opened unclaimed. They used up the team's claim limit for nothing.
+            Teams tidied: <strong>{s.staleClaimsReleased}</strong> claim(s) on <strong>{s.teamsCleaned}</strong> team(s) released — the pools above plus any a team still listed although they were already delivered, approved or deleted.
           </p>
         )}
       </div>

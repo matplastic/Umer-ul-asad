@@ -75,7 +75,13 @@ export interface StageHistory {
   // Set by the Mosaic + Grouting merge when this entry absorbed the old
   // Grouting work of a pool that was mid-way through it: keeps the original
   // (pre-merge) Mosaic and Grouting records for audit.
-  mergedFrom?: { mosaic?: Partial<StageHistory> | null; grouting?: Partial<StageHistory> | null; mergedAt: string };
+  mergedFrom?: {
+    mosaic?: Partial<StageHistory> | null;
+    grouting?: Partial<StageHistory> | null;
+    mergedAt: string;
+    // The claim / work / QC state that was cleared when the pool was put back to unclaimed.
+    resetFrom?: Partial<StageHistory> | null;
+  };
 }
 
 // One checkpoint item inside a ChecklistTemplate.
