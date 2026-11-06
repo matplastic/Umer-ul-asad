@@ -81,7 +81,7 @@ async function emailPoToStore({ event, batchId, id, approvedItems, requestedByNa
       <td style="padding:8px 8px 8px 0; border-bottom:1px solid #e2e8f0; font-weight:600;">${esc(it.itemName)}</td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; color:#475569; font-size:12px;">${it.erpCode ? esc(it.erpCode) : '—'}</td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0;">${esc(it.category)}</td>
-      <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${esc(it.qtyApproved != null ? it.qtyApproved : it.qty)} ${esc(it.unit)}${it.qtyApproved != null && Number(it.qtyApproved) !== Number(it.qty) ? `<div style="font-size:11px; color:#94a3b8;">requested ${esc(it.qty)}</div>` : ''}</td>
+      <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${esc(it.qtyApproved != null ? it.qtyApproved : it.qty)} ${esc(it.unit)}</td>
     </tr>`).join('');
 
   const html = `
