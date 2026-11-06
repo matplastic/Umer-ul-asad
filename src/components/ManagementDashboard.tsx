@@ -5,7 +5,6 @@ import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employ
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex, canonicalStageId } from '../data/mockData';
 import { useRejectionData } from '../lib/useRejectionData';
 import { WarehouseRegister, WarehouseSummaryStrip } from './WarehouseRegister';
-import { MosaicResetTool } from './MosaicResetTool';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange } from '../lib/firebaseService';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
@@ -5836,9 +5835,6 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         {/* Tab 3: Teams Status Allocation */}
         {activeTab === 'teams' && (
           <div className="space-y-4">
-            {/* Mosaic: put every claimed / in-progress / waiting-for-QC pool back to Unclaimed */}
-            <MosaicResetTool pools={pools} teams={teams} isOnline={true} />
-
             {/* Manual backup/restore for Teams Allocation only — download a small
                 JSON snapshot any time, and if data ever gets wiped again, restore
                 from JUST this file instead of a full-database backup. */}
