@@ -1,0 +1,19 @@
+# Netlify deployment configuration for MAT-ERP SYSTEM
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+
+# Safety-net stock check: e-mails if any followed material is at/below its
+# Reorder or Urgent level (the app also triggers this check instantly whenever
+# stock changes). Runs on the published production deploy only.
+[functions."stock-alert-scheduled"]
+  schedule = "*/15 * * * *"
+
+[[redirects]]
+  # Redirect all routes to index.html for React Single Page App (SPA) client-side routing
+  from = "/*"
+  to = "/index.html"
+  status = 200
