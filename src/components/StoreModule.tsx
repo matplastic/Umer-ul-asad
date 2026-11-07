@@ -16,7 +16,9 @@ import {
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
   dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, CompanyAsset, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { ExtraUnitsEditor } from './ExtraUnitsEditor';
+import { cleanExtraUnits, equivalentsText, perUnitText } from '../lib/materialUnits';
 
 type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets';
 
@@ -124,7 +126,7 @@ interface StoreModuleProps {
   poolTypesByProject: Record<string, string[]>;
 }
 
-const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '', isCritical: null as boolean | null, inventoryGroup: 'other' as 'mep' | 'civil' | 'other' };
+const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '', isCritical: null as boolean | null, inventoryGroup: 'other' as 'mep' | 'civil' | 'other', extraUnits: [] as ExtraUnit[] };
 
 // Keywords used to auto-detect "critical" bulk raw materials (steel, resin, fiber, mosaic, etc.)
 // Matched against both the material's name and category, case-insensitively.
@@ -167,6 +169,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [quickPeriod, setQuickPeriod] = useState<'today' | 'week' | 'month' | 'custom'>('custom');
 
   const [newMaterial, setNewMaterial] = useState<any>(emptyMaterial);
+  // Edit the extra units (length, weight…) of an existing material
+  const [unitsEdit, setUnitsEdit] = useState<{ material: Material; extraUnits: ExtraUnit[] } | null>(null);
   const [newBom, setNewBom] = useState<any>(emptyBom);
   const [newIncoming, setNewIncoming] = useState<any>(emptyIncoming);
   const [newAsset, setNewAsset] = useState<any>(emptyAsset);
@@ -448,6 +452,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     if (!newMaterial.name || !newMaterial.unit) return;
     const item = {
       ...newMaterial,
+      extraUnits: cleanExtraUnits(newMaterial.extraUnits),
       id: `mat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       createdAt: new Date().toISOString(),
       section: newMaterial.section || null,
@@ -456,6 +461,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     setNewMaterial(emptyMaterial);
     loadAll(true);
   };
+
+  // Save the extra units of an existing material (does not touch its stock)
+  const saveExtraUnits = async () => {
+    if (!unitsEdit) return;
+    await dbSaveMaterial({ ...unitsEdit.material, extraUnits: cleanExtraUnits(unitsEdit.extraUnits) });
+    setUnitsEdit(null);
+    loadAll(true);
+  };
+
+  // "120 m · 480 kg" for a material id + quantity ('' if it has no extra units)
+  const eqFor = (materialId: string, qty: number): string => equivalentsText(materials.find(m => m.id === materialId), qty);
 
   const deleteMaterial = async (id: string) => {
     if (!confirm('Delete this material? This cannot be undone.')) return;
@@ -792,9 +808,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       'Total Consumed': Number(r.totalConsumed.toFixed(2)),
       'Current Stock': r.currentStock,
       Unit: r.unit,
+      'Per 1 Unit': perUnitText(materials.find(m => m.id === r.materialId)).replace(` per ${r.unit}`, ''),
+      'Stock In Other Units': eqFor(r.materialId, Number(r.currentStock)),
     }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Material: '', 'ERP Code': '', 'Total Incoming': '', 'Total Consumed': '', 'Current Stock': '', Unit: '' }]), 'Inventory Report');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Material: '', 'ERP Code': '', 'Total Incoming': '', 'Total Consumed': '', 'Current Stock': '', Unit: '', 'Per 1 Unit': '', 'Stock In Other Units': '' }]), 'Inventory Report');
     XLSX.writeFile(wb, `inventory_report_${fileLabel()}.xlsx`);
   };
 
@@ -805,8 +823,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       r.totalIncoming.toFixed(2),
       r.totalConsumed.toFixed(2),
       `${r.currentStock} ${r.unit}`,
+      eqFor(r.materialId, Number(r.currentStock)) || '—',
     ]);
-    pdfFromTable('Inventory Report', ['Material', 'ERP Code', 'Total Incoming', 'Total Consumed', 'Current Stock'], rows, 'inventory_report');
+    pdfFromTable('Inventory Report', ['Material', 'ERP Code', 'Total Incoming', 'Total Consumed', 'Current Stock', 'In Other Units'], rows, 'inventory_report');
   };
 
   // --- Floor Stock report (Excel + PDF) — filteredFloorStock already scopes
@@ -980,6 +999,34 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" data-testid="store-module">
+      {/* Edit extra units (length / weight per unit) of an existing material */}
+      {unitsEdit && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60" onClick={() => setUnitsEdit(null)} data-testid="units-modal">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-white">Units — {unitsEdit.material.name}</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Stock is counted in <strong className="text-slate-200">{unitsEdit.material.unit}</strong> ({unitsEdit.material.currentStock} in stock). Tell the Store what one {unitsEdit.material.unit} contains and it will show the totals in meters, kilograms, etc.
+                </p>
+              </div>
+              <button onClick={() => setUnitsEdit(null)} className="text-slate-500 hover:text-white cursor-pointer"><X className="h-4 w-4" /></button>
+            </div>
+            <ExtraUnitsEditor
+              unit={unitsEdit.material.unit}
+              value={unitsEdit.extraUnits}
+              onChange={(next) => setUnitsEdit(u => (u ? { ...u, extraUnits: next } : u))}
+              previewQty={Number(unitsEdit.material.currentStock) || 0}
+              testIdPrefix="edit-extra"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setUnitsEdit(null)} className="px-3 py-2 text-xs font-bold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer">Cancel</button>
+              <button onClick={saveExtraUnits} data-testid="units-save" className="px-4 py-2 text-xs font-bold rounded-lg bg-orange-600 hover:bg-orange-700 text-white cursor-pointer">Save units</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3">
@@ -1131,6 +1178,15 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input placeholder="Brand" data-testid="new-mat-brand" value={newMaterial.brand} onChange={e => setNewMaterial((p: any) => ({ ...p, brand: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Location (Rack/Bin)" data-testid="new-mat-location" value={newMaterial.location} onChange={e => setNewMaterial((p: any) => ({ ...p, location: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <div className="md:col-span-7 border-t border-slate-800 pt-3 mt-1">
+              <ExtraUnitsEditor
+                unit={newMaterial.unit}
+                value={newMaterial.extraUnits || []}
+                onChange={(next) => setNewMaterial((p: any) => ({ ...p, extraUnits: next }))}
+                previewQty={Number(newMaterial.currentStock) || 0}
+                testIdPrefix="new-mat-extra"
+              />
+            </div>
           </div>
 
           {/* Inventory portal switch: MEP / Civil / Other run as separate views;
@@ -1223,9 +1279,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         <td className="px-4 py-2 text-right text-rose-400 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
                         <td className={`px-4 py-2 text-right font-mono ${(m.reorderLevel || 0) > 0 && m.currentStock <= (m.reorderLevel || 0) ? 'text-rose-400 font-bold' : 'text-slate-200'}`}>
                           {m.currentStock} {m.unit}
+                          {equivalentsText(m, m.currentStock) && (
+                            <div className="text-[10px] font-mono text-emerald-400/80 font-normal" data-testid={`mat-equiv-${m.id}`}>= {equivalentsText(m, m.currentStock)}</div>
+                          )}
+                          {perUnitText(m) && <div className="text-[10px] text-slate-500 font-normal">1 {m.unit} = {perUnitText(m).replace(` per ${m.unit}`, '')}</div>}
                         </td>
                         <td className="px-4 py-2 text-right text-slate-500">{m.reorderLevel || 0}</td>
                         <td className="px-4 py-2 text-right flex items-center justify-end gap-2">
+                          <button onClick={() => setUnitsEdit({ material: m, extraUnits: (m.extraUnits || []).map(u => ({ ...u })) })} data-testid={`units-${m.id}`} title="Add length / weight per unit" className="text-slate-500 hover:text-orange-400 cursor-pointer text-[11px] font-bold">Units</button>
                           <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
                           <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-400 cursor-pointer text-[11px] font-bold">Move to Assets</button>
                           <button onClick={() => deleteMaterial(m.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -1329,6 +1390,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Send to Quality</button>
           </div>
+          {newIncoming.materialId && Number(newIncoming.qty) > 0 && eqFor(newIncoming.materialId, Number(newIncoming.qty)) && (
+            <div className="mb-3 text-xs font-mono text-emerald-400" data-testid="new-incoming-equiv">
+              {Number(newIncoming.qty)} {materials.find(m => m.id === newIncoming.materialId)?.unit} = {eqFor(newIncoming.materialId, Number(newIncoming.qty))}
+            </div>
+          )}
           <div className="mb-4 text-[11px] text-slate-500 flex items-center gap-1.5">
             <ShieldCheck className="h-3.5 w-3.5 text-amber-400" /> New receipts go to <span className="text-amber-400 font-bold">Quality Check</span> first and only join Inventory stock once an inspector passes them.
           </div>
@@ -1364,7 +1430,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <tr key={inc.id} className="border-t border-slate-800">
                     <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
                     <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                    <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{Number(inc.qty)} {inc.unit}</td>
+                    <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-emerald-400/70">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
                     <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
                     <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
                     <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
@@ -1419,7 +1485,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       <tr key={inc.id} className="border-t border-slate-800">
                         <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
                         <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                        <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                        <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
                         <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
                         <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
                         <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
@@ -1467,7 +1533,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     <tr key={inc.id} className="border-t border-slate-800">
                       <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
                       <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
                       <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
                       <td className="px-4 py-2">
                         {qcPill(inc.qcStatus)}
@@ -1553,7 +1619,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     <tr key={inc.id} className="border-t border-slate-800">
                       <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
                       <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}</td>
+                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
                       <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
                       <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
                       <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
@@ -1724,7 +1790,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     <tr key={f.id} className="border-t border-slate-800">
                       <td className="px-4 py-2 text-slate-300">{sectionLbl}</td>
                       <td className="px-4 py-2 text-slate-200 font-semibold">{f.materialName}</td>
-                      <td className={`px-4 py-2 text-right font-mono font-bold ${f.qty <= 0 ? 'text-slate-500' : 'text-emerald-400'}`}>{f.qty} {f.unit}</td>
+                      <td className={`px-4 py-2 text-right font-mono font-bold ${f.qty <= 0 ? 'text-slate-500' : 'text-emerald-400'}`}>{f.qty} {f.unit}{eqFor(f.materialId, Number(f.qty)) && <div className="text-[10px] font-normal text-emerald-400/70">= {eqFor(f.materialId, Number(f.qty))}</div>}</td>
                       <td className="px-4 py-2 text-slate-500 font-mono">{f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '—'}</td>
                     </tr>
                   );

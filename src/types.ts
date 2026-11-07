@@ -389,12 +389,24 @@ export interface RecycleBinItem {
 // STORE / BOM MODULE
 // ----------------------------------------------------
 
+// What ONE main unit of a material contains in another unit, e.g. for a metal
+// bar counted in "bars": { label: 'Length', unit: 'm', perUnit: 6 } and
+// { label: 'Weight', unit: 'kg', perUnit: 24 }.
+export interface ExtraUnit {
+  label: string; // 'Length', 'Weight', 'Area'…
+  unit: string; // 'm', 'kg', 'm²'…
+  perUnit: number; // amount in this unit that ONE main unit contains
+}
+
 export interface Material {
   id: string;
   name: string;
   category?: string | null; // 'Resin' | 'Fiberglass' | 'Gelcoat' | 'Hardener' | ...
   section?: string | null; // section/stage id: 'steel_fabrication', 'lamination', etc.
   unit: string; // 'kg' | 'ltr' | 'pcs' | 'roll' | ...
+  // Optional extra measurements per 1 `unit` (length, weight…). Stock is still
+  // counted in `unit`; these are used to show/export the equivalents.
+  extraUnits?: ExtraUnit[] | null;
   currentStock: number;
   reorderLevel?: number | null;
   notes?: string | null;
