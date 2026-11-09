@@ -23,6 +23,7 @@ import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS } from '../lib/stockA
 import { StockStatusBadge } from './StockStatusBadge';
 import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
+import { SearchableSelect, SearchableOption } from './SearchableSelect';
 
 type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder';
 
@@ -578,6 +579,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     await dbUpdateMaterialFields(mat.id, { alertsEnabled: !isFollowed(mat) });
     loadAll(true);
   };
+
+  // Options for the searchable material pickers (BOM + Goods Received).
+  // Search covers name, ERP code, brand, supplier, location, HS code, category.
+  const materialOptions: SearchableOption[] = useMemo(() =>
+    [...materials]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(m => ({
+        id: m.id,
+        label: `${m.name} (${m.unit})`,
+        sub: [m.erpCode, m.brand, m.supplierName, m.location].filter(Boolean).join(' · ') || undefined,
+        right: `${m.currentStock} ${m.unit}`,
+        search: [m.erpCode, m.brand, m.supplierName, m.location, m.hsCode, m.category].filter(Boolean).join(' '),
+      })),
+    [materials]);
 
   // Materials currently at/below a level — drives the Reorder tab badge.
   const reorderBadge = useMemo(() => {
@@ -1441,10 +1456,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {tab === 'incoming' && (
         <div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
-            <select value={newIncoming.materialId} onChange={e => setNewIncoming((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="new-incoming-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
-              <option value="">Material…</option>
-              {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit}) · stock: {m.currentStock}</option>)}
-            </select>
+            <SearchableSelect
+              className="md:col-span-2"
+              options={materialOptions}
+              value={newIncoming.materialId}
+              onChange={id => setNewIncoming((p: any) => ({ ...p, materialId: id }))}
+              placeholder="Search material — name, ERP code, brand, supplier…"
+              testId="new-incoming-material"
+            />
             <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
@@ -1922,10 +1941,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             {newBom.poolType === '__custom__' && (
               <input placeholder="Pool type name" onChange={e => setNewBom((p: any) => ({ ...p, poolType: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             )}
-            <select value={newBom.materialId} onChange={e => setNewBom((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="bom-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
-              <option value="">Material…</option>
-              {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
-            </select>
+            <SearchableSelect
+              options={materialOptions}
+              value={newBom.materialId}
+              onChange={id => setNewBom((p: any) => ({ ...p, materialId: id }))}
+              placeholder="Search material…"
+              testId="bom-material"
+            />
             <input type="number" step="any" placeholder="Qty per pool" data-testid="bom-qty" value={newBom.qtyPerPool} onChange={e => setNewBom((p: any) => ({ ...p, qtyPerPool: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={saveBomItem} data-testid="bom-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add to BOM</button>
           </div>

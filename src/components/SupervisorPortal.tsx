@@ -16,6 +16,8 @@ import {
   SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, SupervisorPurchaseRequest,
 } from '../types';
 import { exportTablePdf } from '../lib/exportUtils';
+import { SearchableSelect, SearchableOption } from './SearchableSelect';
+import { matchesAllTokens } from '../lib/searchUtils';
 
 const uid = () => `sup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 const fmtDate = (s: string) => { try { return new Date(s).toLocaleDateString('en-GB'); } catch { return s; } };
@@ -148,7 +150,8 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     const matches = !q ? available : available.filter(m => {
       const haystack = [m.name, m.erpCode, m.supplierName, m.brand, m.location, m.hsCode, m.category]
         .filter(Boolean).join(' | ').toLowerCase();
-      return haystack.includes(q);
+      // Every typed word must appear somewhere, in any order.
+      return matchesAllTokens(q, haystack);
     });
     return matches
       .sort((a, b) => {
@@ -156,7 +159,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
         const bTag = b.section === section ? 0 : 1;
         return aTag - bTag || a.name.localeCompare(b.name);
       })
-      .slice(0, 50);
+      .slice(0, 100);
   }, [materials, rSearch, section, rGroup]);
 
   // How much of each material has actually been issued to THIS section and
@@ -169,6 +172,33 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     }
     return map;
   }, [floorStock, section]);
+
+  // Searchable options for "Material used" (consumption) and "Material to return".
+  const consumptionOptions: SearchableOption[] = useMemo(() =>
+    sectionMaterials.map(m => ({
+      id: m.id,
+      label: `${m.name} (${m.unit})`,
+      sub: [m.erpCode, m.brand, m.supplierName].filter(Boolean).join(' · ') || undefined,
+      right: `on floor: ${sectionFloorStock[m.id] || 0}`,
+      search: [m.erpCode, m.brand, m.supplierName, m.location, m.hsCode, m.category].filter(Boolean).join(' '),
+    })),
+    [sectionMaterials, sectionFloorStock]);
+
+  const returnOptions: SearchableOption[] = useMemo(() =>
+    Object.entries(sectionFloorStock)
+      .filter(([, qty]) => Number(qty) > 0)
+      .map(([matId, qty]) => {
+        const mat = materials.find(m => m.id === matId);
+        return {
+          id: matId,
+          label: `${mat?.name || matId}${mat?.unit ? ` (${mat.unit})` : ''}`,
+          sub: [mat?.erpCode, mat?.brand].filter(Boolean).join(' · ') || undefined,
+          right: `on floor: ${qty} ${mat?.unit || ''}`.trim(),
+          search: [mat?.erpCode, mat?.brand, mat?.supplierName, mat?.category].filter(Boolean).join(' '),
+        } as SearchableOption;
+      })
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [sectionFloorStock, materials]);
 
   const myConsumption = useMemo(() => consumption
     .filter(c => c.sectionId === section)
@@ -711,13 +741,15 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             </div>
             {showReturnForm && (
               <div className="mt-3 pt-3 border-t border-slate-800 grid grid-cols-1 md:grid-cols-4 gap-2">
-                <select value={retMaterialId} onChange={e => setRetMaterialId(e.target.value)} data-testid="return-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
-                  <option value="">Material to return…</option>
-                  {Object.entries(sectionFloorStock).filter(([, qty]) => Number(qty) > 0).map(([matId, qty]) => {
-                    const mat = materials.find(m => m.id === matId);
-                    return <option key={matId} value={matId}>{mat?.name || matId} — on floor: {qty} {mat?.unit || ''}</option>;
-                  })}
-                </select>
+                <SearchableSelect
+                  className="md:col-span-2"
+                  options={returnOptions}
+                  value={retMaterialId}
+                  onChange={setRetMaterialId}
+                  placeholder="Search material to return…"
+                  emptyText="Nothing on your floor to return."
+                  testId="return-material"
+                />
                 <input type="number" step="any" placeholder="Qty to return" value={retQty} onChange={e => setRetQty(e.target.value)} data-testid="return-qty" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
                 <input placeholder="Reason (optional)" value={retReason} onChange={e => setRetReason(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
                 <button onClick={submitReturn} data-testid="return-submit" className="md:col-span-4 flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold cursor-pointer">
@@ -728,14 +760,14 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
             <input type="date" data-testid="cons-date" value={cDate} onChange={e => setCDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <select value={cMaterialId} onChange={e => setCMaterialId(e.target.value)} data-testid="cons-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
-              <option value="">Material used…</option>
-              {sectionMaterials.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.unit}) — on floor: {sectionFloorStock[m.id] || 0}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              className="md:col-span-2"
+              options={consumptionOptions}
+              value={cMaterialId}
+              onChange={setCMaterialId}
+              placeholder="Search material used…"
+              testId="cons-material"
+            />
             <input type="number" step="any" data-testid="cons-qty" placeholder="Qty" value={cQty} onChange={e => setCQty(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Note (optional)" value={cNotes} onChange={e => setCNotes(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={submitConsumption} data-testid="cons-submit" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer">
