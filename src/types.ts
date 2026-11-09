@@ -409,6 +409,12 @@ export interface Material {
   extraUnits?: ExtraUnit[] | null;
   currentStock: number;
   reorderLevel?: number | null;
+  // Second, LOWER threshold: at or below this the material is URGENT (stronger
+  // red + urgent e-mail). 0/empty = off. See src/lib/stockAlerts.ts.
+  urgentLevel?: number | null;
+  // "Follow" switch for stock e-mails. undefined/true = follow, false = muted.
+  // (Red highlighting and the Reorder page are shown either way.)
+  alertsEnabled?: boolean | null;
   notes?: string | null;
   erpCode?: string | null;
   supplierName?: string | null;

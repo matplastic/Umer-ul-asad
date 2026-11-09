@@ -1,6 +1,7 @@
 import { auth, app, clientDb } from './googleDrive.ts';
 import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
+import { scheduleStockAlertCheck } from './stockAlerts';
 // NOTE: clientDb now comes from googleDrive.ts, which is the ONLY place
 // Firestore is initialized (via initializeFirestore with long-polling
 // forced on). Do NOT call getFirestore(app) here — see googleDrive.ts.
@@ -724,6 +725,15 @@ async function updateFirestoreDocArrays(
   updates: Record<string, (arr: any[]) => any[]>,
   allowEmpty: Record<string, boolean> = {},
 ): Promise<Record<string, any[]>> {
+  const results = await updateFirestoreDocArraysCore(updates, allowEmpty);
+  if ('materials' in updates) scheduleStockAlertCheck();
+  return results;
+}
+
+async function updateFirestoreDocArraysCore(
+  updates: Record<string, (arr: any[]) => any[]>,
+  allowEmpty: Record<string, boolean> = {},
+): Promise<Record<string, any[]>> {
   const docNames = Object.keys(updates);
   const collectionBackedNames = docNames.filter(isCollectionBacked);
   const legacyNames = docNames.filter(n => !isCollectionBacked(n));
@@ -786,7 +796,16 @@ async function updateFirestoreDocArrays(
   return results;
 }
 
+// Every write to the materials list asks the server to re-check stock levels
+// (debounced) so Reorder / Urgent e-mails go out within seconds of a drop, no
+// matter which screen or device changed the quantity.
 async function updateFirestoreDocArray(docName: string, updateFn: (arr: any[]) => any[], allowEmpty: boolean = false): Promise<any[]> {
+  const result = await updateFirestoreDocArrayCore(docName, updateFn, allowEmpty);
+  if (docName === 'materials') scheduleStockAlertCheck();
+  return result;
+}
+
+async function updateFirestoreDocArrayCore(docName: string, updateFn: (arr: any[]) => any[], allowEmpty: boolean = false): Promise<any[]> {
   if (isCollectionBacked(docName)) {
     // Collection-backed path: no single "transaction" spans an unknown,
     // variable set of documents the way the legacy array-transaction did —
@@ -2554,6 +2573,22 @@ export async function dbDeleteCompanyAsset(id: string) {
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/company-assets/${id}`), { method: 'DELETE', headers });
   return res.json();
+}
+
+// Patch only the given fields of one material. Unlike dbSaveMaterial (which
+// replaces the whole record with whatever the screen had loaded), this never
+// writes back a stale currentStock — important for reorder/follow settings,
+// because supervisors' approvals can change stock while a modal is open.
+export async function dbUpdateMaterialFields(id: string, patch: Partial<Material>) {
+  if (!apiBase()) {
+    const updated = await updateFirestoreDocArray('materials', (arr) =>
+      arr.map((m) => (m.id === id ? { ...m, ...patch } : m))
+    );
+    return { success: true, materials: updated };
+  }
+  const current = (await dbFetchMaterials()).find((m) => m.id === id);
+  if (!current) return { success: false };
+  return dbSaveMaterial({ ...current, ...patch });
 }
 
 export async function dbAdjustMaterialStock(id: string, delta: number) {

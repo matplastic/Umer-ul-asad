@@ -3,7 +3,7 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
   Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
-  Wrench,
+  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -14,13 +14,17 @@ import {
   dbFetchMaterialRequests, dbDecideMaterialRequestBatch, dbMarkMaterialRequestBatchPrinted,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
-  dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset,
+  dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields,
 } from '../lib/firebaseService';
 import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 import { ExtraUnitsEditor } from './ExtraUnitsEditor';
 import { cleanExtraUnits, equivalentsText, perUnitText } from '../lib/materialUnits';
+import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS } from '../lib/stockAlerts';
+import { StockStatusBadge } from './StockStatusBadge';
+import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
+import { ReorderPage } from './ReorderPage';
 
-type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets';
+type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder';
 
 // ==========================================================
 // PDF letterhead helpers — logo + company header + footer used by every
@@ -126,7 +130,7 @@ interface StoreModuleProps {
   poolTypesByProject: Record<string, string[]>;
 }
 
-const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '', isCritical: null as boolean | null, inventoryGroup: 'other' as 'mep' | 'civil' | 'other', extraUnits: [] as ExtraUnit[] };
+const emptyMaterial = { name: '', category: '', section: '', unit: 'kg', currentStock: 0, reorderLevel: 0, urgentLevel: 0, alertsEnabled: true, notes: '', erpCode: '', supplierName: '', brand: '', location: '', hsCode: '', isCritical: null as boolean | null, inventoryGroup: 'other' as 'mep' | 'civil' | 'other', extraUnits: [] as ExtraUnit[] };
 
 // Keywords used to auto-detect "critical" bulk raw materials (steel, resin, fiber, mosaic, etc.)
 // Matched against both the material's name and category, case-insensitively.
@@ -169,6 +173,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [quickPeriod, setQuickPeriod] = useState<'today' | 'week' | 'month' | 'custom'>('custom');
 
   const [newMaterial, setNewMaterial] = useState<any>(emptyMaterial);
+  // Material whose Reorder Settings modal (reorder level / urgent level / follow) is open
+  const [alertEdit, setAlertEdit] = useState<Material | null>(null);
   // Edit the extra units (length, weight…) of an existing material
   const [unitsEdit, setUnitsEdit] = useState<{ material: Material; extraUnits: ExtraUnit[] } | null>(null);
   const [newBom, setNewBom] = useState<any>(emptyBom);
@@ -558,6 +564,30 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     await dbSaveMaterial({ ...mat, isCritical: !current } as any);
     loadAll(true);
   };
+
+  // Reorder Settings: reorder level, urgent level and the follow switch.
+  // Uses a field-level update so it can never overwrite a newer stock quantity.
+  const saveAlertSettings = async (patch: StockAlertPatch) => {
+    if (!alertEdit) return;
+    await dbUpdateMaterialFields(alertEdit.id, patch);
+    setAlertEdit(null);
+    loadAll(true);
+  };
+
+  const toggleFollow = async (mat: Material) => {
+    await dbUpdateMaterialFields(mat.id, { alertsEnabled: !isFollowed(mat) });
+    loadAll(true);
+  };
+
+  // Materials currently at/below a level — drives the Reorder tab badge.
+  const reorderBadge = useMemo(() => {
+    let urgent = 0, low = 0;
+    for (const m of materials) {
+      const s = getStockStatus(m);
+      if (s === 'urgent') urgent++; else if (s === 'reorder') low++;
+    }
+    return { urgent, low, total: urgent + low };
+  }, [materials]);
 
   const editSection = async (mat: Material) => {
     const options = SECTION_DEFINITIONS.map(s => s.id).join(', ');
@@ -1027,6 +1057,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
+      {alertEdit && (
+        <StockAlertModal material={alertEdit} onClose={() => setAlertEdit(null)} onSave={saveAlertSettings} />
+      )}
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3">
@@ -1085,6 +1119,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </button>
         <button onClick={() => setTab('inventory')} data-testid="tab-inventory" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'inventory' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <Package className="h-4 w-4" /> Inventory
+        </button>
+        <button onClick={() => setTab('reorder')} data-testid="tab-reorder" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reorder' ? 'bg-orange-600 text-white shadow-md' : reorderBadge.total > 0 ? 'bg-rose-950/70 hover:bg-rose-900/70 text-rose-200 border border-rose-700/60' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <ShoppingCart className="h-4 w-4" /> Reorder
+          {reorderBadge.total > 0 && (
+            <span data-testid="reorder-tab-badge" className={`ml-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black flex items-center justify-center ${reorderBadge.urgent > 0 ? 'bg-rose-600 text-white' : 'bg-rose-900 text-rose-200'}`}>{reorderBadge.total}</span>
+          )}
         </button>
         <button onClick={() => setTab('assets')} data-testid="tab-assets" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'assets' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <Wrench className="h-4 w-4" /> Company Assets
@@ -1178,6 +1218,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input placeholder="Brand" data-testid="new-mat-brand" value={newMaterial.brand} onChange={e => setNewMaterial((p: any) => ({ ...p, brand: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Location (Rack/Bin)" data-testid="new-mat-location" value={newMaterial.location} onChange={e => setNewMaterial((p: any) => ({ ...p, location: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input type="number" min={0} placeholder="Reorder level" title="Highlighted red and e-mailed when stock is at or below this" data-testid="new-mat-reorder" value={newMaterial.reorderLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, reorderLevel: Number(e.target.value) }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input type="number" min={0} placeholder="Urgent level" title="Urgent alert when stock is at or below this (must be ≤ reorder level)" data-testid="new-mat-urgent" value={newMaterial.urgentLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, urgentLevel: Number(e.target.value) }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-300 cursor-pointer" title="E-mail me when this material reaches its reorder / urgent level">
+              <input type="checkbox" checked={newMaterial.alertsEnabled !== false} onChange={e => setNewMaterial((p: any) => ({ ...p, alertsEnabled: e.target.checked }))} className="accent-emerald-500" />
+              Follow stock
+            </label>
             <div className="md:col-span-7 border-t border-slate-800 pt-3 mt-1">
               <ExtraUnitsEditor
                 unit={newMaterial.unit}
@@ -1248,6 +1294,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <th className="text-right px-4 py-2">Consumed</th>
                   <th className="text-right px-4 py-2">Current Stock</th>
                   <th className="text-right px-4 py-2">Reorder At</th>
+                  <th className="text-right px-4 py-2">Urgent At</th>
+                  <th className="text-center px-4 py-2">Status</th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
@@ -1258,8 +1306,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   .map(m => {
                     const inv = analytics?.inventoryReport?.find((r: any) => r.materialId === m.id);
                     const grp = materialGroup(m);
+                    const stockStatus = getStockStatus(m);
                     return (
-                      <tr key={m.id} className="border-t border-slate-800">
+                      <tr key={m.id} data-testid={`mat-row-${m.id}`} data-stock-status={stockStatus} className={`border-t border-slate-800 ${STATUS_ROW_CLASS[stockStatus]}`}>
                         <td className="px-2 py-2 text-center">
                           <button onClick={() => toggleCritical(m)} title={isMaterialCritical(m) ? 'Marked as Key Material — click to unmark' : 'Click to mark as Key Material'} className="cursor-pointer">
                             <Star className={`h-3.5 w-3.5 ${isMaterialCritical(m) ? 'text-amber-400 fill-amber-400' : 'text-slate-600'}`} />
@@ -1277,7 +1326,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         <td className="px-4 py-2 text-slate-400">{(m as any).location || '—'}</td>
                         <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
                         <td className="px-4 py-2 text-right text-rose-400 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
-                        <td className={`px-4 py-2 text-right font-mono ${(m.reorderLevel || 0) > 0 && m.currentStock <= (m.reorderLevel || 0) ? 'text-rose-400 font-bold' : 'text-slate-200'}`}>
+                        <td className={`px-4 py-2 text-right font-mono ${stockStatus === 'urgent' ? 'text-rose-300 font-black' : stockStatus === 'reorder' ? 'text-rose-400 font-bold' : 'text-slate-200'}`}>
                           {m.currentStock} {m.unit}
                           {equivalentsText(m, m.currentStock) && (
                             <div className="text-[10px] font-mono text-emerald-400/80 font-normal" data-testid={`mat-equiv-${m.id}`}>= {equivalentsText(m, m.currentStock)}</div>
@@ -1285,7 +1334,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           {perUnitText(m) && <div className="text-[10px] text-slate-500 font-normal">1 {m.unit} = {perUnitText(m).replace(` per ${m.unit}`, '')}</div>}
                         </td>
                         <td className="px-4 py-2 text-right text-slate-500">{m.reorderLevel || 0}</td>
+                        <td className="px-4 py-2 text-right text-slate-500">{num(m.urgentLevel) || 0}</td>
+                        <td className="px-4 py-2 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
                         <td className="px-4 py-2 text-right flex items-center justify-end gap-2">
+                          <button onClick={() => toggleFollow(m)} data-testid={`follow-${m.id}`} title={isFollowed(m) ? 'Following — e-mails on. Click to turn off' : 'Not following — click to turn e-mails on'} className="cursor-pointer">
+                            {isFollowed(m) ? <Bell className="h-3.5 w-3.5 text-emerald-400" /> : <BellOff className="h-3.5 w-3.5 text-slate-600" />}
+                          </button>
+                          <button onClick={() => setAlertEdit(m)} data-testid={`alerts-${m.id}`} title="Set reorder / urgent levels" className="flex items-center gap-1 text-slate-500 hover:text-rose-400 cursor-pointer text-[11px] font-bold"><SlidersHorizontal className="h-3 w-3" />Alerts</button>
                           <button onClick={() => setUnitsEdit({ material: m, extraUnits: (m.extraUnits || []).map(u => ({ ...u })) })} data-testid={`units-${m.id}`} title="Add length / weight per unit" className="text-slate-500 hover:text-orange-400 cursor-pointer text-[11px] font-bold">Units</button>
                           <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
                           <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-400 cursor-pointer text-[11px] font-bold">Move to Assets</button>
@@ -1303,6 +1358,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             )}
           </div>
         </div>
+      )}
+
+      {/* ---------- REORDER TAB (everything at/below its reorder or urgent level) ---------- */}
+      {tab === 'reorder' && (
+        <ReorderPage materials={materials} onEditAlerts={setAlertEdit} onToggleFollow={toggleFollow} />
       )}
 
       {/* ---------- COMPANY ASSETS TAB (tools, equipment — not consumed, just tracked: name, tag number, who has it, value) ---------- */}
