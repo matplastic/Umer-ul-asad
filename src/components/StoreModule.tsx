@@ -23,7 +23,6 @@ import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS } from '../lib/stockA
 import { StockStatusBadge } from './StockStatusBadge';
 import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
-import { SearchableSelect, SearchableOption } from './SearchableSelect';
 
 type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder';
 
@@ -580,20 +579,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     loadAll(true);
   };
 
-  // Options for the searchable material pickers (BOM + Goods Received).
-  // Search covers name, ERP code, brand, supplier, location, HS code, category.
-  const materialOptions: SearchableOption[] = useMemo(() =>
-    [...materials]
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map(m => ({
-        id: m.id,
-        label: `${m.name} (${m.unit})`,
-        sub: [m.erpCode, m.brand, m.supplierName, m.location].filter(Boolean).join(' · ') || undefined,
-        right: `${m.currentStock} ${m.unit}`,
-        search: [m.erpCode, m.brand, m.supplierName, m.location, m.hsCode, m.category].filter(Boolean).join(' '),
-      })),
-    [materials]);
-
   // Materials currently at/below a level — drives the Reorder tab badge.
   const reorderBadge = useMemo(() => {
     let urgent = 0, low = 0;
@@ -1043,7 +1028,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" data-testid="store-module">
+    <div className="w-full max-w-none mx-auto px-1 sm:px-2 py-4" data-testid="store-module">
       {/* Edit extra units (length / weight per unit) of an existing material */}
       {unitsEdit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60" onClick={() => setUnitsEdit(null)} data-testid="units-modal">
@@ -1301,17 +1286,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
                   <th className="px-2 py-2" title="Key material"></th>
-                  <th className="text-left px-4 py-2">ERP Code</th>
-                  <th className="text-left px-4 py-2">Material</th>
-                  <th className="text-left px-4 py-2">Portal</th>
-                  <th className="text-left px-4 py-2">Location</th>
-                  <th className="text-right px-4 py-2">Incoming</th>
-                  <th className="text-right px-4 py-2">Consumed</th>
-                  <th className="text-right px-4 py-2">Current Stock</th>
-                  <th className="text-right px-4 py-2">Reorder At</th>
-                  <th className="text-right px-4 py-2">Urgent At</th>
-                  <th className="text-center px-4 py-2">Status</th>
-                  <th className="px-4 py-2"></th>
+                  <th className="text-left px-2 py-2">ERP Code</th>
+                  <th className="text-left px-2 py-2">Material</th>
+                  <th className="text-left px-2 py-2">Portal</th>
+                  <th className="text-left px-2 py-2">Location</th>
+                  <th className="text-right px-2 py-2">Incoming</th>
+                  <th className="text-right px-2 py-2">Consumed</th>
+                  <th className="text-right px-2 py-2">Current Stock</th>
+                  <th className="text-right px-2 py-2">Reorder At</th>
+                  <th className="text-right px-2 py-2">Urgent At</th>
+                  <th className="text-center px-2 py-2">Status</th>
+                  <th className="px-2 py-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1329,29 +1314,29 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                             <Star className={`h-3.5 w-3.5 ${isMaterialCritical(m) ? 'text-amber-400 fill-amber-400' : 'text-slate-600'}`} />
                           </button>
                         </td>
-                        <td className="px-4 py-2 text-slate-400 font-mono">{(m as any).erpCode || '—'}</td>
-                        <td className="px-4 py-2 text-slate-200 font-semibold">{m.name}</td>
-                        <td className="px-4 py-2">
+                        <td className="px-2 py-2 text-slate-400 font-mono">{(m as any).erpCode || '—'}</td>
+                        <td className="px-2 py-2 text-slate-200 font-semibold min-w-[150px] max-w-[260px] break-words">{m.name}</td>
+                        <td className="px-2 py-2">
                           <select value={grp} onChange={e => setMaterialGroup(m, e.target.value as any)} data-testid={`mat-group-${m.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase border cursor-pointer bg-transparent ${GROUP_BADGE[grp]}`}>
                             <option className="bg-slate-900" value="mep">MEP</option>
                             <option className="bg-slate-900" value="civil">Civil</option>
                             <option className="bg-slate-900" value="other">Other</option>
                           </select>
                         </td>
-                        <td className="px-4 py-2 text-slate-400">{(m as any).location || '—'}</td>
-                        <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
-                        <td className="px-4 py-2 text-right text-rose-400 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
-                        <td className={`px-4 py-2 text-right font-mono ${stockStatus === 'urgent' ? 'text-rose-300 font-black' : stockStatus === 'reorder' ? 'text-rose-400 font-bold' : 'text-slate-200'}`}>
+                        <td className="px-2 py-2 text-slate-400 max-w-[170px] break-words">{(m as any).location || '—'}</td>
+                        <td className="px-2 py-2 text-right text-emerald-400 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
+                        <td className="px-2 py-2 text-right text-rose-400 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
+                        <td className={`px-2 py-2 text-right font-mono ${stockStatus === 'urgent' ? 'text-rose-300 font-black' : stockStatus === 'reorder' ? 'text-rose-400 font-bold' : 'text-slate-200'}`}>
                           {m.currentStock} {m.unit}
                           {equivalentsText(m, m.currentStock) && (
                             <div className="text-[10px] font-mono text-emerald-400/80 font-normal" data-testid={`mat-equiv-${m.id}`}>= {equivalentsText(m, m.currentStock)}</div>
                           )}
                           {perUnitText(m) && <div className="text-[10px] text-slate-500 font-normal">1 {m.unit} = {perUnitText(m).replace(` per ${m.unit}`, '')}</div>}
                         </td>
-                        <td className="px-4 py-2 text-right text-slate-500">{m.reorderLevel || 0}</td>
-                        <td className="px-4 py-2 text-right text-slate-500">{num(m.urgentLevel) || 0}</td>
-                        <td className="px-4 py-2 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
-                        <td className="px-4 py-2 text-right flex items-center justify-end gap-2">
+                        <td className="px-2 py-2 text-right text-slate-500">{m.reorderLevel || 0}</td>
+                        <td className="px-2 py-2 text-right text-slate-500">{num(m.urgentLevel) || 0}</td>
+                        <td className="px-2 py-2 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
+                        <td className="px-2 py-2 text-right"><div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 max-w-[270px] ml-auto">
                           <button onClick={() => toggleFollow(m)} data-testid={`follow-${m.id}`} title={isFollowed(m) ? 'Following — e-mails on. Click to turn off' : 'Not following — click to turn e-mails on'} className="cursor-pointer">
                             {isFollowed(m) ? <Bell className="h-3.5 w-3.5 text-emerald-400" /> : <BellOff className="h-3.5 w-3.5 text-slate-600" />}
                           </button>
@@ -1360,7 +1345,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
                           <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-400 cursor-pointer text-[11px] font-bold">Move to Assets</button>
                           <button onClick={() => deleteMaterial(m.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
-                        </td>
+                        </div></td>
                       </tr>
                     );
                   })}
@@ -1456,14 +1441,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {tab === 'incoming' && (
         <div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
-            <SearchableSelect
-              className="md:col-span-2"
-              options={materialOptions}
-              value={newIncoming.materialId}
-              onChange={id => setNewIncoming((p: any) => ({ ...p, materialId: id }))}
-              placeholder="Search material — name, ERP code, brand, supplier…"
-              testId="new-incoming-material"
-            />
+            <select value={newIncoming.materialId} onChange={e => setNewIncoming((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="new-incoming-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
+              <option value="">Material…</option>
+              {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit}) · stock: {m.currentStock}</option>)}
+            </select>
             <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
@@ -1941,13 +1922,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             {newBom.poolType === '__custom__' && (
               <input placeholder="Pool type name" onChange={e => setNewBom((p: any) => ({ ...p, poolType: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             )}
-            <SearchableSelect
-              options={materialOptions}
-              value={newBom.materialId}
-              onChange={id => setNewBom((p: any) => ({ ...p, materialId: id }))}
-              placeholder="Search material…"
-              testId="bom-material"
-            />
+            <select value={newBom.materialId} onChange={e => setNewBom((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="bom-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+              <option value="">Material…</option>
+              {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+            </select>
             <input type="number" step="any" placeholder="Qty per pool" data-testid="bom-qty" value={newBom.qtyPerPool} onChange={e => setNewBom((p: any) => ({ ...p, qtyPerPool: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={saveBomItem} data-testid="bom-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add to BOM</button>
           </div>
