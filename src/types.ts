@@ -683,6 +683,10 @@ export interface ConsumptionLog {
   // (see MaterialReturn) — kept so the log itself shows it was reversed
   // instead of just silently having a matching return elsewhere.
   reversed?: boolean | null;
+  // Set on rows created automatically when Store confirms a delivery:
+  // the material request line they came from, and how they were created.
+  requestId?: string | null;
+  source?: 'delivery' | 'manual' | null;
 }
 
 // Reversal of material sitting on the floor, back into Store — the other

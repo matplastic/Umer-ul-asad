@@ -13,19 +13,18 @@ import {
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
   dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
-  dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
+  dbFetchConsumptionAnalytics, dbFetchConsumptionLogs,
   dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields, dbFetchProductionLogs,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 import { ExtraUnitsEditor } from './ExtraUnitsEditor';
 import { cleanExtraUnits, equivalentsText, perUnitText } from '../lib/materialUnits';
 import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS } from '../lib/stockAlerts';
 import { StockStatusBadge } from './StockStatusBadge';
 import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
-import { FloorUsagePage } from './FloorUsagePage';
 
-type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder' | 'floorusage';
+type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder';
 
 // ==========================================================
 // PDF letterhead helpers — logo + company header + footer used by every
@@ -157,8 +156,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [incoming, setIncoming] = useState<IncomingMaterial[]>([]);
   const [consumptionLogs, setConsumptionLogs] = useState<ConsumptionLog[]>([]);
-  const [floorStock, setFloorStock] = useState<FloorStock[]>([]);
-  const [materialReturns, setMaterialReturns] = useState<MaterialReturn[]>([]);
   const [companyAssets, setCompanyAssets] = useState<CompanyAsset[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -200,8 +197,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // Log + Stock Ledger) so Store can look at each portal's consumption
   // separately too.
   const [reportsGroupTab, setReportsGroupTab] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
-  // Floor Stock tab search — matches material name or section.
-  const [floorSearch, setFloorSearch] = useState('');
   // Consumption Log search — matches material, section, or logged-by name.
   const [logSearch, setLogSearch] = useState('');
   const [importMode, setImportMode] = useState<'add' | 'update' | 'both'>('both');
@@ -210,15 +205,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, inc, an, cons, fs, rets, assets] = await Promise.all([
+      const [m, b, r, inc, an, cons, assets] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
         dbFetchIncomingMaterials(),
         dbFetchConsumptionAnalytics(),
         dbFetchConsumptionLogs(),
-        dbFetchFloorStock(),
-        dbFetchMaterialReturns(),
         dbFetchCompanyAssets(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
@@ -226,8 +219,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       setRequests(Array.isArray(r) ? r.map((x: any) => ({ ...x, qtyRequested: Number(x.qtyRequested) })) : []);
       setIncoming(Array.isArray(inc) ? inc.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setConsumptionLogs(Array.isArray(cons) ? cons.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
-      setFloorStock(Array.isArray(fs) ? fs.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
-      setMaterialReturns(Array.isArray(rets) ? rets.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setCompanyAssets(Array.isArray(assets) ? assets.map((x: any) => ({ ...x, value: x.value === null || x.value === undefined || x.value === '' ? null : Number(x.value) })) : []);
       setAnalytics(an);
       setError(null);
@@ -335,20 +326,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     setToDate(now.toISOString().slice(0, 10));
   }, []);
 
-  const filteredFloorStock = useMemo(() => {
-    let list = floorStock;
-    // Floor Stock is a running balance, not a dated log — "period" here means
-    // "rows whose last movement falls in this range", so exporting a
-    // Daily/Weekly/Monthly floor report shows only what actually moved then.
-    if (fromDate || toDate) list = list.filter(f => inDateRange((f.updatedAt || '').slice(0, 10)));
-    const q = floorSearch.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(f => {
-      const haystack = [f.materialName, f.sectionName, f.sectionId].filter(Boolean).join(' | ').toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [floorStock, floorSearch, fromDate, toDate, inDateRange]);
-
   const filteredIncoming = useMemo(() => {
     if (!fromDate && !toDate) return incoming;
     return incoming.filter(i => inDateRange(i.receivedAt));
@@ -430,7 +407,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     };
   }, [analytics, materials, passedIncoming, filteredConsumptionLogs, fromDate, toDate]);
 
-  // Store-level stock ledger: Previous Stock → Issued to Floor → Consumed
+  // Store-level stock ledger: Previous Stock → Delivered → Consumed
   // (by supervisors) → Balance Stock, per material, for the selected date
   // range (or all-time if no range is set).
   //
@@ -638,8 +615,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Date: '', Section: '', Material: '', Qty: '', Unit: '', 'Logged By': '', Notes: '' }]), 'Daily Consumption');
     const ledgerRows = stockLedger
       .filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0)
-      .map(r => ({ Material: r.materialName, 'Previous Stock': r.previous, 'Issued to Floor': r.issued, Consumed: r.consumed, 'Balance Stock': r.balance, Unit: r.unit }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ledgerRows.length ? ledgerRows : [{ Material: '', 'Previous Stock': '', 'Issued to Floor': '', Consumed: '', 'Balance Stock': '', Unit: '' }]), 'Stock Ledger');
+      .map(r => ({ Material: r.materialName, 'Previous Stock': r.previous, 'Delivered': r.issued, Consumed: r.consumed, 'Balance Stock': r.balance, Unit: r.unit }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ledgerRows.length ? ledgerRows : [{ Material: '', 'Previous Stock': '', 'Delivered': '', Consumed: '', 'Balance Stock': '', Unit: '' }]), 'Stock Ledger');
     const invRows = (displayedAnalytics?.inventoryReport || []).map((r: any) => ({
       Material: r.materialName,
       Section: r.section ? (SECTION_DEFINITIONS.find(s => s.id === r.section)?.name || r.section) : '',
@@ -733,7 +710,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     doc.addPage();
     autoTable(doc, {
       startY: 45,
-      head: [['Material', 'Previous Stock', 'Issued to Floor', 'Consumed', 'Balance Stock', 'Unit']],
+      head: [['Material', 'Previous Stock', 'Delivered', 'Consumed', 'Balance Stock', 'Unit']],
       body: stockLedger
         .filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0)
         .map(r => [r.materialName, r.previous.toFixed(2), r.issued.toFixed(2), r.consumed.toFixed(2), r.balance.toFixed(2), r.unit]),
@@ -882,28 +859,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     pdfFromTable('Inventory Report', ['Material', 'ERP Code', 'Total Incoming', 'Total Consumed', 'Current Stock', 'In Other Units'], rows, 'inventory_report');
   };
 
-  // --- Floor Stock report (Excel + PDF) — filteredFloorStock already scopes
-  // rows to the selected period by last-movement date (see its useMemo). ---
-  const floorLabel = (f: FloorStock) => SUPERVISOR_SECTIONS.find(s => s.id === f.sectionId)?.name || SECTION_DEFINITIONS.find(s => s.id === f.sectionId)?.name || f.sectionName || f.sectionId;
-  const sortedFloorForExport = () => filteredFloorStock.slice().sort((a, b) => floorLabel(a).localeCompare(floorLabel(b)) || a.materialName.localeCompare(b.materialName));
-
-  const exportFloorExcel = () => {
-    const rows = sortedFloorForExport().map(f => ({
-      Section: floorLabel(f),
-      Material: f.materialName,
-      'On Floor': f.qty,
-      Unit: f.unit,
-      'Last Movement': f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '',
-    }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Section: '', Material: '', 'On Floor': '', Unit: '', 'Last Movement': '' }]), 'Floor Stock');
-    XLSX.writeFile(wb, `floor_stock_report_${fileLabel()}.xlsx`);
-  };
-
-  const exportFloorPDF = () => {
-    const rows = sortedFloorForExport().map(f => [floorLabel(f), f.materialName, `${f.qty} ${f.unit}`, f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '—']);
-    pdfFromTable('Floor Stock Report', ['Section', 'Material', 'On Floor', 'Last Movement'], rows, 'floor_stock_report');
-  };
 
   // --- Excel Import/Export ---
   const downloadTemplate = () => {
@@ -1138,7 +1093,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
-      {(tab === 'incoming' || tab === 'reports' || tab === 'inventory' || tab === 'floor' || tab === 'floorusage' || tab === 'traceability') && (
+      {(tab === 'incoming' || tab === 'reports' || tab === 'inventory' || tab === 'traceability') && (
         <div className="mb-4 flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl p-3">
           <Clock className="h-3.5 w-3.5 text-slate-500" />
           <span className="text-xs font-bold uppercase text-slate-400">Period:</span>
@@ -1197,12 +1152,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           <ClipboardCheck className="h-4 w-4" /> Requests
           {pendingApprovalCount > 0 && <span className="ml-1 bg-amber-500 text-slate-950 rounded-full px-1.5 text-[10px]">{pendingApprovalCount}</span>}
           {pendingPrintCount > 0 && <span className="ml-1 bg-emerald-500 text-slate-950 rounded-full px-1.5 text-[10px]">{pendingPrintCount} print</span>}
-        </button>
-        <button onClick={() => setTab('floor')} data-testid="tab-floor" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'floor' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
-          <Boxes className="h-4 w-4" /> On Floor
-        </button>
-        <button onClick={() => setTab('floorusage')} data-testid="tab-floorusage" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'floorusage' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
-          <Scale className="h-4 w-4" /> Floor Usage
         </button>
         <button onClick={() => setTab('reports')} data-testid="tab-reports" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reports' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <BarChart3 className="h-4 w-4" /> Consumption Reports
@@ -1410,21 +1359,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             )}
           </div>
         </div>
-      )}
-
-      {/* ---------- FLOOR USAGE TAB (floor consumption vs BOM / wastage) ---------- */}
-      {tab === 'floorusage' && (
-        <FloorUsagePage
-          requests={requests}
-          consumptionLogs={consumptionLogs}
-          materialReturns={materialReturns}
-          floorStock={floorStock}
-          bom={bom}
-          materials={materials}
-          fromDate={fromDate}
-          toDate={toDate}
-          loadProduction={dbFetchProductionLogs}
-        />
       )}
 
       {/* ---------- REORDER TAB (everything at/below its reorder or urgent level) ---------- */}
@@ -1867,115 +1801,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
-      {/* ---------- FLOOR STOCK TAB ---------- */}
-      {tab === 'floor' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
-          <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export Floor Stock Report:</div>
-          <button onClick={exportFloorExcel} data-testid="export-floor-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-            <Download className="h-3.5 w-3.5" /> Excel
-          </button>
-          <button onClick={exportFloorPDF} data-testid="export-floor-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-            <FileText className="h-3.5 w-3.5" /> PDF
-          </button>
-          <div className="text-[10px] text-slate-500 ml-1">Filtered to the period above by last movement date (or all current floor stock if none selected).</div>
-        </div>
-      )}
-
-      {tab === 'floor' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-          <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
-            <Boxes className="h-4 w-4 text-orange-400" />
-            <div className="text-sm font-bold text-white">Material Currently on the Floor</div>
-            <div className="text-xs text-slate-500">Issued out of Store on approval, not yet consumed</div>
-            <div className="ml-auto relative">
-              <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search material or section…"
-                value={floorSearch}
-                onChange={e => setFloorSearch(e.target.value)}
-                data-testid="floor-search"
-                className="bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-2 py-1.5 text-xs text-white w-64"
-              />
-            </div>
-          </div>
-          <table className="w-full min-w-[700px] text-xs">
-            <thead>
-              <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
-                <th className="text-left px-4 py-2">Section</th>
-                <th className="text-left px-4 py-2">Material</th>
-                <th className="text-right px-4 py-2">On Floor</th>
-                <th className="text-left px-4 py-2">Last Movement</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredFloorStock
-                .slice()
-                .sort((a, b) => (a.sectionName || a.sectionId).localeCompare(b.sectionName || b.sectionId) || a.materialName.localeCompare(b.materialName))
-                .map(f => {
-                  const sectionLbl = SUPERVISOR_SECTIONS.find(s => s.id === f.sectionId)?.name
-                    || SECTION_DEFINITIONS.find(s => s.id === f.sectionId)?.name
-                    || f.sectionName || f.sectionId;
-                  return (
-                    <tr key={f.id} className="border-t border-slate-800">
-                      <td className="px-4 py-2 text-slate-300">{sectionLbl}</td>
-                      <td className="px-4 py-2 text-slate-200 font-semibold">{f.materialName}</td>
-                      <td className={`px-4 py-2 text-right font-mono font-bold ${f.qty <= 0 ? 'text-slate-500' : 'text-emerald-400'}`}>{f.qty} {f.unit}{eqFor(f.materialId, Number(f.qty)) && <div className="text-[10px] font-normal text-emerald-400/70">= {eqFor(f.materialId, Number(f.qty))}</div>}</td>
-                      <td className="px-4 py-2 text-slate-500 font-mono">{f.updatedAt ? new Date(f.updatedAt).toLocaleString() : '—'}</td>
-                    </tr>
-                  );
-                })}
-              {filteredFloorStock.length === 0 && (
-                <tr><td colSpan={4} className="text-center text-slate-500 py-10">
-                  {floorSearch ? `No floor stock matches "${floorSearch}".` : 'Nothing issued to the floor yet. Approve a request to move material out of the Store.'}
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {tab === 'floor' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[50vh] mt-4">
-          <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-amber-400" />
-            <div className="text-sm font-bold text-white">Returns to Store</div>
-            <div className="text-xs text-slate-500">Unused floor stock sent back — Store's stock and this section's floor balance were both updated</div>
-          </div>
-          <table className="w-full min-w-[700px] text-xs">
-            <thead>
-              <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
-                <th className="text-left px-4 py-2">Date</th>
-                <th className="text-left px-4 py-2">Section</th>
-                <th className="text-left px-4 py-2">Material</th>
-                <th className="text-right px-4 py-2">Qty Returned</th>
-                <th className="text-left px-4 py-2">Returned By</th>
-                <th className="text-left px-4 py-2">Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {materialReturns
-                .slice()
-                .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-                .slice(0, 200)
-                .map(ret => (
-                  <tr key={ret.id} className="border-t border-slate-800">
-                    <td className="px-4 py-2 text-slate-400 font-mono">{ret.date}</td>
-                    <td className="px-4 py-2 text-slate-300">{ret.sectionName || ret.sectionId}</td>
-                    <td className="px-4 py-2 text-slate-200 font-semibold">{ret.materialName}</td>
-                    <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{Number(ret.qty).toFixed(2)} {ret.unit}</td>
-                    <td className="px-4 py-2 text-slate-400">{ret.returnedByName}</td>
-                    <td className="px-4 py-2 text-slate-500">{ret.reason || '—'}</td>
-                  </tr>
-                ))}
-              {materialReturns.length === 0 && (
-                <tr><td colSpan={6} className="text-center text-slate-500 py-8">No returns logged yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       {/* ---------- BOM TAB ---------- */}
       {tab === 'bom' && (
         <div>
@@ -2406,14 +2231,14 @@ const ConsumptionReports: React.FC<{
         <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
           <BarChart3 className="h-4 w-4 text-orange-400" />
           <div className="text-sm font-bold text-white">Stock Ledger</div>
-          <div className="text-xs text-slate-500">Previous stock → issued to floor → consumed → balance, for the date range above</div>
+          <div className="text-xs text-slate-500">Previous stock → delivered → consumed → balance, for the date range above</div>
         </div>
         <table className="w-full min-w-[760px] text-xs">
           <thead>
             <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Material</th>
               <th className="text-right px-4 py-2">Previous Stock</th>
-              <th className="text-right px-4 py-2">Issued to Floor</th>
+              <th className="text-right px-4 py-2">Delivered</th>
               <th className="text-right px-4 py-2">Consumed</th>
               <th className="text-right px-4 py-2">Balance Stock</th>
             </tr>
@@ -2438,7 +2263,7 @@ const ConsumptionReports: React.FC<{
           </tbody>
         </table>
         <div className="px-4 py-2 text-[10px] text-slate-500 border-t border-slate-800">
-          "Consumed" is what supervisors logged off the floor — it doesn't change Balance Stock, since material leaves Store the moment it's issued, not the moment it's used. Check the Floor Stock tab for what's still sitting unused per section.
+          "Delivered" is what the Store Manager confirmed handing over. Each confirmed delivery is also recorded as consumption for the receiving section, and Balance Stock drops by the delivered quantity.
         </div>
       </div>
 

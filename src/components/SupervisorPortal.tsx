@@ -6,13 +6,12 @@ import {
 } from 'lucide-react';
 import {
   dbFetchMaterials, dbFetchBomItems, dbSubmitMaterialRequestBatch, dbFetchMaterialRequests,
-  dbFetchConsumptionLogs, dbCreateConsumptionLog, dbDeleteConsumptionLog,
+  dbFetchConsumptionLogs,
   dbFetchProductionLogs, dbCreateProductionLog, dbDeleteProductionLog,
-  dbFetchFloorStock, dbCreateMaterialReturn,
   dbFetchSupervisorPurchaseRequests, dbSaveSupervisorPurchaseRequests, dbSendSupervisorPurchaseRequestEmail,
 } from '../lib/firebaseService';
 import {
-  Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog, FloorStock,
+  Material, BOMItem, MaterialRequest, ConsumptionLog, ProductionLog,
   SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, SupervisorPurchaseRequest,
 } from '../types';
 import { exportTablePdf } from '../lib/exportUtils';
@@ -44,7 +43,6 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [consumption, setConsumption] = useState<ConsumptionLog[]>([]);
   const [production, setProduction] = useState<ProductionLog[]>([]);
-  const [floorStock, setFloorStock] = useState<FloorStock[]>([]);
   // Purchase Requests (tools / equipment / site items) — separate from
   // Material Requests above: this is for buying non-stock items, mirroring
   // HR's Purchase Requests tab (request → manager email approval → print PO
@@ -97,13 +95,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, c, p, fs, pr] = await Promise.all([
+      const [m, b, r, c, p, pr] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
         dbFetchConsumptionLogs(),
         dbFetchProductionLogs(),
-        dbFetchFloorStock(),
         dbFetchSupervisorPurchaseRequests(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
@@ -111,7 +108,6 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       setRequests(Array.isArray(r) ? r : []);
       setConsumption(Array.isArray(c) ? c : []);
       setProduction(Array.isArray(p) ? p : []);
-      setFloorStock(Array.isArray(fs) ? fs : []);
       setPurchaseRequests(Array.isArray(pr) ? pr as SupervisorPurchaseRequest[] : []);
       setError(null);
     } catch (e: any) {
@@ -161,44 +157,6 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       })
       .slice(0, 100);
   }, [materials, rSearch, section, rGroup]);
-
-  // How much of each material has actually been issued to THIS section and
-  // is sitting on the floor, not yet consumed. This is what a supervisor can
-  // really consume from — not the Store's total stock.
-  const sectionFloorStock = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const f of floorStock) {
-      if (f.sectionId === section) map[f.materialId] = Number(f.qty || 0);
-    }
-    return map;
-  }, [floorStock, section]);
-
-  // Searchable options for "Material used" (consumption) and "Material to return".
-  const consumptionOptions: SearchableOption[] = useMemo(() =>
-    sectionMaterials.map(m => ({
-      id: m.id,
-      label: `${m.name} (${m.unit})`,
-      sub: [m.erpCode, m.brand, m.supplierName].filter(Boolean).join(' · ') || undefined,
-      right: `on floor: ${sectionFloorStock[m.id] || 0}`,
-      search: [m.erpCode, m.brand, m.supplierName, m.location, m.hsCode, m.category].filter(Boolean).join(' '),
-    })),
-    [sectionMaterials, sectionFloorStock]);
-
-  const returnOptions: SearchableOption[] = useMemo(() =>
-    Object.entries(sectionFloorStock)
-      .filter(([, qty]) => Number(qty) > 0)
-      .map(([matId, qty]) => {
-        const mat = materials.find(m => m.id === matId);
-        return {
-          id: matId,
-          label: `${mat?.name || matId}${mat?.unit ? ` (${mat.unit})` : ''}`,
-          sub: [mat?.erpCode, mat?.brand].filter(Boolean).join(' · ') || undefined,
-          right: `on floor: ${qty} ${mat?.unit || ''}`.trim(),
-          search: [mat?.erpCode, mat?.brand, mat?.supplierName, mat?.category].filter(Boolean).join(' '),
-        } as SearchableOption;
-      })
-      .sort((a, b) => a.label.localeCompare(b.label)),
-    [sectionFloorStock, materials]);
 
   const myConsumption = useMemo(() => consumption
     .filter(c => c.sectionId === section)
@@ -258,76 +216,6 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       actual: actual[k]?.qty || 0,
     })).sort((a, b) => a.materialName.localeCompare(b.materialName));
   }, [bom, myProduction, myConsumption]);
-
-  const submitConsumption = async () => {
-    if (!cMaterialId || !cQty) { setFlash('Select a material and quantity'); return; }
-    const mat = materials.find(m => m.id === cMaterialId);
-    if (!mat) return;
-    // Check Floor Stock BEFORE logging — you can only consume what Store has
-    // actually issued to this section. If nothing (or not enough) is on the
-    // floor, block the submission with a clear error instead of logging it
-    // anyway; the write itself is also guarded server-side against this.
-    const available = sectionFloorStock[cMaterialId] || 0;
-    if (Number(cQty) > available) {
-      setFlash(available <= 0
-        ? `No ${mat.name} on the floor for ${sectionName} — Store hasn't issued any yet. Ask Store to approve/issue it first.`
-        : `Only ${available} ${mat.unit} of ${mat.name} is on the floor for ${sectionName} — you can't log more than that.`);
-      setTimeout(() => setFlash(null), 6000);
-      return;
-    }
-    try {
-      await dbCreateConsumptionLog({
-        date: cDate,
-        sectionId: section,
-        sectionName,
-        materialId: mat.id,
-        materialName: mat.name,
-        unit: mat.unit,
-        qty: Number(cQty),
-        notes: cNotes || null,
-        loggedByName: currentUserName,
-      });
-      setCMaterialId(''); setCQty(''); setCNotes('');
-      setFlash('Consumption logged. Floor stock updated.');
-      setTimeout(() => setFlash(null), 2500);
-      loadAll(true);
-    } catch (e: any) {
-      setFlash(e?.message || 'Could not log consumption — floor stock may have changed. Refresh and try again.');
-      setTimeout(() => setFlash(null), 6000);
-    }
-  };
-
-  const submitReturn = async () => {
-    if (!retMaterialId || !retQty) { setFlash('Select a material and quantity to return'); return; }
-    const mat = materials.find(m => m.id === retMaterialId);
-    if (!mat) return;
-    const available = sectionFloorStock[retMaterialId] || 0;
-    if (Number(retQty) > available) {
-      setFlash(`Only ${available} ${mat.unit} of ${mat.name} is on the floor for ${sectionName} — you can't return more than that.`);
-      setTimeout(() => setFlash(null), 6000);
-      return;
-    }
-    try {
-      await dbCreateMaterialReturn({
-        date: todayStr(),
-        sectionId: section,
-        sectionName,
-        materialId: mat.id,
-        materialName: mat.name,
-        unit: mat.unit,
-        qty: Number(retQty),
-        reason: retReason || null,
-        returnedByName: currentUserName,
-      });
-      setRetMaterialId(''); setRetQty(''); setRetReason(''); setShowReturnForm(false);
-      setFlash('Returned to Store. Floor stock and Store stock both updated.');
-      setTimeout(() => setFlash(null), 3000);
-      loadAll(true);
-    } catch (e: any) {
-      setFlash(e?.message || 'Could not process the return — floor stock may have changed. Refresh and try again.');
-      setTimeout(() => setFlash(null), 6000);
-    }
-  };
 
   const submitProduction = async () => {
     if (!pProject || !pPoolType || !pQty) { setFlash('Fill project, pool type and quantity'); return; }
@@ -700,7 +588,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* Sub-tabs */}
       <div className="flex flex-wrap gap-2 mb-5">
         <button onClick={() => setTab('consumption')} data-testid="tab-consumption" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'consumption' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
-          <Boxes className="h-4 w-4" /> Log Consumption
+          <Boxes className="h-4 w-4" /> Consumption
         </button>
         <button onClick={() => setTab('production')} data-testid="tab-production" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'production' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <Factory className="h-4 w-4" /> Log Production
@@ -722,60 +610,8 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* CONSUMPTION TAB */}
       {tab === 'consumption' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-[10px] uppercase font-bold text-slate-500">Currently on the floor — {sectionName} (issued by Store, not yet consumed)</div>
-              <button onClick={() => setShowReturnForm(v => !v)} data-testid="toggle-return-form" className="text-[11px] font-bold text-amber-400 hover:text-amber-300 cursor-pointer">
-                {showReturnForm ? 'Cancel Return' : '↩ Return to Store'}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {Object.keys(sectionFloorStock).length === 0 && (
-                <span className="text-xs text-slate-600">Nothing issued to this section yet — request material first.</span>
-              )}
-              {Object.entries(sectionFloorStock).filter(([, qty]) => qty !== 0).map(([matId, qty]) => {
-                const mat = materials.find(m => m.id === matId);
-                return (
-                  <span key={matId} className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-200">
-                    {mat?.name || matId}: <span className="font-mono font-bold text-emerald-400">{qty}</span> {mat?.unit || ''}
-                  </span>
-                );
-              })}
-            </div>
-            {showReturnForm && (
-              <div className="mt-3 pt-3 border-t border-slate-800 grid grid-cols-1 md:grid-cols-4 gap-2">
-                <SearchableSelect
-                  className="md:col-span-2"
-                  options={returnOptions}
-                  value={retMaterialId}
-                  onChange={setRetMaterialId}
-                  placeholder="Search material to return…"
-                  emptyText="Nothing on your floor to return."
-                  testId="return-material"
-                />
-                <input type="number" step="any" placeholder="Qty to return" value={retQty} onChange={e => setRetQty(e.target.value)} data-testid="return-qty" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-                <input placeholder="Reason (optional)" value={retReason} onChange={e => setRetReason(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-                <button onClick={submitReturn} data-testid="return-submit" className="md:col-span-4 flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-                  Confirm Return to Store
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
-            <input type="date" data-testid="cons-date" value={cDate} onChange={e => setCDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <SearchableSelect
-              className="md:col-span-2"
-              options={consumptionOptions}
-              value={cMaterialId}
-              onChange={setCMaterialId}
-              placeholder="Search material used…"
-              testId="cons-material"
-            />
-            <input type="number" step="any" data-testid="cons-qty" placeholder="Qty" value={cQty} onChange={e => setCQty(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Note (optional)" value={cNotes} onChange={e => setCNotes(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <button onClick={submitConsumption} data-testid="cons-submit" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-              <Plus className="h-3.5 w-3.5" /> Log
-            </button>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 mb-5 text-xs text-slate-400">
+            Consumption is recorded automatically: when the Store Manager confirms a delivery for {sectionName}, the quantity he enters appears here straight away.
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
@@ -789,8 +625,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Qty</th>
                   <th className="text-left px-4 py-2">Note</th>
-                  <th className="text-left px-4 py-2">Logged by</th>
-                  <th className="px-4 py-2"></th>
+                  <th className="text-left px-4 py-2">Confirmed by</th>
                 </tr>
               </thead>
               <tbody>
@@ -801,11 +636,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                     <td className="px-4 py-2 text-right text-slate-200 font-mono">{Number(c.qty)} {c.unit}</td>
                     <td className="px-4 py-2 text-slate-500">{c.notes || '—'}</td>
                     <td className="px-4 py-2 text-slate-500">{c.loggedByName}</td>
-                    <td className="px-4 py-2 text-right"><button onClick={async () => { await dbDeleteConsumptionLog(c.id); loadAll(true); }} data-testid={`cons-del-${c.id}`} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
                 ))}
                 {myConsumption.length === 0 && (
-                  <tr><td colSpan={6} className="text-center text-slate-500 py-8">No consumption logged yet.</td></tr>
+                  <tr><td colSpan={5} className="text-center text-slate-500 py-8">No consumption yet — it appears here once Store confirms a delivery.</td></tr>
                 )}
               </tbody>
             </table>

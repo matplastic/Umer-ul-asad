@@ -2651,46 +2651,6 @@ export async function dbDeleteBomItem(id: string) {
   return res.json();
 }
 
-// --- Floor Stock (material issued out of the Store to a section, not yet
-// consumed — see the FloorStock type comment in types.ts for the full flow) ---
-export async function dbFetchFloorStock(): Promise<FloorStock[]> {
-  if (!apiBase()) return getFirestoreDocArray('floorStock');
-  const res = await fetch(getApiUrl('/api/floor-stock'));
-  return res.ok ? res.json() : [];
-}
-
-// Adds (or subtracts, with a negative delta) `delta` units of a material to
-// the floor stock of one section. Used when a request is approved (+) and
-// when consumption is logged (-) or a consumption log is deleted/reversed (+).
-async function adjustFloorStock(
-  sectionId: string, sectionName: string,
-  materialId: string, materialName: string, unit: string,
-  delta: number,
-): Promise<void> {
-  if (!sectionId || !delta) return;
-  const rowId = `${sectionId}__${materialId}`;
-  await updateFirestoreDocArray('floorStock', (arr) => {
-    const idx = arr.findIndex((f) => f.id === rowId);
-    if (idx !== -1) {
-      arr[idx] = {
-        ...arr[idx],
-        // Refresh labels too — approval time only knows the raw section id,
-        // so once a consumption log call comes through with the friendly
-        // section/material names, adopt those instead of staying stuck
-        // with the placeholder.
-        sectionName: sectionName || arr[idx].sectionName,
-        materialName: materialName || arr[idx].materialName,
-        unit: unit || arr[idx].unit,
-        qty: Number(arr[idx].qty || 0) + delta,
-        updatedAt: new Date().toISOString(),
-      };
-    } else {
-      arr.push({ id: rowId, sectionId, sectionName, materialId, materialName, unit, qty: delta, updatedAt: new Date().toISOString() });
-    }
-    return arr;
-  });
-}
-
 // --- Material Requests ---
 export async function dbFetchMaterialRequests(): Promise<MaterialRequest[]> {
   if (!apiBase()) return getFirestoreDocArray('materialRequests');
@@ -2860,13 +2820,15 @@ export class DeliveryConfirmationError extends Error {
 // One atomic transaction does everything:
 //   - request line  -> status DELIVERED, qtyDelivered, deliveredAt/By
 //   - Store stock   -> currentStock goes DOWN by qtyDelivered
-//   - Floor Stock   -> the receiving section's balance goes UP by qtyDelivered
+//   - Consumption   -> one consumption log per line, so it shows up in
+//                      Consumption immediately (no Floor Stock step)
 // Rules:
 //   - only lines still APPROVED or PRINTED can be confirmed (blocks double
 //     confirmation, so stock can never be deducted twice)
 //   - qtyDelivered must be 0..approved qty (0 = nothing delivered)
 //   - lines approved under the OLD flow (no awaitingDelivery flag) already had
-//     stock deducted at approval, so they are only marked DELIVERED.
+//     stock deducted at approval (and were already on Floor Stock), so they are
+//     only marked DELIVERED — no second deduction, no consumption row.
 export async function dbConfirmMaterialDeliveryBatch(
   lines: Array<{ id: string; qtyDelivered: number }>,
   deliveredByName: string,
@@ -2911,32 +2873,37 @@ export async function dbConfirmMaterialDeliveryBatch(
       for (const d of confirmed) if (d.awaitingDelivery) deltas[d.materialId] = (deltas[d.materialId] || 0) + Number(d.qtyDelivered);
       return arr.map((m) => (deltas[m.id] ? { ...m, currentStock: Number(m.currentStock || 0) - deltas[m.id] } : m));
     },
-    floorStock: (arr) => {
+    // Delivered material is consumption from this moment — there is no
+    // separate "on the floor" balance any more. One log row per delivered line,
+    // dated today and attributed to the receiving section.
+    consumptionLogs: (arr) => {
       if (failure) return arr;
+      const day = now.slice(0, 10);
       for (const d of confirmed) {
         const qty = Number(d.qtyDelivered);
         if (!d.awaitingDelivery || qty <= 0) continue;
         const sectionId = (d.stageId as string) || 'unassigned';
-        const sectionName = SUPERVISOR_SECTIONS.find((s) => s.id === sectionId)?.name
-          || SECTION_DEFINITIONS.find((s) => s.id === sectionId)?.name || sectionId;
-        const rowId = `${sectionId}__${d.materialId}`;
-        const idx = arr.findIndex((f) => f.id === rowId);
-        if (idx !== -1) {
-          arr[idx] = {
-            ...arr[idx], sectionName: sectionName || arr[idx].sectionName,
-            materialName: d.materialName || arr[idx].materialName, unit: d.unit || arr[idx].unit,
-            qty: Number(arr[idx].qty || 0) + qty,
-            sourceRequestIds: Array.from(new Set([...(arr[idx].sourceRequestIds || []), d.id])),
-            updatedAt: now,
-          };
-        } else {
-          arr.push({ id: rowId, sectionId, sectionName, materialId: d.materialId, materialName: d.materialName,
-            unit: d.unit, qty, sourceRequestIds: [d.id], updatedAt: now });
-        }
+        const sectionName = SUPERVISOR_SECTIONS.find((x) => x.id === sectionId)?.name
+          || SECTION_DEFINITIONS.find((x) => x.id === sectionId)?.name || sectionId;
+        arr.push({
+          id: newId('cons'),
+          date: day,
+          sectionId,
+          sectionName,
+          materialId: d.materialId,
+          materialName: d.materialName,
+          unit: d.unit,
+          qty,
+          notes: deliveryNotes ? `Delivered by Store — ${deliveryNotes}` : 'Delivered by Store',
+          loggedByName: deliveredByName,
+          createdAt: now,
+          requestId: d.id,
+          source: 'delivery',
+        } as ConsumptionLog);
       }
       return arr;
     },
-  });
+  }, { consumptionLogs: true });
 
   if (failure) throw failure;
   return { success: true, items: confirmed };
@@ -3475,63 +3442,12 @@ export async function dbFetchConsumptionLogs(): Promise<ConsumptionLog[]> {
   return res.ok ? res.json() : [];
 }
 
-// Logs consumption AND draws the qty down from that section's Floor Stock
-// (the material already left the Store at approval time — see FloorStock).
-// Store's currentStock is intentionally NOT touched here anymore; touching
-// it here as well as at approval time used to double-deduct the same
-// material from the same number.
-//
-// Consumption can never exceed what's actually on the floor for that
-// section — the whole point of Floor Stock is that it's the physical
-// quantity issued but not yet used. If it's zero (nothing issued) or less
-// than the qty being logged, this throws instead of writing the log, so a
-// supervisor can't silently push Floor Stock negative. The caller (see
-// SupervisorPortal.submitConsumption) surfaces this as a hard error.
-export class InsufficientFloorStockError extends Error {
-  constructor(public available: number, public unit: string, public materialName: string) {
-    super(
-      available <= 0
-        ? `No ${materialName} on the floor for this section — Store hasn't issued any yet. Ask Store to approve/issue it first.`
-        : `Only ${available} ${unit} of ${materialName} is on the floor for this section — cannot log more than that.`
-    );
-    this.name = 'InsufficientFloorStockError';
-  }
-}
-
+// Plain consumption entry. Floor Stock no longer exists: material becomes
+// consumption when Store confirms delivery (dbConfirmMaterialDeliveryBatch).
 export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' | 'createdAt'>) {
   const full: ConsumptionLog = { ...payload, id: newId('cons'), createdAt: new Date().toISOString() } as ConsumptionLog;
   if (!apiBase()) {
-    const rowId = `${payload.sectionId}__${payload.materialId}`;
-    const requested = Number(payload.qty || 0);
-    let insufficientError: InsufficientFloorStockError | null = null;
-
-    // Floor-stock check + decrement + log write all happen in ONE
-    // transaction now (previously the check read floorStock, then two
-    // separate writes followed) — so two supervisors logging consumption
-    // for the same section/material at the same instant can no longer both
-    // pass the check and together push the floor balance negative. Firestore
-    // serializes/retries the transaction instead.
-    await updateFirestoreDocArrays({
-      floorStock: (arr) => {
-        const idx = arr.findIndex((f) => f.id === rowId);
-        const available = Number(arr[idx]?.qty || 0);
-        if (requested > available) {
-          insufficientError = new InsufficientFloorStockError(available, payload.unit, payload.materialName);
-          return arr; // abort this doc's change; log write below is skipped too once we throw after the transaction
-        }
-        if (idx !== -1) {
-          arr[idx] = { ...arr[idx], qty: available - requested, updatedAt: new Date().toISOString() };
-        }
-        return arr;
-      },
-      consumptionLogs: (arr) => {
-        if (insufficientError) return arr; // don't log if the floor check above failed
-        arr.push({ ...full, sectionRequestIds: null });
-        return arr;
-      },
-    });
-
-    if (insufficientError) throw insufficientError;
+    await updateFirestoreDocArray('consumptionLogs', (arr) => { arr.push(full); return arr; });
     return { success: true, item: full };
   }
   const headers = await getHeaders();
@@ -3547,8 +3463,9 @@ export async function dbCreateConsumptionLog(payload: Omit<ConsumptionLog, 'id' 
   return res.json();
 }
 
-// Deleting a consumption log reverses it — the qty goes back onto the
-// section's Floor Stock, since it was never actually a Store transaction.
+// Deleting a consumption log. A log created by a delivery confirmation
+// (it carries requestId) puts its qty back into Store stock, so the number
+// can't vanish; a plain manual log just disappears.
 export async function dbDeleteConsumptionLog(id: string) {
   if (!apiBase()) {
     let removed: ConsumptionLog | undefined;
@@ -3556,8 +3473,11 @@ export async function dbDeleteConsumptionLog(id: string) {
       removed = arr.find((c) => c.id === id);
       return arr.filter((c) => c.id !== id);
     }, true);
-    if (removed) {
-      await adjustFloorStock(removed.sectionId, removed.sectionName, removed.materialId, removed.materialName, removed.unit, Number(removed.qty || 0));
+    const r = removed as ConsumptionLog | undefined;
+    if (r && r.requestId) {
+      await updateFirestoreDocArray('materials', (arr) =>
+        arr.map((m) => (m.id === r.materialId ? { ...m, currentStock: Number(m.currentStock || 0) + Number(r.qty || 0) } : m))
+      );
     }
     return { success: true };
   }
@@ -3566,61 +3486,11 @@ export async function dbDeleteConsumptionLog(id: string) {
   return res.json();
 }
 
-// --- Material Returns (Floor → back to Store) ---
-// The reversal half of Store ↔ Floor that was missing before: material that
-// was issued to a section but never used can be sent back. Undoes exactly
-// what an approval did — Floor Stock down, Store's currentStock up — in one
-// atomic transaction. This does NOT touch consumption logs; it's only for
-// floor stock that's still sitting there unused.
+// Material returns are kept only as a read of historical records (reports);
+// the Floor -> Store return flow went away with Floor Stock.
 export async function dbFetchMaterialReturns(): Promise<MaterialReturn[]> {
   if (!apiBase()) return getFirestoreDocArray('materialReturns');
   return [];
-}
-
-export class InsufficientFloorStockForReturnError extends Error {
-  constructor(public available: number, public unit: string, public materialName: string) {
-    super(available <= 0
-      ? `No ${materialName} on the floor for this section to return.`
-      : `Only ${available} ${unit} of ${materialName} is on the floor — cannot return more than that.`);
-    this.name = 'InsufficientFloorStockForReturnError';
-  }
-}
-
-export async function dbCreateMaterialReturn(payload: Omit<MaterialReturn, 'id' | 'createdAt'>) {
-  const full: MaterialReturn = { ...payload, id: newId('ret'), createdAt: new Date().toISOString() } as MaterialReturn;
-  if (!apiBase()) {
-    const rowId = `${payload.sectionId}__${payload.materialId}`;
-    const requested = Number(payload.qty || 0);
-    let insufficientError: InsufficientFloorStockForReturnError | null = null;
-    let sourceRequestIds: string[] = [];
-
-    await updateFirestoreDocArrays({
-      floorStock: (arr) => {
-        const idx = arr.findIndex((f) => f.id === rowId);
-        const available = Number(arr[idx]?.qty || 0);
-        if (requested > available) {
-          insufficientError = new InsufficientFloorStockForReturnError(available, payload.unit, payload.materialName);
-          return arr;
-        }
-        sourceRequestIds = arr[idx]?.sourceRequestIds || [];
-        arr[idx] = { ...arr[idx], qty: available - requested, updatedAt: new Date().toISOString() };
-        return arr;
-      },
-      materials: (arr) => {
-        if (insufficientError) return arr;
-        return arr.map((m) => (m.id === payload.materialId ? { ...m, currentStock: (m.currentStock || 0) + requested } : m));
-      },
-      materialReturns: (arr) => {
-        if (insufficientError) return arr;
-        arr.push({ ...full, sourceRequestIds });
-        return arr;
-      },
-    }, { materialReturns: true });
-
-    if (insufficientError) throw insufficientError;
-    return { success: true, item: full };
-  }
-  throw new Error('Material returns are only available in the Firestore-backed deployment.');
 }
 
 export async function dbFetchProductionLogs(): Promise<ProductionLog[]> {
