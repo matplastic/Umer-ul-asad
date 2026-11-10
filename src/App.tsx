@@ -4230,7 +4230,7 @@ export default function App() {
                 </div>
                 <h3 className="text-sm font-black text-slate-800">Enter Your Team Code</h3>
                 <p className="text-xs text-slate-400 mt-1 mb-5">
-                  Ask your supervisor for your team's login code. You'll only see your own section and your own pool.
+                  Ask Syed Umer for your team's login code. You'll only see your own section and your own pool.
                 </p>
                 <input
                   type="password"
@@ -4422,7 +4422,7 @@ export default function App() {
                 </div>
                 <h3 className="text-sm font-black text-slate-800">Enter Your Code</h3>
                 <p className="text-xs text-slate-400 mt-1 mb-5">
-                  Enter your personal supervisor code. Ask Management if you don't have one yet.
+                  Enter your personal supervisor code.
                 </p>
                 <input
                   type="password"
@@ -4507,7 +4507,7 @@ export default function App() {
       {/* Simple Footer */}
       <footer className="bg-white border-t border-slate-100 py-6 text-center text-xs text-slate-400">
         <div className="max-w-7xl mx-auto px-4">
-          <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Furkan Temizkan</p>
+          <p>© 2026 MAT PLASTIC INDUSTRIES LLC. All Rights Reserved. • Powered by Syed Muhammad Umer Ul Asad</p>
         </div>
       </footer>
 
