@@ -3,7 +3,7 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
   Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
-  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal,
+  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -14,7 +14,7 @@ import {
   dbFetchMaterialRequests, dbDecideMaterialRequestBatch, dbMarkMaterialRequestBatchPrinted,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
-  dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields,
+  dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields, dbFetchProductionLogs,
 } from '../lib/firebaseService';
 import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, FloorStock, MaterialReturn, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 import { ExtraUnitsEditor } from './ExtraUnitsEditor';
@@ -23,8 +23,9 @@ import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS } from '../lib/stockA
 import { StockStatusBadge } from './StockStatusBadge';
 import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
+import { FloorUsagePage } from './FloorUsagePage';
 
-type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder';
+type Tab = 'requests' | 'floor' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder' | 'floorusage';
 
 // ==========================================================
 // PDF letterhead helpers — logo + company header + footer used by every
@@ -433,7 +434,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // in that period) — it does not change Balance Stock, since that material
   // already left Store the moment it was issued, not the moment it's used.
   const stockLedger = useMemo(() => {
-    const approvedInRange = requests.filter(r => r.status === 'APPROVED' && (!fromDate && !toDate ? true : inDateRange((r.decidedAt || '').slice(0, 10))));
+    // APPROVED *or* PRINTED: once Store prints the issue slip the status flips to
+    // PRINTED, but that material has still left Store — it must stay in "Issued".
+    const approvedInRange = requests.filter(r => (r.status === 'APPROVED' || r.status === 'PRINTED') && (!fromDate && !toDate ? true : inDateRange((r.decidedAt || '').slice(0, 10))));
     const issuedByMaterial: Record<string, number> = {};
     for (const r of approvedInRange) issuedByMaterial[r.materialId] = (issuedByMaterial[r.materialId] || 0) + Number(r.qtyApproved ?? r.qtyRequested ?? 0);
 
@@ -1089,7 +1092,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
-      {(tab === 'incoming' || tab === 'reports' || tab === 'inventory' || tab === 'floor' || tab === 'traceability') && (
+      {(tab === 'incoming' || tab === 'reports' || tab === 'inventory' || tab === 'floor' || tab === 'floorusage' || tab === 'traceability') && (
         <div className="mb-4 flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl p-3">
           <Clock className="h-3.5 w-3.5 text-slate-500" />
           <span className="text-xs font-bold uppercase text-slate-400">Period:</span>
@@ -1151,6 +1154,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </button>
         <button onClick={() => setTab('floor')} data-testid="tab-floor" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'floor' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <Boxes className="h-4 w-4" /> On Floor
+        </button>
+        <button onClick={() => setTab('floorusage')} data-testid="tab-floorusage" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'floorusage' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <Scale className="h-4 w-4" /> Floor Usage
         </button>
         <button onClick={() => setTab('reports')} data-testid="tab-reports" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reports' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <BarChart3 className="h-4 w-4" /> Consumption Reports
@@ -1358,6 +1364,21 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             )}
           </div>
         </div>
+      )}
+
+      {/* ---------- FLOOR USAGE TAB (floor consumption vs BOM / wastage) ---------- */}
+      {tab === 'floorusage' && (
+        <FloorUsagePage
+          requests={requests}
+          consumptionLogs={consumptionLogs}
+          materialReturns={materialReturns}
+          floorStock={floorStock}
+          bom={bom}
+          materials={materials}
+          fromDate={fromDate}
+          toDate={toDate}
+          loadProduction={dbFetchProductionLogs}
+        />
       )}
 
       {/* ---------- REORDER TAB (everything at/below its reorder or urgent level) ---------- */}
