@@ -4073,7 +4073,7 @@ export default function App() {
       </div>
 
       {/* Central View Dashboard Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className={`flex-1 w-full mx-auto py-6 ${currentRole === 'store' ? 'max-w-none px-2 sm:px-4' : 'max-w-7xl px-4 sm:px-6 lg:px-8'}`}>
         {/* One-time upgrade (Mosaic + Grouting merged into one stage): until it
             has been saved, every portal is replaced by this screen so nobody
             works on pools whose stage positions are still in the old format. */}
