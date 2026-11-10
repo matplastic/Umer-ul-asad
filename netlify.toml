@@ -12,6 +12,20 @@
 [functions."stock-alert-scheduled"]
   schedule = "*/15 * * * *"
 
+# Installable phone app (PWA). The service worker file must never be cached by the
+# browser/CDN, otherwise phones would not pick up new versions after a deploy.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "no-cache"
+
 [[redirects]]
   # Redirect all routes to index.html for React Single Page App (SPA) client-side routing
   from = "/*"
