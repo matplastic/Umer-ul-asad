@@ -506,7 +506,7 @@ export interface BOMItem {
   createdAt: string;
 }
 
-export type MaterialRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'PRINTED';
+export type MaterialRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'PRINTED' | 'DELIVERED';
 
 export interface MaterialRequest {
   id: string;
@@ -541,6 +541,19 @@ export interface MaterialRequest {
   decisionNotes?: string | null;
   decidedAt?: string | null;
   printedAt?: string | null;
+  // DELIVERY CONFIRMATION — stock now moves when Store confirms what it
+  // physically handed over, not when the manager approves.
+  //   awaitingDelivery: true on every approval made under the new flow. It
+  //     marks "stock has NOT been deducted yet". Requests approved under the
+  //     old flow (stock already deducted at approval) don't have it, so
+  //     confirming them never deducts a second time.
+  //   qtyDelivered: actual quantity entered by the Store Manager. This is the
+  //     number deducted from Store stock and shown as Issued/Consumption.
+  awaitingDelivery?: boolean | null;
+  qtyDelivered?: number | null;
+  deliveredAt?: string | null;
+  deliveredByName?: string | null;
+  deliveryNotes?: string | null;
   createdAt: string;
 }
 

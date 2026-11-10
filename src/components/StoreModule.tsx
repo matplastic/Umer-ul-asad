@@ -11,7 +11,7 @@ import autoTable from 'jspdf-autotable';
 import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
-  dbFetchMaterialRequests, dbDecideMaterialRequestBatch, dbMarkMaterialRequestBatchPrinted,
+  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs, dbFetchFloorStock, dbFetchMaterialReturns,
   dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields, dbFetchProductionLogs,
@@ -165,6 +165,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [printBatch, setPrintBatch] = useState<MaterialRequest[] | null>(null);
+  // Delivery confirmation form: lines being confirmed + the qty typed per line.
+  const [deliveryBatch, setDeliveryBatch] = useState<MaterialRequest[] | null>(null);
+  const [deliveryQty, setDeliveryQty] = useState<Record<string, string>>({});
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [deliverySaving, setDeliverySaving] = useState(false);
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   // Quick period presets for the date-range bar (Daily / Weekly / Monthly).
@@ -261,6 +267,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       const approved = items.filter(it => it.status === 'APPROVED');
       const rejected = items.filter(it => it.status === 'REJECTED');
       const printed = items.filter(it => it.status === 'PRINTED');
+      const delivered = items.filter(it => it.status === 'DELIVERED');
+      // Lines Store still has to hand over and confirm (new-flow approvals
+      // only; legacy lines already had stock deducted at approval).
+      const toDeliver = items.filter(it => (it.status === 'APPROVED' || it.status === 'PRINTED') && it.awaitingDelivery);
       // "status" is kept only as a rough summary for sorting/legacy use —
       // prefer pending/approved/rejected/printed below for anything that
       // needs to be correct.
@@ -268,7 +278,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         : approved.length > 0 ? 'APPROVED'
         : rejected.length > 0 && printed.length === 0 ? 'REJECTED'
         : 'PRINTED';
-      return { key, items, pending, approved, rejected, printed, status, createdAt: items[0].createdAt };
+      return { key, items, pending, approved, rejected, printed, delivered, toDeliver, status, createdAt: items[0].createdAt };
     });
   }, [requests]);
 
@@ -434,11 +444,22 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // in that period) — it does not change Balance Stock, since that material
   // already left Store the moment it was issued, not the moment it's used.
   const stockLedger = useMemo(() => {
-    // APPROVED *or* PRINTED: once Store prints the issue slip the status flips to
-    // PRINTED, but that material has still left Store — it must stay in "Issued".
-    const approvedInRange = requests.filter(r => (r.status === 'APPROVED' || r.status === 'PRINTED') && (!fromDate && !toDate ? true : inDateRange((r.decidedAt || '').slice(0, 10))));
+    // Issued = what physically left Store: DELIVERED lines at the qty the Store
+    // Manager confirmed (dated by deliveredAt), plus legacy APPROVED/PRINTED
+    // lines approved before delivery confirmation existed (stock was deducted
+    // at approval; dated by decidedAt). Approved-but-undelivered lines are NOT
+    // issued yet.
+    const approvedInRange = requests.filter(r => {
+      const delivered = r.status === 'DELIVERED';
+      const legacy = (r.status === 'APPROVED' || r.status === 'PRINTED') && !r.awaitingDelivery;
+      if (!delivered && !legacy) return false;
+      return !fromDate && !toDate ? true : inDateRange(((delivered ? r.deliveredAt : r.decidedAt) || '').slice(0, 10));
+    });
     const issuedByMaterial: Record<string, number> = {};
-    for (const r of approvedInRange) issuedByMaterial[r.materialId] = (issuedByMaterial[r.materialId] || 0) + Number(r.qtyApproved ?? r.qtyRequested ?? 0);
+    for (const r of approvedInRange) {
+      const q = r.status === 'DELIVERED' ? Number(r.qtyDelivered ?? 0) : Number(r.qtyApproved ?? r.qtyRequested ?? 0);
+      issuedByMaterial[r.materialId] = (issuedByMaterial[r.materialId] || 0) + q;
+    }
 
     const incomingByMaterial: Record<string, number> = {};
     for (const i of passedIncoming) incomingByMaterial[i.materialId] = (incomingByMaterial[i.materialId] || 0) + Number(i.qty || 0);
@@ -936,36 +957,60 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     loadAll(true);
   };
 
-  // --- Requests --- decide/print act on the WHOLE group (every material
-  // line the supervisor sent together) in one call, not line by line.
-  const decideGroup = async (ids: string[], action: 'approve' | 'reject', noteKey: string) => {
-    if (action === 'approve') {
-      // Same gap that consumption had: approving used to just subtract from
-      // currentStock with no check, so Store could go negative if someone
-      // approved more than what's actually on the shelf. This doesn't block
-      // it outright (a store keeper may need to approve anyway and true up
-      // stock later), but it does warn before doing something irreversible.
-      const group = requests.filter(r => ids.includes(r.id));
-      const shortfalls = group
-        .map(r => {
-          const mat = materials.find(m => m.id === r.materialId);
-          const short = mat ? Number(mat.currentStock || 0) - Number(r.qtyRequested) : null;
-          return short !== null && short < 0 ? { name: r.materialName, short: -short, unit: r.unit } : null;
-        })
-        .filter(Boolean) as { name: string; short: number; unit: string }[];
-      if (shortfalls.length > 0) {
-        const msg = shortfalls.map(s => `${s.name}: short by ${s.short} ${s.unit}`).join('\n');
-        if (!window.confirm(`This will take Store stock negative for:\n\n${msg}\n\nApprove anyway?`)) return;
-      }
-    }
-    await dbDecideMaterialRequestBatch(ids, action, currentUserName, decisionNotes[noteKey] || undefined);
-    loadAll(true);
+  // --- Requests --- Approval is done ONLY by the manager, from the email link.
+  // Store can't approve or reject; it can re-send the email if it got lost.
+  const [resendState, setResendState] = useState<Record<string, 'sending' | 'sent' | 'failed'>>({});
+  const resendToManager = async (ids: string[], key: string) => {
+    setResendState(prev => ({ ...prev, [key]: 'sending' }));
+    const ok = await dbResendMaterialRequestEmail(ids).catch(() => false);
+    setResendState(prev => ({ ...prev, [key]: ok ? 'sent' : 'failed' }));
   };
 
   const markPrinted = async (ids: string[]) => {
     await dbMarkMaterialRequestBatchPrinted(ids);
     setPrintBatch(null);
     loadAll(true);
+  };
+
+  // Open the delivery form with every qty prefilled to the approved amount;
+  // the Store Manager overwrites whatever differs from what he really handed over.
+  const openDelivery = (lines: MaterialRequest[]) => {
+    const init: Record<string, string> = {};
+    for (const it of lines) init[it.id] = String(Number(it.qtyApproved ?? it.qtyRequested));
+    setDeliveryQty(init);
+    setDeliveryNotes('');
+    setDeliveryError(null);
+    setDeliveryBatch(lines);
+  };
+
+  const submitDelivery = async () => {
+    if (!deliveryBatch) return;
+    const lines = deliveryBatch.map(it => ({ id: it.id, qtyDelivered: Number(deliveryQty[it.id]) }));
+    for (const it of deliveryBatch) {
+      const q = Number(deliveryQty[it.id]);
+      const approved = Number(it.qtyApproved ?? it.qtyRequested);
+      if (deliveryQty[it.id] === '' || !Number.isFinite(q) || q < 0) { setDeliveryError(`Enter a valid quantity for ${it.materialName}.`); return; }
+      if (q > approved) { setDeliveryError(`${it.materialName}: cannot deliver more than the approved ${approved} ${it.unit}.`); return; }
+    }
+    const short = deliveryBatch
+      .map(it => {
+        const mat = materials.find(m => m.id === it.materialId);
+        const after = mat ? Number(mat.currentStock || 0) - Number(deliveryQty[it.id]) : null;
+        return after !== null && after < 0 ? `${it.materialName}: short by ${-after} ${it.unit}` : null;
+      })
+      .filter(Boolean) as string[];
+    if (short.length > 0 && !window.confirm(`This will take Store stock negative for:\n\n${short.join('\n')}\n\nConfirm anyway?`)) return;
+    setDeliverySaving(true);
+    setDeliveryError(null);
+    try {
+      await dbConfirmMaterialDeliveryBatch(lines, currentUserName, deliveryNotes.trim() || undefined);
+      setDeliveryBatch(null);
+      loadAll(true);
+    } catch (e: any) {
+      setDeliveryError(e?.message || 'Could not confirm delivery.');
+    } finally {
+      setDeliverySaving(false);
+    }
   };
 
   // --- Incoming ---
@@ -992,6 +1037,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       APPROVED: 'bg-emerald-950/40 text-emerald-400 border-emerald-800',
       REJECTED: 'bg-rose-950/40 text-rose-400 border-rose-800',
       PRINTED: 'bg-slate-800 text-slate-400 border-slate-700',
+      DELIVERED: 'bg-sky-950/40 text-sky-400 border-sky-800',
     };
     return <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${map[status] || map.PENDING}`}>{status}</span>;
   };
@@ -1753,6 +1799,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       {group.approved.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-400 border border-emerald-800">{group.approved.length} Approved</span>}
                       {group.rejected.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-950/40 text-rose-400 border border-rose-800">{group.rejected.length} Rejected</span>}
                       {group.printed.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">{group.printed.length} Printed</span>}
+                      {group.delivered.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-sky-950/40 text-sky-400 border border-sky-800">{group.delivered.length} Delivered</span>}
                       <span className="text-xs text-slate-500 font-mono">{new Date(first.createdAt).toLocaleString()}</span>
                       {group.items.length > 1 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-400 border border-indigo-800">{group.items.length} items</span>}
                     </div>
@@ -1766,10 +1813,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         const lineColor = it.status === 'APPROVED' ? 'border-emerald-800 text-emerald-300'
                           : it.status === 'REJECTED' ? 'border-rose-800 text-rose-300 line-through opacity-70'
                           : it.status === 'PRINTED' ? 'border-slate-700 text-slate-400'
+                          : it.status === 'DELIVERED' ? 'border-sky-800 text-sky-300'
                           : 'border-slate-700 text-slate-200';
                         return (
                           <span key={it.id} className={`px-2 py-1 rounded-lg bg-slate-800 border text-xs ${lineColor}`} title={it.status}>
-                            {it.materialName}: <span className="font-mono font-bold">{Number(it.qtyApproved ?? it.qtyRequested)}</span> {it.unit}
+                            {it.materialName}: <span className="font-mono font-bold">{Number(it.status === 'DELIVERED' ? (it.qtyDelivered ?? 0) : (it.qtyApproved ?? it.qtyRequested))}</span> {it.unit}
                             {it.qtyApproved != null && it.qtyApproved < Number(it.qtyRequested) && (
                               <span className="text-slate-500"> (of {Number(it.qtyRequested)})</span>
                             )}
@@ -1787,28 +1835,29 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
                   <div className="flex items-center gap-2 shrink-0">
                     {group.pending.length > 0 && (
-                      <>
-                        <input
-                          type="text"
-                          placeholder="Note (optional)"
-                          value={decisionNotes[group.key] || ''}
-                          onChange={e => setDecisionNotes(prev => ({ ...prev, [group.key]: e.target.value }))}
-                          className="hidden md:block w-36 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white"
-                        />
-                        <button onClick={() => decideGroup(pendingIds, 'approve', group.key)} data-testid={`req-approve-${group.key}`} className="flex items-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Approve{pendingIds.length > 1 ? ` (${pendingIds.length})` : ''}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-amber-400 font-semibold">Awaiting manager approval (email)</span>
+                        <button
+                          onClick={() => resendToManager(pendingIds, group.key)}
+                          disabled={resendState[group.key] === 'sending'}
+                          data-testid={`req-resend-${group.key}`}
+                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded-lg text-xs font-bold cursor-pointer"
+                        >
+                          {resendState[group.key] === 'sending' ? 'Sending…' : resendState[group.key] === 'sent' ? 'Sent ✓ — resend' : resendState[group.key] === 'failed' ? 'Failed — retry' : 'Resend to manager'}
                         </button>
-                        <button onClick={() => decideGroup(pendingIds, 'reject', group.key)} data-testid={`req-reject-${group.key}`} className="flex items-center gap-1 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-                          <XCircle className="h-3.5 w-3.5" /> Reject{pendingIds.length > 1 ? ` (${pendingIds.length})` : ''}
-                        </button>
-                      </>
+                      </div>
                     )}
                     {group.approved.length > 0 && (
                       <button onClick={() => setPrintBatch(group.approved)} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer animate-pulse">
                         <Printer className="h-3.5 w-3.5" /> Print Issue Slip{group.approved.length > 1 ? ` (${group.approved.length})` : ''}
                       </button>
                     )}
-                    {group.pending.length === 0 && group.approved.length === 0 && group.printed.length > 0 && (
+                    {group.toDeliver.length > 0 && (
+                      <button onClick={() => openDelivery(group.toDeliver)} data-testid={`req-deliver-${group.key}`} className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Confirm Delivery{group.toDeliver.length > 1 ? ` (${group.toDeliver.length})` : ''}
+                      </button>
+                    )}
+                    {group.pending.length === 0 && group.approved.length === 0 && group.toDeliver.length === 0 && group.printed.length > 0 && (
                       <span className="flex items-center gap-1 text-xs text-slate-500"><Clock className="h-3.5 w-3.5" /> Printed {first.printedAt ? new Date(first.printedAt).toLocaleTimeString() : ''}</span>
                     )}
                   </div>
@@ -2011,6 +2060,69 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </div>
       )}
 
+      {/* ---------- CONFIRM DELIVERY MODAL ---------- */}
+      {deliveryBatch && deliveryBatch.length > 0 && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+              <span className="text-xs font-bold uppercase text-slate-400">Confirm Delivery — enter the quantity actually handed over</span>
+              <button onClick={() => setDeliveryBatch(null)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="text-xs text-slate-400 mb-3">
+              {deliveryBatch[0].projectName} / {deliveryBatch[0].poolType} · requested by {deliveryBatch[0].requestedByName} ({deliveryBatch[0].requestedByRole})
+            </div>
+            <table className="w-full text-sm mb-3">
+              <thead>
+                <tr className="text-[11px] uppercase text-slate-500">
+                  <th className="text-left py-2">Material</th>
+                  <th className="text-right py-2">In Store</th>
+                  <th className="text-right py-2">Approved</th>
+                  <th className="text-right py-2 w-36">Delivered</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deliveryBatch.map(it => {
+                  const mat = materials.find(m => m.id === it.materialId);
+                  const approved = Number(it.qtyApproved ?? it.qtyRequested);
+                  return (
+                    <tr key={it.id} className="border-t border-slate-800">
+                      <td className="py-2 text-slate-200 font-semibold">{it.materialName}</td>
+                      <td className="py-2 text-right font-mono text-slate-400">{mat ? Number(mat.currentStock || 0) : '—'} {it.unit}</td>
+                      <td className="py-2 text-right font-mono text-slate-300">{approved} {it.unit}</td>
+                      <td className="py-2 text-right">
+                        <input
+                          type="number" min={0} max={approved} step="any"
+                          value={deliveryQty[it.id] ?? ''}
+                          onChange={e => setDeliveryQty(prev => ({ ...prev, [it.id]: e.target.value }))}
+                          data-testid={`delivery-qty-${it.id}`}
+                          className="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white text-right font-mono"
+                        />
+                        <span className="text-xs text-slate-500 ml-1">{it.unit}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <input
+              type="text" placeholder="Note (optional) — e.g. short stock, balance to follow"
+              value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white mb-3"
+            />
+            {deliveryError && <div className="text-xs text-rose-400 mb-3">{deliveryError}</div>}
+            <div className="text-[11px] text-slate-500 mb-4">
+              Confirming deducts exactly these quantities from Store stock and records them as Issued. This cannot be done twice for the same request.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeliveryBatch(null)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold cursor-pointer">Cancel</button>
+              <button onClick={submitDelivery} disabled={deliverySaving} data-testid="delivery-confirm" className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold cursor-pointer">
+                {deliverySaving ? 'Saving…' : 'Confirm Delivery'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ---------- PRINT SLIP MODAL ---------- */}
       {printBatch && printBatch.length > 0 && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -2065,7 +2177,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <tr className="bg-slate-100 text-slate-600 text-xs uppercase">
                     <th className="text-left px-3 py-2 w-10">#</th>
                     <th className="text-left px-3 py-2">Material</th>
-                    <th className="text-right px-3 py-2">Quantity Issued</th>
+                    <th className="text-right px-3 py-2">Approved Qty</th>
+                    <th className="text-right px-3 py-2 w-32">Delivered Qty</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2079,13 +2192,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           <div className="text-[10px] text-slate-400 font-sans">(of {Number(it.qtyRequested)} requested)</div>
                         )}
                       </td>
+                      <td className="px-3 py-1.5 text-right"><span className="inline-block w-24 border-b border-slate-400">&nbsp;</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
 
               <div className="text-xs bg-slate-100 border border-slate-300 rounded px-3 py-2 mb-6">
-                Status: material has left the Store and is recorded on the <b>{printBatch[0].requestedByRole}</b> Floor Stock. It will be deducted from Floor Stock as it is consumed and logged in Consumption.
+                Status: approved — Store stock is deducted only after the Store Manager confirms the quantity actually delivered. Write the delivered quantity below and enter it in Confirm Delivery.
               </div>
 
               <div className="grid grid-cols-2 gap-6 mt-10 text-xs">

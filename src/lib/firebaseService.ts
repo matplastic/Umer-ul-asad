@@ -2433,8 +2433,8 @@ function newToken(): string {
 // they just no-op server-side. Takes the WHOLE batch (every material line
 // the supervisor added to their cart) so the manager gets ONE message with
 // ONE Approve/ONE Reject action, not one message per material.
-async function notifyManagerOfMaterialRequestBatch(items: MaterialRequest[]) {
-  if (items.length === 0) return;
+async function notifyManagerOfMaterialRequestBatch(items: MaterialRequest[]): Promise<boolean> {
+  if (items.length === 0) return false;
   const first = items[0];
   const payload = {
     batchId: first.batchId,
@@ -2452,6 +2452,10 @@ async function notifyManagerOfMaterialRequestBatch(items: MaterialRequest[]) {
       qtyRequested: it.qtyRequested,
     })),
   };
+  // emailSent is true only when Resend really accepted the message. The
+  // function answers 200 + {skipped:true} when RESEND_API_KEY / the manager
+  // address isn't configured, which must NOT count as sent.
+  let emailSent = false;
   try {
     const res = await fetch('/.netlify/functions/send-material-request-email', {
       method: 'POST',
@@ -2461,6 +2465,9 @@ async function notifyManagerOfMaterialRequestBatch(items: MaterialRequest[]) {
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       console.error('[notifyManagerOfMaterialRequestBatch] Email function returned an error — Resend never received/logged this send:', res.status, detail);
+    } else {
+      const json = await res.json().catch(() => null);
+      emailSent = !!json?.success;
     }
   } catch (err) {
     console.warn('[notifyManagerOfMaterialRequestBatch] Could not reach the email function (this is fine in local dev without `netlify dev`):', err);
@@ -2474,6 +2481,15 @@ async function notifyManagerOfMaterialRequestBatch(items: MaterialRequest[]) {
   } catch (err) {
     console.warn('[notifyManagerOfMaterialRequestBatch] Could not reach the WhatsApp function (this is fine in local dev without `netlify dev`):', err);
   }
+  return emailSent;
+}
+
+// Re-sends the manager's approval email for the lines of a request that are
+// still PENDING (used by the Store portal's "Resend to manager" button).
+export async function dbResendMaterialRequestEmail(ids: string[]): Promise<boolean> {
+  const all = await dbFetchMaterialRequests();
+  const pending = all.filter((r) => ids.includes(r.id) && r.status === 'PENDING');
+  return notifyManagerOfMaterialRequestBatch(pending);
 }
 
 // --- Materials ---
@@ -2710,7 +2726,7 @@ export function subscribeToMaterialRequests(
 // email/slip per material line.
 export async function dbSubmitMaterialRequestBatch(
   lines: Array<Omit<MaterialRequest, 'id' | 'status' | 'approvalToken' | 'createdAt' | 'batchId'>>
-): Promise<{ success: boolean; items: MaterialRequest[] }> {
+): Promise<{ success: boolean; items: MaterialRequest[]; emailSent?: boolean }> {
   if (lines.length === 0) return { success: true, items: [] };
   const batchId = newId('batch');
   const approvalToken = newToken();
@@ -2726,8 +2742,8 @@ export async function dbSubmitMaterialRequestBatch(
 
   if (!apiBase()) {
     await updateFirestoreDocArray('materialRequests', (arr) => [...arr, ...items]);
-    await notifyManagerOfMaterialRequestBatch(items);
-    return { success: true, items };
+    const emailSent = await notifyManagerOfMaterialRequestBatch(items);
+    return { success: true, items, emailSent };
   }
 
   // Express/API deployment: no batch endpoint exists there yet, so submit
@@ -2758,69 +2774,24 @@ export async function dbDecideMaterialRequestBatch(
     const decidedItems: MaterialRequest[] = [];
 
     if (action === 'approve') {
-      // Everything approval touches — the request status, Store's stock,
-      // and Floor Stock — now happens in ONE atomic transaction. Previously
-      // these were 2-3 separate writes; if the app dropped connection
-      // between them, a request could show APPROVED while stock never
-      // actually moved, or vice versa. That gap is now closed.
-      const result = await updateFirestoreDocArrays({
-        materialRequests: (arr) => arr.map((r) => {
-          if (!ids.includes(r.id) || r.status !== 'PENDING') return r;
-          const decided: MaterialRequest = {
-            ...r,
-            status: 'APPROVED',
-            decidedByName,
-            decisionNotes: decisionNotes || null,
-            decidedAt: new Date().toISOString(),
-          };
-          decidedItems.push(decided);
-          return decided;
-        }),
-        materials: (arr) => {
-          if (decidedItems.length === 0) return arr;
-          const stockDeltas: Record<string, number> = {};
-          for (const d of decidedItems) stockDeltas[d.materialId] = (stockDeltas[d.materialId] || 0) + Number(d.qtyRequested);
-          return arr.map((m) => (stockDeltas[m.id] ? { ...m, currentStock: (m.currentStock || 0) - stockDeltas[m.id] } : m));
-        },
-        floorStock: (arr) => {
-          if (decidedItems.length === 0) return arr;
-          for (const d of decidedItems) {
-            const sectionId = (d.stageId as string) || 'unassigned';
-            // Material requests are always filed against SUPERVISOR_SECTIONS
-            // ('mep_material' / 'civil_material') — SECTION_DEFINITIONS is
-            // the separate list of production stages used elsewhere
-            // (Production Log). Using the wrong list here made every Floor
-            // Stock row created from an approval show the raw id until
-            // something else happened to overwrite it.
-            const sectionName = SUPERVISOR_SECTIONS.find((s) => s.id === sectionId)?.name
-              || SECTION_DEFINITIONS.find((s) => s.id === sectionId)?.name
-              || sectionId;
-            const rowId = `${sectionId}__${d.materialId}`;
-            const idx = arr.findIndex((f) => f.id === rowId);
-            if (idx !== -1) {
-              arr[idx] = {
-                ...arr[idx],
-                sectionName: sectionName || arr[idx].sectionName,
-                materialName: d.materialName || arr[idx].materialName,
-                unit: d.unit || arr[idx].unit,
-                qty: Number(arr[idx].qty || 0) + Number(d.qtyRequested),
-                // Document trail: remember every approval that ever fed this
-                // floor-stock row, so a supervisor's consumption entry can be
-                // traced back to the request(s) that put the material there.
-                sourceRequestIds: Array.from(new Set([...(arr[idx].sourceRequestIds || []), d.id])),
-                updatedAt: new Date().toISOString(),
-              };
-            } else {
-              arr.push({
-                id: rowId, sectionId, sectionName, materialId: d.materialId, materialName: d.materialName, unit: d.unit,
-                qty: Number(d.qtyRequested), sourceRequestIds: [d.id], updatedAt: new Date().toISOString(),
-              });
-            }
-          }
-          return arr;
-        },
-      });
-      return { success: true, items: (result.materialRequests || []).filter((r: MaterialRequest) => decidedItems.some(d => d.id === r.id)) };
+      // Approval ONLY changes the request status now. Store stock and Floor
+      // Stock move later, when the Store Manager confirms the actual delivered
+      // quantity (dbConfirmMaterialDeliveryBatch). awaitingDelivery marks
+      // "stock has not been deducted yet" so that step knows to deduct.
+      await updateFirestoreDocArray('materialRequests', (arr) => arr.map((r) => {
+        if (!ids.includes(r.id) || r.status !== 'PENDING') return r;
+        const decided: MaterialRequest = {
+          ...r,
+          status: 'APPROVED',
+          awaitingDelivery: true,
+          decidedByName,
+          decisionNotes: decisionNotes || null,
+          decidedAt: new Date().toISOString(),
+        };
+        decidedItems.push(decided);
+        return decided;
+      }));
+      return { success: true, items: decidedItems };
     }
 
     // Reject: only the request status changes — nothing to keep atomic with.
@@ -2879,6 +2850,96 @@ export async function dbMarkMaterialRequestBatchPrinted(ids: string[]): Promise<
     if (json?.item) results.push(json.item);
   }
   return { success: true, items: results };
+}
+
+export class DeliveryConfirmationError extends Error {
+  constructor(message: string) { super(message); this.name = 'DeliveryConfirmationError'; }
+}
+
+// Store Manager confirms what was ACTUALLY handed over for approved lines.
+// One atomic transaction does everything:
+//   - request line  -> status DELIVERED, qtyDelivered, deliveredAt/By
+//   - Store stock   -> currentStock goes DOWN by qtyDelivered
+//   - Floor Stock   -> the receiving section's balance goes UP by qtyDelivered
+// Rules:
+//   - only lines still APPROVED or PRINTED can be confirmed (blocks double
+//     confirmation, so stock can never be deducted twice)
+//   - qtyDelivered must be 0..approved qty (0 = nothing delivered)
+//   - lines approved under the OLD flow (no awaitingDelivery flag) already had
+//     stock deducted at approval, so they are only marked DELIVERED.
+export async function dbConfirmMaterialDeliveryBatch(
+  lines: Array<{ id: string; qtyDelivered: number }>,
+  deliveredByName: string,
+  deliveryNotes?: string,
+): Promise<{ success: boolean; items: MaterialRequest[] }> {
+  if (lines.length === 0) return { success: true, items: [] };
+  if (apiBase()) throw new DeliveryConfirmationError('Delivery confirmation is only available on the Firebase deployment.');
+
+  const qtyById = new Map(lines.map((l) => [l.id, Number(l.qtyDelivered)]));
+  const now = new Date().toISOString();
+  const confirmed: MaterialRequest[] = [];
+  let failure: DeliveryConfirmationError | null = null;
+
+  await updateFirestoreDocArrays({
+    materialRequests: (arr) => {
+      // Validate EVERY line first; write nothing unless all lines pass, so the
+      // request rows and the stock rows can never disagree.
+      for (const r of arr) {
+        if (!qtyById.has(r.id)) continue;
+        const qty = qtyById.get(r.id)!;
+        const approved = Number(r.qtyApproved ?? r.qtyRequested);
+        if (r.status !== 'APPROVED' && r.status !== 'PRINTED') {
+          failure = new DeliveryConfirmationError(`${r.materialName} was already delivered or is not approved.`);
+        } else if (!Number.isFinite(qty) || qty < 0 || qty > approved) {
+          failure = new DeliveryConfirmationError(`${r.materialName}: delivered qty must be between 0 and ${approved} ${r.unit}.`);
+        }
+        if (failure) return arr;
+      }
+      return arr.map((r) => {
+        if (!qtyById.has(r.id)) return r;
+        const done: MaterialRequest = {
+          ...r, status: 'DELIVERED', qtyDelivered: qtyById.get(r.id)!,
+          deliveredAt: now, deliveredByName, deliveryNotes: deliveryNotes || null,
+        };
+        confirmed.push(done);
+        return done;
+      });
+    },
+    materials: (arr) => {
+      if (failure) return arr;
+      const deltas: Record<string, number> = {};
+      for (const d of confirmed) if (d.awaitingDelivery) deltas[d.materialId] = (deltas[d.materialId] || 0) + Number(d.qtyDelivered);
+      return arr.map((m) => (deltas[m.id] ? { ...m, currentStock: Number(m.currentStock || 0) - deltas[m.id] } : m));
+    },
+    floorStock: (arr) => {
+      if (failure) return arr;
+      for (const d of confirmed) {
+        const qty = Number(d.qtyDelivered);
+        if (!d.awaitingDelivery || qty <= 0) continue;
+        const sectionId = (d.stageId as string) || 'unassigned';
+        const sectionName = SUPERVISOR_SECTIONS.find((s) => s.id === sectionId)?.name
+          || SECTION_DEFINITIONS.find((s) => s.id === sectionId)?.name || sectionId;
+        const rowId = `${sectionId}__${d.materialId}`;
+        const idx = arr.findIndex((f) => f.id === rowId);
+        if (idx !== -1) {
+          arr[idx] = {
+            ...arr[idx], sectionName: sectionName || arr[idx].sectionName,
+            materialName: d.materialName || arr[idx].materialName, unit: d.unit || arr[idx].unit,
+            qty: Number(arr[idx].qty || 0) + qty,
+            sourceRequestIds: Array.from(new Set([...(arr[idx].sourceRequestIds || []), d.id])),
+            updatedAt: now,
+          };
+        } else {
+          arr.push({ id: rowId, sectionId, sectionName, materialId: d.materialId, materialName: d.materialName,
+            unit: d.unit, qty, sourceRequestIds: [d.id], updatedAt: now });
+        }
+      }
+      return arr;
+    },
+  });
+
+  if (failure) throw failure;
+  return { success: true, items: confirmed };
 }
 
 export async function dbSaveEmployeePunch(punch: EmployeePunch) {

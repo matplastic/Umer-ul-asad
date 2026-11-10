@@ -404,7 +404,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const submitRequest = async () => {
     if (!rProject || !rPoolType) { setFlash('Pick a project and pool type'); return; }
     if (rCart.length === 0) { setFlash('Add at least one material to the cart first'); return; }
-    await dbSubmitMaterialRequestBatch(rCart.map(line => ({
+    const submitted = await dbSubmitMaterialRequestBatch(rCart.map(line => ({
       projectName: rProject,
       poolType: rPoolType,
       poolId: null,
@@ -419,8 +419,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       requestedByRole: `Section Supervisor - ${sectionName}`,
     })));
     setRCart([]); setRProject(''); setRPoolType(''); setRMaterialId(''); setRQty(''); setRReason(''); setRSearch('');
-    setFlash('Request sent to store/manager for approval.');
-    setTimeout(() => setFlash(null), 2500);
+    setFlash(submitted.emailSent === false
+      ? 'Request saved, but the approval email could NOT be sent to the manager. Ask Store to use "Resend to manager".'
+      : 'Request sent to the manager by email for approval.');
+    setTimeout(() => setFlash(null), submitted.emailSent === false ? 6000 : 2500);
     loadAll(true);
   };
 
@@ -430,6 +432,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       APPROVED: 'bg-emerald-950/40 text-emerald-400 border-emerald-800',
       REJECTED: 'bg-rose-950/40 text-rose-400 border-rose-800',
       PRINTED: 'bg-slate-800 text-slate-400 border-slate-700',
+      DELIVERED: 'bg-sky-950/40 text-sky-400 border-sky-800',
     };
     return <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${map[s] || map.PENDING}`}>{s}</span>;
   };
