@@ -3,7 +3,7 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
   Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
-  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale,
+  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -24,8 +24,9 @@ import { StockStatusBadge } from './StockStatusBadge';
 import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
 import { StockLedgerModal } from './StockLedgerModal';
+import { InventoryLedgerPage } from './InventoryLedgerPage';
 
-type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder';
+type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'ledger' | 'key' | 'assets' | 'reorder';
 
 // ==========================================================
 // PDF letterhead helpers — logo + company header + footer used by every
@@ -1166,6 +1167,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         <button onClick={() => setTab('reports')} data-testid="tab-reports" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reports' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <BarChart3 className="h-4 w-4" /> Consumption Reports
         </button>
+        <button onClick={() => setTab('ledger')} data-testid="tab-ledger" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'ledger' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <BookOpen className="h-4 w-4" /> Inventory Ledger
+        </button>
       </div>
 
       {/* ---------- INVENTORY TAB (Excel + Section-wise) ---------- */}
@@ -1350,13 +1354,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         <td className="px-2 py-2 text-right text-slate-500">{num(m.urgentLevel) || 0}</td>
                         <td className="px-2 py-2 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
                         <td className="px-2 py-2 text-right"><div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 max-w-[270px] ml-auto">
+                          <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
                           <button onClick={() => toggleFollow(m)} data-testid={`follow-${m.id}`} title={isFollowed(m) ? 'Following — e-mails on. Click to turn off' : 'Not following — click to turn e-mails on'} className="cursor-pointer">
                             {isFollowed(m) ? <Bell className="h-3.5 w-3.5 text-emerald-400" /> : <BellOff className="h-3.5 w-3.5 text-slate-600" />}
                           </button>
                           <button onClick={() => setAlertEdit(m)} data-testid={`alerts-${m.id}`} title="Set reorder / urgent levels" className="flex items-center gap-1 text-slate-500 hover:text-rose-400 cursor-pointer text-[11px] font-bold"><SlidersHorizontal className="h-3 w-3" />Alerts</button>
                           <button onClick={() => setUnitsEdit({ material: m, extraUnits: (m.extraUnits || []).map(u => ({ ...u })) })} data-testid={`units-${m.id}`} title="Add length / weight per unit" className="text-slate-500 hover:text-orange-400 cursor-pointer text-[11px] font-bold">Units</button>
                           <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-btn-${m.id}`} title="Stock ledger" className="text-sky-400 hover:text-sky-300 cursor-pointer text-[11px] font-bold">Ledger</button>
-                          <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
                           <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-400 cursor-pointer text-[11px] font-bold">Move to Assets</button>
                           <button onClick={() => deleteMaterial(m.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div></td>
@@ -1975,6 +1979,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             </div>
           </div>
         </div>
+      )}
+
+      {/* ---------- INVENTORY LEDGER TAB (all materials together) ---------- */}
+      {tab === 'ledger' && (
+        <InventoryLedgerPage
+          materials={materials}
+          requests={requests}
+          incoming={incoming}
+          adjustments={stockAdjustments}
+          onOpenMaterial={(m) => setLedgerMaterial(m)}
+        />
       )}
 
       {/* ---------- STOCK LEDGER (click a material in Inventory) ---------- */}

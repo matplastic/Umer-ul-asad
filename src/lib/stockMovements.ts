@@ -181,3 +181,83 @@ export function groupMovements(rows: StockMovement[], by: Exclude<GroupBy, 'tran
   }
   return Array.from(map.values()).sort((a, b) => (a.key < b.key ? -1 : 1));
 }
+
+// ── all materials together (Inventory Ledger tab) ───────────────────────────
+
+export interface LedgerRow extends StockMovement {
+  materialId: string;
+  materialName: string;
+  unit: string;
+}
+
+export interface MaterialLedger {
+  material: Material;
+  movements: StockMovement[];
+  openingBalance: number;
+}
+
+// Builds every material's ledger in one pass. Records are grouped by material
+// first, so this stays fast with thousands of requests/receipts.
+export function buildAllLedgers(
+  materials: Material[],
+  requests: MaterialRequest[],
+  incoming: IncomingMaterial[],
+  adjustments: StockAdjustment[],
+): MaterialLedger[] {
+  const group = <T extends { materialId: string }>(list: T[]) => {
+    const map = new Map<string, T[]>();
+    for (const x of list) {
+      const arr = map.get(x.materialId);
+      if (arr) arr.push(x); else map.set(x.materialId, [x]);
+    }
+    return map;
+  };
+  const reqBy = group(requests);
+  const incBy = group(incoming);
+  const adjBy = group(adjustments);
+  return materials.map((material) => {
+    const { movements, openingBalance } = buildMovements(
+      material, reqBy.get(material.id) || [], incBy.get(material.id) || [], adjBy.get(material.id) || [],
+    );
+    return { material, movements, openingBalance };
+  });
+}
+
+export interface MaterialSummaryRow extends LedgerSummary {
+  material: Material;
+  count: number;
+}
+
+export interface DoSummary {
+  doNumber: string;
+  at: string;
+  details: string;
+  by: string;
+  lines: { materialId: string; materialName: string; unit: string; qty: number }[];
+}
+
+// Everything the combined ledger shows for one period.
+export function summariseAllLedgers(
+  ledgers: MaterialLedger[],
+  range: { from: string; to: string },
+): { rows: LedgerRow[]; perMaterial: MaterialSummaryRow[]; deliveryOrders: DoSummary[] } {
+  const rows: LedgerRow[] = [];
+  const perMaterial: MaterialSummaryRow[] = [];
+  const doMap = new Map<string, DoSummary>();
+
+  for (const l of ledgers) {
+    const { rows: inRange, summary } = filterAndSummarise(l.movements, l.openingBalance, range);
+    perMaterial.push({ material: l.material, count: inRange.length, ...summary });
+    for (const r of inRange) {
+      rows.push({ ...r, materialId: l.material.id, materialName: l.material.name, unit: l.material.unit });
+      if (r.type === 'OUT' && r.isDo) {
+        let d = doMap.get(r.ref);
+        if (!d) { d = { doNumber: r.ref, at: r.at, details: r.details, by: r.by, lines: [] }; doMap.set(r.ref, d); }
+        d.lines.push({ materialId: l.material.id, materialName: l.material.name, unit: l.material.unit, qty: -r.qty });
+      }
+    }
+  }
+  rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : -1)); // newest first
+  const deliveryOrders = Array.from(doMap.values()).sort((a, b) => (a.at < b.at ? 1 : -1));
+  return { rows, perMaterial, deliveryOrders };
+}
