@@ -625,6 +625,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Qty</th>
                   <th className="text-left px-4 py-2">Note</th>
+                  <th className="text-left px-4 py-2">DO No.</th>
                   <th className="text-left px-4 py-2">Confirmed by</th>
                 </tr>
               </thead>
@@ -635,11 +636,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                     <td className="px-4 py-2 text-slate-200">{c.materialName}</td>
                     <td className="px-4 py-2 text-right text-slate-200 font-mono">{Number(c.qty)} {c.unit}</td>
                     <td className="px-4 py-2 text-slate-500">{c.notes || '—'}</td>
+                    <td className="px-4 py-2 text-sky-300 font-mono font-bold">{c.doNumber || '—'}</td>
                     <td className="px-4 py-2 text-slate-500">{c.loggedByName}</td>
                   </tr>
                 ))}
                 {myConsumption.length === 0 && (
-                  <tr><td colSpan={5} className="text-center text-slate-500 py-8">No consumption yet — it appears here once Store confirms a delivery.</td></tr>
+                  <tr><td colSpan={6} className="text-center text-slate-500 py-8">No consumption yet — it appears here once Store confirms a delivery.</td></tr>
                 )}
               </tbody>
             </table>

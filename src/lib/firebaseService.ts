@@ -1,6 +1,6 @@
 import { auth, app, clientDb } from './googleDrive.ts';
 import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, StockAdjustment, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
 import { scheduleStockAlertCheck } from './stockAlerts';
 // NOTE: clientDb now comes from googleDrive.ts, which is the ONLY place
 // Firestore is initialized (via initializeFirestore with long-polling
@@ -2607,12 +2607,17 @@ export async function dbUpdateMaterialFields(id: string, patch: Partial<Material
   return dbSaveMaterial({ ...current, ...patch });
 }
 
-export async function dbAdjustMaterialStock(id: string, delta: number) {
+export async function dbAdjustMaterialStock(id: string, delta: number, byName?: string, note?: string) {
   if (!apiBase()) {
-    const updated = await updateFirestoreDocArray('materials', (arr) =>
-      arr.map((m) => (m.id === id ? { ...m, currentStock: (m.currentStock || 0) + delta } : m))
-    );
-    return { success: true, materials: updated };
+    // Logged as its own record so the Stock Ledger can show it as a movement.
+    const results = await updateFirestoreDocArrays({
+      materials: (arr) => arr.map((m) => (m.id === id ? { ...m, currentStock: (m.currentStock || 0) + delta } : m)),
+      stockAdjustments: (arr) => {
+        if (delta !== 0) arr.push({ id: newId('adj'), materialId: id, delta, byName: byName || null, note: note || null, at: new Date().toISOString() });
+        return arr;
+      },
+    }, { stockAdjustments: true });
+    return { success: true, materials: results.materials };
   }
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/materials/${id}/adjust-stock`), { method: 'POST', headers, body: JSON.stringify({ delta }) });
@@ -2835,17 +2840,23 @@ export async function dbConfirmMaterialDeliveryBatch(
   lines: Array<{ id: string; qtyDelivered: number }>,
   deliveredByName: string,
   deliveryNotes?: string,
-): Promise<{ success: boolean; items: MaterialRequest[] }> {
-  if (lines.length === 0) return { success: true, items: [] };
+): Promise<{ success: boolean; items: MaterialRequest[]; doNumber: string }> {
+  if (lines.length === 0) return { success: true, items: [], doNumber: '' };
   if (apiBase()) throw new DeliveryConfirmationError('Delivery confirmation is only available on the Firebase deployment.');
 
   const qtyById = new Map(lines.map((l) => [l.id, Number(l.qtyDelivered)]));
   const now = new Date().toISOString();
   const confirmed: MaterialRequest[] = [];
   let failure: DeliveryConfirmationError | null = null;
+  let doNumber = '';
 
   await updateFirestoreDocArrays({
     materialRequests: (arr) => {
+      // A transaction can be retried — start from a clean slate every attempt
+      // so lines are never counted twice.
+      confirmed.length = 0;
+      failure = null;
+      doNumber = '';
       // Validate EVERY line first; write nothing unless all lines pass, so the
       // request rows and the stock rows can never disagree.
       for (const r of arr) {
@@ -2859,10 +2870,22 @@ export async function dbConfirmMaterialDeliveryBatch(
         }
         if (failure) return arr;
       }
+      // Next Delivery Order number: DO-<year>-<0001...>. Computed from the
+      // numbers already on file INSIDE this transaction, so two store keepers
+      // confirming at the same time can never be given the same DO.
+      const prefix = `DO-${new Date(now).getFullYear()}-`;
+      let maxSeq = 0;
+      for (const r of arr) {
+        const dn = typeof r.doNumber === 'string' ? r.doNumber : '';
+        if (!dn.startsWith(prefix)) continue;
+        const n = parseInt(dn.slice(prefix.length), 10);
+        if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+      }
+      doNumber = `${prefix}${String(maxSeq + 1).padStart(4, '0')}`;
       return arr.map((r) => {
         if (!qtyById.has(r.id)) return r;
         const done: MaterialRequest = {
-          ...r, status: 'DELIVERED', qtyDelivered: qtyById.get(r.id)!,
+          ...r, status: 'DELIVERED', qtyDelivered: qtyById.get(r.id)!, doNumber,
           deliveredAt: now, deliveredByName, deliveryNotes: deliveryNotes || null,
         };
         confirmed.push(done);
@@ -2900,6 +2923,7 @@ export async function dbConfirmMaterialDeliveryBatch(
           loggedByName: deliveredByName,
           createdAt: now,
           requestId: d.id,
+          doNumber,
           source: 'delivery',
         } as ConsumptionLog);
       }
@@ -2908,7 +2932,7 @@ export async function dbConfirmMaterialDeliveryBatch(
   }, { consumptionLogs: true });
 
   if (failure) throw failure;
-  return { success: true, items: confirmed };
+  return { success: true, items: confirmed, doNumber };
 }
 
 export async function dbSaveEmployeePunch(punch: EmployeePunch) {
@@ -3492,6 +3516,11 @@ export async function dbDeleteConsumptionLog(id: string) {
 // the Floor -> Store return flow went away with Floor Stock.
 export async function dbFetchMaterialReturns(): Promise<MaterialReturn[]> {
   if (!apiBase()) return getFirestoreDocArray('materialReturns');
+  return [];
+}
+
+export async function dbFetchStockAdjustments(): Promise<StockAdjustment[]> {
+  if (!apiBase()) return getFirestoreDocArray('stockAdjustments');
   return [];
 }
 

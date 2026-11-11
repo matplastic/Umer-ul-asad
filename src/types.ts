@@ -554,6 +554,9 @@ export interface MaterialRequest {
   deliveredAt?: string | null;
   deliveredByName?: string | null;
   deliveryNotes?: string | null;
+  // Unique Delivery Order number (DO-2026-0001). One DO per Confirm Hand Over;
+  // every line confirmed together shares it.
+  doNumber?: string | null;
   createdAt: string;
 }
 
@@ -687,6 +690,7 @@ export interface ConsumptionLog {
   // the material request line they came from, and how they were created.
   requestId?: string | null;
   source?: 'delivery' | 'manual' | null;
+  doNumber?: string | null;
 }
 
 // Reversal of material sitting on the floor, back into Store — the other
@@ -785,3 +789,14 @@ export const SECTION_DEFINITIONS: SectionDefinition[] = [
 ];
 
 
+
+// A manual stock correction made from the Inventory "Adjust" button. Logged so
+// the Stock Ledger can show it as its own movement. delta is signed.
+export interface StockAdjustment {
+  id: string;
+  materialId: string;
+  delta: number;
+  byName?: string | null;
+  note?: string | null;
+  at: string;
+}

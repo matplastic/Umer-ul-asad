@@ -11,18 +11,19 @@ import autoTable from 'jspdf-autotable';
 import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
-  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch,
+  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch, dbFetchStockAdjustments,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs,
   dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields, dbFetchProductionLogs,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, StockAdjustment, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 import { ExtraUnitsEditor } from './ExtraUnitsEditor';
 import { cleanExtraUnits, equivalentsText, perUnitText } from '../lib/materialUnits';
 import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS } from '../lib/stockAlerts';
 import { StockStatusBadge } from './StockStatusBadge';
 import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
+import { StockLedgerModal } from './StockLedgerModal';
 
 type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'key' | 'assets' | 'reorder';
 
@@ -156,6 +157,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [incoming, setIncoming] = useState<IncomingMaterial[]>([]);
   const [consumptionLogs, setConsumptionLogs] = useState<ConsumptionLog[]>([]);
+  const [stockAdjustments, setStockAdjustments] = useState<StockAdjustment[]>([]);
+  // Material whose Stock Ledger window is open (click a material in Inventory).
+  const [ledgerMaterial, setLedgerMaterial] = useState<Material | null>(null);
+  // Set right after a hand over is confirmed — drives the Delivery Order screen.
+  const [deliveryDone, setDeliveryDone] = useState<{ doNumber: string; items: MaterialRequest[] } | null>(null);
   const [companyAssets, setCompanyAssets] = useState<CompanyAsset[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -205,13 +211,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, inc, an, cons, assets] = await Promise.all([
+      const [m, b, r, inc, an, cons, adj, assets] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
         dbFetchIncomingMaterials(),
         dbFetchConsumptionAnalytics(),
         dbFetchConsumptionLogs(),
+        dbFetchStockAdjustments(),
         dbFetchCompanyAssets(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
@@ -219,6 +226,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       setRequests(Array.isArray(r) ? r.map((x: any) => ({ ...x, qtyRequested: Number(x.qtyRequested) })) : []);
       setIncoming(Array.isArray(inc) ? inc.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setConsumptionLogs(Array.isArray(cons) ? cons.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
+      setStockAdjustments(Array.isArray(adj) ? adj.map((x: any) => ({ ...x, delta: Number(x.delta) })) : []);
       setCompanyAssets(Array.isArray(assets) ? assets.map((x: any) => ({ ...x, value: x.value === null || x.value === undefined || x.value === '' ? null : Number(x.value) })) : []);
       setAnalytics(an);
       setError(null);
@@ -557,7 +565,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     // compute the delta from what the person actually typed — the new
     // total — instead of asking them to do that math themselves.
     const delta = newQty - currentQty;
-    await dbAdjustMaterialStock(id, delta);
+    await dbAdjustMaterialStock(id, delta, currentUserName, `Set to ${newQty} (was ${currentQty})`);
     loadAll(true);
   };
 
@@ -959,8 +967,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     setDeliverySaving(true);
     setDeliveryError(null);
     try {
-      await dbConfirmMaterialDeliveryBatch(lines, currentUserName, deliveryNotes.trim() || undefined);
+      const done = await dbConfirmMaterialDeliveryBatch(lines, currentUserName, deliveryNotes.trim() || undefined);
       setDeliveryBatch(null);
+      setDeliveryDone({ doNumber: done.doNumber, items: done.items });
       loadAll(true);
     } catch (e: any) {
       setDeliveryError(e?.message || 'Could not confirm delivery.');
@@ -1317,7 +1326,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           </button>
                         </td>
                         <td className="px-2 py-2 text-slate-400 font-mono">{(m as any).erpCode || '—'}</td>
-                        <td className="px-2 py-2 text-slate-200 font-semibold min-w-[150px] max-w-[260px] break-words">{m.name}</td>
+                        <td className="px-2 py-2 text-slate-200 font-semibold min-w-[150px] max-w-[260px] break-words">
+                          <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-open-${m.id}`} title="Open stock ledger — see every DO and movement" className="text-left hover:text-orange-400 hover:underline decoration-dotted underline-offset-2 cursor-pointer font-semibold">{m.name}</button>
+                        </td>
                         <td className="px-2 py-2">
                           <select value={grp} onChange={e => setMaterialGroup(m, e.target.value as any)} data-testid={`mat-group-${m.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase border cursor-pointer bg-transparent ${GROUP_BADGE[grp]}`}>
                             <option className="bg-slate-900" value="mep">MEP</option>
@@ -1339,12 +1350,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         <td className="px-2 py-2 text-right text-slate-500">{num(m.urgentLevel) || 0}</td>
                         <td className="px-2 py-2 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
                         <td className="px-2 py-2 text-right"><div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 max-w-[270px] ml-auto">
-                          <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
                           <button onClick={() => toggleFollow(m)} data-testid={`follow-${m.id}`} title={isFollowed(m) ? 'Following — e-mails on. Click to turn off' : 'Not following — click to turn e-mails on'} className="cursor-pointer">
                             {isFollowed(m) ? <Bell className="h-3.5 w-3.5 text-emerald-400" /> : <BellOff className="h-3.5 w-3.5 text-slate-600" />}
                           </button>
                           <button onClick={() => setAlertEdit(m)} data-testid={`alerts-${m.id}`} title="Set reorder / urgent levels" className="flex items-center gap-1 text-slate-500 hover:text-rose-400 cursor-pointer text-[11px] font-bold"><SlidersHorizontal className="h-3 w-3" />Alerts</button>
                           <button onClick={() => setUnitsEdit({ material: m, extraUnits: (m.extraUnits || []).map(u => ({ ...u })) })} data-testid={`units-${m.id}`} title="Add length / weight per unit" className="text-slate-500 hover:text-orange-400 cursor-pointer text-[11px] font-bold">Units</button>
+                          <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-btn-${m.id}`} title="Stock ledger" className="text-sky-400 hover:text-sky-300 cursor-pointer text-[11px] font-bold">Ledger</button>
+                          <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
                           <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-400 cursor-pointer text-[11px] font-bold">Move to Assets</button>
                           <button onClick={() => deleteMaterial(m.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div></td>
@@ -1735,6 +1747,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       {group.rejected.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-950/40 text-rose-400 border border-rose-800">{group.rejected.length} Rejected</span>}
                       {group.printed.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">{group.printed.length} Printed</span>}
                       {group.delivered.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-sky-950/40 text-sky-400 border border-sky-800">{group.delivered.length} Delivered</span>}
+                      {Array.from(new Set(group.delivered.map(l => l.doNumber).filter(Boolean))).map(dn => (
+                        <span key={dn as string} data-testid={`req-do-${dn}`} className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 text-sky-300 border border-sky-900">{dn}</span>
+                      ))}
                       <span className="text-xs text-slate-500 font-mono">{new Date(first.createdAt).toLocaleString()}</span>
                       {group.items.length > 1 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-400 border border-indigo-800">{group.items.length} items</span>}
                     </div>
@@ -1957,6 +1972,95 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <button onClick={submitDelivery} disabled={deliverySaving} data-testid="delivery-confirm" className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold cursor-pointer">
                 {deliverySaving ? 'Saving…' : 'Confirm Hand Over'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- STOCK LEDGER (click a material in Inventory) ---------- */}
+      {ledgerMaterial && (
+        <StockLedgerModal
+          material={materials.find(m => m.id === ledgerMaterial.id) || ledgerMaterial}
+          requests={requests}
+          incoming={incoming}
+          adjustments={stockAdjustments}
+          onClose={() => setLedgerMaterial(null)}
+        />
+      )}
+
+      {/* ---------- DELIVERY ORDER (shown right after Confirm Hand Over) ---------- */}
+      {deliveryDone && deliveryDone.items.length > 0 && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <style dangerouslySetInnerHTML={{ __html: `
+            @media print {
+              body * { visibility: hidden !important; }
+              #printable-do, #printable-do * { visibility: visible !important; }
+              #printable-do { position: absolute !important; left: 0; top: 0; width: 100%; background: white !important; color: black !important; padding: 1.5cm !important; }
+              .no-print { display: none !important; }
+            }
+          `}} />
+          <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="no-print flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+              <div>
+                <div className="text-[10px] uppercase font-bold text-emerald-400">Hand over confirmed — stock deducted</div>
+                <div className="text-lg font-black text-white font-mono" data-testid="do-number">{deliveryDone.doNumber}</div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setTimeout(() => window.print(), 50)} data-testid="do-print" className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                  <Printer className="h-3.5 w-3.5" /> Print Delivery Order
+                </button>
+                <button onClick={() => setDeliveryDone(null)} data-testid="do-close" className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
+              </div>
+            </div>
+            <div id="printable-do" className="bg-white text-slate-900 p-6 rounded-lg">
+              <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-4">
+                <div className="flex items-center gap-3">
+                  <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-12 w-auto object-contain" />
+                  <div>
+                    <h2 className="text-lg font-black tracking-tight">MAT PLASTIC INDUSTRIES LLC</h2>
+                    <p className="text-xs text-slate-600">Store Department — Delivery Order</p>
+                  </div>
+                </div>
+                <div className="text-right text-xs text-slate-600 shrink-0">
+                  <div>DO No. <span className="font-mono font-bold text-slate-900 text-sm">{deliveryDone.doNumber}</span></div>
+                  <div>{deliveryDone.items[0].deliveredAt ? new Date(deliveryDone.items[0].deliveredAt).toLocaleString() : new Date().toLocaleString()}</div>
+                </div>
+              </div>
+              <table className="w-full text-sm mb-4">
+                <tbody>
+                  <tr><td className="py-1 text-slate-500 w-40">Project</td><td className="py-1 font-semibold">{deliveryDone.items[0].projectName}</td></tr>
+                  <tr><td className="py-1 text-slate-500">Pool Type</td><td className="py-1 font-semibold">{deliveryDone.items[0].poolType}</td></tr>
+                  {deliveryDone.items[0].poolNo && <tr><td className="py-1 text-slate-500">Pool No.</td><td className="py-1 font-semibold">{deliveryDone.items[0].poolNo}</td></tr>}
+                  <tr><td className="py-1 text-slate-500">Requested By</td><td className="py-1">{deliveryDone.items[0].requestedByName} ({deliveryDone.items[0].requestedByRole})</td></tr>
+                  <tr><td className="py-1 text-slate-500">Approved By</td><td className="py-1">{deliveryDone.items[0].decidedByName || '—'}</td></tr>
+                  <tr><td className="py-1 text-slate-500">Delivered By (Store)</td><td className="py-1">{deliveryDone.items[0].deliveredByName || '—'}</td></tr>
+                  {deliveryDone.items[0].deliveryNotes && <tr><td className="py-1 text-slate-500">Note</td><td className="py-1 italic">{deliveryDone.items[0].deliveryNotes}</td></tr>}
+                </tbody>
+              </table>
+              <table className="w-full text-sm mb-4 border border-slate-300 rounded overflow-hidden">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 text-xs uppercase">
+                    <th className="text-left px-3 py-2 w-10">#</th>
+                    <th className="text-left px-3 py-2">Material</th>
+                    <th className="text-right px-3 py-2">Approved</th>
+                    <th className="text-right px-3 py-2">Delivered</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deliveryDone.items.map((it, idx) => (
+                    <tr key={it.id} className="border-t border-slate-200">
+                      <td className="px-3 py-1.5 text-slate-500">{idx + 1}</td>
+                      <td className="px-3 py-1.5 font-semibold">{it.materialName}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{Number(it.qtyApproved ?? it.qtyRequested)} {it.unit}</td>
+                      <td className="px-3 py-1.5 text-right font-mono font-bold">{Number(it.qtyDelivered ?? 0)} {it.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="grid grid-cols-2 gap-6 mt-10 text-xs">
+                <div className="border-t border-slate-400 pt-1">Store Keeper Signature &amp; Date</div>
+                <div className="border-t border-slate-400 pt-1">Received By (Supervisor) Signature &amp; Date</div>
+              </div>
             </div>
           </div>
         </div>
@@ -2210,6 +2314,7 @@ const ConsumptionReports: React.FC<{
           <thead>
             <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Date</th>
+              <th className="text-left px-4 py-2">DO No.</th>
               <th className="text-left px-4 py-2">Section</th>
               <th className="text-left px-4 py-2">Material</th>
               <th className="text-right px-4 py-2">Qty</th>
@@ -2221,6 +2326,7 @@ const ConsumptionReports: React.FC<{
             {logs.slice(0, 500).map(c => (
               <tr key={c.id} className="border-t border-slate-800">
                 <td className="px-4 py-2 text-slate-400 font-mono">{c.date}</td>
+                <td className="px-4 py-2 text-sky-300 font-mono font-bold">{c.doNumber || '—'}</td>
                 <td className="px-4 py-2 text-slate-300">{c.sectionName || c.sectionId}</td>
                 <td className="px-4 py-2 text-slate-200 font-semibold">{c.materialName}</td>
                 <td className="px-4 py-2 text-right text-rose-400 font-mono">−{Number(c.qty).toFixed(2)} {c.unit}</td>
@@ -2229,7 +2335,7 @@ const ConsumptionReports: React.FC<{
               </tr>
             ))}
             {logs.length === 0 && (
-              <tr><td colSpan={6} className="text-center text-slate-500 py-8">
+              <tr><td colSpan={7} className="text-center text-slate-500 py-8">
                 {logSearch ? `No consumption entries match "${logSearch}".` : 'No consumption logged for this date range yet.'}
               </td></tr>
             )}
