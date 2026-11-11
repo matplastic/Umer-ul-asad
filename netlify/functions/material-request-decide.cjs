@@ -262,6 +262,7 @@ exports.handler = async (event) => {
         status: choice === 'approve' ? 'APPROVED' : 'REJECTED',
         qtyApproved: choice === 'approve' ? approveQty : null,
         decidedByName: 'Manager (email)',
+        awaitingDelivery: choice === 'approve' ? true : null,
         decisionNotes: partial ? `Partially approved: ${approveQty} of ${requestedQty} ${item.unit}` : (item.decisionNotes || null),
         decidedAt,
       };
@@ -271,44 +272,11 @@ exports.handler = async (event) => {
 
     await reqRef.set({ data: arr });
 
-    if (approvedItems.length > 0) {
-      // 1) Leaves the Store — aggregate per material first, so two approved
-      // lines of the same material only touch currentStock once.
-      const stockDeltas = {};
-      for (const item of approvedItems) {
-        stockDeltas[item.materialId] = (stockDeltas[item.materialId] || 0) + Number(item.qtyApproved ?? item.qtyRequested);
-      }
-      const matRef = db.collection('system_state').doc('materials');
-      const matSnap = await matRef.get();
-      const matArr = matSnap.exists ? (matSnap.data().data || []) : [];
-      for (const m of matArr) {
-        if (stockDeltas[m.id]) m.currentStock = (m.currentStock || 0) - stockDeltas[m.id];
-      }
-      await matRef.set({ data: matArr });
-
-      // 2) Arrives on the requesting section's Floor Stock (issued, not yet
-      // consumed), one row per (section, material) pair. Mirrors
-      // adjustFloorStock() in src/lib/firebaseService.ts — keep in sync.
-      const floorRef = db.collection('system_state').doc('floorStock');
-      const floorSnap = await floorRef.get();
-      const floorArr = floorSnap.exists ? (floorSnap.data().data || []) : [];
-      for (const item of approvedItems) {
-        const sectionId = item.stageId || 'unassigned';
-        const rowId = `${sectionId}__${item.materialId}`;
-        const qty = Number(item.qtyApproved ?? item.qtyRequested);
-        const fIdx = floorArr.findIndex((f) => f.id === rowId);
-        if (fIdx !== -1) {
-          floorArr[fIdx] = { ...floorArr[fIdx], qty: (floorArr[fIdx].qty || 0) + qty, updatedAt: decidedAt };
-        } else {
-          floorArr.push({
-            id: rowId, sectionId, sectionName: sectionId,
-            materialId: item.materialId, materialName: item.materialName, unit: item.unit,
-            qty, updatedAt: decidedAt,
-          });
-        }
-      }
-      await floorRef.set({ data: floorArr });
-    }
+    // NOTE: approval no longer touches Store stock or Floor Stock. Stock is
+    // deducted only when the Store Manager confirms the actual delivered
+    // quantity in the Store portal (see dbConfirmMaterialDeliveryBatch in
+    // src/lib/firebaseService.ts). Each approved line is flagged
+    // awaitingDelivery so that step knows stock has not moved yet.
 
     const summary = [
       approvedItems.length > 0
@@ -318,7 +286,7 @@ exports.handler = async (event) => {
         ? `<p style="margin:6px 0;"><strong style="color:#dc2626;">✗ Rejected (${rejectedItems.length}):</strong> ${rejectedItems.map((it) => esc(it.materialName)).join(', ')}</p>`
         : '',
       approvedItems.length > 0
-        ? `<p style="margin:14px 0 0; color:#64748b; font-size:13px;">The store has been notified and will print an issue slip for the approved item${approvedItems.length > 1 ? 's' : ''}.</p>`
+        ? `<p style="margin:14px 0 0; color:#64748b; font-size:13px;">The store will print the issue slip, hand over the material and confirm the delivered quantity.</p>`
         : '',
       rejectedItems.length > 0
         ? `<p style="margin:6px 0 0; color:#64748b; font-size:13px;">The section supervisor will be notified about the rejected item${rejectedItems.length > 1 ? 's' : ''}.</p>`

@@ -259,9 +259,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       const rejected = items.filter(it => it.status === 'REJECTED');
       const printed = items.filter(it => it.status === 'PRINTED');
       const delivered = items.filter(it => it.status === 'DELIVERED');
-      // Lines Store still has to hand over and confirm (new-flow approvals
-      // only; legacy lines already had stock deducted at approval).
-      const toDeliver = items.filter(it => (it.status === 'APPROVED' || it.status === 'PRINTED') && it.awaitingDelivery);
+      // Lines Store still has to hand over and confirm. Every approved/printed
+      // line shows up here, so the button never silently disappears; the form
+      // tells the Store Manager whether stock will be deducted for each line.
+      const toDeliver = items.filter(it => it.status === 'APPROVED' || it.status === 'PRINTED');
       // "status" is kept only as a rough summary for sorting/legacy use —
       // prefer pending/approved/rejected/printed below for anything that
       // needs to be correct.
@@ -1782,17 +1783,25 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       </div>
                     )}
                     {group.approved.length > 0 && (
-                      <button onClick={() => setPrintBatch(group.approved)} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer animate-pulse">
+                      <button onClick={() => setPrintBatch(group.approved)} data-testid={`req-print-${group.key}`} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer animate-pulse">
                         <Printer className="h-3.5 w-3.5" /> Print Issue Slip{group.approved.length > 1 ? ` (${group.approved.length})` : ''}
                       </button>
                     )}
-                    {group.toDeliver.length > 0 && (
-                      <button onClick={() => openDelivery(group.toDeliver)} data-testid={`req-deliver-${group.key}`} className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Confirm Delivery{group.toDeliver.length > 1 ? ` (${group.toDeliver.length})` : ''}
+                    {group.approved.length === 0 && group.printed.length > 0 && (
+                      <button onClick={() => setPrintBatch(group.printed)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold cursor-pointer">
+                        <Printer className="h-3.5 w-3.5" /> Reprint Slip
                       </button>
                     )}
-                    {group.pending.length === 0 && group.approved.length === 0 && group.toDeliver.length === 0 && group.printed.length > 0 && (
-                      <span className="flex items-center gap-1 text-xs text-slate-500"><Clock className="h-3.5 w-3.5" /> Printed {first.printedAt ? new Date(first.printedAt).toLocaleTimeString() : ''}</span>
+                    {group.toDeliver.length > 0 && (
+                      <button
+                        onClick={() => openDelivery(group.toDeliver)}
+                        disabled={group.approved.length > 0}
+                        title={group.approved.length > 0 ? 'Print the issue slip first' : 'Enter what you handed over and confirm'}
+                        data-testid={`req-deliver-${group.key}`}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold cursor-pointer"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Confirm Hand Over{group.toDeliver.length > 1 ? ` (${group.toDeliver.length})` : ''}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1890,7 +1899,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <span className="text-xs font-bold uppercase text-slate-400">Confirm Delivery — enter the quantity actually handed over</span>
+              <span className="text-xs font-bold uppercase text-slate-400">Confirm Hand Over — enter the quantity you actually gave</span>
               <button onClick={() => setDeliveryBatch(null)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
             </div>
             <div className="text-xs text-slate-400 mb-3">
@@ -1911,7 +1920,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   const approved = Number(it.qtyApproved ?? it.qtyRequested);
                   return (
                     <tr key={it.id} className="border-t border-slate-800">
-                      <td className="py-2 text-slate-200 font-semibold">{it.materialName}</td>
+                      <td className="py-2 text-slate-200 font-semibold">
+                        {it.materialName}
+                        {it.awaitingDelivery
+                          ? <div className="text-[10px] font-normal text-emerald-400">Stock will be deducted and shown in Consumption</div>
+                          : <div className="text-[10px] font-normal text-amber-400">Older request: stock was already deducted at approval — only recording hand over</div>}
+                      </td>
                       <td className="py-2 text-right font-mono text-slate-400">{mat ? Number(mat.currentStock || 0) : '—'} {it.unit}</td>
                       <td className="py-2 text-right font-mono text-slate-300">{approved} {it.unit}</td>
                       <td className="py-2 text-right">
@@ -1936,12 +1950,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             />
             {deliveryError && <div className="text-xs text-rose-400 mb-3">{deliveryError}</div>}
             <div className="text-[11px] text-slate-500 mb-4">
-              Confirming deducts exactly these quantities from Store stock and records them as Issued. This cannot be done twice for the same request.
+              Confirming deducts exactly these quantities from Store stock and records them in Consumption. It cannot be done twice for the same request.
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeliveryBatch(null)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold cursor-pointer">Cancel</button>
               <button onClick={submitDelivery} disabled={deliverySaving} data-testid="delivery-confirm" className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold cursor-pointer">
-                {deliverySaving ? 'Saving…' : 'Confirm Delivery'}
+                {deliverySaving ? 'Saving…' : 'Confirm Hand Over'}
               </button>
             </div>
           </div>

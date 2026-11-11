@@ -15,7 +15,9 @@
 // against email-scanner link prefetching.
 //
 // Env vars needed (set in Netlify → Site settings → Environment variables):
-//   RESEND_API_KEY, STORE_EMAIL_FROM, STORE_MANAGER_EMAIL, APP_BASE_URL (optional)
+//   RESEND_API_KEY, STORE_EMAIL_FROM, APP_BASE_URL (optional), and the manager's
+//   address in ONE of: MATERIAL_MANAGER_EMAIL, SUPERVISOR_MANAGER_EMAIL (the same
+//   one the Purchases flow uses) or STORE_MANAGER_EMAIL, checked in that order.
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -30,7 +32,7 @@ exports.handler = async (event) => {
     }
 
     const apiKey = process.env.RESEND_API_KEY;
-    const managerEmails = (process.env.STORE_MANAGER_EMAIL || 'hussein.khalil@matglobal.tech')
+    const managerEmails = (process.env.MATERIAL_MANAGER_EMAIL || process.env.SUPERVISOR_MANAGER_EMAIL || process.env.STORE_MANAGER_EMAIL || 'hussein.khalil@matglobal.tech')
       .split(',').map((e) => e.trim()).filter(Boolean);
 
     if (!apiKey || managerEmails.length === 0) {

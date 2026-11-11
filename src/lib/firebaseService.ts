@@ -2793,7 +2793,9 @@ export async function dbMarkMaterialRequestBatchPrinted(ids: string[]): Promise<
     const updated: MaterialRequest[] = [];
     await updateFirestoreDocArray('materialRequests', (arr) =>
       arr.map((r) => {
-        if (!ids.includes(r.id)) return r;
+        // Only approved/printed lines can be (re)printed — never touch a line
+        // that is already DELIVERED, rejected or still pending.
+        if (!ids.includes(r.id) || (r.status !== 'APPROVED' && r.status !== 'PRINTED')) return r;
         const printed: MaterialRequest = { ...r, status: 'PRINTED', printedAt: new Date().toISOString() };
         updated.push(printed);
         return printed;
