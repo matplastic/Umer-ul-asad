@@ -422,12 +422,12 @@ export interface Material {
   location?: string | null; // storage bin/rack, e.g. "Rack A-3"
   hsCode?: string | null; // customs HS code
   isCritical?: boolean | null; // manual override to force-include/exclude from the Key Materials dashboard
-  // Which Store inventory portal this material lives under: MEP, Civil, or
-  // Other. Independent of `section` (a production stage) — this is purely
-  // for splitting Store's Inventory/Consumption views into three portals.
-  // Materials saved before this field existed have no value and are treated
-  // as 'other'.
-  inventoryGroup?: 'mep' | 'civil' | 'other' | null;
+  // Which Store inventory portal this material lives under: MEP, Civil,
+  // Consumable Items, or Other. Independent of `section` (a production stage)
+  // — this is purely for splitting Store's Inventory/Consumption views into
+  // portals. Materials saved before this field existed have no value and are
+  // treated as 'other'. The list lives in src/lib/inventoryGroups.ts.
+  inventoryGroup?: 'mep' | 'civil' | 'consumable' | 'other' | null;
   createdAt: string;
 }
 

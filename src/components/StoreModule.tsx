@@ -25,6 +25,7 @@ import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
 import { StockLedgerModal } from './StockLedgerModal';
 import { InventoryLedgerPage } from './InventoryLedgerPage';
+import { INVENTORY_GROUPS, GROUP_LABELS, GROUP_BADGE, groupOf, InventoryGroup } from '../lib/inventoryGroups';
 
 type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'ledger' | 'key' | 'assets' | 'reorder';
 
@@ -199,11 +200,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // storage location, HS code, or category.
   const [inventorySearch, setInventorySearch] = useState('');
   // Which of the 3 inventory portals is showing: MEP / Civil / Other / All.
-  const [invGroupTab, setInvGroupTab] = useState<'mep' | 'civil' | 'other' | 'all' | 'key'>('all');
+  const [invGroupTab, setInvGroupTab] = useState<InventoryGroup | 'all' | 'key'>('all');
   // Same MEP / Civil / Other split, applied to the Reports tab (Consumption
   // Log + Stock Ledger) so Store can look at each portal's consumption
   // separately too.
-  const [reportsGroupTab, setReportsGroupTab] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
+  const [reportsGroupTab, setReportsGroupTab] = useState<InventoryGroup | 'all'>('all');
   // Consumption Log search — matches material, section, or logged-by name.
   const [logSearch, setLogSearch] = useState('');
   const [importMode, setImportMode] = useState<'add' | 'update' | 'both'>('both');
@@ -1030,14 +1031,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return SECTION_DEFINITIONS.find(s => s.id === id)?.name || id;
   };
 
-  const GROUP_LABELS: Record<'mep' | 'civil' | 'other', string> = { mep: 'MEP Materials', civil: 'Civil Materials', other: 'Other Materials' };
-  const GROUP_BADGE: Record<'mep' | 'civil' | 'other', string> = {
-    mep: 'bg-sky-950/40 text-sky-400 border-sky-800',
-    civil: 'bg-amber-950/40 text-amber-400 border-amber-800',
-    other: 'bg-slate-800 text-slate-400 border-slate-700',
-  };
-  const materialGroup = (m: Material): 'mep' | 'civil' | 'other' => (m.inventoryGroup as any) || 'other';
-  const setMaterialGroup = async (m: Material, group: 'mep' | 'civil' | 'other') => {
+  // Group list, labels and badge colours live in src/lib/inventoryGroups.ts
+  const materialGroup = (m: Material): InventoryGroup => groupOf(m);
+  const setMaterialGroup = async (m: Material, group: InventoryGroup) => {
     await dbSaveMaterial({ ...m, inventoryGroup: group } as any);
     loadAll(true);
   };
@@ -1218,6 +1214,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <select value={newMaterial.inventoryGroup} onChange={e => setNewMaterial((p: any) => ({ ...p, inventoryGroup: e.target.value }))} data-testid="new-mat-group" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
               <option value="mep">MEP Material</option>
               <option value="civil">Civil Material</option>
+              <option value="consumable">Consumable Item</option>
               <option value="other">Other Material</option>
             </select>
             <input placeholder="Category" value={newMaterial.category} onChange={e => setNewMaterial((p: any) => ({ ...p, category: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
@@ -1255,7 +1252,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               critical, regardless of portal) so it gets its own amber accent
               to read as "a different kind of filter" rather than a 4th portal. */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            {(['all', 'mep', 'civil', 'other'] as const).map(g => {
+            {(['all', ...INVENTORY_GROUPS] as const).map(g => {
               const count = g === 'all' ? materials.length : materials.filter(m => materialGroup(m) === g).length;
               return (
                 <button
@@ -1337,6 +1334,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           <select value={grp} onChange={e => setMaterialGroup(m, e.target.value as any)} data-testid={`mat-group-${m.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase border cursor-pointer bg-transparent ${GROUP_BADGE[grp]}`}>
                             <option className="bg-slate-900" value="mep">MEP</option>
                             <option className="bg-slate-900" value="civil">Civil</option>
+                            <option className="bg-slate-900" value="consumable">Consumable</option>
                             <option className="bg-slate-900" value="other">Other</option>
                           </select>
                         </td>
@@ -1886,9 +1884,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- REPORTS TAB ---------- */}
       {tab === 'reports' && displayedAnalytics && (
         <div>
-          {/* Same MEP / Civil / Other portal split as Inventory */}
+          {/* Same MEP / Civil / Consumable / Other portal split as Inventory */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            {(['all', 'mep', 'civil', 'other'] as const).map(g => (
+            {(['all', ...INVENTORY_GROUPS] as const).map(g => (
               <button
                 key={g}
                 onClick={() => setReportsGroupTab(g)}

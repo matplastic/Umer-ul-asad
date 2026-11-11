@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Download, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Material, MaterialRequest, IncomingMaterial, StockAdjustment } from '../types';
+import { INVENTORY_GROUPS, GROUP_SHORT_LABELS, groupOf as inventoryGroupOf, InventoryGroup } from '../lib/inventoryGroups';
 import {
   buildAllLedgers, summariseAllLedgers, periodRange, localDay, type PeriodKey,
 } from '../lib/stockMovements';
@@ -15,7 +16,7 @@ interface Props {
 }
 
 type View = 'movements' | 'materials' | 'dos';
-type GroupFilter = 'all' | 'mep' | 'civil' | 'other';
+type GroupFilter = 'all' | InventoryGroup;
 
 const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: 'all', label: 'All time' },
@@ -36,7 +37,7 @@ const fmtTime = (iso: string) => {
   const d = new Date(iso);
   return `${d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
 };
-const groupOf = (m: Material): GroupFilter => (((m as any).inventoryGroup as GroupFilter) || 'other');
+const groupOf = (m: Material): GroupFilter => inventoryGroupOf(m);
 
 export const InventoryLedgerPage: React.FC<Props> = ({ materials, requests, incoming, adjustments, onOpenMaterial }) => {
   const [period, setPeriod] = useState<PeriodKey>('month');
@@ -146,8 +147,8 @@ export const InventoryLedgerPage: React.FC<Props> = ({ materials, requests, inco
             <button key={v.key} onClick={() => setView(v.key)} data-testid={`invledger-view-${v.key}`} className={chip(view === v.key)}>{v.label}</button>
           ))}
           <span className="text-slate-700 mx-1">|</span>
-          {(['all', 'mep', 'civil', 'other'] as const).map((g) => (
-            <button key={g} onClick={() => setGroupFilter(g)} className={chip(groupFilter === g)}>{g === 'all' ? 'All groups' : g === 'mep' ? 'MEP' : g === 'civil' ? 'Civil' : 'Other'}</button>
+          {(['all', ...INVENTORY_GROUPS] as const).map((g) => (
+            <button key={g} onClick={() => setGroupFilter(g)} data-testid={`invledger-group-${g}`} className={chip(groupFilter === g)}>{g === 'all' ? 'All groups' : GROUP_SHORT_LABELS[g]}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
