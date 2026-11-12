@@ -1,6 +1,8 @@
+import { GoogleGenAI } from '@google/genai';
+
 // Netlify Function — Management Portal "Ask AI" command parser.
 //
-// Same advisory-only architecture as ai-command-qc.cjs: this function only
+// Same advisory-only architecture as ai-command-qc.mjs: this function only
 // ever proposes ONE structured action from a manager's natural-language
 // message (or transcribed voice command). It never touches Firestore
 // itself. The actual write happens client-side, through the exact same
@@ -18,28 +20,20 @@
 // narrow intent with an extra typed-confirmation step (e.g. re-type the
 // pool number), not be folded into general "manage everything" freedom.
 //
-// Env var needed: GEMINI_API_KEY (same one ai-command-qc.cjs uses).
+// Credentials are injected by Netlify AI Gateway in the modern runtime.
 
 function json(statusCode, body) {
-  return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  return Response.json(body, { status: statusCode });
 }
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
+export default async (req) => {
+  if (req.method !== 'POST') {
     return json(405, { error: 'Method not allowed' });
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return json(200, {
-      intent: 'chat',
-      reply: "AI assistant isn't set up yet — ask your admin to add a GEMINI_API_KEY to the site's environment variables.",
-    });
   }
 
   let body;
   try {
-    body = JSON.parse(event.body || '{}');
+    body = JSON.parse((await req.text()) || '{}');
   } catch {
     return json(400, { error: 'Invalid JSON body' });
   }
@@ -79,53 +73,35 @@ Respond ONLY with JSON matching this exact shape, nothing else:
 {"intent":"hold_pool"|"release_hold"|"skip_stage"|"find_pool"|"stats"|"chat","poolNo":string|null,"reason":string|null,"skipOption":"SKIPPED"|"CARRIED_ON_SITE"|null,"metric":"pools_by_stage"|"pools_on_hold"|"pools_total"|"pools_delivered_by_project"|"employees_absent_today"|null,"projectName":string|null,"reply":string}`;
 
   try {
-    const callGemini = async (model) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        contents: [{ role: 'user', parts: [{ text: message }] }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-      }),
-    });
-
-    // See ai-command-qc.cjs for why this multi-model fallback exists — same
-    // reasoning: try several models in order rather than failing on the
-    // first 404/429/503, since a different model is usually still
-    // available even when the main one is overloaded.
-    const modelChain = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-flash-lite-latest'];
-    let res = null;
-    let lastDetail = '';
-    for (const model of modelChain) {
-      res = await callGemini(model);
-      if (res.ok) break;
-      if (res.status === 404 || res.status === 429 || res.status === 503) {
-        lastDetail = await res.text().catch(() => '');
-        console.warn(`[ai-command-management] ${model} failed (${res.status}), trying next model...`);
-        continue;
+    const ai = new GoogleGenAI({});
+    const modelChain = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-flash-lite-latest'];
+    let result;
+    for (const [index, model] of modelChain.entries()) {
+      try {
+        result = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: [{ text: message }] }],
+          config: { systemInstruction, responseMimeType: 'application/json', temperature: 0.2 },
+        });
+        break;
+      } catch (error) {
+        const status = Number(error.status);
+        if ([404, 429, 503].includes(status) && index < modelChain.length - 1) {
+          continue;
+        }
+        const reply = status === 429 || status === 503
+          ? 'The AI service is busy right now — please try again in a few seconds.'
+          : 'Something went wrong reaching the AI service — please try again.';
+        return json(200, { intent: 'chat', reply });
       }
-      break;
     }
-
-    if (!res.ok) {
-      const detail = lastDetail || await res.text().catch(() => '');
-      console.error('[ai-command-management] Gemini API error (all models tried):', res.status, detail);
-      let googleMsg = '';
-      try { googleMsg = JSON.parse(detail)?.error?.message || ''; } catch {}
-      const friendly = res.status === 429 || res.status === 503
-        ? 'The AI service is busy right now — please try again in a few seconds.'
-        : `AI service error (HTTP ${res.status})${googleMsg ? ': ' + googleMsg : ''} — please try again in a moment.`;
-      return json(200, { intent: 'chat', reply: friendly });
-    }
-
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const text = result?.text || '';
 
     let parsed;
     try {
       parsed = JSON.parse(text);
     } catch {
-      console.error('[ai-command-management] Non-JSON response from Gemini:', text);
+      console.error('[ai-command-management] Non-JSON response from Gemini');
       return json(200, { intent: 'chat', reply: "Didn't quite understand that — could you rephrase, naming the pool number?" });
     }
 
@@ -148,7 +124,7 @@ Respond ONLY with JSON matching this exact shape, nothing else:
       reply: parsed.reply || '',
     });
   } catch (err) {
-    console.error('[ai-command-management] Failed:', err);
+    console.error('[ai-command-management] AI request failed');
     return json(200, { intent: 'chat', reply: "Something went wrong reaching the AI service — please try again." });
   }
 };

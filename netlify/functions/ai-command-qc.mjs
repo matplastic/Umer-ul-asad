@@ -1,3 +1,5 @@
+import { GoogleGenAI } from '@google/genai';
+
 // Netlify Function — Quality Inspector "Ask AI" command parser.
 //
 // Takes a natural-language message from a QC inspector (e.g. "reject pool
@@ -14,29 +16,20 @@
 // layer strictly advisory: a misheard pool number, stage, or reason can
 // never silently reject/pass the wrong thing.
 //
-// Env var needed: GEMINI_API_KEY (from https://aistudio.google.com/apikey —
-// separate from RESEND_API_KEY / Firebase vars, free tier is enough for this).
+// Credentials are injected by Netlify AI Gateway in the modern runtime.
 
 function json(statusCode, body) {
-  return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  return Response.json(body, { status: statusCode });
 }
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
+export default async (req) => {
+  if (req.method !== 'POST') {
     return json(405, { error: 'Method not allowed' });
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return json(200, {
-      intent: 'chat',
-      reply: "AI assistant isn't set up yet — ask your admin to add a GEMINI_API_KEY to the site's environment variables.",
-    });
   }
 
   let body;
   try {
-    body = JSON.parse(event.body || '{}');
+    body = JSON.parse((await req.text()) || '{}');
   } catch {
     return json(400, { error: 'Invalid JSON body' });
   }
@@ -68,56 +61,35 @@ Respond ONLY with JSON matching this exact shape, nothing else:
 {"intent":"reject"|"pass"|"pass_bulk"|"reject_bulk"|"details"|"chat","poolNo":string|null,"stageQuery":string|null,"reason":string|null,"defectType":string|null,"severity":"minor"|"major"|"critical"|null,"reply":string}`;
 
   try {
-    const callGemini = async (model) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        contents: [{ role: 'user', parts: [{ text: message }] }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-      }),
-    });
-
-    // Try several models in order rather than failing on the first error.
-    // 404 means that particular model name isn't resolvable right now;
-    // 429/503 mean Google's servers are overloaded for that model — a
-    // DIFFERENT model is usually still available even when the main one
-    // is under heavy demand, since they're served from separate capacity
-    // pools. gemini-flash-lite-latest in particular tends to have more
-    // headroom than the full Flash model during peak load.
-    const modelChain = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-flash-lite-latest'];
-    let res = null;
-    let lastDetail = '';
-    for (const model of modelChain) {
-      res = await callGemini(model);
-      if (res.ok) break;
-      if (res.status === 404 || res.status === 429 || res.status === 503) {
-        lastDetail = await res.text().catch(() => '');
-        console.warn(`[ai-command-qc] ${model} failed (${res.status}), trying next model...`);
-        continue;
+    const ai = new GoogleGenAI({});
+    const modelChain = ['gemini-flash-latest', 'gemini-3.6-flash', 'gemini-flash-lite-latest'];
+    let result;
+    for (const [index, model] of modelChain.entries()) {
+      try {
+        result = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: [{ text: message }] }],
+          config: { systemInstruction, responseMimeType: 'application/json', temperature: 0.2 },
+        });
+        break;
+      } catch (error) {
+        const status = Number(error.status);
+        if ([404, 429, 503].includes(status) && index < modelChain.length - 1) {
+          continue;
+        }
+        const reply = status === 429 || status === 503
+          ? 'The AI service is busy right now — please try again in a few seconds.'
+          : 'Something went wrong reaching the AI service — please try again.';
+        return json(200, { intent: 'chat', reply });
       }
-      break; // some other error (e.g. 400 bad request) — retrying won't help
     }
-
-    if (!res.ok) {
-      const detail = lastDetail || await res.text().catch(() => '');
-      console.error('[ai-command-qc] Gemini API error (all models tried):', res.status, detail);
-      let googleMsg = '';
-      try { googleMsg = JSON.parse(detail)?.error?.message || ''; } catch {}
-      const friendly = res.status === 429 || res.status === 503
-        ? 'The AI service is busy right now — please try again in a few seconds.'
-        : `AI service error (HTTP ${res.status})${googleMsg ? ': ' + googleMsg : ''} — please try again in a moment.`;
-      return json(200, { intent: 'chat', reply: friendly });
-    }
-
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const text = result?.text || '';
 
     let parsed;
     try {
       parsed = JSON.parse(text);
     } catch {
-      console.error('[ai-command-qc] Non-JSON response from Gemini:', text);
+      console.error('[ai-command-qc] Non-JSON response from Gemini');
       return json(200, { intent: 'chat', reply: "Didn't quite understand that — could you rephrase, naming the pool number?" });
     }
 
@@ -140,7 +112,7 @@ Respond ONLY with JSON matching this exact shape, nothing else:
       reply: parsed.reply || '',
     });
   } catch (err) {
-    console.error('[ai-command-qc] Failed:', err);
+    console.error('[ai-command-qc] AI request failed');
     return json(200, { intent: 'chat', reply: "Something went wrong reaching the AI service — please try again." });
   }
 };
