@@ -43,13 +43,13 @@ export const TopBar: React.FC<{
   workerExit?: { teamName: string; onExit: () => void };
   onExitPortal?: () => void;
 }> = ({ onMenuClick, showMenuButton = true, workerExit, onExitPortal }) => (
-  <header className="sticky top-0 z-30 h-16 shrink-0 w-full bg-slate-900 border-b border-slate-800 flex items-center px-3 sm:px-4">
+  <header className="sticky top-0 z-30 h-16 shrink-0 w-full bg-white border-b border-slate-200 flex items-center px-3 sm:px-5">
     {showMenuButton ? (
       <button
         onClick={onMenuClick}
         aria-label="Open portal menu"
         title="Open portal menu"
-        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white active:scale-95 transition-all cursor-pointer lg:hidden"
+        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition-all cursor-pointer lg:hidden"
       >
         <Menu className="h-6 w-6" />
       </button>
@@ -57,16 +57,16 @@ export const TopBar: React.FC<{
       <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
     )}
 
-    {/* Logo + name — always centered in the bar, on every breakpoint */}
-    <div className="flex-1 flex items-center justify-center gap-3 min-w-0 px-2">
-      <div className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 flex items-center justify-center">
-        <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-full w-full object-contain drop-shadow-[0_4px_10px_rgba(0,0,0,0.35)]" />
+    {/* Logo + name — centered on mobile, left-aligned on desktop like a normal ERP header */}
+    <div className="flex-1 flex items-center justify-center lg:justify-start gap-3 min-w-0 px-2 lg:px-0">
+      <div className="h-10 w-10 sm:h-11 sm:w-11 shrink-0 flex items-center justify-center">
+        <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-full w-full object-contain" />
       </div>
-      <div className="min-w-0 text-center leading-tight">
-        <h1 className="text-[15px] sm:text-[17px] font-bold tracking-[0.12em] uppercase text-white truncate">
+      <div className="min-w-0 leading-tight">
+        <h1 className="text-[15px] sm:text-base font-bold text-slate-900 truncate">
           MAT Plastic Industries
         </h1>
-        <p className="text-[10px] sm:text-[11px] font-medium tracking-[0.14em] uppercase text-slate-400 truncate">
+        <p className="text-[11px] sm:text-xs font-medium text-slate-500 truncate">
           Manufacturing ERP
         </p>
       </div>
@@ -74,14 +74,14 @@ export const TopBar: React.FC<{
 
     {/* Right side — Exit Portal (logged-in management/office users) takes
         priority; falls back to the kiosk worker Exit button; otherwise an
-        invisible spacer keeps the centered brand block from drifting on
-        mobile where the hamburger occupies the left slot. */}
+        invisible spacer keeps the brand block centered on mobile where the
+        hamburger occupies the left slot. */}
     {workerExit ? (
       <button
         onClick={workerExit.onExit}
-        className="shrink-0 flex items-center gap-1.5 h-9 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer active:scale-95 transition-all"
+        className="shrink-0 flex items-center gap-1.5 h-10 px-3.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer active:scale-95 transition-all"
       >
-        <LogOut className="h-3.5 w-3.5" />
+        <LogOut className="h-4 w-4" />
         <span className="hidden sm:inline">Exit ({workerExit.teamName})</span>
         <span className="sm:hidden">Exit</span>
       </button>
@@ -89,9 +89,9 @@ export const TopBar: React.FC<{
       <button
         onClick={onExitPortal}
         title="Exit Portal"
-        className="shrink-0 flex items-center gap-1.5 h-9 px-3 rounded-lg bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 hover:text-rose-100 border border-rose-900/50 text-xs font-bold cursor-pointer active:scale-95 transition-all"
+        className="shrink-0 flex items-center gap-1.5 h-10 px-3.5 rounded-lg bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-xs font-semibold cursor-pointer active:scale-95 transition-all"
       >
-        <LogOut className="h-3.5 w-3.5" />
+        <LogOut className="h-4 w-4" />
         <span className="hidden sm:inline">Exit Portal</span>
       </button>
     ) : (
@@ -116,6 +116,17 @@ const NAV_ITEMS: { role: ViewRole; label: string; icon: React.ElementType; testI
   { role: 'reports_analytics', label: 'Reports & Analytics', icon: FileBarChart, testId: 'role-reports-analytics' },
   { role: 'site_team', label: 'Site Team (Receiving)', icon: Truck, testId: 'role-site-team' },
   { role: 'warehouse', label: 'Warehouse', icon: PackageCheck, testId: 'role-warehouse' },
+];
+
+// Sidebar grouping — every role in NAV_ITEMS appears in exactly one group.
+// Groups with no visible items for the logged-in account are skipped.
+const NAV_GROUPS: { title: string; roles: ViewRole[] }[] = [
+  { title: 'Overview', roles: ['management', 'reports_analytics'] },
+  { title: 'Production', roles: ['planning_department', 'production_engineer', 'stage_worker', 'section_supervisor', 'factory_supervisor', 'trolley_prod'] },
+  { title: 'Quality', roles: ['quality_inspector'] },
+  { title: 'Store & Logistics', roles: ['store', 'warehouse', 'site_team'] },
+  { title: 'People', roles: ['hr_portal'] },
+  { title: 'Displays', roles: ['factory_entrance', 'section_dashboard'] },
 ];
 
 const LOCKED_LABELS: Partial<Record<ViewRole, { label: string; icon: React.ElementType }>> = {
@@ -164,11 +175,19 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
   };
 
   const itemClass = (active: boolean) =>
-    `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium cursor-pointer transition-colors ${
+    `group relative w-full min-h-11 flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] cursor-pointer transition-colors ${
       collapsed ? 'lg:justify-center lg:px-0' : ''
     } ${
-      active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+      active
+        ? 'bg-primary-50 text-primary-700 font-semibold'
+        : 'text-slate-600 font-medium hover:bg-slate-100 hover:text-slate-900'
     }`;
+
+  const iconClass = (active: boolean) =>
+    `h-[18px] w-[18px] shrink-0 ${active ? 'text-primary-600' : 'text-slate-400 group-hover:text-slate-600'}`;
+
+  const activeBar = (active: boolean) =>
+    active ? <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-1 rounded-r bg-primary-600" /> : null;
 
   // Picking a role closes the drawer too — on mobile this collapses the
   // overlay back down; on desktop it's a no-op (isOpen only governs mobile).
@@ -199,7 +218,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
         role="dialog"
         aria-modal="true"
         aria-hidden={!isOpen}
-        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] h-screen bg-slate-900 text-slate-100 border-r border-slate-800 flex flex-col overflow-y-auto shadow-2xl transform transition-transform duration-300 ease-in-out
+        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] h-screen bg-white text-slate-700 border-r border-slate-200 flex flex-col overflow-y-auto shadow-2xl transform transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'}
           lg:sticky lg:top-16 lg:left-auto lg:inset-y-auto lg:translate-x-0 lg:pointer-events-auto lg:shadow-none lg:shrink-0 lg:h-[calc(100vh-4rem)] lg:transition-[width] lg:duration-200
           ${collapsed ? 'lg:w-[4.5rem] lg:max-w-none' : 'lg:w-64 lg:max-w-none'}
@@ -207,12 +226,12 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
       >
         {/* Drawer header: close button (mobile) / collapse toggle (desktop) */}
         <div className={`flex items-center pt-4 pb-2 ${collapsed ? 'lg:justify-center px-2' : 'justify-between px-4'}`}>
-          <span className={`text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'lg:hidden' : ''}`}>Portals</span>
+          <span className={`text-xs font-semibold text-slate-400 ${collapsed ? 'lg:hidden' : ''}`}>Portals</span>
           <button
             onClick={onClose}
             aria-label="Close portal menu"
             title="Close"
-            className="p-2 -mr-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 active:scale-95 transition-all cursor-pointer lg:hidden"
+            className="p-2 -mr-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 active:scale-95 transition-all cursor-pointer lg:hidden"
           >
             <X className="h-5 w-5" />
           </button>
@@ -220,7 +239,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
             onClick={toggleCollapsed}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden lg:flex p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 active:scale-95 transition-all cursor-pointer"
+            className="hidden lg:flex p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
           >
             {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
           </button>
@@ -241,37 +260,51 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
             const myAllowedRoles = loggedInUser ? getAllowedRoles(loggedInUser) : [];
             const visibleNavItems = NAV_ITEMS.filter(item => myAllowedRoles.includes(item.role));
             return visibleNavItems.length > 1 ? (
-              <>
-                <p className={`px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${collapsed ? 'lg:hidden' : ''}`}>
-                  {visibleNavItems.length === NAV_ITEMS.length ? 'Role view' : 'Your assigned portals'}
-                </p>
-                <nav className="flex flex-col gap-0.5">
-                  {visibleNavItems.map(({ role, label, icon: Icon, testId }) => (
-                    <button
-                      key={role}
-                      onClick={() => selectRole(role)}
-                      data-testid={testId}
-                      title={collapsed ? label : undefined}
-                      className={itemClass(currentRole === role)}
-                    >
-                      <Icon className="h-[18px] w-[18px] shrink-0" />
-                      <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>{label}</span>
-                    </button>
-                  ))}
-                </nav>
-              </>
+              <nav className="flex flex-col gap-4">
+                {NAV_GROUPS.map((group) => {
+                  const items = group.roles
+                    .map((r) => visibleNavItems.find((n) => n.role === r))
+                    .filter((n): n is (typeof visibleNavItems)[number] => !!n);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={group.title} className="flex flex-col gap-0.5">
+                      <p className={`px-3 pb-1 text-xs font-semibold text-slate-400 ${collapsed ? 'lg:hidden' : ''}`}>
+                        {group.title}
+                      </p>
+                      {collapsed && <div className="hidden lg:block mx-3 mb-1 border-t border-slate-200" />}
+                      {items.map(({ role, label, icon: Icon, testId }) => {
+                        const active = currentRole === role;
+                        return (
+                          <button
+                            key={role}
+                            onClick={() => selectRole(role)}
+                            data-testid={testId}
+                            title={collapsed ? label : undefined}
+                            aria-current={active ? 'page' : undefined}
+                            className={itemClass(active)}
+                          >
+                            {activeBar(active)}
+                            <Icon className={iconClass(active)} />
+                            <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>{label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </nav>
             ) : (
-              <div className={`flex items-center gap-2 bg-slate-800/80 px-3 py-2.5 rounded-lg border border-slate-700/50 text-[11px] text-slate-200 ${collapsed ? 'lg:justify-center' : ''}`}>
-                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"></span>
+              <div className={`flex items-center gap-2 bg-slate-50 px-3 py-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-600 ${collapsed ? 'lg:justify-center' : ''}`}>
+                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500"></span>
                 <span className={collapsed ? 'lg:hidden' : ''}>
-                  Active session: <strong className="text-white uppercase font-mono block mt-0.5">{loggedInUser ? loggedInUser.displayName : currentRole.replace('_', ' ')}</strong>
+                  Active session: <strong className="text-slate-900 font-semibold block mt-0.5">{loggedInUser ? loggedInUser.displayName : currentRole.replace('_', ' ')}</strong>
                 </span>
               </div>
             );
           })()
         ) : stationLock?.allowedRoles && stationLock.allowedRoles.length > 1 ? (
           <>
-            <p className={`px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-500 flex items-center gap-1.5 ${collapsed ? 'lg:hidden' : ''}`}>
+            <p className={`px-3 pb-2 text-xs font-semibold text-amber-600 flex items-center gap-1.5 ${collapsed ? 'lg:hidden' : ''}`}>
               <ShieldAlert className="h-3 w-3" /> Locked station tabs
             </p>
             <nav className="flex flex-col gap-0.5">
@@ -280,8 +313,9 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                 if (!meta) return null;
                 const Icon = meta.icon;
                 return (
-                  <button key={role} onClick={() => selectRole(role)} title={collapsed ? meta.label : undefined} className={itemClass(currentRole === role)}>
-                    <Icon className="h-[18px] w-[18px] shrink-0" />
+                  <button key={role} onClick={() => selectRole(role)} title={collapsed ? meta.label : undefined} aria-current={currentRole === role ? 'page' : undefined} className={itemClass(currentRole === role)}>
+                    {activeBar(currentRole === role)}
+                    <Icon className={iconClass(currentRole === role)} />
                     <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>{meta.label}</span>
                   </button>
                 );
@@ -289,18 +323,18 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
             </nav>
           </>
         ) : (
-          <div className={`flex items-center gap-2 px-3 py-2.5 bg-slate-800/50 border border-slate-700/80 rounded-lg text-[11px] font-semibold text-slate-300 ${collapsed ? 'lg:justify-center' : ''}`}>
-            <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-400 animate-ping"></span>
-            <span className={collapsed ? 'lg:hidden' : ''}>Viewport role: <strong className="text-white uppercase font-mono block mt-0.5">{currentRole.replace('_', ' ')}</strong></span>
+          <div className={`flex items-center gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-600 ${collapsed ? 'lg:justify-center' : ''}`}>
+            <span className="h-2 w-2 shrink-0 rounded-full bg-primary-500"></span>
+            <span className={collapsed ? 'lg:hidden' : ''}>Viewing as: <strong className="text-slate-900 font-semibold capitalize block mt-0.5">{currentRole.replace('_', ' ')}</strong></span>
           </div>
         )}
       </div>
 
       {/* Footer: Google Drive + Exit */}
-      <div className="px-3 pb-5 pt-3 border-t border-slate-800 flex flex-col gap-2">
+      <div className="px-3 pb-4 pt-3 border-t border-slate-200 flex flex-col gap-2">
         {!stationLock?.isLocked ? (
           googleUser ? (
-            <div className={`flex items-center gap-2 bg-slate-800/80 px-2.5 py-2 rounded-lg border border-slate-700/60 ${collapsed ? 'lg:justify-center' : ''}`}>
+            <div className={`flex items-center gap-2 bg-slate-50 px-2.5 py-2 rounded-lg border border-slate-200 ${collapsed ? 'lg:justify-center' : ''}`}>
               {googleUser.photoURL ? (
                 <img src={googleUser.photoURL} alt="" className="h-6 w-6 rounded-full border border-emerald-500 shrink-0" referrerPolicy="no-referrer" />
               ) : (
@@ -309,12 +343,12 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                 </div>
               )}
               <div className={`min-w-0 flex-1 ${collapsed ? 'lg:hidden' : ''}`}>
-                <span className="text-[9px] block text-slate-400 uppercase tracking-wider leading-none mb-0.5">Connected drive</span>
-                <span className="font-semibold text-cyan-400 text-[11px] truncate block leading-none">{googleUser.displayName}</span>
+                <span className="text-[10px] block text-slate-500 leading-none mb-0.5">Connected drive</span>
+                <span className="font-semibold text-slate-800 text-[11px] truncate block leading-none">{googleUser.displayName}</span>
               </div>
               <button
                 onClick={onGoogleSignOut}
-                className="p-1 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 rounded-md transition-colors cursor-pointer shrink-0"
+                className="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-md transition-colors cursor-pointer shrink-0"
                 title="Disconnect Google Account"
               >
                 <LogOut className="h-3.5 w-3.5" />
@@ -324,23 +358,23 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
             <button
               onClick={onGoogleSignIn}
               title={collapsed ? 'Connect Google Drive' : undefined}
-              className={`flex items-center gap-2 text-[12px] font-semibold text-slate-300 hover:text-white hover:bg-slate-800 px-2.5 py-2 rounded-lg border border-slate-700 transition-colors cursor-pointer ${collapsed ? 'lg:justify-center' : ''}`}
+              className={`flex items-center gap-2 text-[12px] font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 px-2.5 py-2 rounded-lg border border-slate-200 transition-colors cursor-pointer ${collapsed ? 'lg:justify-center' : ''}`}
             >
-              <Cloud className="h-4 w-4 text-cyan-400 shrink-0" />
+              <Cloud className="h-4 w-4 text-primary-600 shrink-0" />
               <span className={collapsed ? 'lg:hidden' : ''}>Connect Google Drive</span>
             </button>
           )
         ) : (
-          <div className={`flex items-center gap-1.5 px-2.5 py-2 bg-slate-800 border border-slate-700 rounded-lg font-mono text-[9px] text-amber-400 uppercase font-bold tracking-wider ${collapsed ? 'lg:justify-center' : ''}`}>
-            <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500 animate-pulse"></span>
+          <div className={`flex items-center gap-1.5 px-2.5 py-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-700 font-semibold ${collapsed ? 'lg:justify-center' : ''}`}>
+            <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500"></span>
             <span className={collapsed ? 'lg:hidden' : ''}>Workstation locked</span>
           </div>
         )}
       </div>
 
       {/* Bottom brand signature */}
-      <div className={`flex items-center gap-2.5 px-5 py-4 border-t border-slate-800/80 ${collapsed ? 'lg:justify-center lg:px-2' : ''}`}>
-        <div className="h-8 w-8 shrink-0 rounded-lg bg-white shadow-[0_4px_10px_rgba(0,0,0,0.3)] ring-1 ring-amber-500/25 flex items-center justify-center p-1">
+      <div className={`flex items-center gap-2.5 px-5 py-4 border-t border-slate-200 ${collapsed ? 'lg:justify-center lg:px-2' : ''}`}>
+        <div className="h-8 w-8 shrink-0 rounded-lg bg-white ring-1 ring-slate-200 flex items-center justify-center p-1">
           <img
             src="/logo.png"
             alt=""
@@ -349,10 +383,10 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           />
         </div>
         <div className={`min-w-0 ${collapsed ? 'lg:hidden' : ''}`}>
-          <p className="text-[9.5px] font-semibold tracking-[0.1em] uppercase text-slate-300 truncate">
+          <p className="text-[11px] font-semibold text-slate-700 truncate">
             MAT Plastic Industries
           </p>
-          <p className="text-[9px] text-slate-500">© 2026 · All rights reserved</p>
+          <p className="text-[10px] text-slate-400">© 2026 All rights reserved</p>
         </div>
       </div>
       </div>
@@ -391,10 +425,10 @@ export const RoleContextPanel: React.FC<RoleContextPanelProps> = ({
 
   if (currentRole === 'stage_worker') {
     return (
-      <div className="bg-slate-900 text-slate-100 rounded-xl border border-slate-800 py-3 px-4 mb-6 flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white text-slate-700 rounded-xl border border-slate-200 shadow-sm py-3 px-4 mb-6 flex flex-wrap items-center justify-between gap-4">
         {!stationLock?.isLocked || !stationLock?.stageId ? (
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Active Section:</span>
+            <span className="text-xs font-semibold text-slate-500">Active section:</span>
             <div className="flex flex-wrap gap-1.5">
               {STAGES.map((stage) => {
                 const isSelected = selectedStageId === stage.id;
@@ -404,13 +438,13 @@ export const RoleContextPanel: React.FC<RoleContextPanelProps> = ({
                     onClick={() => onChangeStage(stage.id)}
                     className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
                       isSelected
-                        ? 'text-white border'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-transparent'
+                        ? 'text-slate-900 border'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border border-transparent'
                     }`}
                     style={{
                       borderColor: isSelected ? stage.color : undefined,
                       backgroundColor: isSelected ? `${stage.color}20` : undefined,
-                      boxShadow: isSelected ? `inset 0 0 4px ${stage.color}` : undefined
+                      boxShadow: undefined
                     }}
                   >
                     {stage.name}
@@ -421,12 +455,12 @@ export const RoleContextPanel: React.FC<RoleContextPanelProps> = ({
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Active Section:</span>
+            <span className="text-xs font-semibold text-slate-500">Active section:</span>
             <span
-              className="px-3 py-1 bg-slate-800 border rounded text-xs font-black uppercase tracking-wider font-mono text-white"
+              className="px-3 py-1 bg-slate-50 border rounded text-xs font-bold text-slate-900"
               style={{
                 borderColor: STAGES.find(s => s.id === selectedStageId)?.color || '#9333ea',
-                boxShadow: `0 0 8px ${STAGES.find(s => s.id === selectedStageId)?.color}30`
+                boxShadow: 'none'
               }}
             >
               {STAGES.find(s => s.id === selectedStageId)?.name}
@@ -435,15 +469,15 @@ export const RoleContextPanel: React.FC<RoleContextPanelProps> = ({
         )}
 
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-            <HardHat className="h-3.5 w-3.5 text-purple-400" />
-            Team Assignment:
+          <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+            <HardHat className="h-3.5 w-3.5 text-primary-600" />
+            Team assignment:
           </span>
           <select
             value={workerTeamId}
             disabled={!!stationLock?.teamId}
             onChange={(e) => onChangeWorkerTeam(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded text-xs text-slate-200 px-3 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-75 disabled:cursor-not-allowed"
+            className="bg-white border border-slate-300 rounded-lg text-xs text-slate-700 px-3 py-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-75 disabled:cursor-not-allowed"
           >
             <option value="">-- Choose Team on Floor --</option>
             {activeStageTeams.map((team) => (
@@ -453,7 +487,7 @@ export const RoleContextPanel: React.FC<RoleContextPanelProps> = ({
             ))}
           </select>
           {stationLock?.teamId && (
-            <span className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider">Assigned Device Lock</span>
+            <span className="text-[11px] font-semibold text-amber-600">Assigned device lock</span>
           )}
         </div>
       </div>
