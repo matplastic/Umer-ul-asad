@@ -17,6 +17,7 @@ import { OnlineUsersPanel } from './OnlineUsersPanel';
 import { StageDashboard } from './StageDashboard';
 import { StageReportsTab } from './StageReportsTab';
 import { ProjectProgressReport } from './ProjectProgressReport';
+import { StageTimelineReport } from './StageTimelineReport';
 import { DeliveryPlanner } from './DeliveryPlanner';
 import { DeliveryReport } from './DeliveryReport';
 import { SiteDeliveryTracker } from './SiteDeliveryTracker';
@@ -401,7 +402,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setMgmtAiPending(null);
   };
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'delivery' | 'site_deliveries' | 'warehouse'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'stage_timeline' | 'project_progress' | 'delivery' | 'site_deliveries' | 'warehouse'>('analytics');
   const [deliverySubTab, setDeliverySubTab] = useState<'confirm' | 'planner' | 'report'>('confirm');
 
   // When a tab is opened, bring the tab bar to the top of the screen so the
@@ -2976,6 +2977,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               { id: 'rejection_log', label: 'Rejection Log', icon: AlertTriangle, elId: 'tab-mgmt-rejection-log' },
               { id: 'stage_reports', label: 'Stage Reports', icon: FileSpreadsheet, elId: 'tab-mgmt-stage-reports' },
               { id: 'project_progress', label: 'Project Progress Report', icon: Boxes, elId: 'tab-mgmt-project-progress' },
+              { id: 'stage_timeline', label: 'Stage Timeline Report', icon: CalendarClock, elId: 'tab-mgmt-stage-timeline' },
             ],
           },
           {
@@ -5830,6 +5832,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         {/* Tab: Project Progress Report — per-project stage matrix with Today/Week/Month/Year/Custom date filter */}
         {activeTab === 'project_progress' && (
           <ProjectProgressReport pools={pools} plannedPools={plannedPools} />
+        )}
+
+        {/* Tab: Stage Timeline Report — per-stage started/finished/QC/rework times, day/week/month/all-time, Excel export */}
+        {activeTab === 'stage_timeline' && (
+          <StageTimelineReport pools={pools} teams={teams} logs={logs} inspectors={inspectors} />
         )}
 
         {/* Tab 3: Teams Status Allocation */}
