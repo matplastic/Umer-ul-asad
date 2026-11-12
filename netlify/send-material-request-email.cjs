@@ -19,6 +19,12 @@
 //   address in ONE of: MATERIAL_MANAGER_EMAIL, SUPERVISOR_MANAGER_EMAIL (the same
 //   one the Purchases flow uses) or STORE_MANAGER_EMAIL, checked in that order.
 
+// Everything a supervisor types (material names, project, reason...) lands in
+// an HTML email to the manager, so it must be escaped: otherwise a name like
+// "Pipe <Class B>" or "R&D" breaks the layout, and a crafted reason could put
+// its own links into the manager's approval email.
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
@@ -45,20 +51,20 @@ exports.handler = async (event) => {
     const idOrBatchQuery = payload.batchId
       ? `batchId=${encodeURIComponent(payload.batchId)}`
       : `id=${encodeURIComponent(payload.id || '')}`;
-    const reviewUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${payload.approvalToken}`;
+    const reviewUrl = `${siteUrl}/.netlify/functions/material-request-decide?${idOrBatchQuery}&token=${encodeURIComponent(payload.approvalToken || '')}`;
     const quickApproveUrl = `${reviewUrl}&action=approve`;
     const quickRejectUrl = `${reviewUrl}&action=reject`;
     const from = process.env.STORE_EMAIL_FROM || 'MAT Plastic Store <onboarding@resend.dev>';
 
     const rows = items.map((it) => `
       <tr>
-        <td style="padding:6px 8px 6px 0; border-bottom:1px solid #e2e8f0;">${it.materialName || ''}</td>
-        <td style="padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${it.qtyRequested ?? ''} ${it.unit || ''}</td>
+        <td style="padding:6px 8px 6px 0; border-bottom:1px solid #e2e8f0;">${esc(it.materialName)}</td>
+        <td style="padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${esc(it.qtyRequested)} ${esc(it.unit)}</td>
       </tr>`).join('');
 
     const subject = items.length > 1
-      ? `Material Request: ${items.length} items for ${payload.projectName || ''} / ${payload.poolType || ''}`
-      : `Material Request: ${items[0].materialName} for ${payload.projectName || ''} / ${payload.poolType || ''}`;
+      ? `Material Request: ${items.length} items for ${esc(payload.projectName)} / ${esc(payload.poolType)}`
+      : `Material Request: ${items[0].materialName} for ${esc(payload.projectName)} / ${esc(payload.poolType)}`;
 
     const html = `
       <div style="font-family:Arial,sans-serif; max-width:560px; margin:0 auto; color:#1e293b;">
@@ -69,11 +75,11 @@ exports.handler = async (event) => {
         <div style="border:1px solid #e2e8f0; border-top:none; padding:24px; border-radius:0 0 10px 10px;">
           <h3 style="margin-top:0;">New Material Request${items.length > 1 ? ` — ${items.length} items` : ''}</h3>
           <table style="width:100%; border-collapse:collapse; font-size:14px; margin-bottom:16px;">
-            <tr><td style="padding:6px 0; color:#64748b; width:140px;">Project</td><td style="padding:6px 0; font-weight:600;">${payload.projectName || ''}</td></tr>
-            <tr><td style="padding:6px 0; color:#64748b;">Pool Type</td><td style="padding:6px 0; font-weight:600;">${payload.poolType || ''}</td></tr>
-            ${payload.poolNo ? `<tr><td style="padding:6px 0; color:#64748b;">Pool No.</td><td style="padding:6px 0; font-weight:600;">${payload.poolNo}</td></tr>` : ''}
-            <tr><td style="padding:6px 0; color:#64748b;">Requested by</td><td style="padding:6px 0; font-weight:600;">${payload.requestedByName || ''} (${payload.requestedByRole || ''})</td></tr>
-            ${payload.reason ? `<tr><td style="padding:6px 0; color:#64748b;">Reason</td><td style="padding:6px 0;">${payload.reason}</td></tr>` : ''}
+            <tr><td style="padding:6px 0; color:#64748b; width:140px;">Project</td><td style="padding:6px 0; font-weight:600;">${esc(payload.projectName)}</td></tr>
+            <tr><td style="padding:6px 0; color:#64748b;">Pool Type</td><td style="padding:6px 0; font-weight:600;">${esc(payload.poolType)}</td></tr>
+            ${payload.poolNo ? `<tr><td style="padding:6px 0; color:#64748b;">Pool No.</td><td style="padding:6px 0; font-weight:600;">${esc(payload.poolNo)}</td></tr>` : ''}
+            <tr><td style="padding:6px 0; color:#64748b;">Requested by</td><td style="padding:6px 0; font-weight:600;">${esc(payload.requestedByName)} (${esc(payload.requestedByRole)})</td></tr>
+            ${payload.reason ? `<tr><td style="padding:6px 0; color:#64748b;">Reason</td><td style="padding:6px 0;">${esc(payload.reason)}</td></tr>` : ''}
           </table>
           <table style="width:100%; border-collapse:collapse; font-size:14px; margin-bottom:20px;">
             <thead>

@@ -1053,8 +1053,31 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     loadAll(true);
   };
 
+  // Each of these lists is saved as ONE database document, and the database
+  // refuses to save a document over 1 MiB. When that happens, saves fail (new
+  // requests, deliveries, receipts all stop working). This warns well before.
+  const storageWarnings = useMemo(() => {
+    const LIMIT = 1048576;
+    const sizeOf = (list: unknown[]) => { try { return JSON.stringify(list).length; } catch { return 0; } };
+    return [
+      { key: 'requests', label: 'Material requests', used: sizeOf(requests), count: requests.length },
+      { key: 'consumption', label: 'Consumption log', used: sizeOf(consumptionLogs), count: consumptionLogs.length },
+      { key: 'incoming', label: 'Goods receipts', used: sizeOf(incoming), count: incoming.length },
+      { key: 'materials', label: 'Inventory items', used: sizeOf(materials), count: materials.length },
+    ].map(x => ({ ...x, pct: (x.used / LIMIT) * 100 })).filter(x => x.pct >= 70);
+  }, [requests, consumptionLogs, incoming, materials]);
+
   return (
     <div className="w-full max-w-none mx-auto px-1 sm:px-2 py-4" data-testid="store-module">
+      {storageWarnings.length > 0 && (
+        <div data-testid="storage-warning" className={`mb-4 rounded-xl border px-4 py-3 text-xs ${storageWarnings.some(w => w.pct >= 90) ? 'border-rose-700 bg-rose-950/40 text-rose-200' : 'border-amber-700 bg-amber-950/30 text-amber-200'}`}>
+          <div className="font-black uppercase tracking-wide mb-1 flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" /> Data storage is filling up</div>
+          {storageWarnings.map(w => (
+            <div key={w.key}>{w.label}: <strong>{w.pct.toFixed(0)}% full</strong> ({w.count.toLocaleString()} records)</div>
+          ))}
+          <div className="mt-1 opacity-90">At 100% the app can no longer save changes to these records (new requests, deliveries and receipts will fail). Ask your developer to archive old records before that happens.</div>
+        </div>
+      )}
       {/* Edit extra units (length / weight per unit) of an existing material */}
       {unitsEdit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60" onClick={() => setUnitsEdit(null)} data-testid="units-modal">
@@ -1829,7 +1852,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       <button
                         onClick={() => openDelivery(group.toDeliver)}
                         disabled={group.approved.length > 0}
-                        title={group.approved.length > 0 ? 'Print the issue slip first' : 'Enter what you handed over and confirm'}
+                        title={group.approved.length > 0 ? 'Print the issue slip first (or press Mark Printed if it was printed another way)' : 'Enter what you handed over and confirm'}
                         data-testid={`req-deliver-${group.key}`}
                         className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold cursor-pointer"
                       >
@@ -2128,10 +2151,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <div className="no-print flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
               <span className="text-xs font-bold uppercase text-slate-400">Material Issue Slip{printBatch.length > 1 ? ` — ${printBatch.length} items` : ''}</span>
               <div className="flex gap-2">
-                <button onClick={() => setTimeout(() => window.print(), 50)} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                <button
+                  onClick={() => {
+                    // Printing counts as printed: open the print dialog, then mark
+                    // the slip printed so Confirm Hand Over unlocks. (Before, a
+                    // keeper who clicked Print and just closed the window stayed
+                    // blocked because the slip was never marked.)
+                    const ids = printBatch.map(it => it.id);
+                    setTimeout(() => { window.print(); markPrinted(ids); }, 50);
+                  }}
+                  data-testid="slip-print"
+                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                   <Printer className="h-3.5 w-3.5" /> Print
                 </button>
-                <button onClick={() => markPrinted(printBatch.map(it => it.id))} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">Mark Printed</button>
+                <button onClick={() => markPrinted(printBatch.map(it => it.id))} data-testid="slip-mark-printed" title="Use this if the slip was printed another way" className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">Mark Printed</button>
                 <button onClick={() => setPrintBatch(null)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
               </div>
             </div>

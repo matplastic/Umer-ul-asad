@@ -292,20 +292,31 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const submitRequest = async () => {
     if (!rProject || !rPoolType) { setFlash('Pick a project and pool type'); return; }
     if (rCart.length === 0) { setFlash('Add at least one material to the cart first'); return; }
-    const submitted = await dbSubmitMaterialRequestBatch(rCart.map(line => ({
-      projectName: rProject,
-      poolType: rPoolType,
-      poolId: null,
-      poolNo: null,
-      stageId: section as any,
-      materialId: line.materialId,
-      materialName: line.materialName,
-      unit: line.unit,
-      qtyRequested: Number(line.qty),
-      reason: rReason || null,
-      requestedByName: currentUserName,
-      requestedByRole: `Section Supervisor - ${sectionName}`,
-    })));
+    let submitted: Awaited<ReturnType<typeof dbSubmitMaterialRequestBatch>>;
+    try {
+      submitted = await dbSubmitMaterialRequestBatch(rCart.map(line => ({
+        projectName: rProject,
+        poolType: rPoolType,
+        poolId: null,
+        poolNo: null,
+        stageId: section as any,
+        materialId: line.materialId,
+        materialName: line.materialName,
+        unit: line.unit,
+        qtyRequested: Number(line.qty),
+        reason: rReason || null,
+        requestedByName: currentUserName,
+        requestedByRole: `Section Supervisor - ${sectionName}`,
+      })));
+    } catch (err) {
+      // Nothing was saved and no email went out. Keep the cart so the
+      // supervisor can simply press Submit again (before, the button just did
+      // nothing and the request looked sent).
+      console.error('[submitRequest] failed:', err);
+      setFlash('Could NOT send the request — nothing was saved and the manager was not emailed. Check your connection and press Submit again. If it keeps failing, tell the Store.');
+      setTimeout(() => setFlash(null), 8000);
+      return;
+    }
     setRCart([]); setRProject(''); setRPoolType(''); setRMaterialId(''); setRQty(''); setRReason(''); setRSearch('');
     setFlash(submitted.emailSent === false
       ? 'Request saved, but the approval email could NOT be sent to the manager. Ask Store to use "Resend to manager".'

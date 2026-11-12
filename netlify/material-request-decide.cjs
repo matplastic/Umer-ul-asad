@@ -164,11 +164,9 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
     </body></html>`;
 }
 
-async function loadTargets(db, id, batchId, token) {
-  const reqRef = db.collection('system_state').doc('materialRequests');
-  const reqSnap = await reqRef.get();
-  const arr = reqSnap.exists ? (reqSnap.data().data || []) : [];
-
+// Finds which rows of the materialRequests array a link points at (pure — works
+// on an array already read, so it can run inside a transaction).
+function findTargets(arr, id, batchId, token) {
   let indices;
   if (batchId) {
     indices = arr
@@ -182,7 +180,16 @@ async function loadTargets(db, id, batchId, token) {
     if (arr[idx].approvalToken !== token) return { error: 'badtoken' };
     indices = [idx];
   }
-  return { reqRef, arr, indices };
+  return { indices };
+}
+
+async function loadTargets(db, id, batchId, token) {
+  const reqRef = db.collection('system_state').doc('materialRequests');
+  const reqSnap = await reqRef.get();
+  const arr = reqSnap.exists ? (reqSnap.data().data || []) : [];
+  const found = findTargets(arr, id, batchId, token);
+  if (found.error) return { error: found.error };
+  return { reqRef, arr, indices: found.indices };
 }
 
 exports.handler = async (event) => {
@@ -232,45 +239,60 @@ exports.handler = async (event) => {
     // "reject". Missing/unrecognized values default to "approve" only as a
     // safety net (the page always renders both radios pre-selected), so this
     // never silently rejects something the manager didn't touch.
-    if (pendingIndices.length === 0) {
-      return html('Already Decided', 'Every line in this request was already decided.', true);
-    }
+    //
+    // Runs as ONE transaction: read the list, decide, write it back. Without
+    // that, a Store keeper confirming a delivery (or a supervisor submitting a
+    // request) in the same instant could be silently overwritten by this write.
+    const outcome = await db.runTransaction(async (tx) => {
+      const ref = db.collection('system_state').doc('materialRequests');
+      const snap = await tx.get(ref);
+      const list = snap.exists ? (snap.data().data || []) : [];
+      const found = findTargets(list, id, batchId, token);
+      if (found.error) return { error: found.error };
+      const pending = found.indices.filter((i) => list[i].status === 'PENDING');
+      if (pending.length === 0) return { none: true };
 
-    const decidedAt = new Date().toISOString();
-    const approvedItems = [];
-    const rejectedItems = [];
+      const decidedAt = new Date().toISOString();
+      const approved = [];
+      const rejected = [];
+      for (const i of pending) {
+        const item = list[i];
+        const requestedQty = Number(item.qtyRequested);
+        let choice = body.get(`decision_${item.id}`) === 'reject' ? 'reject' : 'approve';
 
-    for (const i of pendingIndices) {
-      const item = arr[i];
-      const requestedQty = Number(item.qtyRequested);
-      let choice = body.get(`decision_${item.id}`) === 'reject' ? 'reject' : 'approve';
+        // Clamp the approve-qty box to [0, qtyRequested] so a manager can't
+        // approve more than was asked for or a negative amount. Approving a
+        // qty of 0 is treated the same as an outright reject — there's
+        // nothing to issue.
+        let approveQty = requestedQty;
+        if (choice === 'approve') {
+          const raw = Number(body.get(`qty_${item.id}`));
+          approveQty = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), requestedQty) : requestedQty;
+          if (approveQty <= 0) choice = 'reject';
+        }
 
-      // Clamp the approve-qty box to [0, qtyRequested] so a manager can't
-      // approve more than was asked for or a negative amount. Approving a
-      // qty of 0 is treated the same as an outright reject — there's
-      // nothing to issue.
-      let approveQty = requestedQty;
-      if (choice === 'approve') {
-        const raw = Number(body.get(`qty_${item.id}`));
-        approveQty = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), requestedQty) : requestedQty;
-        if (approveQty <= 0) choice = 'reject';
+        const partial = choice === 'approve' && approveQty < requestedQty;
+        const decided = {
+          ...item,
+          status: choice === 'approve' ? 'APPROVED' : 'REJECTED',
+          qtyApproved: choice === 'approve' ? approveQty : null,
+          decidedByName: 'Manager (email)',
+          awaitingDelivery: choice === 'approve' ? true : null,
+          decisionNotes: partial ? `Partially approved: ${approveQty} of ${requestedQty} ${item.unit}` : (item.decisionNotes || null),
+          decidedAt,
+        };
+        list[i] = decided;
+        if (choice === 'approve') approved.push(decided); else rejected.push(decided);
       }
+      tx.set(ref, { data: list });
+      return { approved, rejected };
+    });
 
-      const partial = choice === 'approve' && approveQty < requestedQty;
-      const decided = {
-        ...item,
-        status: choice === 'approve' ? 'APPROVED' : 'REJECTED',
-        qtyApproved: choice === 'approve' ? approveQty : null,
-        decidedByName: 'Manager (email)',
-        awaitingDelivery: choice === 'approve' ? true : null,
-        decisionNotes: partial ? `Partially approved: ${approveQty} of ${requestedQty} ${item.unit}` : (item.decisionNotes || null),
-        decidedAt,
-      };
-      arr[i] = decided;
-      if (choice === 'approve') approvedItems.push(decided); else rejectedItems.push(decided);
-    }
-
-    await reqRef.set({ data: arr });
+    if (outcome.error === 'notfound') return html('Not Found', 'This material request no longer exists.', false, 404);
+    if (outcome.error === 'badtoken') return html('Invalid Link', 'This approval link is not valid.', false, 403);
+    if (outcome.none) return html('Already Decided', 'Every line in this request was already decided.', true);
+    const approvedItems = outcome.approved;
+    const rejectedItems = outcome.rejected;
 
     // NOTE: approval no longer touches Store stock or Floor Stock. Stock is
     // deducted only when the Store Manager confirms the actual delivered
