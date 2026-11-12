@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { CalendarClock, Download, Loader2, RotateCcw, Search } from 'lucide-react';
+import { CalendarClock, CalendarDays, Download, Loader2, RotateCcw, Search } from 'lucide-react';
 import { ActivityLog, Pool, Team } from '../types';
 import { STAGES, canonicalStageId } from '../data/mockData';
 import { dbFetchActivityLogsInRange } from '../lib/firebaseService';
@@ -293,6 +293,10 @@ export const StageTimelineReport: React.FC<StageTimelineReportProps> = ({ pools,
             if (a.teamName === '—') a.teamName = team;
             cur = null;
           } else if (ev.type === 'REJECTED') {
+            // QC UNDO: an already-approved run is sent back. Re-use that run
+            // (it keeps its real start/finish) instead of inventing a blank one.
+            const prev = stageAttempts[stageAttempts.length - 1];
+            if (!cur && prev && prev.qcResult === 'APPROVED') cur = prev;
             const a = open();
             a.qcResult = 'REJECTED';
             a.qcAt = ev.timestamp;
@@ -551,6 +555,41 @@ export const StageTimelineReport: React.FC<StageTimelineReportProps> = ({ pools,
     return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${cls}`}>{statusLabel(a)}</span>;
   };
 
+  // Compact date + stage controls, repeated above each table so they are
+  // always at hand without scrolling back to the top. Same state as the top bar.
+  const quickFilters = (
+    <div className="flex flex-wrap items-center gap-2">
+      <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
+        <CalendarDays className="h-3.5 w-3.5 text-indigo-500" /> From
+        <input
+          type="date"
+          value={from}
+          max={to}
+          onChange={e => { if (!e.target.value) return; setPreset('custom'); setFrom(e.target.value); setVisibleRows(100); }}
+          className="px-2 py-1 text-xs font-normal border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        />
+      </label>
+      <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
+        To
+        <input
+          type="date"
+          value={to}
+          min={from}
+          onChange={e => { if (!e.target.value) return; setPreset('custom'); setTo(e.target.value); setVisibleRows(100); }}
+          className="px-2 py-1 text-xs font-normal border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        />
+      </label>
+      <select
+        value={stageFilter}
+        onChange={e => { setStageFilter(e.target.value); setVisibleRows(100); }}
+        className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+      >
+        <option value="all">All stages</option>
+        {STAGES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+    </div>
+  );
+
   const rangeText = from === to ? fmtDay(from) : `${fmtDay(from)} → ${fmtDay(to)}`;
 
   return (
@@ -585,23 +624,47 @@ export const StageTimelineReport: React.FC<StageTimelineReportProps> = ({ pools,
             {presetBtn('month', 'This Month')}
             {presetBtn('all', 'All Time')}
           </div>
-          <div className="flex items-center gap-2 sm:ml-auto">
-            <input
-              type="date"
-              value={from}
-              max={to}
-              onChange={e => { setPreset('custom'); setFrom(e.target.value); }}
-              className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-            />
-            <span className="text-slate-400 text-xs">to</span>
-            <input
-              type="date"
-              value={to}
-              min={from}
-              onChange={e => { setPreset('custom'); setTo(e.target.value); }}
-              className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-            />
+          <div className="sm:ml-auto flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
+              <CalendarDays className="h-3.5 w-3.5 text-indigo-500" /> Pick a day
+              <input
+                type="date"
+                value={from === to ? from : ''}
+                max={todayStr}
+                onChange={e => {
+                  if (!e.target.value) return;
+                  setPreset('custom'); setFrom(e.target.value); setTo(e.target.value); setGroupBy('day'); setVisibleRows(100);
+                }}
+                className="px-2 py-1.5 text-xs font-normal border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </label>
+            {quickFilters}
           </div>
+        </div>
+
+        {/* Stage chips — one tap to look at a single stage */}
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => { setStageFilter('all'); setVisibleRows(100); }}
+            className={`px-3 py-1.5 text-xs font-bold rounded-full cursor-pointer transition-all ${
+              stageFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            All stages
+          </button>
+          {STAGES.map(s => (
+            <button
+              key={s.id}
+              onClick={() => { setStageFilter(s.id); setVisibleRows(100); }}
+              className={`px-3 py-1.5 text-xs font-bold rounded-full cursor-pointer transition-all flex items-center gap-1.5 ${
+                stageFilter === s.id ? 'text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+              style={stageFilter === s.id ? { background: s.color } : undefined}
+            >
+              <span className="w-2 h-2 rounded-full" style={{ background: stageFilter === s.id ? '#fff' : s.color }} />
+              {s.name}
+            </button>
+          ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -612,14 +675,6 @@ export const StageTimelineReport: React.FC<StageTimelineReportProps> = ({ pools,
           >
             <option value="all">All projects</option>
             {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <select
-            value={stageFilter}
-            onChange={e => { setStageFilter(e.target.value); setVisibleRows(100); }}
-            className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-          >
-            <option value="all">All stages</option>
-            {STAGES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <select
             value={qcFilter}
@@ -682,6 +737,7 @@ export const StageTimelineReport: React.FC<StageTimelineReportProps> = ({ pools,
           >
             {(Object.keys(metricLabels) as Metric[]).map(m => <option key={m} value={m}>{metricLabels[m]}</option>)}
           </select>
+          {quickFilters}
           <div className="flex gap-1 ml-auto">
             {([['day', 'Day-wise'], ['week', 'Week-wise'], ['month', 'Month-wise'], ['total', 'Total']] as [GroupBy, string][]).map(([id, label]) => (
               <button
@@ -747,10 +803,11 @@ export const StageTimelineReport: React.FC<StageTimelineReportProps> = ({ pools,
             {detailRows.length} run{detailRows.length === 1 ? '' : 's'}
             {rejectionAttempts.length > 0 && <> · <span className="text-red-600 font-semibold">{rejectionAttempts.length} rejected</span></>}
           </span>
-          <span className="text-[11px] text-slate-400 sm:ml-auto">
-            A rejected pool restarts immediately, so the rework appears as its own "Rework" row starting at the rejection time.
-          </span>
+          {quickFilters}
         </div>
+        <p className="px-4 py-2 text-[11px] text-slate-400 border-b border-slate-100 bg-slate-50/50">
+          A rejected pool restarts immediately, so the rework appears as its own "Rework" row starting at the rejection time.
+        </p>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
