@@ -37,7 +37,7 @@ import {
   UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck, Printer, Mic, MicOff, XCircle
 } from 'lucide-react';
 import { Warehouse as WarehouseIcon } from 'lucide-react';
-import { MgmtTabBar } from './MgmtTabBar';
+import MgmtTabBar from './MgmtTabBar';
 import { useVoiceCommand } from '../lib/useVoiceCommand';
 
 interface ManagementDashboardProps {
