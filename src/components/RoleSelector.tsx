@@ -43,60 +43,62 @@ export const TopBar: React.FC<{
   workerExit?: { teamName: string; onExit: () => void };
   onExitPortal?: () => void;
 }> = ({ onMenuClick, showMenuButton = true, workerExit, onExitPortal }) => (
-  <header className="sticky top-0 z-30 h-16 shrink-0 w-full bg-white border-b border-slate-200 flex items-center px-3 sm:px-5">
-    {showMenuButton ? (
-      <button
-        onClick={onMenuClick}
-        aria-label="Open portal menu"
-        title="Open portal menu"
-        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition-all cursor-pointer lg:hidden"
-      >
-        <Menu className="h-6 w-6" />
-      </button>
-    ) : (
-      <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
-    )}
+  <header className="sticky top-0 z-30 h-16 shrink-0 w-full bg-white border-b border-slate-200 grid grid-cols-[1fr_auto_1fr] items-center px-3 sm:px-5">
+    {/* Left slot — hamburger on mobile, empty on desktop (keeps the logo truly centered) */}
+    <div className="flex items-center justify-start">
+      {showMenuButton ? (
+        <button
+          onClick={onMenuClick}
+          aria-label="Open portal menu"
+          title="Open portal menu"
+          className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:scale-95 transition-all cursor-pointer lg:hidden"
+        >
+          <Menu className="h-6 w-6" />
+        </button>
+      ) : (
+        <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
+      )}
+    </div>
 
-    {/* Logo + name — centered on mobile, left-aligned on desktop like a normal ERP header */}
-    <div className="flex-1 flex items-center justify-center lg:justify-start gap-3 min-w-0 px-2 lg:px-0">
-      <div className="h-10 w-10 sm:h-11 sm:w-11 shrink-0 flex items-center justify-center">
+    {/* Center — MAT logo + name, always centered on every screen size */}
+    <div className="flex items-center justify-center gap-3 min-w-0 px-2">
+      <div className="h-11 w-11 sm:h-12 sm:w-12 shrink-0 flex items-center justify-center">
         <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-full w-full object-contain" />
       </div>
-      <div className="min-w-0 leading-tight">
-        <h1 className="text-[15px] sm:text-base font-bold text-slate-900 truncate">
+      <div className="min-w-0 text-center leading-tight">
+        <h1 className="text-[14px] sm:text-[17px] font-bold text-slate-900 truncate">
           MAT Plastic Industries
         </h1>
-        <p className="text-[11px] sm:text-xs font-medium text-slate-500 truncate">
+        <p className="text-[10px] sm:text-xs font-medium text-slate-500 truncate">
           Manufacturing ERP
         </p>
       </div>
     </div>
 
-    {/* Right side — Exit Portal (logged-in management/office users) takes
-        priority; falls back to the kiosk worker Exit button; otherwise an
-        invisible spacer keeps the brand block centered on mobile where the
-        hamburger occupies the left slot. */}
-    {workerExit ? (
-      <button
-        onClick={workerExit.onExit}
-        className="shrink-0 flex items-center gap-1.5 h-10 px-3.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer active:scale-95 transition-all"
-      >
-        <LogOut className="h-4 w-4" />
-        <span className="hidden sm:inline">Exit ({workerExit.teamName})</span>
-        <span className="sm:hidden">Exit</span>
-      </button>
-    ) : onExitPortal ? (
-      <button
-        onClick={onExitPortal}
-        title="Exit Portal"
-        className="shrink-0 flex items-center gap-1.5 h-10 px-3.5 rounded-lg bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-xs font-semibold cursor-pointer active:scale-95 transition-all"
-      >
-        <LogOut className="h-4 w-4" />
-        <span className="hidden sm:inline">Exit Portal</span>
-      </button>
-    ) : (
-      <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
-    )}
+    {/* Right slot — Exit Portal (office users) or Exit (kiosk worker) */}
+    <div className="flex items-center justify-end">
+      {workerExit ? (
+        <button
+          onClick={workerExit.onExit}
+          className="shrink-0 flex items-center gap-1.5 h-10 px-3.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer active:scale-95 transition-all"
+        >
+          <LogOut className="h-4 w-4" />
+          <span className="hidden sm:inline">Exit ({workerExit.teamName})</span>
+          <span className="sm:hidden">Exit</span>
+        </button>
+      ) : onExitPortal ? (
+        <button
+          onClick={onExitPortal}
+          title="Exit Portal"
+          className="shrink-0 flex items-center gap-1.5 h-10 px-3.5 rounded-lg bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-xs font-semibold cursor-pointer active:scale-95 transition-all"
+        >
+          <LogOut className="h-4 w-4" />
+          <span className="hidden sm:inline">Exit Portal</span>
+        </button>
+      ) : (
+        <div className="h-10 w-10 shrink-0 lg:hidden" aria-hidden="true" />
+      )}
+    </div>
   </header>
 );
 
