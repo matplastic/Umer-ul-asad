@@ -17,7 +17,6 @@ import {
 import { exportTablePdf } from '../lib/exportUtils';
 import { SearchableSelect, SearchableOption } from './SearchableSelect';
 import { matchesAllTokens } from '../lib/searchUtils';
-import { groupOf, InventoryGroup } from '../lib/inventoryGroups';
 
 const uid = () => `sup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 const fmtDate = (s: string) => { try { return new Date(s).toLocaleDateString('en-GB'); } catch { return s; } };
@@ -87,10 +86,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   // inventory (every section, not just this one) by name, ERP code,
   // supplier, brand, storage location, HS code, or category.
   const [rSearch, setRSearch] = useState('');
-  // Same MEP / Civil / Consumable / Other portal split as Store — narrows which
+  // Same MEP / Civil / Other portal split as Store — narrows which
   // materials show up in the request search.
-  const [rGroup, setRGroup] = useState<InventoryGroup | 'all'>('all');
-  const materialGroup = (m: Material): InventoryGroup => groupOf(m);
+  const [rGroup, setRGroup] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
+  const materialGroup = (m: Material): 'mep' | 'civil' | 'other' => ((m as any).inventoryGroup) || 'other';
   const [rDropdownOpen, setRDropdownOpen] = useState(false);
 
   const loadAll = useCallback(async (silent = false) => {
@@ -726,7 +725,6 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               <option value="all">All Portals</option>
               <option value="mep">MEP Materials</option>
               <option value="civil">Civil Materials</option>
-              <option value="consumable">Consumable Items</option>
               <option value="other">Other Materials</option>
             </select>
             <div className="relative md:col-span-2">

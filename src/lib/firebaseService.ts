@@ -1,6 +1,7 @@
 import { auth, app, clientDb } from './googleDrive.ts';
 import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, StockAdjustment, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
+import { applySupplierSave } from './suppliers';
+import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, StockAdjustment, Supplier, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
 import { scheduleStockAlertCheck } from './stockAlerts';
 // NOTE: clientDb now comes from googleDrive.ts, which is the ONLY place
 // Firestore is initialized (via initializeFirestore with long-polling
@@ -3522,6 +3523,39 @@ export async function dbFetchMaterialReturns(): Promise<MaterialReturn[]> {
 export async function dbFetchStockAdjustments(): Promise<StockAdjustment[]> {
   if (!apiBase()) return getFirestoreDocArray('stockAdjustments');
   return [];
+}
+
+// ── Suppliers (Store → Suppliers) ───────────────────────────────────────────
+export async function dbFetchSuppliers(): Promise<Supplier[]> {
+  if (!apiBase()) return getFirestoreDocArray('suppliers');
+  return [];
+}
+
+export class SupplierError extends Error {
+  constructor(message: string) { super(message); this.name = 'SupplierError'; }
+}
+
+// Create or update a supplier. The code (SUP-0001…) is generated INSIDE the
+// write, from the codes already on file, so two people adding suppliers at the
+// same time can't collide. Names must be unique (ignoring case/spacing)
+// because receipts and materials link to a supplier by name.
+export async function dbSaveSupplier(input: Partial<Supplier> & { name: string }, byName: string): Promise<Supplier> {
+  if (apiBase()) throw new SupplierError('Suppliers are only available on the Firebase deployment.');
+  let saved: Supplier | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('suppliers', (arr) => {
+    // May run more than once if the write is retried — always start clean.
+    const result = applySupplierSave(arr, input, byName, () => newId('sup'), new Date().toISOString());
+    saved = result.saved; error = result.error;
+    return result.arr;
+  }, true);
+  if (error || !saved) throw new SupplierError(error || 'Could not save the supplier.');
+  return saved;
+}
+
+export async function dbDeleteSupplier(id: string): Promise<void> {
+  if (apiBase()) throw new SupplierError('Suppliers are only available on the Firebase deployment.');
+  await updateFirestoreDocArray('suppliers', (arr) => arr.filter((s) => s.id !== id), true);
 }
 
 export async function dbFetchProductionLogs(): Promise<ProductionLog[]> {

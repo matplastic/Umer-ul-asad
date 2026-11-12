@@ -3,7 +3,7 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
   Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
-  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen,
+  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen, Building2,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -11,12 +11,12 @@ import autoTable from 'jspdf-autotable';
 import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
-  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch, dbFetchStockAdjustments,
+  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch, dbFetchStockAdjustments, dbFetchSuppliers,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs,
   dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields, dbFetchProductionLogs,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, StockAdjustment, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, StockAdjustment, Supplier, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 import { ExtraUnitsEditor } from './ExtraUnitsEditor';
 import { cleanExtraUnits, equivalentsText, perUnitText } from '../lib/materialUnits';
 import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS } from '../lib/stockAlerts';
@@ -25,9 +25,10 @@ import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
 import { StockLedgerModal } from './StockLedgerModal';
 import { InventoryLedgerPage } from './InventoryLedgerPage';
-import { INVENTORY_GROUPS, GROUP_LABELS, GROUP_BADGE, groupOf, InventoryGroup } from '../lib/inventoryGroups';
+import { SuppliersPage } from './SuppliersPage';
+import { normName } from '../lib/suppliers';
 
-type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'ledger' | 'key' | 'assets' | 'reorder';
+type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'ledger' | 'suppliers' | 'key' | 'assets' | 'reorder';
 
 // ==========================================================
 // PDF letterhead helpers — logo + company header + footer used by every
@@ -160,6 +161,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [incoming, setIncoming] = useState<IncomingMaterial[]>([]);
   const [consumptionLogs, setConsumptionLogs] = useState<ConsumptionLog[]>([]);
   const [stockAdjustments, setStockAdjustments] = useState<StockAdjustment[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   // Material whose Stock Ledger window is open (click a material in Inventory).
   const [ledgerMaterial, setLedgerMaterial] = useState<Material | null>(null);
   // Set right after a hand over is confirmed — drives the Delivery Order screen.
@@ -200,11 +202,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // storage location, HS code, or category.
   const [inventorySearch, setInventorySearch] = useState('');
   // Which of the 3 inventory portals is showing: MEP / Civil / Other / All.
-  const [invGroupTab, setInvGroupTab] = useState<InventoryGroup | 'all' | 'key'>('all');
+  const [invGroupTab, setInvGroupTab] = useState<'mep' | 'civil' | 'other' | 'all' | 'key'>('all');
   // Same MEP / Civil / Other split, applied to the Reports tab (Consumption
   // Log + Stock Ledger) so Store can look at each portal's consumption
   // separately too.
-  const [reportsGroupTab, setReportsGroupTab] = useState<InventoryGroup | 'all'>('all');
+  const [reportsGroupTab, setReportsGroupTab] = useState<'mep' | 'civil' | 'other' | 'all'>('all');
   // Consumption Log search — matches material, section, or logged-by name.
   const [logSearch, setLogSearch] = useState('');
   const [importMode, setImportMode] = useState<'add' | 'update' | 'both'>('both');
@@ -213,7 +215,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, inc, an, cons, adj, assets] = await Promise.all([
+      const [m, b, r, inc, an, cons, adj, sups, assets] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
@@ -221,6 +223,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         dbFetchConsumptionAnalytics(),
         dbFetchConsumptionLogs(),
         dbFetchStockAdjustments(),
+        dbFetchSuppliers(),
         dbFetchCompanyAssets(),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
@@ -228,6 +231,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       setRequests(Array.isArray(r) ? r.map((x: any) => ({ ...x, qtyRequested: Number(x.qtyRequested) })) : []);
       setIncoming(Array.isArray(inc) ? inc.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setConsumptionLogs(Array.isArray(cons) ? cons.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
+      setSuppliers(Array.isArray(sups) ? sups : []);
       setStockAdjustments(Array.isArray(adj) ? adj.map((x: any) => ({ ...x, delta: Number(x.delta) })) : []);
       setCompanyAssets(Array.isArray(assets) ? assets.map((x: any) => ({ ...x, value: x.value === null || x.value === undefined || x.value === '' ? null : Number(x.value) })) : []);
       setAnalytics(an);
@@ -983,6 +987,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // --- Incoming ---
   const saveIncoming = async () => {
     if (!newIncoming.materialId || !newIncoming.qty) return;
+    const sup = suppliers.find(sp => normName(sp.name) === normName(newIncoming.supplier));
+    if (sup?.status === 'blocked') {
+      alert(`${sup.name} is BLOCKED in the supplier list, so material can't be received from them. Change their status under Suppliers first if this is correct.`);
+      return;
+    }
+    if (sup?.status === 'on_hold' && !window.confirm(`${sup.name} is ON HOLD. Receive this material anyway?`)) return;
     await dbCreateIncomingMaterial({
       materialId: newIncoming.materialId,
       materialName: '',
@@ -1031,9 +1041,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     return SECTION_DEFINITIONS.find(s => s.id === id)?.name || id;
   };
 
-  // Group list, labels and badge colours live in src/lib/inventoryGroups.ts
-  const materialGroup = (m: Material): InventoryGroup => groupOf(m);
-  const setMaterialGroup = async (m: Material, group: InventoryGroup) => {
+  const GROUP_LABELS: Record<'mep' | 'civil' | 'other', string> = { mep: 'MEP Materials', civil: 'Civil Materials', other: 'Other Materials' };
+  const GROUP_BADGE: Record<'mep' | 'civil' | 'other', string> = {
+    mep: 'bg-sky-950/40 text-sky-400 border-sky-800',
+    civil: 'bg-amber-950/40 text-amber-400 border-amber-800',
+    other: 'bg-slate-800 text-slate-400 border-slate-700',
+  };
+  const materialGroup = (m: Material): 'mep' | 'civil' | 'other' => (m.inventoryGroup as any) || 'other';
+  const setMaterialGroup = async (m: Material, group: 'mep' | 'civil' | 'other') => {
     await dbSaveMaterial({ ...m, inventoryGroup: group } as any);
     loadAll(true);
   };
@@ -1166,6 +1181,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         <button onClick={() => setTab('ledger')} data-testid="tab-ledger" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'ledger' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
           <BookOpen className="h-4 w-4" /> Inventory Ledger
         </button>
+        <button onClick={() => setTab('suppliers')} data-testid="tab-suppliers" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'suppliers' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+          <Building2 className="h-4 w-4" /> Suppliers
+        </button>
       </div>
 
       {/* ---------- INVENTORY TAB (Excel + Section-wise) ---------- */}
@@ -1214,7 +1232,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <select value={newMaterial.inventoryGroup} onChange={e => setNewMaterial((p: any) => ({ ...p, inventoryGroup: e.target.value }))} data-testid="new-mat-group" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
               <option value="mep">MEP Material</option>
               <option value="civil">Civil Material</option>
-              <option value="consumable">Consumable Item</option>
               <option value="other">Other Material</option>
             </select>
             <input placeholder="Category" value={newMaterial.category} onChange={e => setNewMaterial((p: any) => ({ ...p, category: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
@@ -1226,7 +1243,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             </label>
             <button onClick={saveMaterial} data-testid="new-mat-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Material</button>
             <input placeholder="ERP Code" data-testid="new-mat-erpcode" value={newMaterial.erpCode} onChange={e => setNewMaterial((p: any) => ({ ...p, erpCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Supplier name" data-testid="new-mat-supplier" value={newMaterial.supplierName} onChange={e => setNewMaterial((p: any) => ({ ...p, supplierName: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
+            <input placeholder="Supplier name" list="supplier-options" data-testid="new-mat-supplier" value={newMaterial.supplierName} onChange={e => setNewMaterial((p: any) => ({ ...p, supplierName: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
             <input placeholder="Brand" data-testid="new-mat-brand" value={newMaterial.brand} onChange={e => setNewMaterial((p: any) => ({ ...p, brand: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Location (Rack/Bin)" data-testid="new-mat-location" value={newMaterial.location} onChange={e => setNewMaterial((p: any) => ({ ...p, location: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
@@ -1252,7 +1269,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               critical, regardless of portal) so it gets its own amber accent
               to read as "a different kind of filter" rather than a 4th portal. */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            {(['all', ...INVENTORY_GROUPS] as const).map(g => {
+            {(['all', 'mep', 'civil', 'other'] as const).map(g => {
               const count = g === 'all' ? materials.length : materials.filter(m => materialGroup(m) === g).length;
               return (
                 <button
@@ -1334,7 +1351,6 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           <select value={grp} onChange={e => setMaterialGroup(m, e.target.value as any)} data-testid={`mat-group-${m.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase border cursor-pointer bg-transparent ${GROUP_BADGE[grp]}`}>
                             <option className="bg-slate-900" value="mep">MEP</option>
                             <option className="bg-slate-900" value="civil">Civil</option>
-                            <option className="bg-slate-900" value="consumable">Consumable</option>
                             <option className="bg-slate-900" value="other">Other</option>
                           </select>
                         </td>
@@ -1462,7 +1478,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit}) · stock: {m.currentStock}</option>)}
             </select>
             <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input placeholder="Supplier" list="supplier-options" data-testid="new-incoming-supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
             <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Send to Quality</button>
           </div>
@@ -1884,9 +1900,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- REPORTS TAB ---------- */}
       {tab === 'reports' && displayedAnalytics && (
         <div>
-          {/* Same MEP / Civil / Consumable / Other portal split as Inventory */}
+          {/* Same MEP / Civil / Other portal split as Inventory */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            {(['all', ...INVENTORY_GROUPS] as const).map(g => (
+            {(['all', 'mep', 'civil', 'other'] as const).map(g => (
               <button
                 key={g}
                 onClick={() => setReportsGroupTab(g)}
@@ -1978,6 +1994,24 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           </div>
         </div>
       )}
+
+      {/* ---------- SUPPLIERS TAB ---------- */}
+      {tab === 'suppliers' && (
+        <SuppliersPage
+          suppliers={suppliers}
+          incoming={incoming}
+          materials={materials}
+          currentUserName={currentUserName}
+          onChanged={() => loadAll(true)}
+          onOpenMaterial={(m) => setLedgerMaterial(m)}
+        />
+      )}
+
+      {/* Supplier suggestions for the Incoming and New Material forms. Blocked
+          suppliers are left out; typing a new name is still allowed. */}
+      <datalist id="supplier-options">
+        {suppliers.filter(sp => (sp.status || 'active') !== 'blocked').map(sp => <option key={sp.id} value={sp.name} />)}
+      </datalist>
 
       {/* ---------- INVENTORY LEDGER TAB (all materials together) ---------- */}
       {tab === 'ledger' && (
