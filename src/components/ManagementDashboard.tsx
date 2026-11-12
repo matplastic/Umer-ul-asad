@@ -37,6 +37,7 @@ import {
   UploadCloud, AlertTriangle, KeyRound, RefreshCw, HardHat, Truck, Printer, Mic, MicOff, XCircle
 } from 'lucide-react';
 import { Warehouse as WarehouseIcon } from 'lucide-react';
+import { MgmtTabBar } from './MgmtTabBar';
 import { useVoiceCommand } from '../lib/useVoiceCommand';
 
 interface ManagementDashboardProps {
@@ -2937,126 +2938,15 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       </>
       )}
 
-      {onRefreshAll && (
-        <div className="flex items-center justify-end gap-3 px-1">
-          {lastSyncTime && !isFullSyncing && (
-            <span className="text-xs text-neutral-400">Last synced {lastSyncTime}</span>
-          )}
-          <button
-            onClick={onRefreshAll}
-            disabled={isFullSyncing}
-            className="flex items-center gap-1.5 bg-white hover:bg-neutral-50 disabled:opacity-60 text-neutral-600 text-xs font-medium px-3 py-1.5 rounded-[var(--radius-control)] border border-neutral-200 transition-colors"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFullSyncing ? 'animate-spin' : ''}`} />
-            {isFullSyncing ? 'Refreshing…' : 'Refresh data'}
-          </button>
-        </div>
-      )}
-
-      {/* Tabs navigation — grouped by function, ERP-style with an animated sliding active pill per group */}
-      <motion.div
-        id="mgmt-tabs-top"
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-        className="relative bg-white rounded-[var(--radius-card)] border border-neutral-200 p-5 pt-6 space-y-6 overflow-hidden"
-      >
-        {/* subtle top accent bar for a "system chrome" feel — inset slightly so
-            it doesn't collide with the card's own rounded corners */}
-        <div className="absolute top-0 left-5 right-5 h-[3px] rounded-b-full bg-gradient-to-r from-teal-500 via-slate-700 to-teal-500 opacity-70" />
-
-        {([
-          {
-            group: 'Overview',
-            tabs: [
-              { id: 'analytics', label: 'Analytics / Bottlenecks', icon: BarChart2 },
-              { id: 'projects_portal', label: 'All Projects Portal', icon: Briefcase, elId: 'tab-mgmt-projects-portal' },
-              { id: 'pools', label: 'Pools Register Tracking', icon: Layers },
-              { id: 'release_log', label: 'Pool Release Log', icon: Calendar, elId: 'tab-mgmt-release-log' },
-              { id: 'daily_progress', label: 'Daily Stage Progress', icon: Calendar, elId: 'tab-mgmt-daily-progress' },
-              { id: 'rejection_log', label: 'Rejection Log', icon: AlertTriangle, elId: 'tab-mgmt-rejection-log' },
-              { id: 'stage_reports', label: 'Stage Reports', icon: FileSpreadsheet, elId: 'tab-mgmt-stage-reports' },
-              { id: 'project_progress', label: 'Project Progress Report', icon: Boxes, elId: 'tab-mgmt-project-progress' },
-              { id: 'stage_timeline', label: 'Stage Timeline Report', icon: CalendarClock, elId: 'tab-mgmt-stage-timeline' },
-            ],
-          },
-          {
-            group: 'Operations',
-            tabs: [
-              { id: 'teams', label: 'Teams Allocation', icon: Users },
-              { id: 'team_performance', label: 'Team Performance', icon: TrendingUp, elId: 'tab-mgmt-team-performance' },
-              { id: 'team_search', label: 'Team Search', icon: Search, elId: 'tab-mgmt-team-search' },
-              { id: 'shop_floor', label: 'Shop Floor Monitor', icon: HardHat, elId: 'tab-mgmt-shop-floor' },
-              { id: 'delivery', label: 'Delivery', icon: Truck, elId: 'tab-mgmt-delivery' },
-              { id: 'site_deliveries', label: 'Site Deliveries', icon: Truck, elId: 'tab-mgmt-site-deliveries' },
-              { id: 'warehouse', label: 'Warehouse', icon: WarehouseIcon, elId: 'tab-mgmt-warehouse' },
-              { id: 'employee_portal', label: 'Employee Directory', icon: UserPlus, elId: 'tab-mgmt-employees-portal' },
-              { id: 'audit_logs', label: 'Audit Dispatch Ledger', icon: FileSpreadsheet },
-            ],
-          },
-          {
-            group: 'Admin',
-            tabs: [
-              { id: 'pool_editor', label: 'Pool Details Editor', icon: Edit2, elId: 'tab-mgmt-pool-editor' },
-              { id: 'workspace_setup', label: 'Workspace Setup & Names', icon: SlidersHorizontal },
-              { id: 'google_drive', label: 'Google Drive Backups', icon: Cloud },
-              { id: 'terminal_settings', label: 'Terminal Control', icon: Lock },
-              { id: 'online_users', label: 'Active Sessions', icon: Activity },
-            ],
-          },
-        ] as const).map((section, i) => (
-          <div key={section.group} className="relative">
-            {i > 0 && <div className="h-px bg-neutral-100 -mx-5 mb-5" />}
-            <div className="flex items-center gap-2.5 mb-3">
-              <span
-                className="h-6 w-6 rounded-lg flex items-center justify-center shrink-0"
-                style={{ backgroundColor: i === 0 ? '#0f766e14' : i === 1 ? '#33415514' : '#94a3b814' }}
-              >
-                <span
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: i === 0 ? '#0f766e' : i === 1 ? '#334155' : '#94a3b8' }}
-                />
-              </span>
-              <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-[0.12em]">{section.group}</span>
-              <span className="text-[9.5px] font-bold text-neutral-400 bg-neutral-100 rounded-full px-1.5 py-px leading-tight">
-                {section.tabs.length}
-              </span>
-              <span className="flex-1 h-px bg-neutral-100 ml-1" aria-hidden="true" />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {section.tabs.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
-                return (
-                  <motion.button
-                    key={tab.id}
-                    id={(tab as any).elId}
-                    onClick={() => setActiveTab(tab.id)}
-                    whileHover={{ y: isActive ? 0 : -1 }}
-                    whileTap={{ scale: 0.97 }}
-                    className={`relative py-2 px-3.5 rounded-[var(--radius-control)] text-xs font-semibold flex items-center gap-2 cursor-pointer transition-colors duration-150 border ${
-                      isActive
-                        ? 'text-white border-transparent'
-                        : 'text-neutral-600 border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'
-                    }`}
-                  >
-                    {isActive && (
-                      <motion.span
-                        layoutId={`nav-active-pill-${section.group}`}
-                        transition={{ type: 'spring', stiffness: 520, damping: 38 }}
-                        className="absolute inset-0 rounded-[var(--radius-control)] bg-gradient-to-br from-slate-800 to-neutral-950 shadow-md shadow-slate-900/25"
-                      />
-                    )}
-                    <Icon className={`relative z-10 h-3.5 w-3.5 shrink-0 ${isActive ? 'text-teal-400' : 'text-neutral-400'}`} />
-                    <span className="relative z-10 whitespace-nowrap">{tab.label}</span>
-                  </motion.button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </motion.div>
+      {/* Management navigation: section switch (Overview / Operations / Admin)
+          + the tabs of the chosen section. See MgmtTabBar.tsx. */}
+      <MgmtTabBar
+        activeTab={activeTab}
+        onChange={(id) => setActiveTab(id as typeof activeTab)}
+        onRefresh={onRefreshAll}
+        isSyncing={isFullSyncing}
+        lastSyncTime={lastSyncTime}
+      />
 
       {/* Panels viewport */}
       <div className="grid grid-cols-1 gap-6">
