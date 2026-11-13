@@ -4614,7 +4614,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                 setGeneratingCertForStage(null);
                               }
                             }}
-                            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[10.5px] font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-[10.5px] font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <FileDown className="h-3 w-3" />
                             {generatingCertForStage === stage.id ? 'Generating…' : `Get Certificate — ${stage.name}`}
@@ -4801,7 +4801,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             setIsGeneratingCertificate(false);
                           }
                         }}
-                        className="py-2.5 text-xs font-bold rounded-xl transition-all shadow-sm border flex items-center justify-center gap-1.5 cursor-pointer font-sans bg-slate-900 hover:bg-slate-800 border-slate-900 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="py-2.5 text-xs font-bold rounded-xl transition-all shadow-sm border flex items-center justify-center gap-1.5 cursor-pointer font-sans bg-primary-600 hover:bg-primary-700 border-primary-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <FileDown className="h-4 w-4" />
                         {isGeneratingCertificate ? 'Generating…' : 'Get Certificate'}
@@ -5084,7 +5084,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           title={`Firestore ID: ${pool.id}`}
                           className={`w-full text-left p-3 rounded-xl border cursor-pointer block transition-all ${
                             isSelected
-                              ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+                              ? 'border-primary-600 bg-primary-600 text-white shadow-md'
                               : 'border-slate-100 hover:border-slate-205 hover:bg-slate-50'
                           }`}
                         >
@@ -5467,9 +5467,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             </div>
 
             {/* Summary strip */}
-            <div className="bg-slate-900 text-white rounded-2xl p-5 flex items-center justify-between">
+            <div className="bg-white text-slate-900 rounded-2xl p-5 border border-slate-200 shadow-[var(--shadow-elevation-1)] flex items-center justify-between">
               <div>
-                <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                <p className="text-xs font-semibold text-slate-500">
                   {new Date(progressFilterDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
                 </p>
                 <p className="text-2xl font-extrabold mt-1">{totalDonePoolsOnDate} pool-stage sign-offs</p>
@@ -5478,7 +5478,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 {stageDailyProgress.filter(s => s.donePools.length > 0).map(s => (
                   <div key={s.stage.id} className="text-center px-3">
                     <span className="block text-lg font-bold">{s.donePools.length}</span>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">{s.stage.name}</span>
+                    <span className="text-[11px] text-slate-500 font-medium">{s.stage.name}</span>
                   </div>
                 ))}
               </div>
@@ -5588,13 +5588,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   <div className="flex rounded-xl border border-slate-200 overflow-hidden">
                     <button
                       onClick={() => setRejectionFilterMode('day')}
-                      className={`text-xs font-bold px-3 py-2 cursor-pointer ${rejectionFilterMode === 'day' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                      className={`text-xs font-bold px-3 py-2 cursor-pointer ${rejectionFilterMode === 'day' ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                       Single Day
                     </button>
                     <button
                       onClick={() => setRejectionFilterMode('range')}
-                      className={`text-xs font-bold px-3 py-2 cursor-pointer ${rejectionFilterMode === 'range' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                      className={`text-xs font-bold px-3 py-2 cursor-pointer ${rejectionFilterMode === 'range' ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                       Date Range
                     </button>
@@ -5644,17 +5644,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             </div>
 
             {/* Summary strip */}
-            <div className="bg-slate-900 text-white rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4">
+            <div className="bg-white text-slate-900 rounded-2xl p-5 border border-slate-200 shadow-[var(--shadow-elevation-1)] flex items-center justify-between flex-wrap gap-4">
               <div>
-                <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                <p className="text-xs font-semibold text-slate-500">
                   {rejectionFilterMode === 'day'
                     ? new Date(rejectionFilterDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
                     : `${rejectionFromDate} to ${rejectionToDate}`}
                 </p>
                 <p className="text-2xl font-extrabold mt-1">{rejectionTotal} pool rejection{rejectionTotal === 1 ? '' : 's'}</p>
-                {rejectionLoading && <p className="text-[11px] text-slate-400 mt-1">Loading full history…</p>}
+                {rejectionLoading && <p className="text-[11px] text-slate-500 mt-1">Loading full history…</p>}
                 {!rejectionLoading && rejectionRecordCount > 0 && (
-                  <p className="text-[11px] text-amber-300 mt-1 max-w-md">
+                  <p className="text-[11px] text-amber-600 mt-1 max-w-md">
                     {rejectionRecordCount} of these come from older stage records (no detailed log kept) — they show the last inspection date and note only.
                   </p>
                 )}
@@ -5663,7 +5663,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 {rejectionsByStage.map(s => (
                   <div key={s.stage.id} className="text-center px-3">
                     <span className="block text-lg font-bold">{s.count}</span>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">{s.stage.name}</span>
+                    <span className="text-[11px] text-slate-500 font-medium">{s.stage.name}</span>
                   </div>
                 ))}
               </div>
@@ -6134,9 +6134,9 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             </div>
 
             {/* Summary strip */}
-            <div className="bg-slate-900 text-white rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4">
+            <div className="bg-white text-slate-900 rounded-2xl p-5 border border-slate-200 shadow-[var(--shadow-elevation-1)] flex items-center justify-between flex-wrap gap-4">
               <div>
-                <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                <p className="text-xs font-semibold text-slate-500">
                   {perfMode === 'daily'
                     ? new Date(perfDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
                     : perfMode === 'weekly'
@@ -6149,12 +6149,12 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               </div>
               <div className="flex gap-6">
                 <div className="text-center px-3">
-                  <span className="block text-xl font-bold text-emerald-400">{perfTotals.pass}</span>
-                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Passed</span>
+                  <span className="block text-xl font-bold text-emerald-600">{perfTotals.pass}</span>
+                  <span className="text-[11px] text-slate-500 font-medium">Passed</span>
                 </div>
                 <div className="text-center px-3">
-                  <span className="block text-xl font-bold text-rose-400">{perfTotals.reject}</span>
-                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Rejected</span>
+                  <span className="block text-xl font-bold text-rose-600">{perfTotals.reject}</span>
+                  <span className="text-[11px] text-slate-500 font-medium">Rejected</span>
                 </div>
               </div>
             </div>
@@ -6331,31 +6331,31 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             ) : (
               <>
                 {/* Summary strip */}
-                <div className="bg-slate-900 text-white rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4">
+                <div className="bg-white text-slate-900 rounded-2xl p-5 border border-slate-200 shadow-[var(--shadow-elevation-1)] flex items-center justify-between flex-wrap gap-4">
                   <div>
-                    <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                    <p className="text-xs font-semibold text-slate-500">
                       {teamSearchSelectedTeam.name} · {teamSearchStage?.name || teamSearchSelectedTeam.stageId} · {teamSearchRange.start} to {teamSearchRange.end}
                     </p>
                     <p className="text-2xl font-extrabold mt-1">{teamSearchDistinctPoolsPassed} pool{teamSearchDistinctPoolsPassed === 1 ? '' : 's'} made</p>
                   </div>
                   <div className="flex gap-6">
                     <div className="text-center px-3">
-                      <span className="block text-xl font-bold text-emerald-400">{teamSearchPassCount}</span>
-                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Passed</span>
+                      <span className="block text-xl font-bold text-emerald-600">{teamSearchPassCount}</span>
+                      <span className="text-[11px] text-slate-500 font-medium">Passed</span>
                     </div>
                     <div className="text-center px-3">
-                      <span className="block text-xl font-bold text-rose-400">{teamSearchRejectCount}</span>
-                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Rejected</span>
+                      <span className="block text-xl font-bold text-rose-600">{teamSearchRejectCount}</span>
+                      <span className="text-[11px] text-slate-500 font-medium">Rejected</span>
                     </div>
                     <div className="text-center px-3">
-                      <span className="block text-xl font-bold text-white">{teamSearchPassCount + teamSearchRejectCount}</span>
-                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Total sign-offs</span>
+                      <span className="block text-xl font-bold text-slate-900">{teamSearchPassCount + teamSearchRejectCount}</span>
+                      <span className="text-[11px] text-slate-500 font-medium">Total sign-offs</span>
                     </div>
                     <div className="text-center px-3">
-                      <span className="block text-xl font-bold text-slate-200">
+                      <span className="block text-xl font-bold text-slate-700">
                         {teamSearchPassCount + teamSearchRejectCount > 0 ? Math.round((teamSearchPassCount / (teamSearchPassCount + teamSearchRejectCount)) * 100) : 0}%
                       </span>
-                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">Pass Rate</span>
+                      <span className="text-[11px] text-slate-500 font-medium">Pass Rate</span>
                     </div>
                   </div>
                 </div>
@@ -6443,7 +6443,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   </button>
                   <button
                     onClick={openAddEmployeeModal}
-                    className="px-4 py-2 bg-slate-900 border border-slate-800 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm hover:bg-slate-800 transition-all cursor-pointer font-sans"
+                    className="px-4 py-2 bg-primary-600 border border-primary-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm hover:bg-primary-700 transition-all cursor-pointer font-sans"
                   >
                     <Plus className="h-4 w-4" />
                     Register New Employee
@@ -7143,7 +7143,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         setIsManageDeptsOpen(false);
                         setNewDepartmentName('');
                       }}
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
+                      className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
                     >
                       Close Department Manager
                     </button>
@@ -7233,7 +7233,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     onClick={() => setDeliverySubTab(sub.id)}
                     className={`flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl border transition-colors ${
                       isActive
-                        ? 'bg-slate-900 text-white border-slate-900'
+                        ? 'bg-primary-600 text-white border-primary-600'
                         : 'border-slate-200 text-slate-500 hover:bg-slate-50'
                     }`}
                   >
@@ -7279,7 +7279,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         key={pool.id}
                         onClick={() => loadPoolIntoDelivery(pool)}
                         className={`w-full text-left p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-2 transition-colors ${
-                          isSelected ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 hover:bg-slate-50'
+                          isSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-slate-100 hover:bg-slate-50'
                         }`}
                       >
                         <span className="flex items-center gap-1.5 min-w-0">
@@ -7452,7 +7452,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         key={pool.id}
                         onClick={() => loadPoolIntoEditor(pool)}
                         className={`w-full text-left p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-2 transition-colors ${
-                          isSelected ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 hover:bg-slate-50'
+                          isSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-slate-100 hover:bg-slate-50'
                         }`}
                       >
                         <span className="flex items-center gap-1.5 min-w-0">
@@ -7620,7 +7620,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     <button
                       onClick={handleSavePoolEdits}
                       disabled={!onUpdatePool}
-                      className="text-xs font-bold px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                      className="text-xs font-bold px-4 py-2 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
                     >
                       <Check className="h-3.5 w-3.5" />
                       Save Changes
@@ -7740,7 +7740,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   </div>
                   <button
                     type="submit"
-                    className="w-full bg-slate-950 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 hover:bg-slate-900 transition-colors uppercase tracking-wider cursor-pointer font-sans"
+                    className="w-full bg-primary-600 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 hover:bg-primary-700 transition-colors cursor-pointer font-sans"
                   >
                     <UserPlus className="h-3.5 w-3.5 text-indigo-400" />
                     Add Inspector to Registry
@@ -7849,7 +7849,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   </div>
                   <button
                     type="submit"
-                    className="w-full bg-slate-950 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 hover:bg-slate-900 transition-colors uppercase tracking-wider cursor-pointer font-sans"
+                    className="w-full bg-primary-600 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 hover:bg-primary-700 transition-colors cursor-pointer font-sans"
                   >
                     <UserPlus className="h-3.5 w-3.5 text-indigo-400" />
                     Add Engineer to Registry
@@ -8155,25 +8155,25 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           <div className="space-y-6">
             
             {/* Sync Hub Header Card */}
-            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-950 p-6 rounded-2xl border border-indigo-500/20 text-white shadow-xl relative overflow-hidden">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 text-slate-900 shadow-[var(--shadow-elevation-1)] relative overflow-hidden">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-                <Cloud className="h-64 w-64 text-indigo-505 text-indigo-500" />
+                <Cloud className="h-64 w-64 text-primary-600" />
               </div>
 
               <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="space-y-2">
-                  <span className="text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 px-2.5 py-1 rounded-full text-indigo-300">
+                  <span className="text-[10px] font-black uppercase tracking-wider bg-primary-50 px-2.5 py-1 rounded-full text-primary-700">
                     Google Workspace Cloud Integration
                   </span>
                   <h3 className="text-xl font-extrabold tracking-tight">Enterprise ERP Backups & Travelers Hub</h3>
-                  <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-                    Synchronize real-time manufacturing states, pool registrations, and workforce records directly to your Google Drive account. Backups are stored securely in a dedicated <code className="bg-slate-800 px-1 py-0.5 rounded text-indigo-300 font-mono text-[10px]">MAT_Plastic_Travelers</code> folder.
+                  <p className="text-xs text-slate-600 max-w-xl leading-relaxed">
+                    Synchronize real-time manufacturing states, pool registrations, and workforce records directly to your Google Drive account. Backups are stored securely in a dedicated <code className="bg-slate-100 px-1 py-0.5 rounded text-primary-700 font-mono text-[10px]">MAT_Plastic_Travelers</code> folder.
                   </p>
                 </div>
 
                 <div className="shrink-0 flex flex-wrap gap-3">
                   {googleUser ? (
-                    <div className="flex items-center gap-3 bg-white/5 border border-white/10 p-3 rounded-xl backdrop-blur-md">
+                    <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-xl">
                       {googleUser.photoURL ? (
                         <img 
                           src={googleUser.photoURL} 
@@ -8186,17 +8186,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         </div>
                       )}
                       <div>
-                        <p className="text-xs font-bold leading-none text-white">{googleUser.displayName || 'Authorized User'}</p>
-                        <p className="text-[10px] text-slate-400 mt-1 leading-none">{googleUser.email}</p>
-                        <span className="inline-flex items-center gap-1 text-[9px] text-emerald-400 font-bold mt-1.5 font-mono">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+                        <p className="text-xs font-bold leading-none text-slate-900">{googleUser.displayName || 'Authorized User'}</p>
+                        <p className="text-[10px] text-slate-500 mt-1 leading-none">{googleUser.email}</p>
+                        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 font-semibold mt-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                           Vault Synchronized
                         </span>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-center p-3 bg-slate-800/40 border border-slate-700/50 rounded-xl">
-                      <span className="text-xs font-bold text-slate-400 block mb-1">Backup Vault Offline</span>
+                    <div className="text-center p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                      <span className="text-xs font-semibold text-slate-600 block mb-1">Backup Vault Offline</span>
                       <span className="text-[10px] text-slate-500 block">Sign-in needed to activate sync features</span>
                     </div>
                   )}
@@ -9332,7 +9332,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         ) : (
           <button
             onClick={() => setMgmtAiOpen(true)}
-            className="cursor-pointer flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold px-4 py-3 rounded-full shadow-xl"
+            className="cursor-pointer flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-bold px-4 py-3 rounded-full shadow-xl"
           >
             <Compass className="h-4 w-4" />
             Ask AI
