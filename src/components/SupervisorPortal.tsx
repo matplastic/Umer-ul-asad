@@ -327,11 +327,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
   const statusPill = (s: string) => {
     const map: Record<string, string> = {
-      PENDING: 'bg-amber-950/40 text-amber-400 border-amber-800',
-      APPROVED: 'bg-emerald-950/40 text-emerald-400 border-emerald-800',
-      REJECTED: 'bg-rose-950/40 text-rose-400 border-rose-800',
-      PRINTED: 'bg-slate-800 text-slate-400 border-slate-700',
-      DELIVERED: 'bg-sky-950/40 text-sky-400 border-sky-800',
+      PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
+      APPROVED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      REJECTED: 'bg-rose-50 text-rose-700 border-rose-200',
+      PRINTED: 'bg-slate-100 text-slate-500 border-slate-300',
+      DELIVERED: 'bg-sky-50 text-sky-700 border-sky-200',
     };
     return <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${map[s] || map.PENDING}`}>{s}</span>;
   };
@@ -524,22 +524,22 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   };
 
   const pStatusStyle = (s: string) => s === 'Approved'
-    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800'
-    : s === 'Rejected' ? 'bg-rose-950/40 text-rose-400 border-rose-800' : 'bg-amber-950/40 text-amber-400 border-amber-800';
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : s === 'Rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" data-testid="supervisor-portal">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-xl bg-amber-600/20 border border-amber-700/40 flex items-center justify-center">
-            <HardHat className="h-5 w-5 text-amber-400" />
+          <div className="h-11 w-11 rounded-xl bg-amber-600/20 border border-amber-300 flex items-center justify-center">
+            <HardHat className="h-5 w-5 text-amber-700" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">Section Supervisor Portal</h1>
-            <p className="text-xs text-slate-400">
+            <h1 className="text-xl font-bold text-slate-900">Section Supervisor Portal</h1>
+            <p className="text-xs text-slate-500">
               Log daily material consumption, pools produced, and request materials
-              {currentUserName && <span className="text-slate-500"> · Signed in as <span className="text-amber-400 font-semibold">{currentUserName}</span></span>}
+              {currentUserName && <span className="text-slate-500"> · Signed in as <span className="text-amber-700 font-semibold">{currentUserName}</span></span>}
             </p>
           </div>
         </div>
@@ -548,14 +548,14 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
             <button
               onClick={onSwitchUser}
               data-testid="supervisor-switch-user"
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium cursor-pointer">
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium cursor-pointer">
               Switch Supervisor
             </button>
           )}
           <button
             onClick={() => loadAll()}
             data-testid="supervisor-refresh"
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium cursor-pointer">
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium cursor-pointer">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
@@ -563,19 +563,19 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 bg-rose-950/30 border border-rose-800 text-rose-300 text-sm px-4 py-3 rounded-lg">
+        <div className="mb-4 flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-lg">
           <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
         </div>
       )}
       {flash && (
-        <div className="mb-4 flex items-center gap-2 bg-emerald-950/30 border border-emerald-800 text-emerald-300 text-sm px-4 py-3 rounded-lg" data-testid="supervisor-flash">
+        <div className="mb-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 rounded-lg" data-testid="supervisor-flash">
           <CheckCircle2 className="h-4 w-4 shrink-0" /> {flash}
         </div>
       )}
 
       {/* Section switcher */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5">
-        <div className="flex items-center gap-2 mb-2 text-xs font-bold uppercase text-slate-400">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5">
+        <div className="flex items-center gap-2 mb-2 text-xs font-bold uppercase text-slate-500">
           <Filter className="h-3.5 w-3.5" /> Working Section
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -586,8 +586,8 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               data-testid={`section-tab-${sec.id}`}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
                 section === sec.id
-                  ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-900/40'
-                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-200'
+                  : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
               }`}
             >
               {sec.name}
@@ -598,22 +598,22 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
       {/* Sub-tabs */}
       <div className="flex flex-wrap gap-2 mb-5">
-        <button onClick={() => setTab('consumption')} data-testid="tab-consumption" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'consumption' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('consumption')} data-testid="tab-consumption" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'consumption' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Boxes className="h-4 w-4" /> Consumption
         </button>
-        <button onClick={() => setTab('production')} data-testid="tab-production" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'production' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('production')} data-testid="tab-production" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'production' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Factory className="h-4 w-4" /> Log Production
         </button>
-        <button onClick={() => setTab('request')} data-testid="tab-request" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'request' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('request')} data-testid="tab-request" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'request' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <PackagePlus className="h-4 w-4" /> Request Material
         </button>
-        <button onClick={() => setTab('purchases')} data-testid="tab-purchases" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'purchases' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('purchases')} data-testid="tab-purchases" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'purchases' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ShoppingCart className="h-4 w-4" /> Purchases
           {purchaseRequests.filter(r => r.status === 'Pending').length > 0 && (
             <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">{purchaseRequests.filter(r => r.status === 'Pending').length}</span>
           )}
         </button>
-        <button onClick={() => setTab('history')} data-testid="tab-history" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'history' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('history')} data-testid="tab-history" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'history' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ClipboardList className="h-4 w-4" /> Today vs Plan
         </button>
       </div>
@@ -621,17 +621,17 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* CONSUMPTION TAB */}
       {tab === 'consumption' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 mb-5 text-xs text-slate-400">
+          <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 mb-5 text-xs text-slate-500">
             Consumption is recorded automatically: when the Store Manager confirms a delivery for {sectionName}, the quantity he enters appears here straight away.
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+            <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500">
               My recent consumption ({sectionName})
             </div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Qty</th>
@@ -642,12 +642,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               </thead>
               <tbody>
                 {myConsumption.slice(0, 30).map(c => (
-                  <tr key={c.id} className="border-t border-slate-800">
-                    <td className="px-4 py-2 text-slate-300 font-mono">{c.date}</td>
-                    <td className="px-4 py-2 text-slate-200">{c.materialName}</td>
-                    <td className="px-4 py-2 text-right text-slate-200 font-mono">{Number(c.qty)} {c.unit}</td>
+                  <tr key={c.id} className="border-t border-slate-200">
+                    <td className="px-4 py-2 text-slate-700 font-mono">{c.date}</td>
+                    <td className="px-4 py-2 text-slate-800">{c.materialName}</td>
+                    <td className="px-4 py-2 text-right text-slate-800 font-mono">{Number(c.qty)} {c.unit}</td>
                     <td className="px-4 py-2 text-slate-500">{c.notes || '—'}</td>
-                    <td className="px-4 py-2 text-sky-300 font-mono font-bold">{c.doNumber || '—'}</td>
+                    <td className="px-4 py-2 text-sky-700 font-mono font-bold">{c.doNumber || '—'}</td>
                     <td className="px-4 py-2 text-slate-500">{c.loggedByName}</td>
                   </tr>
                 ))}
@@ -663,33 +663,33 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* PRODUCTION TAB */}
       {tab === 'production' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
-            <input type="date" data-testid="prod-date" value={pDate} onChange={e => setPDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <select value={pStage} onChange={e => setPStage(e.target.value)} data-testid="prod-stage" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
+            <input type="date" data-testid="prod-date" value={pDate} onChange={e => setPDate(e.target.value)} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <select value={pStage} onChange={e => setPStage(e.target.value)} data-testid="prod-stage" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
             </select>
-            <select value={pProject} onChange={e => { setPProject(e.target.value); setPPoolType(''); }} data-testid="prod-project" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            <select value={pProject} onChange={e => { setPProject(e.target.value); setPPoolType(''); }} data-testid="prod-project" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="">Project…</option>
               {projectNames.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
-            <select value={pPoolType} onChange={e => setPPoolType(e.target.value)} disabled={!pProject} data-testid="prod-pool-type" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            <select value={pPoolType} onChange={e => setPPoolType(e.target.value)} disabled={!pProject} data-testid="prod-pool-type" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="">Pool type…</option>
               {(poolTypesByProject[pProject] || []).map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-            <input placeholder="Pool No. (optional)" value={pPoolNo} onChange={e => setPPoolNo(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input type="number" step="1" min="1" data-testid="prod-qty" placeholder="Qty" value={pQty} onChange={e => setPQty(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <button onClick={submitProduction} data-testid="prod-submit" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+            <input placeholder="Pool No. (optional)" value={pPoolNo} onChange={e => setPPoolNo(e.target.value)} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input type="number" step="1" min="1" data-testid="prod-qty" placeholder="Qty" value={pQty} onChange={e => setPQty(e.target.value)} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <button onClick={submitProduction} data-testid="prod-submit" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold cursor-pointer">
               <Plus className="h-3.5 w-3.5" /> Log
             </button>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+            <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500">
               My recent production ({SECTION_DEFINITIONS.find(s => s.id === pStage)?.name || pStage})
             </div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Project</th>
                   <th className="text-left px-4 py-2">Pool Type</th>
@@ -701,14 +701,14 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               </thead>
               <tbody>
                 {myProduction.slice(0, 30).map(p => (
-                  <tr key={p.id} className="border-t border-slate-800">
-                    <td className="px-4 py-2 text-slate-300 font-mono">{p.date}</td>
-                    <td className="px-4 py-2 text-slate-200">{p.projectName}</td>
-                    <td className="px-4 py-2 text-slate-200">{p.poolType}</td>
-                    <td className="px-4 py-2 text-slate-400">{p.poolNo || '—'}</td>
-                    <td className="px-4 py-2 text-right text-slate-200 font-mono">{p.quantity}</td>
+                  <tr key={p.id} className="border-t border-slate-200">
+                    <td className="px-4 py-2 text-slate-700 font-mono">{p.date}</td>
+                    <td className="px-4 py-2 text-slate-800">{p.projectName}</td>
+                    <td className="px-4 py-2 text-slate-800">{p.poolType}</td>
+                    <td className="px-4 py-2 text-slate-500">{p.poolNo || '—'}</td>
+                    <td className="px-4 py-2 text-right text-slate-800 font-mono">{p.quantity}</td>
                     <td className="px-4 py-2 text-slate-500">{p.loggedByName}</td>
-                    <td className="px-4 py-2 text-right"><button onClick={async () => { await dbDeleteProductionLog(p.id); loadAll(true); }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                    <td className="px-4 py-2 text-right"><button onClick={async () => { await dbDeleteProductionLog(p.id); loadAll(true); }} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
                 ))}
                 {myProduction.length === 0 && (
@@ -723,16 +723,16 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* REQUEST TAB */}
       {tab === 'request' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-3 grid grid-cols-1 md:grid-cols-6 gap-2">
-            <select value={rProject} onChange={e => { setRProject(e.target.value); setRPoolType(''); }} data-testid="req-project" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-3 grid grid-cols-1 md:grid-cols-6 gap-2">
+            <select value={rProject} onChange={e => { setRProject(e.target.value); setRPoolType(''); }} data-testid="req-project" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="">Project…</option>
               {projectNames.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
-            <select value={rPoolType} onChange={e => setRPoolType(e.target.value)} disabled={!rProject} data-testid="req-pool-type" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            <select value={rPoolType} onChange={e => setRPoolType(e.target.value)} disabled={!rProject} data-testid="req-pool-type" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="">Pool type…</option>
               {(poolTypesByProject[rProject] || []).map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-            <select value={rGroup} onChange={e => setRGroup(e.target.value as any)} data-testid="req-material-group" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            <select value={rGroup} onChange={e => setRGroup(e.target.value as any)} data-testid="req-material-group" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="all">All Portals</option>
               <option value="mep">MEP Materials</option>
               <option value="civil">Civil Materials</option>
@@ -747,10 +747,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                 onChange={e => { setRSearch(e.target.value); setRMaterialId(''); setRDropdownOpen(true); }}
                 onFocus={() => setRDropdownOpen(true)}
                 onBlur={() => setTimeout(() => setRDropdownOpen(false), 150)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+                className="w-full bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900"
               />
               {rDropdownOpen && (
-                <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-2xl">
+                <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-slate-100 border border-slate-300 rounded-lg shadow-2xl">
                   {requestSearchResults.length === 0 && (
                     <div className="px-3 py-3 text-xs text-slate-500">
                       {rSearch ? `No available material matches "${rSearch}".` : 'No materials currently in stock.'}
@@ -761,11 +761,11 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                       key={m.id}
                       onMouseDown={() => { setRMaterialId(m.id); setRSearch(m.name); setRDropdownOpen(false); }}
                       data-testid="req-material-option"
-                      className="px-3 py-2 border-b border-slate-900 last:border-b-0 hover:bg-slate-700 cursor-pointer"
+                      className="px-3 py-2 border-b border-slate-200 last:border-b-0 hover:bg-slate-200 cursor-pointer"
                     >
-                      <div className="text-xs font-semibold text-white flex items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-slate-900 flex items-center justify-between gap-2">
                         <span>{m.name}</span>
-                        <span className="text-emerald-400 font-mono">{m.currentStock} {m.unit}</span>
+                        <span className="text-emerald-700 font-mono">{m.currentStock} {m.unit}</span>
                       </div>
                       <div className="text-[10px] text-slate-500 truncate">
                         {[m.erpCode, m.brand, m.supplierName, m.location].filter(Boolean).join(' · ') || '—'}
@@ -775,8 +775,8 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                 </div>
               )}
             </div>
-            <input type="number" step="any" data-testid="req-qty" placeholder="Qty" value={rQty} onChange={e => setRQty(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <button onClick={addToCart} data-testid="req-add-line" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold cursor-pointer">
+            <input type="number" step="any" data-testid="req-qty" placeholder="Qty" value={rQty} onChange={e => setRQty(e.target.value)} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <button onClick={addToCart} data-testid="req-add-line" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-900 rounded-lg text-xs font-bold cursor-pointer">
               <Plus className="h-3.5 w-3.5" /> Add to Cart
             </button>
           </div>
@@ -784,21 +784,21 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           {/* CART — every line added here goes out together as ONE request:
               one manager email/WhatsApp, one Approve/Reject action, one
               issue slip at Store — however many materials are in it. */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto mb-5" data-testid="req-cart">
-            <div className="px-4 py-2 border-b border-slate-800 flex items-center justify-between">
-              <span className="text-xs font-bold uppercase text-slate-400">
-                Cart {rCart.length > 0 && <span className="text-orange-400">({rCart.length} item{rCart.length === 1 ? '' : 's'})</span>}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-5" data-testid="req-cart">
+            <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+              <span className="text-xs font-bold uppercase text-slate-500">
+                Cart {rCart.length > 0 && <span className="text-primary-700">({rCart.length} item{rCart.length === 1 ? '' : 's'})</span>}
               </span>
               {rCart.length > 0 && <span className="text-[10px] text-slate-500">Sent together as one request</span>}
             </div>
             <table className="w-full min-w-[500px] text-xs">
               <tbody>
                 {rCart.map(line => (
-                  <tr key={line.materialId} className="border-t border-slate-800">
-                    <td className="px-4 py-2 text-slate-200 font-semibold">{line.materialName}</td>
-                    <td className="px-4 py-2 text-right text-slate-200 font-mono">{line.qty} {line.unit}</td>
+                  <tr key={line.materialId} className="border-t border-slate-200">
+                    <td className="px-4 py-2 text-slate-800 font-semibold">{line.materialName}</td>
+                    <td className="px-4 py-2 text-right text-slate-800 font-mono">{line.qty} {line.unit}</td>
                     <td className="px-4 py-2 text-right w-10">
-                      <button onClick={() => removeFromCart(line.materialId)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => removeFromCart(line.materialId)} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                     </td>
                   </tr>
                 ))}
@@ -807,21 +807,21 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                 )}
               </tbody>
             </table>
-            <div className="p-3 border-t border-slate-800 flex flex-col md:flex-row gap-2">
-              <input placeholder="Reason (optional, applies to the whole request)" value={rReason} onChange={e => setRReason(e.target.value)} className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-              <button onClick={submitRequest} data-testid="req-submit" className="flex items-center justify-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" disabled={rCart.length === 0}>
+            <div className="p-3 border-t border-slate-200 flex flex-col md:flex-row gap-2">
+              <input placeholder="Reason (optional, applies to the whole request)" value={rReason} onChange={e => setRReason(e.target.value)} className="flex-1 bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+              <button onClick={submitRequest} data-testid="req-submit" className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" disabled={rCart.length === 0}>
                 <Send className="h-3.5 w-3.5" /> Send {rCart.length > 0 ? `${rCart.length} Item${rCart.length === 1 ? '' : 's'}` : 'Request'} for Approval
               </button>
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+            <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500">
               My recent requests
             </div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Project / Type</th>
                   <th className="text-left px-4 py-2">Materials</th>
@@ -834,10 +834,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                   const summary = batch.items.slice(0, 3).map(it => `${it.materialName} (${Number(it.qtyRequested)} ${it.unit})`).join(', ');
                   const more = batch.items.length > 3 ? ` +${batch.items.length - 3} more` : '';
                   return (
-                    <tr key={batch.key} className="border-t border-slate-800">
+                    <tr key={batch.key} className="border-t border-slate-200">
                       <td className="px-4 py-2 text-slate-500 font-mono">{new Date(first.createdAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-2 text-slate-300">{first.projectName} / {first.poolType}</td>
-                      <td className="px-4 py-2 text-slate-200">{summary}{more}</td>
+                      <td className="px-4 py-2 text-slate-700">{first.projectName} / {first.poolType}</td>
+                      <td className="px-4 py-2 text-slate-800">{summary}{more}</td>
                       <td className="px-4 py-2">{statusPill(batch.status)}</td>
                     </tr>
                   );
@@ -856,71 +856,71 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           Purchase Requests tab. */}
       {tab === 'purchases' && (
         <div>
-          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl w-fit mb-4">
+          <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl w-fit mb-4">
             <button
               onClick={() => setPView('list')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors ${pView === 'list' ? 'bg-slate-700 text-white' : 'text-slate-400'}`}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors ${pView === 'list' ? 'bg-slate-200 text-slate-900' : 'text-slate-500'}`}
             >Requests</button>
             <button
               onClick={() => setPView('spending')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors flex items-center gap-1.5 ${pView === 'spending' ? 'bg-slate-700 text-emerald-400' : 'text-slate-400'}`}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide cursor-pointer transition-colors flex items-center gap-1.5 ${pView === 'spending' ? 'bg-slate-200 text-emerald-700' : 'text-slate-500'}`}
             ><DollarSign className="h-3.5 w-3.5" /> Spending</button>
           </div>
 
           {pView === 'spending' ? (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <div className="bg-white border border-slate-200 rounded-xl p-4">
                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Today</p>
-                  <p className="text-2xl font-black text-white mt-1">AED {pDailyTotal.toFixed(2)}</p>
+                  <p className="text-2xl font-black text-slate-900 mt-1">AED {pDailyTotal.toFixed(2)}</p>
                 </div>
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <div className="bg-white border border-slate-200 rounded-xl p-4">
                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Last 7 Days</p>
-                  <p className="text-2xl font-black text-white mt-1">AED {pWeeklyTotal.toFixed(2)}</p>
+                  <p className="text-2xl font-black text-slate-900 mt-1">AED {pWeeklyTotal.toFixed(2)}</p>
                 </div>
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <div className="bg-white border border-slate-200 rounded-xl p-4">
                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">This Month</p>
-                  <p className="text-2xl font-black text-white mt-1">AED {pMonthlyTotal.toFixed(2)}</p>
+                  <p className="text-2xl font-black text-slate-900 mt-1">AED {pMonthlyTotal.toFixed(2)}</p>
                 </div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 flex items-center justify-between border-b border-slate-800">
-                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Spend History (Approved with cost)</h4>
-                  <button onClick={pPrintSpendReport} className="text-xs font-bold text-orange-400 hover:text-orange-300 flex items-center gap-1 cursor-pointer">
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Spend History (Approved with cost)</h4>
+                  <button onClick={pPrintSpendReport} className="text-xs font-bold text-primary-700 hover:text-primary-700 flex items-center gap-1 cursor-pointer">
                     <Download className="h-3.5 w-3.5" /> Download PDF
                   </button>
                 </div>
                 <table className="w-full text-xs">
-                  <thead className="bg-slate-950 border-b border-slate-800">
+                  <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
                       {['Date', 'Item', 'Category', 'Cost (AED)', 'Bill'].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-slate-200">
                     {pSpendSorted.length === 0 ? (
                       <tr><td colSpan={5} className="text-center py-12 text-slate-500 text-sm">No spending recorded yet — costs are counted once a request is Approved with an Estimated Cost.</td></tr>
                     ) : pSpendSorted.map(r => (
-                      <tr key={r.id} className="hover:bg-slate-800/50">
-                        <td className="px-4 py-3 text-slate-400">{fmtDate(pSpendDate(r))}</td>
-                        <td className="px-4 py-3 font-semibold text-slate-200">{r.itemName}</td>
-                        <td className="px-4 py-3 text-slate-400">{r.category}</td>
-                        <td className="px-4 py-3 font-mono text-slate-300">
+                      <tr key={r.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-slate-500">{fmtDate(pSpendDate(r))}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-800">{r.itemName}</td>
+                        <td className="px-4 py-3 text-slate-500">{r.category}</td>
+                        <td className="px-4 py-3 font-mono text-slate-700">
                           {pSpendAmount(r).toFixed(2)}
                           {r.actualCost ? (
-                            <span className="ml-1.5 text-[9px] font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-800 px-1 py-0.5 rounded-full align-middle">Actual</span>
+                            <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.5 rounded-full align-middle">Actual</span>
                           ) : (
-                            <span className="ml-1.5 text-[9px] font-bold text-slate-500 bg-slate-800 border border-slate-700 px-1 py-0.5 rounded-full align-middle">Est.</span>
+                            <span className="ml-1.5 text-[9px] font-bold text-slate-500 bg-slate-100 border border-slate-300 px-1 py-0.5 rounded-full align-middle">Est.</span>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           {r.billFileName ? (
-                            <a href={r.billDataUrl || '#'} download={r.billFileName} className="text-orange-400 hover:text-orange-300 font-semibold inline-flex items-center gap-1">
+                            <a href={r.billDataUrl || '#'} download={r.billFileName} className="text-primary-700 hover:text-primary-700 font-semibold inline-flex items-center gap-1">
                               <Receipt className="h-3.5 w-3.5" /> View
                             </a>
-                          ) : <span className="text-slate-600">—</span>}
+                          ) : <span className="text-slate-400">—</span>}
                         </td>
                       </tr>
                     ))}
@@ -937,13 +937,13 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                       key={s}
                       onClick={() => setPStatusFilter(s)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
-                        pStatusFilter === s ? 'bg-orange-600 text-white border-orange-600' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
+                        pStatusFilter === s ? 'bg-primary-600 text-white border-primary-600' : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
                       }`}
                     >{s}</button>
                   ))}
                 </div>
                 <button onClick={() => setPShowForm(true)}
-                  className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors cursor-pointer">
+                  className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors cursor-pointer">
                   <Plus className="h-4 w-4" /> New Purchase Request
                 </button>
               </div>
@@ -953,7 +953,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               </p>
 
               {purchaseFiltered.length === 0 ? (
-                <div className="text-center text-slate-500 text-sm py-16 border border-dashed border-slate-800 rounded-xl">No purchase requests yet.</div>
+                <div className="text-center text-slate-500 text-sm py-16 border border-dashed border-slate-200 rounded-xl">No purchase requests yet.</div>
               ) : (
                 <div className="grid gap-3">
                   {(() => {
@@ -970,20 +970,20 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                         else seenBatches.add(r.batchId);
                       }
                       return (
-                    <div key={r.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <div key={r.id} className="bg-white border border-slate-200 rounded-xl p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-black text-white">{r.itemName}</span>
+                            <span className="font-black text-slate-900">{r.itemName}</span>
                             {r.erpCode && <span className="text-[10px] font-mono text-slate-500">ERP #{r.erpCode}</span>}
-                            <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded-full">{r.category}</span>
+                            <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{r.category}</span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${pStatusStyle(r.status)}`}>{r.status}</span>
                           </div>
-                          <p className="text-xs text-slate-400 mt-1">
+                          <p className="text-xs text-slate-500 mt-1">
                             {r.qtyApproved != null && r.qtyApproved < r.qty ? (
                               <>{r.qtyApproved} of {r.qty} {r.unit} approved</>
                             ) : r.qtyApproved != null && r.qtyApproved > r.qty ? (
-                              <>{r.qtyApproved} {r.unit} approved <span className="text-amber-400 font-bold">(requested {r.qty})</span></>
+                              <>{r.qtyApproved} {r.unit} approved <span className="text-amber-700 font-bold">(requested {r.qty})</span></>
                             ) : (
                               <>{r.qty} {r.unit}</>
                             )}
@@ -991,12 +991,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                             {' '}• Requested by {r.requestedByName} on {fmtDate(r.requestedAt)}
                             {r.sectionName ? ` • ${r.sectionName}` : ''}
                           </p>
-                          {r.purpose && <p className="text-xs text-slate-400 mt-1">Purpose: {r.purpose}</p>}
+                          {r.purpose && <p className="text-xs text-slate-500 mt-1">Purpose: {r.purpose}</p>}
                           {r.decidedByName && (
                             <p className="text-[11px] text-slate-500 mt-1">{r.status} by {r.decidedByName} on {r.decidedAt ? fmtDate(r.decidedAt) : ''}</p>
                           )}
                           {r.billFileName && (
-                            <a href={r.billDataUrl || '#'} download={r.billFileName} className="text-[11px] text-orange-400 hover:text-orange-300 font-semibold mt-1 inline-flex items-center gap-1">
+                            <a href={r.billDataUrl || '#'} download={r.billFileName} className="text-[11px] text-primary-700 hover:text-primary-700 font-semibold mt-1 inline-flex items-center gap-1">
                               <Receipt className="h-3 w-3" /> Bill: {r.billFileName}
                             </a>
                           )}
@@ -1007,12 +1007,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                           )}
                           {r.status === 'Approved' && showBatchActions && (
                             <>
-                              <button onClick={() => pPrintPO(r)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1 cursor-pointer">
+                              <button onClick={() => pPrintPO(r)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 flex items-center gap-1 cursor-pointer">
                                 <Printer className="h-3.5 w-3.5" /> {r.batchId ? 'Print PO (Batch)' : 'Print PO'}
                               </button>
                               <button
                                 onClick={() => { setPBillTargetId(r.id); setPBillForm({ actualCost: r.actualCost ? String(r.actualCost) : '', file: null }); }}
-                                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-orange-950/40 hover:bg-orange-900/40 text-orange-400 border border-orange-800 flex items-center gap-1 cursor-pointer"
+                                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-primary-50 hover:bg-primary-50 text-primary-700 border border-primary-200 flex items-center gap-1 cursor-pointer"
                               >
                                 <Paperclip className="h-3.5 w-3.5" /> {r.billFileName ? 'Replace Bill' : (r.batchId ? 'Upload Bill (Batch)' : 'Upload Bill')}
                               </button>
@@ -1030,28 +1030,28 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           )}
 
           {pShowForm && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-black text-white flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-orange-400" /> New Purchase Request</h3>
-                  <button onClick={() => { setPShowForm(false); setPCart([]); setPDraftItem({ category: 'Tools', qty: 1, unit: 'pcs' }); }}><X className="h-5 w-5 text-slate-400" /></button>
+                  <h3 className="font-black text-slate-900 flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-primary-700" /> New Purchase Request</h3>
+                  <button onClick={() => { setPShowForm(false); setPCart([]); setPDraftItem({ category: 'Tools', qty: 1, unit: 'pcs' }); }}><X className="h-5 w-5 text-slate-500" /></button>
                 </div>
 
                 {pCart.length > 0 && (
-                  <div className="border border-slate-800 rounded-lg divide-y divide-slate-800">
+                  <div className="border border-slate-200 rounded-lg divide-y divide-slate-200">
                     {pCart.map((it, idx) => (
                       <div key={idx} className="flex items-center justify-between px-3 py-2 text-sm">
                         <div>
-                          <span className="font-semibold text-slate-200">{it.itemName}</span>
+                          <span className="font-semibold text-slate-800">{it.itemName}</span>
                           <span className="text-xs text-slate-500 ml-2">{it.qty} {it.unit} • {it.category}{it.estimatedCost ? ` • AED ${it.estimatedCost}` : ''}</span>
                         </div>
-                        <button onClick={() => pRemoveFromCart(idx)} className="text-rose-400 hover:text-rose-300 cursor-pointer"><X className="h-4 w-4" /></button>
+                        <button onClick={() => pRemoveFromCart(idx)} className="text-rose-700 hover:text-rose-700 cursor-pointer"><X className="h-4 w-4" /></button>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div className="space-y-3 border border-dashed border-slate-700 rounded-lg p-3">
+                <div className="space-y-3 border border-dashed border-slate-300 rounded-lg p-3">
                   <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{pCart.length > 0 ? 'Add Another Item' : 'Item Details'}</p>
                   {(() => {
                     const typedName = (pDraftItem.itemName || '').trim();
@@ -1062,7 +1062,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                     return (
                       <>
                         <div>
-                          <label className="text-xs font-semibold text-slate-400 block mb-1">Item Name *</label>
+                          <label className="text-xs font-semibold text-slate-500 block mb-1">Item Name *</label>
                           <input
                             list="pr-item-suggestions"
                             value={pDraftItem.itemName || ''}
@@ -1072,17 +1072,17 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                               setPDraftItem(p => ({ ...p, itemName: name, unit: match ? match.unit : p.unit, erpCode: match ? match.erpCode : null }));
                             }}
                             placeholder="Start typing — must match Store inventory (e.g. Mask, Drill machine)"
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                            className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500" />
                           <datalist id="pr-item-suggestions">
                             {suggestions.map(m => <option key={m.id} value={m.name} />)}
                           </datalist>
                           {typedName.length >= 2 && (
                             matchedMaterial ? (
-                              <p className="text-[10px] text-emerald-400 font-semibold mt-1">
+                              <p className="text-[10px] text-emerald-700 font-semibold mt-1">
                                 ✓ Found in Store inventory — unit set to "{matchedMaterial.unit}"{matchedMaterial.erpCode ? ` • ERP #${matchedMaterial.erpCode}` : ''}
                               </p>
                             ) : suggestions.length === 0 ? (
-                              <p className="text-[10px] text-amber-400 font-semibold mt-1">
+                              <p className="text-[10px] text-amber-700 font-semibold mt-1">
                                 Not found in Store inventory — this item can't be requested yet. Please contact the Store department to add it to inventory first.
 
                               </p>
@@ -1095,9 +1095,9 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                         </div>
                         <div className="grid grid-cols-3 gap-3">
                           <div>
-                            <label className="text-xs font-semibold text-slate-400 block mb-1">Category</label>
+                            <label className="text-xs font-semibold text-slate-500 block mb-1">Category</label>
                             <select value={pDraftItem.category || 'Tools'} onChange={e => setPDraftItem(p => ({ ...p, category: e.target.value as any }))}
-                              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500">
+                              className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500">
                               <option value="Tools">Tools</option>
                               <option value="Equipment">Equipment</option>
                               <option value="Site">Site</option>
@@ -1105,47 +1105,47 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                             </select>
                           </div>
                           <div>
-                            <label className="text-xs font-semibold text-slate-400 block mb-1">Qty *</label>
+                            <label className="text-xs font-semibold text-slate-500 block mb-1">Qty *</label>
                             <input type="number" min={1} value={pDraftItem.qty ?? 1} onChange={e => setPDraftItem(p => ({ ...p, qty: Number(e.target.value) }))}
-                              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                              className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500" />
                           </div>
                           <div>
-                            <label className="text-xs font-semibold text-slate-400 block mb-1">
-                              Unit {matchedMaterial && <span className="text-emerald-400 normal-case">(from inventory)</span>}
+                            <label className="text-xs font-semibold text-slate-500 block mb-1">
+                              Unit {matchedMaterial && <span className="text-emerald-700 normal-case">(from inventory)</span>}
                             </label>
                             <input
                               value={pDraftItem.unit || 'pcs'}
                               readOnly={!!matchedMaterial}
                               onChange={e => setPDraftItem(p => ({ ...p, unit: e.target.value }))}
-                              className={`w-full bg-slate-800 border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 ${matchedMaterial ? 'border-emerald-700 text-emerald-300 cursor-not-allowed' : 'border-slate-700'}`} />
+                              className={`w-full bg-slate-100 border rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500 ${matchedMaterial ? 'border-emerald-300 text-emerald-700 cursor-not-allowed' : 'border-slate-300'}`} />
                           </div>
                         </div>
                       </>
                     );
                   })()}
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">Estimated Cost (AED, optional)</label>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">Estimated Cost (AED, optional)</label>
                     <input type="number" min={0} value={pDraftItem.estimatedCost ?? ''} onChange={e => setPDraftItem(p => ({ ...p, estimatedCost: e.target.value ? Number(e.target.value) : null }))}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                      className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500" />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">Purpose / Reason</label>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">Purpose / Reason</label>
                     <textarea value={pDraftItem.purpose || ''} onChange={e => setPDraftItem(p => ({ ...p, purpose: e.target.value }))} rows={2}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none" />
+                      className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none" />
                   </div>
                   <button onClick={pAddToCart} disabled={!pDraftItem.itemName || !pDraftItem.qty || !pMatchedMaterial}
                     title={!pMatchedMaterial ? 'Item must match an existing Store inventory item' : undefined}
-                    className="w-full text-sm font-bold text-orange-400 bg-orange-950/30 hover:bg-orange-900/30 disabled:opacity-40 py-2 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+                    className="w-full text-sm font-bold text-primary-700 bg-primary-50 hover:bg-primary-50 disabled:opacity-40 py-2 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                     <Plus className="h-4 w-4" /> Add Item to Request
                   </button>
                 </div>
 
                 <div className="flex gap-2 pt-2">
                   <button onClick={pSubmitCart} disabled={(pCart.length === 0 && (!pDraftItem.itemName || !pMatchedMaterial)) || pSending}
-                    className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+                    className="flex-1 bg-primary-600 hover:bg-primary-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                     <Save className="h-4 w-4" /> {pSending ? 'Sending…' : `Submit ${pCart.length > 1 ? `${pCart.length} Items` : pCart.length === 1 ? '1 Item' : ''} to Manager`}
                   </button>
-                  <button onClick={() => { setPShowForm(false); setPCart([]); setPDraftItem({ category: 'Tools', qty: 1, unit: 'pcs' }); }} className="px-4 py-2.5 rounded-lg border border-slate-700 text-slate-400 font-bold text-sm cursor-pointer">Cancel</button>
+                  <button onClick={() => { setPShowForm(false); setPCart([]); setPDraftItem({ category: 'Tools', qty: 1, unit: 'pcs' }); }} className="px-4 py-2.5 rounded-lg border border-slate-300 text-slate-500 font-bold text-sm cursor-pointer">Cancel</button>
                 </div>
               </div>
             </div>
@@ -1159,27 +1159,27 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               : [targetReq];
             const isBatch = batchSiblings.length > 1;
             return (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-black text-white flex items-center gap-2"><Receipt className="h-5 w-5 text-orange-400" /> Upload Bill{isBatch ? ' (Batch)' : ''}</h3>
-                    <button onClick={() => { setPBillTargetId(null); setPBillForm({ actualCost: '', file: null }); }}><X className="h-5 w-5 text-slate-400" /></button>
+                    <h3 className="font-black text-slate-900 flex items-center gap-2"><Receipt className="h-5 w-5 text-primary-700" /> Upload Bill{isBatch ? ' (Batch)' : ''}</h3>
+                    <button onClick={() => { setPBillTargetId(null); setPBillForm({ actualCost: '', file: null }); }}><X className="h-5 w-5 text-slate-500" /></button>
                   </div>
                   {isBatch ? (
                     <div>
-                      <p className="text-xs text-slate-400 mb-1">This bill covers {batchSiblings.length} approved items:</p>
-                      <ul className="text-xs text-slate-300 list-disc list-inside space-y-0.5">
+                      <p className="text-xs text-slate-500 mb-1">This bill covers {batchSiblings.length} approved items:</p>
+                      <ul className="text-xs text-slate-700 list-disc list-inside space-y-0.5">
                         {batchSiblings.map(x => <li key={x.id}>{x.itemName} — {x.qty} {x.unit}</li>)}
                       </ul>
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-400">{targetReq.itemName} — {targetReq.qty} {targetReq.unit}</p>
+                    <p className="text-xs text-slate-500">{targetReq.itemName} — {targetReq.qty} {targetReq.unit}</p>
                   )}
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">{isBatch ? 'Total Amount Paid (AED)' : 'Actual Amount Paid (AED)'}</label>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">{isBatch ? 'Total Amount Paid (AED)' : 'Actual Amount Paid (AED)'}</label>
                     <input type="number" min={0} value={pBillForm.actualCost} onChange={e => setPBillForm(p => ({ ...p, actualCost: e.target.value }))}
                       placeholder={targetReq.estimatedCost ? `Estimated: ${targetReq.estimatedCost}` : 'e.g. 450'}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                      className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500" />
                     <p className="text-[10px] text-slate-500 mt-1">
                       {isBatch
                         ? 'This is what Spending totals use — enter the full amount from the bill; it will be split evenly across the items above.'
@@ -1187,17 +1187,17 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                     </p>
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-1">Bill / Receipt (image or PDF)</label>
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">Bill / Receipt (image or PDF)</label>
                     <input type="file" accept="image/*,.pdf" onChange={e => setPBillForm(p => ({ ...p, file: e.target.files?.[0] || null }))}
-                      className="w-full text-sm text-slate-300" />
+                      className="w-full text-sm text-slate-700" />
                     {isBatch && <p className="text-[10px] text-slate-500 mt-1">The same file will be attached to all {batchSiblings.length} items above.</p>}
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button onClick={() => pHandleBillUpload(targetReq)} disabled={!pBillForm.file}
-                      className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+                      className="flex-1 bg-primary-600 hover:bg-primary-700 disabled:opacity-40 text-white font-bold text-sm py-2.5 rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                       <Save className="h-4 w-4" /> Save Bill
                     </button>
-                    <button onClick={() => { setPBillTargetId(null); setPBillForm({ actualCost: '', file: null }); }} className="px-4 py-2.5 rounded-lg border border-slate-700 text-slate-400 font-bold text-sm cursor-pointer">Cancel</button>
+                    <button onClick={() => { setPBillTargetId(null); setPBillForm({ actualCost: '', file: null }); }} className="px-4 py-2.5 rounded-lg border border-slate-300 text-slate-500 font-bold text-sm cursor-pointer">Cancel</button>
                   </div>
                 </div>
               </div>
@@ -1209,15 +1209,15 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       {/* HISTORY / TODAY COMPARISON TAB */}
       {tab === 'history' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-emerald-400" />
-              <div className="text-sm font-bold text-white">Today: planned vs actual</div>
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-emerald-700" />
+              <div className="text-sm font-bold text-slate-900">Today: planned vs actual</div>
               <div className="text-xs text-slate-500">{sectionName} · {todayStr()}</div>
             </div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Planned (BOM)</th>
                   <th className="text-right px-4 py-2">Actual</th>
@@ -1227,13 +1227,13 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
               <tbody>
                 {todayComparison.map(r => {
                   const diff = r.actual - r.planned;
-                  const cls = diff > 0 ? 'text-rose-400' : diff < 0 ? 'text-emerald-400' : 'text-slate-400';
+                  const cls = diff > 0 ? 'text-rose-700' : diff < 0 ? 'text-emerald-700' : 'text-slate-500';
                   const label = diff > 0 ? '+ over' : diff < 0 ? '− saved' : '=';
                   return (
-                    <tr key={r.materialId} className="border-t border-slate-800">
-                      <td className="px-4 py-2 text-slate-200 font-semibold">{r.materialName}</td>
-                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{r.planned.toFixed(2)} {r.unit}</td>
-                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{r.actual.toFixed(2)} {r.unit}</td>
+                    <tr key={r.materialId} className="border-t border-slate-200">
+                      <td className="px-4 py-2 text-slate-800 font-semibold">{r.materialName}</td>
+                      <td className="px-4 py-2 text-right text-slate-700 font-mono">{r.planned.toFixed(2)} {r.unit}</td>
+                      <td className="px-4 py-2 text-right text-slate-700 font-mono">{r.actual.toFixed(2)} {r.unit}</td>
                       <td className={`px-4 py-2 text-right font-mono font-bold ${cls}`}>{diff.toFixed(2)} {r.unit} <span className="text-[10px] ml-1 opacity-70">{label}</span></td>
                     </tr>
                   );
