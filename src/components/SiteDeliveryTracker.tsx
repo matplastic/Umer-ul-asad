@@ -322,7 +322,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-3 sm:px-4 py-6">
+    <div className="w-full max-w-none mx-auto px-1 sm:px-2 py-6">
       {/* Print-only delivery challan — hidden on screen, shown only via @media print */}
       {printDelivery && (
         <div id="delivery-print-area" className="hidden print:block fixed inset-0 bg-white p-10 text-slate-900 z-[999]">
