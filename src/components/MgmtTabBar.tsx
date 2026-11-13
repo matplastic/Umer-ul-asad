@@ -13,6 +13,7 @@ const sections: { label: string; tabs: [string, string][] }[] = [
     ['delivery', 'Delivery'], ['site_deliveries', 'Site Deliveries'],
     ['release_log', 'Release Log'], ['rejection_log', 'Rejection Log'],
     ['teams', 'Teams'], ['employee_portal', 'Employees'],
+    ['scrap', 'Scrap'],
   ] },
   { label: 'Admin', tabs: [
     ['pool_editor', 'Pool Editor'], ['audit_logs', 'Audit Logs'],

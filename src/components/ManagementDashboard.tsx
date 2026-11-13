@@ -18,6 +18,7 @@ const REGISTRY_STATUS_COLORS: Record<string, string> = { Active: '#3b82f6', Rewo
 import { listUserAccounts, updateUserAccount, type AuthUser } from '../lib/authClient';
 import { MonthlyKPIDashboard } from './MonthlyKPIDashboard';
 import { OnlineUsersPanel } from './OnlineUsersPanel';
+import ScrapManagement from './ScrapManagement';
 import { StageDashboard } from './StageDashboard';
 import { StageReportsTab } from './StageReportsTab';
 import { ProjectProgressReport } from './ProjectProgressReport';
@@ -407,7 +408,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setMgmtAiPending(null);
   };
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'stage_timeline' | 'project_progress' | 'delivery' | 'site_deliveries' | 'warehouse'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'stage_timeline' | 'project_progress' | 'delivery' | 'site_deliveries' | 'warehouse' | 'scrap'>('analytics');
   const [deliverySubTab, setDeliverySubTab] = useState<'confirm' | 'planner' | 'report'>('confirm');
 
   // When a tab is opened, bring the tab bar to the top of the screen so the
@@ -2987,6 +2988,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         {/* Tab: Active Sessions / Who's Online */}
         {activeTab === 'online_users' && (
           <OnlineUsersPanel />
+        )}
+
+        {/* Tab: Scrap Management */}
+        {activeTab === 'scrap' && (
+          <ScrapManagement canManage />
         )}
 
         {/* Tab 1: Analytics/Summary Dashboard */}
