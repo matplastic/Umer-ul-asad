@@ -528,7 +528,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
     : s === 'Rejected' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200';
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" data-testid="supervisor-portal">
+    <div className="w-full max-w-none mx-auto px-1 sm:px-2 py-6" data-testid="supervisor-portal">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div className="flex items-center gap-3">
