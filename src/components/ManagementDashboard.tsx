@@ -5,7 +5,11 @@ import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employ
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex, canonicalStageId } from '../data/mockData';
 import { useRejectionData } from '../lib/useRejectionData';
 import { WarehouseRegister, WarehouseSummaryStrip } from './WarehouseRegister';
-import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange } from '../lib/firebaseService';
+import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange, dbExportBackupDocs, dbRestoreBackupDocs } from '../lib/firebaseService';
+import { AutoBackupsPanel } from './AutoBackupsPanel';
+import { StoreRestoreDialog } from './StoreRestoreDialog';
+import { BACKUP_DOC_IDS } from '../lib/backupSets';
+import { listAutoBackups, loadAutoBackupDocs, requestBackupNow } from '../lib/autoBackups';
 import { listDriveFiles, downloadFileFromDrive, deleteFileFromDrive, uploadToGoogleDrive } from '../lib/googleDrive';
 import { chartTokens, chartAxisDefaults } from '../lib/chartTokens';
 
@@ -1488,6 +1492,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   const [localBackupError, setLocalBackupError] = useState('');
   const [restoreStatus, setRestoreStatus] = useState<'idle' | 'restoring' | 'success' | 'error'>('idle');
   const [restoreMessage, setRestoreMessage] = useState('');
+  // Store / HR data restore dialog (opened from a Drive backup file or an automatic backup)
+  const [storeRestore, setStoreRestore] = useState<{ label: string; docs: Record<string, any[]> } | null>(null);
 
   const fetchGoogleDriveFiles = async () => {
     if (!googleUser) return;
@@ -1516,12 +1522,17 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         plannedPools,
         projectsSummary,
         monthlyTargets,
+        // Store, production, QC and HR lists (materials, requests, ledger records,
+        // consumption, suppliers, payroll …). Read strictly: if any list can't be read
+        // the backup stops with an error instead of saving a copy with holes in it.
+        storeData: await dbExportBackupDocs(),
         backupTime: new Date().toISOString(),
-        version: '2.0'
+        version: '3.0'
       };
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '_');
       const filename = `MAT_ERP_Backup_${timestamp}.json`;
-      await uploadToGoogleDrive(filename, JSON.stringify(payload, null, 2), 'application/json');
+      // Compact JSON (no indentation): with the Store data included the file is much larger.
+      await uploadToGoogleDrive(filename, JSON.stringify(payload), 'application/json');
       setLocalBackupStatus('success');
       fetchGoogleDriveFiles();
       setTimeout(() => setLocalBackupStatus('idle'), 3000);
@@ -1529,6 +1540,26 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       console.error(err);
       setLocalBackupStatus('error');
       setLocalBackupError(err.message || 'Unknown network error');
+    }
+  };
+
+  // Opens the Store / HR restore dialog for the Store data inside a Drive backup
+  // file. Deliberately separate from "Load State" (which restores pools, teams,
+  // logs …) so restoring one never silently touches the other.
+  const handleRestoreStoreFromFile = async (fileId: string, fileName: string) => {
+    setRestoreStatus('restoring');
+    setRestoreMessage('');
+    try {
+      const parsed = JSON.parse(await downloadFileFromDrive(fileId));
+      const sd = parsed && parsed.storeData;
+      if (!sd || typeof sd !== 'object' || Object.keys(sd).length === 0) {
+        throw new Error('This backup file does not contain Store data. Only backups taken after this feature was added include it.');
+      }
+      setRestoreStatus('idle');
+      setStoreRestore({ label: `Google Drive file ${fileName}`, docs: sd });
+    } catch (err: any) {
+      setRestoreStatus('error');
+      setRestoreMessage(err.message || 'Could not read this backup file.');
     }
   };
 
@@ -1578,11 +1609,13 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         onRestoreState(parsed);
       }
       setRestoreStatus('success');
-      setRestoreMessage("Database state successfully synchronized!");
+      setRestoreMessage(parsed.storeData
+        ? 'Core data restored. This file also holds Store / HR data, which was NOT restored — use "Restore Store Data" on the file to restore it separately.'
+        : "Database state successfully synchronized!");
       setTimeout(() => {
         setRestoreStatus('idle');
         setRestoreMessage('');
-      }, 4000);
+      }, parsed.storeData ? 9000 : 4000);
     } catch (err: any) {
       console.error(err);
       setRestoreStatus('error');
@@ -8171,6 +8204,21 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               </div>
             </div>
 
+            {/* Automatic nightly backups made by the server — available without a Google sign-in */}
+            <AutoBackupsPanel
+              onRestore={(label, docs) => setStoreRestore({ label, docs })}
+              api={{ list: listAutoBackups, load: loadAutoBackupDocs, backupNow: requestBackupNow }}
+            />
+            {storeRestore && (
+              <StoreRestoreDialog
+                label={storeRestore.label}
+                backupDocs={storeRestore.docs}
+                onClose={() => setStoreRestore(null)}
+                loadCurrent={dbExportBackupDocs}
+                restore={dbRestoreBackupDocs}
+              />
+            )}
+
             {/* Main Action Workspace Split */}
             {googleUser ? (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -8191,6 +8239,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         <li>{logs.length} Dispatch Activity Logs</li>
                         <li>{inspectors.length} QA Inspectors</li>
                         <li>{engineers.length} Release Engineers</li>
+                        <li>+ Store, production, QC &amp; HR data ({BACKUP_DOC_IDS.length} lists)</li>
                       </ul>
                       <p className="border-t border-slate-200/50 pt-2 text-[10.5px] italic text-slate-400">
                         Generates a robust, single-file schema payload. Highly available for state rollback matching compliance.
@@ -8369,6 +8418,16 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                                       title="Load this data backup to restore ERP states"
                                     >
                                       Load State
+                                    </button>
+                                  )}
+                                  {isJson && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRestoreStoreFromFile(file.id, file.name)}
+                                      className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-mono font-bold text-[9px] uppercase border border-indigo-200 rounded transition-all cursor-pointer"
+                                      title="Restore the Store / production / QC / HR data in this backup (opens a preview first)"
+                                    >
+                                      Restore Store Data
                                     </button>
                                   )}
                                   <a 

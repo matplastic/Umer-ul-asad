@@ -1,6 +1,7 @@
 import { auth, app, clientDb } from './googleDrive.ts';
 import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { applySupplierSave } from './suppliers';
+import { BACKUP_DOC_IDS, runRestore, RestoreMode, RestoreReportRow } from './backupSets';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, StockAdjustment, Supplier, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
 import { scheduleStockAlertCheck } from './stockAlerts';
 // NOTE: clientDb now comes from googleDrive.ts, which is the ONLY place
@@ -2590,6 +2591,52 @@ export async function dbDeleteCompanyAsset(id: string) {
   const headers = await getHeaders();
   const res = await fetch(getApiUrl(`/api/company-assets/${id}`), { method: 'DELETE', headers });
   return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// BACKUP / RESTORE of the Store, production, QC and HR lists (see
+// src/lib/backupSets.ts for the list and the safety rules).
+// ---------------------------------------------------------------------------
+
+// Reads the current contents of the backup lists. STRICT: if any read fails the
+// whole call fails, so a backup file can never silently contain an empty list
+// that really just failed to load.
+export async function dbExportBackupDocs(names: string[] = BACKUP_DOC_IDS): Promise<Record<string, any[]>> {
+  const out: Record<string, any[]> = {};
+  await Promise.all(names.map(async (name) => {
+    try {
+      out[name] = await getFirestoreDocArrayStrict(name);
+    } catch (err: any) {
+      throw new Error(`Could not read "${name}" (${err?.message || err}). Nothing was backed up.`);
+    }
+  }));
+  return out;
+}
+
+// Restores the chosen lists from a backup. Safety rules are in runRestore.
+export async function dbRestoreBackupDocs(args: {
+  docs: Record<string, any[]>;
+  names: string[];
+  mode: RestoreMode;
+  label: string;
+}): Promise<RestoreReportRow[]> {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  return runRestore({
+    ...args,
+    io: {
+      readCurrent: (id) => getFirestoreDocArrayStrict(id),
+      saveSafetyCopy: async (id, current, meta) => {
+        await setDoc(doc(clientDb, 'system_state', `preRestore_${stamp}__${id}`), {
+          data: removeUndefined(current),
+          savedAt: new Date().toISOString(),
+          restoredFrom: meta.restoredFrom,
+          mode: meta.mode,
+          source: id,
+        });
+      },
+      apply: (id, update, allowEmpty) => updateFirestoreDocArray(id, update, allowEmpty),
+    },
+  });
 }
 
 // Patch only the given fields of one material. Unlike dbSaveMaterial (which
