@@ -1010,23 +1010,23 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
   const statusPill = (status: string) => {
     const map: Record<string, string> = {
-      PENDING: 'bg-amber-950/40 text-amber-400 border-amber-800',
-      APPROVED: 'bg-emerald-950/40 text-emerald-400 border-emerald-800',
-      REJECTED: 'bg-rose-950/40 text-rose-400 border-rose-800',
-      PRINTED: 'bg-slate-800 text-slate-400 border-slate-700',
-      DELIVERED: 'bg-sky-950/40 text-sky-400 border-sky-800',
+      PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
+      APPROVED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      REJECTED: 'bg-rose-50 text-rose-700 border-rose-200',
+      PRINTED: 'bg-slate-100 text-slate-500 border-slate-300',
+      DELIVERED: 'bg-sky-50 text-sky-700 border-sky-200',
     };
     return <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${map[status] || map.PENDING}`}>{status}</span>;
   };
 
   const qcPill = (status?: string) => {
     const map: Record<string, string> = {
-      pending: 'bg-amber-950/40 text-amber-400 border-amber-800',
-      partial: 'bg-sky-950/40 text-sky-400 border-sky-800',
-      passed: 'bg-emerald-950/40 text-emerald-400 border-emerald-800',
-      failed: 'bg-rose-950/40 text-rose-400 border-rose-800',
-      hold: 'bg-slate-800 text-slate-300 border-slate-600',
-      mixed: 'bg-violet-950/40 text-violet-400 border-violet-800',
+      pending: 'bg-amber-50 text-amber-700 border-amber-200',
+      partial: 'bg-sky-50 text-sky-700 border-sky-200',
+      passed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      failed: 'bg-rose-50 text-rose-700 border-rose-200',
+      hold: 'bg-slate-100 text-slate-700 border-slate-300',
+      mixed: 'bg-violet-50 text-violet-700 border-violet-200',
     };
     const s = status || 'pending';
     const label: Record<string, string> = {
@@ -1043,9 +1043,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
   const GROUP_LABELS: Record<'mep' | 'civil' | 'other', string> = { mep: 'MEP Materials', civil: 'Civil Materials', other: 'Other Materials' };
   const GROUP_BADGE: Record<'mep' | 'civil' | 'other', string> = {
-    mep: 'bg-sky-950/40 text-sky-400 border-sky-800',
-    civil: 'bg-amber-950/40 text-amber-400 border-amber-800',
-    other: 'bg-slate-800 text-slate-400 border-slate-700',
+    mep: 'bg-sky-50 text-sky-700 border-sky-200',
+    civil: 'bg-amber-50 text-amber-700 border-amber-200',
+    other: 'bg-slate-100 text-slate-500 border-slate-300',
   };
   const materialGroup = (m: Material): 'mep' | 'civil' | 'other' => (m.inventoryGroup as any) || 'other';
   const setMaterialGroup = async (m: Material, group: 'mep' | 'civil' | 'other') => {
@@ -1070,7 +1070,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   return (
     <div className="w-full max-w-none mx-auto px-1 sm:px-2 py-4" data-testid="store-module">
       {storageWarnings.length > 0 && (
-        <div data-testid="storage-warning" className={`mb-4 rounded-xl border px-4 py-3 text-xs ${storageWarnings.some(w => w.pct >= 90) ? 'border-rose-700 bg-rose-950/40 text-rose-200' : 'border-amber-700 bg-amber-950/30 text-amber-200'}`}>
+        <div data-testid="storage-warning" className={`mb-4 rounded-xl border px-4 py-3 text-xs ${storageWarnings.some(w => w.pct >= 90) ? 'border-rose-300 bg-rose-50 text-rose-800' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
           <div className="font-black uppercase tracking-wide mb-1 flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" /> Data storage is filling up</div>
           {storageWarnings.map(w => (
             <div key={w.key}>{w.label}: <strong>{w.pct.toFixed(0)}% full</strong> ({w.count.toLocaleString()} records)</div>
@@ -1081,15 +1081,15 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* Edit extra units (length / weight per unit) of an existing material */}
       {unitsEdit && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60" onClick={() => setUnitsEdit(null)} data-testid="units-modal">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-white border border-slate-300 rounded-2xl w-full max-w-xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-extrabold text-white">Units — {unitsEdit.material.name}</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Stock is counted in <strong className="text-slate-200">{unitsEdit.material.unit}</strong> ({unitsEdit.material.currentStock} in stock). Tell the Store what one {unitsEdit.material.unit} contains and it will show the totals in meters, kilograms, etc.
+                <h3 className="text-sm font-extrabold text-slate-900">Units — {unitsEdit.material.name}</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Stock is counted in <strong className="text-slate-800">{unitsEdit.material.unit}</strong> ({unitsEdit.material.currentStock} in stock). Tell the Store what one {unitsEdit.material.unit} contains and it will show the totals in meters, kilograms, etc.
                 </p>
               </div>
-              <button onClick={() => setUnitsEdit(null)} className="text-slate-500 hover:text-white cursor-pointer"><X className="h-4 w-4" /></button>
+              <button onClick={() => setUnitsEdit(null)} className="text-slate-500 hover:text-slate-900 cursor-pointer"><X className="h-4 w-4" /></button>
             </div>
             <ExtraUnitsEditor
               unit={unitsEdit.material.unit}
@@ -1099,8 +1099,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               testIdPrefix="edit-extra"
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setUnitsEdit(null)} className="px-3 py-2 text-xs font-bold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer">Cancel</button>
-              <button onClick={saveExtraUnits} data-testid="units-save" className="px-4 py-2 text-xs font-bold rounded-lg bg-orange-600 hover:bg-orange-700 text-white cursor-pointer">Save units</button>
+              <button onClick={() => setUnitsEdit(null)} className="px-3 py-2 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer">Cancel</button>
+              <button onClick={saveExtraUnits} data-testid="units-save" className="px-4 py-2 text-xs font-bold rounded-lg bg-primary-600 hover:bg-primary-700 text-white cursor-pointer">Save units</button>
             </div>
           </div>
         </div>
@@ -1113,98 +1113,98 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-xl bg-orange-600/20 border border-orange-700/40 flex items-center justify-center">
-            <Boxes className="h-5 w-5 text-orange-400" />
+          <div className="h-11 w-11 rounded-xl bg-primary-600/20 border border-primary-200 flex items-center justify-center">
+            <Boxes className="h-5 w-5 text-primary-700" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">Store &amp; BOM Portal</h1>
-            <p className="text-xs text-slate-400">Inventory, section-wise materials, GRN, BOM, requests &amp; consumption reports</p>
+            <h1 className="text-xl font-bold text-slate-900">Store &amp; BOM Portal</h1>
+            <p className="text-xs text-slate-500">Inventory, section-wise materials, GRN, BOM, requests &amp; consumption reports</p>
           </div>
         </div>
-        <button onClick={() => loadAll()} data-testid="store-refresh" className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium cursor-pointer">
+        <button onClick={() => loadAll()} data-testid="store-refresh" className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium cursor-pointer">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 bg-rose-950/30 border border-rose-800 text-rose-300 text-sm px-4 py-3 rounded-lg">
+        <div className="mb-4 flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 text-sm px-4 py-3 rounded-lg">
           <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
         </div>
       )}
       {flash && (
-        <div className="mb-4 flex items-center gap-2 bg-emerald-950/30 border border-emerald-800 text-emerald-300 text-sm px-4 py-3 rounded-lg" data-testid="store-flash">
+        <div className="mb-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 rounded-lg" data-testid="store-flash">
           <CheckCircle2 className="h-4 w-4 shrink-0" /> {flash}
         </div>
       )}
 
       {(tab === 'incoming' || tab === 'reports' || tab === 'inventory' || tab === 'traceability') && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl p-3">
+        <div className="mb-4 flex flex-wrap items-center gap-2 bg-white border border-slate-200 rounded-xl p-3">
           <Clock className="h-3.5 w-3.5 text-slate-500" />
-          <span className="text-xs font-bold uppercase text-slate-400">Period:</span>
+          <span className="text-xs font-bold uppercase text-slate-500">Period:</span>
           {(['today', 'week', 'month', 'custom'] as const).map(p => (
             <button
               key={p}
               onClick={() => applyQuickPeriod(p)}
               data-testid={`period-${p}`}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer border transition-all ${quickPeriod === p ? 'bg-orange-600 border-orange-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'}`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer border transition-all ${quickPeriod === p ? 'bg-primary-600 border-primary-600 text-white' : 'bg-slate-100 border-slate-300 text-slate-500 hover:text-slate-800'}`}
             >
               {p === 'today' ? 'Daily' : p === 'week' ? 'Weekly' : p === 'month' ? 'Monthly' : 'Custom'}
             </button>
           ))}
-          <input type="date" data-testid="date-filter-from" value={fromDate} onChange={e => { setFromDate(e.target.value); setQuickPeriod('custom'); }} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white" />
+          <input type="date" data-testid="date-filter-from" value={fromDate} onChange={e => { setFromDate(e.target.value); setQuickPeriod('custom'); }} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900" />
           <span className="text-slate-500 text-xs">to</span>
-          <input type="date" data-testid="date-filter-to" value={toDate} onChange={e => { setToDate(e.target.value); setQuickPeriod('custom'); }} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white" />
+          <input type="date" data-testid="date-filter-to" value={toDate} onChange={e => { setToDate(e.target.value); setQuickPeriod('custom'); }} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900" />
           {(fromDate || toDate) && (
-            <button onClick={() => { setFromDate(''); setToDate(''); setQuickPeriod('custom'); }} className="text-xs text-orange-400 hover:text-orange-300 cursor-pointer font-semibold">Clear</button>
+            <button onClick={() => { setFromDate(''); setToDate(''); setQuickPeriod('custom'); }} className="text-xs text-primary-700 hover:text-primary-700 cursor-pointer font-semibold">Clear</button>
           )}
         </div>
       )}
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-2 mb-6">
-        <button onClick={() => setTab('key')} data-testid="tab-key" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'key' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('key')} data-testid="tab-key" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'key' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Star className="h-4 w-4" /> Key Materials
         </button>
-        <button onClick={() => setTab('inventory')} data-testid="tab-inventory" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'inventory' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('inventory')} data-testid="tab-inventory" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'inventory' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Package className="h-4 w-4" /> Inventory
         </button>
-        <button onClick={() => setTab('reorder')} data-testid="tab-reorder" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reorder' ? 'bg-orange-600 text-white shadow-md' : reorderBadge.total > 0 ? 'bg-rose-950/70 hover:bg-rose-900/70 text-rose-200 border border-rose-700/60' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('reorder')} data-testid="tab-reorder" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reorder' ? 'bg-primary-600 text-white shadow-md' : reorderBadge.total > 0 ? 'bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ShoppingCart className="h-4 w-4" /> Reorder
           {reorderBadge.total > 0 && (
-            <span data-testid="reorder-tab-badge" className={`ml-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black flex items-center justify-center ${reorderBadge.urgent > 0 ? 'bg-rose-600 text-white' : 'bg-rose-900 text-rose-200'}`}>{reorderBadge.total}</span>
+            <span data-testid="reorder-tab-badge" className={`ml-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black flex items-center justify-center ${reorderBadge.urgent > 0 ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800'}`}>{reorderBadge.total}</span>
           )}
         </button>
-        <button onClick={() => setTab('assets')} data-testid="tab-assets" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'assets' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('assets')} data-testid="tab-assets" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'assets' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Wrench className="h-4 w-4" /> Company Assets
         </button>
-        <button onClick={() => setTab('incoming')} data-testid="tab-incoming" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'incoming' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('incoming')} data-testid="tab-incoming" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'incoming' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Truck className="h-4 w-4" /> Incoming
         </button>
-        <button onClick={() => setTab('quality')} data-testid="tab-quality" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'quality' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('quality')} data-testid="tab-quality" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'quality' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ShieldCheck className="h-4 w-4" /> Quality Status
           {pendingQcCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center">{pendingQcCount}</span>
           )}
         </button>
-        <button onClick={() => setTab('traceability')} data-testid="tab-traceability" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'traceability' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('traceability')} data-testid="tab-traceability" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'traceability' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Search className="h-4 w-4" /> Material Traceability
         </button>
-        <button onClick={() => setTab('bom')} data-testid="tab-bom" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'bom' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('bom')} data-testid="tab-bom" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'bom' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ListChecks className="h-4 w-4" /> Bill of Materials
         </button>
-        <button onClick={() => setTab('requests')} data-testid="tab-requests" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'requests' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('requests')} data-testid="tab-requests" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'requests' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ClipboardCheck className="h-4 w-4" /> Requests
           {pendingApprovalCount > 0 && <span className="ml-1 bg-amber-500 text-slate-950 rounded-full px-1.5 text-[10px]">{pendingApprovalCount}</span>}
           {pendingPrintCount > 0 && <span className="ml-1 bg-emerald-500 text-slate-950 rounded-full px-1.5 text-[10px]">{pendingPrintCount} print</span>}
         </button>
-        <button onClick={() => setTab('reports')} data-testid="tab-reports" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reports' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('reports')} data-testid="tab-reports" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reports' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <BarChart3 className="h-4 w-4" /> Consumption Reports
         </button>
-        <button onClick={() => setTab('ledger')} data-testid="tab-ledger" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'ledger' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('ledger')} data-testid="tab-ledger" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'ledger' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <BookOpen className="h-4 w-4" /> Inventory Ledger
         </button>
-        <button onClick={() => setTab('suppliers')} data-testid="tab-suppliers" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'suppliers' ? 'bg-orange-600 text-white shadow-md' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
+        <button onClick={() => setTab('suppliers')} data-testid="tab-suppliers" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'suppliers' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Building2 className="h-4 w-4" /> Suppliers
         </button>
       </div>
@@ -1213,12 +1213,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {tab === 'inventory' && (
         <div>
           {/* Excel toolbar */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-2">
-            <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel:</div>
-            <button onClick={downloadTemplate} data-testid="excel-template-btn" className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold cursor-pointer">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-2">
+            <div className="text-xs font-bold uppercase text-slate-500 mr-1 flex items-center gap-1.5"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel:</div>
+            <button onClick={downloadTemplate} data-testid="excel-template-btn" className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold cursor-pointer">
               <Download className="h-3.5 w-3.5" /> Download Template
             </button>
-            <select value={importMode} onChange={e => setImportMode(e.target.value as any)} data-testid="excel-import-mode" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            <select value={importMode} onChange={e => setImportMode(e.target.value as any)} data-testid="excel-import-mode" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="both">Add new + update existing</option>
               <option value="add">Only add new</option>
               <option value="update">Only update existing stock</option>
@@ -1234,10 +1234,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 value={inventorySearch}
                 onChange={e => setInventorySearch(e.target.value)}
                 data-testid="inventory-search"
-                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white w-64"
+                className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900 w-64"
               />
-              <label className="text-[10px] uppercase text-slate-400 font-bold">Filter by section:</label>
-              <select value={sectionFilter} onChange={e => setSectionFilter(e.target.value)} data-testid="section-filter" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white">
+              <label className="text-[10px] uppercase text-slate-500 font-bold">Filter by section:</label>
+              <select value={sectionFilter} onChange={e => setSectionFilter(e.target.value)} data-testid="section-filter" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900">
                 <option value="">All sections</option>
                 {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
                 <option value="__blank__">Unassigned</option>
@@ -1246,37 +1246,37 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           </div>
 
           {/* Add material form */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
-            <input placeholder="Material name" data-testid="new-mat-name" value={newMaterial.name} onChange={e => setNewMaterial((p: any) => ({ ...p, name: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
-            <select value={newMaterial.section} onChange={e => setNewMaterial((p: any) => ({ ...p, section: e.target.value }))} data-testid="new-mat-section" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
+            <input placeholder="Material name" data-testid="new-mat-name" value={newMaterial.name} onChange={e => setNewMaterial((p: any) => ({ ...p, name: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-2" />
+            <select value={newMaterial.section} onChange={e => setNewMaterial((p: any) => ({ ...p, section: e.target.value }))} data-testid="new-mat-section" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="">Section…</option>
               {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
             </select>
-            <select value={newMaterial.inventoryGroup} onChange={e => setNewMaterial((p: any) => ({ ...p, inventoryGroup: e.target.value }))} data-testid="new-mat-group" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            <select value={newMaterial.inventoryGroup} onChange={e => setNewMaterial((p: any) => ({ ...p, inventoryGroup: e.target.value }))} data-testid="new-mat-group" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="mep">MEP Material</option>
               <option value="civil">Civil Material</option>
               <option value="other">Other Material</option>
             </select>
-            <input placeholder="Category" value={newMaterial.category} onChange={e => setNewMaterial((p: any) => ({ ...p, category: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Unit (kg/ltr/pcs)" data-testid="new-mat-unit" value={newMaterial.unit} onChange={e => setNewMaterial((p: any) => ({ ...p, unit: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input type="number" placeholder="Opening stock" data-testid="new-mat-stock" value={newMaterial.currentStock} onChange={e => setNewMaterial((p: any) => ({ ...p, currentStock: Number(e.target.value) }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-300 cursor-pointer" title="Force this into the Key Materials dashboard regardless of name/category">
+            <input placeholder="Category" value={newMaterial.category} onChange={e => setNewMaterial((p: any) => ({ ...p, category: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input placeholder="Unit (kg/ltr/pcs)" data-testid="new-mat-unit" value={newMaterial.unit} onChange={e => setNewMaterial((p: any) => ({ ...p, unit: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input type="number" placeholder="Opening stock" data-testid="new-mat-stock" value={newMaterial.currentStock} onChange={e => setNewMaterial((p: any) => ({ ...p, currentStock: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-700 cursor-pointer" title="Force this into the Key Materials dashboard regardless of name/category">
               <input type="checkbox" checked={!!newMaterial.isCritical} onChange={e => setNewMaterial((p: any) => ({ ...p, isCritical: e.target.checked }))} className="accent-orange-500" />
               Critical
             </label>
-            <button onClick={saveMaterial} data-testid="new-mat-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Material</button>
-            <input placeholder="ERP Code" data-testid="new-mat-erpcode" value={newMaterial.erpCode} onChange={e => setNewMaterial((p: any) => ({ ...p, erpCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Supplier name" list="supplier-options" data-testid="new-mat-supplier" value={newMaterial.supplierName} onChange={e => setNewMaterial((p: any) => ({ ...p, supplierName: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
-            <input placeholder="Brand" data-testid="new-mat-brand" value={newMaterial.brand} onChange={e => setNewMaterial((p: any) => ({ ...p, brand: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Location (Rack/Bin)" data-testid="new-mat-location" value={newMaterial.location} onChange={e => setNewMaterial((p: any) => ({ ...p, location: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input type="number" min={0} placeholder="Reorder level" title="Highlighted red and e-mailed when stock is at or below this" data-testid="new-mat-reorder" value={newMaterial.reorderLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, reorderLevel: Number(e.target.value) }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input type="number" min={0} placeholder="Urgent level" title="Urgent alert when stock is at or below this (must be ≤ reorder level)" data-testid="new-mat-urgent" value={newMaterial.urgentLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, urgentLevel: Number(e.target.value) }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-300 cursor-pointer" title="E-mail me when this material reaches its reorder / urgent level">
+            <button onClick={saveMaterial} data-testid="new-mat-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Material</button>
+            <input placeholder="ERP Code" data-testid="new-mat-erpcode" value={newMaterial.erpCode} onChange={e => setNewMaterial((p: any) => ({ ...p, erpCode: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input placeholder="Supplier name" list="supplier-options" data-testid="new-mat-supplier" value={newMaterial.supplierName} onChange={e => setNewMaterial((p: any) => ({ ...p, supplierName: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-2" />
+            <input placeholder="Brand" data-testid="new-mat-brand" value={newMaterial.brand} onChange={e => setNewMaterial((p: any) => ({ ...p, brand: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input placeholder="Location (Rack/Bin)" data-testid="new-mat-location" value={newMaterial.location} onChange={e => setNewMaterial((p: any) => ({ ...p, location: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input type="number" min={0} placeholder="Reorder level" title="Highlighted red and e-mailed when stock is at or below this" data-testid="new-mat-reorder" value={newMaterial.reorderLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, reorderLevel: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input type="number" min={0} placeholder="Urgent level" title="Urgent alert when stock is at or below this (must be ≤ reorder level)" data-testid="new-mat-urgent" value={newMaterial.urgentLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, urgentLevel: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-700 cursor-pointer" title="E-mail me when this material reaches its reorder / urgent level">
               <input type="checkbox" checked={newMaterial.alertsEnabled !== false} onChange={e => setNewMaterial((p: any) => ({ ...p, alertsEnabled: e.target.checked }))} className="accent-emerald-500" />
               Follow stock
             </label>
-            <div className="md:col-span-7 border-t border-slate-800 pt-3 mt-1">
+            <div className="md:col-span-7 border-t border-slate-200 pt-3 mt-1">
               <ExtraUnitsEditor
                 unit={newMaterial.unit}
                 value={newMaterial.extraUnits || []}
@@ -1299,13 +1299,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   key={g}
                   onClick={() => setInvGroupTab(g)}
                   data-testid={`inv-group-${g}`}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${invGroupTab === g ? 'bg-orange-600 border-orange-600 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${invGroupTab === g ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'}`}
                 >
                   {g === 'all' ? 'All Materials' : GROUP_LABELS[g]} <span className="opacity-70">({count})</span>
                 </button>
               );
             })}
-            <span className="w-px h-5 bg-slate-800 mx-1" aria-hidden="true" />
+            <span className="w-px h-5 bg-slate-100 mx-1" aria-hidden="true" />
             <button
               onClick={() => setInvGroupTab(prev => (prev === 'key' ? 'all' : 'key'))}
               data-testid="inv-group-key"
@@ -1313,7 +1313,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${
                 invGroupTab === 'key'
                   ? 'bg-amber-500 border-amber-500 text-slate-900'
-                  : 'bg-slate-900 border-amber-800/60 text-amber-400 hover:text-amber-300 hover:border-amber-700'
+                  : 'bg-white border-amber-200 text-amber-700 hover:text-amber-700 hover:border-amber-300'
               }`}
             >
               <Star className={`h-3.5 w-3.5 ${invGroupTab === 'key' ? 'fill-slate-900' : 'fill-amber-400'}`} />
@@ -1322,8 +1322,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           </div>
 
           {/* Inventory report export — Total Incoming/Consumed follow the period bar above; Current Stock is always the live shelf balance */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
-            <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export Inventory Report:</div>
+          <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
+            <div className="text-xs font-bold uppercase text-slate-500 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export Inventory Report:</div>
             <button onClick={exportInventoryExcel} data-testid="export-inventory-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
               <Download className="h-3.5 w-3.5" /> Excel
             </button>
@@ -1333,10 +1333,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           </div>
 
           {/* Inventory table with incoming + consumed columns */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-100 text-slate-500 uppercase text-[10px]">
                   <th className="px-2 py-2" title="Key material"></th>
                   <th className="text-left px-2 py-2">ERP Code</th>
                   <th className="text-left px-2 py-2">Material</th>
@@ -1360,30 +1360,30 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     const grp = materialGroup(m);
                     const stockStatus = getStockStatus(m);
                     return (
-                      <tr key={m.id} data-testid={`mat-row-${m.id}`} data-stock-status={stockStatus} className={`border-t border-slate-800 ${STATUS_ROW_CLASS[stockStatus]}`}>
+                      <tr key={m.id} data-testid={`mat-row-${m.id}`} data-stock-status={stockStatus} className={`border-t border-slate-200 ${STATUS_ROW_CLASS[stockStatus]}`}>
                         <td className="px-2 py-2 text-center">
                           <button onClick={() => toggleCritical(m)} title={isMaterialCritical(m) ? 'Marked as Key Material — click to unmark' : 'Click to mark as Key Material'} className="cursor-pointer">
-                            <Star className={`h-3.5 w-3.5 ${isMaterialCritical(m) ? 'text-amber-400 fill-amber-400' : 'text-slate-600'}`} />
+                            <Star className={`h-3.5 w-3.5 ${isMaterialCritical(m) ? 'text-amber-700 fill-amber-400' : 'text-slate-400'}`} />
                           </button>
                         </td>
-                        <td className="px-2 py-2 text-slate-400 font-mono">{(m as any).erpCode || '—'}</td>
-                        <td className="px-2 py-2 text-slate-200 font-semibold min-w-[150px] max-w-[260px] break-words">
-                          <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-open-${m.id}`} title="Open stock ledger — see every DO and movement" className="text-left hover:text-orange-400 hover:underline decoration-dotted underline-offset-2 cursor-pointer font-semibold">{m.name}</button>
+                        <td className="px-2 py-2 text-slate-500 font-mono">{(m as any).erpCode || '—'}</td>
+                        <td className="px-2 py-2 text-slate-800 font-semibold min-w-[150px] max-w-[260px] break-words">
+                          <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-open-${m.id}`} title="Open stock ledger — see every DO and movement" className="text-left hover:text-primary-700 hover:underline decoration-dotted underline-offset-2 cursor-pointer font-semibold">{m.name}</button>
                         </td>
                         <td className="px-2 py-2">
                           <select value={grp} onChange={e => setMaterialGroup(m, e.target.value as any)} data-testid={`mat-group-${m.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase border cursor-pointer bg-transparent ${GROUP_BADGE[grp]}`}>
-                            <option className="bg-slate-900" value="mep">MEP</option>
-                            <option className="bg-slate-900" value="civil">Civil</option>
-                            <option className="bg-slate-900" value="other">Other</option>
+                            <option className="bg-white" value="mep">MEP</option>
+                            <option className="bg-white" value="civil">Civil</option>
+                            <option className="bg-white" value="other">Other</option>
                           </select>
                         </td>
-                        <td className="px-2 py-2 text-slate-400 max-w-[170px] break-words">{(m as any).location || '—'}</td>
-                        <td className="px-2 py-2 text-right text-emerald-400 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
-                        <td className="px-2 py-2 text-right text-rose-400 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
-                        <td className={`px-2 py-2 text-right font-mono ${stockStatus === 'urgent' ? 'text-rose-300 font-black' : stockStatus === 'reorder' ? 'text-rose-400 font-bold' : 'text-slate-200'}`}>
+                        <td className="px-2 py-2 text-slate-500 max-w-[170px] break-words">{(m as any).location || '—'}</td>
+                        <td className="px-2 py-2 text-right text-emerald-700 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
+                        <td className="px-2 py-2 text-right text-rose-700 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
+                        <td className={`px-2 py-2 text-right font-mono ${stockStatus === 'urgent' ? 'text-rose-700 font-black' : stockStatus === 'reorder' ? 'text-rose-700 font-bold' : 'text-slate-800'}`}>
                           {m.currentStock} {m.unit}
                           {equivalentsText(m, m.currentStock) && (
-                            <div className="text-[10px] font-mono text-emerald-400/80 font-normal" data-testid={`mat-equiv-${m.id}`}>= {equivalentsText(m, m.currentStock)}</div>
+                            <div className="text-[10px] font-mono text-emerald-700/80 font-normal" data-testid={`mat-equiv-${m.id}`}>= {equivalentsText(m, m.currentStock)}</div>
                           )}
                           {perUnitText(m) && <div className="text-[10px] text-slate-500 font-normal">1 {m.unit} = {perUnitText(m).replace(` per ${m.unit}`, '')}</div>}
                         </td>
@@ -1391,15 +1391,15 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         <td className="px-2 py-2 text-right text-slate-500">{num(m.urgentLevel) || 0}</td>
                         <td className="px-2 py-2 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
                         <td className="px-2 py-2 text-right"><div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 max-w-[270px] ml-auto">
-                          <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-400 cursor-pointer text-[11px] font-bold">Adjust</button>
+                          <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-700 cursor-pointer text-[11px] font-bold">Adjust</button>
                           <button onClick={() => toggleFollow(m)} data-testid={`follow-${m.id}`} title={isFollowed(m) ? 'Following — e-mails on. Click to turn off' : 'Not following — click to turn e-mails on'} className="cursor-pointer">
-                            {isFollowed(m) ? <Bell className="h-3.5 w-3.5 text-emerald-400" /> : <BellOff className="h-3.5 w-3.5 text-slate-600" />}
+                            {isFollowed(m) ? <Bell className="h-3.5 w-3.5 text-emerald-700" /> : <BellOff className="h-3.5 w-3.5 text-slate-400" />}
                           </button>
-                          <button onClick={() => setAlertEdit(m)} data-testid={`alerts-${m.id}`} title="Set reorder / urgent levels" className="flex items-center gap-1 text-slate-500 hover:text-rose-400 cursor-pointer text-[11px] font-bold"><SlidersHorizontal className="h-3 w-3" />Alerts</button>
-                          <button onClick={() => setUnitsEdit({ material: m, extraUnits: (m.extraUnits || []).map(u => ({ ...u })) })} data-testid={`units-${m.id}`} title="Add length / weight per unit" className="text-slate-500 hover:text-orange-400 cursor-pointer text-[11px] font-bold">Units</button>
-                          <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-btn-${m.id}`} title="Stock ledger" className="text-sky-400 hover:text-sky-300 cursor-pointer text-[11px] font-bold">Ledger</button>
-                          <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-400 cursor-pointer text-[11px] font-bold">Move to Assets</button>
-                          <button onClick={() => deleteMaterial(m.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => setAlertEdit(m)} data-testid={`alerts-${m.id}`} title="Set reorder / urgent levels" className="flex items-center gap-1 text-slate-500 hover:text-rose-700 cursor-pointer text-[11px] font-bold"><SlidersHorizontal className="h-3 w-3" />Alerts</button>
+                          <button onClick={() => setUnitsEdit({ material: m, extraUnits: (m.extraUnits || []).map(u => ({ ...u })) })} data-testid={`units-${m.id}`} title="Add length / weight per unit" className="text-slate-500 hover:text-primary-700 cursor-pointer text-[11px] font-bold">Units</button>
+                          <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-btn-${m.id}`} title="Stock ledger" className="text-sky-700 hover:text-sky-700 cursor-pointer text-[11px] font-bold">Ledger</button>
+                          <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-700 cursor-pointer text-[11px] font-bold">Move to Assets</button>
+                          <button onClick={() => deleteMaterial(m.id)} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div></td>
                       </tr>
                     );
@@ -1424,14 +1424,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {tab === 'assets' && (
         <div>
           {/* Add asset form */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
-            <input placeholder="Asset name" data-testid="new-asset-name" value={newAsset.name} onChange={e => setNewAsset((p: any) => ({ ...p, name: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2" />
-            <input placeholder="Asset number / tag" data-testid="new-asset-number" value={newAsset.assetNumber} onChange={e => setNewAsset((p: any) => ({ ...p, assetNumber: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="ERP No" data-testid="new-asset-erpno" value={newAsset.erpNo} onChange={e => setNewAsset((p: any) => ({ ...p, erpNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Issued to (optional)" data-testid="new-asset-issuedto" value={newAsset.issuedTo} onChange={e => setNewAsset((p: any) => ({ ...p, issuedTo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input type="number" placeholder="Value (AED)" data-testid="new-asset-value" value={newAsset.value} onChange={e => setNewAsset((p: any) => ({ ...p, value: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <button onClick={saveAsset} data-testid="new-asset-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Asset</button>
-            <input placeholder="Notes (optional)" data-testid="new-asset-notes" value={newAsset.notes} onChange={e => setNewAsset((p: any) => ({ ...p, notes: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-7" />
+          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
+            <input placeholder="Asset name" data-testid="new-asset-name" value={newAsset.name} onChange={e => setNewAsset((p: any) => ({ ...p, name: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-2" />
+            <input placeholder="Asset number / tag" data-testid="new-asset-number" value={newAsset.assetNumber} onChange={e => setNewAsset((p: any) => ({ ...p, assetNumber: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input placeholder="ERP No" data-testid="new-asset-erpno" value={newAsset.erpNo} onChange={e => setNewAsset((p: any) => ({ ...p, erpNo: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input placeholder="Issued to (optional)" data-testid="new-asset-issuedto" value={newAsset.issuedTo} onChange={e => setNewAsset((p: any) => ({ ...p, issuedTo: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input type="number" placeholder="Value (AED)" data-testid="new-asset-value" value={newAsset.value} onChange={e => setNewAsset((p: any) => ({ ...p, value: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <button onClick={saveAsset} data-testid="new-asset-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Asset</button>
+            <input placeholder="Notes (optional)" data-testid="new-asset-notes" value={newAsset.notes} onChange={e => setNewAsset((p: any) => ({ ...p, notes: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-7" />
           </div>
 
           <div className="relative mb-3 max-w-md">
@@ -1441,14 +1441,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               data-testid="asset-search"
               value={assetSearch}
               onChange={e => setAssetSearch(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-xs text-white"
+              className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-900"
             />
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 text-left">
+                <tr className="border-b border-slate-200 text-slate-500 text-left">
                   <th className="px-4 py-2 font-semibold">Asset Name</th>
                   <th className="px-4 py-2 font-semibold">Asset Number</th>
                   <th className="px-4 py-2 font-semibold">ERP No</th>
@@ -1460,19 +1460,19 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               </thead>
               <tbody>
                 {filteredAssets.map(a => (
-                  <tr key={a.id} className="border-b border-slate-800/60 hover:bg-slate-800/30">
-                    <td className="px-4 py-2 text-slate-200 font-semibold">{a.name}</td>
-                    <td className="px-4 py-2 text-slate-400 font-mono">{a.assetNumber}</td>
-                    <td className="px-4 py-2 text-slate-400 font-mono">{a.erpNo || '—'}</td>
+                  <tr key={a.id} className="border-b border-slate-200 hover:bg-slate-50">
+                    <td className="px-4 py-2 text-slate-800 font-semibold">{a.name}</td>
+                    <td className="px-4 py-2 text-slate-500 font-mono">{a.assetNumber}</td>
+                    <td className="px-4 py-2 text-slate-500 font-mono">{a.erpNo || '—'}</td>
                     <td className="px-4 py-2">
-                      <button onClick={() => setAssetIssuedTo(a)} data-testid={`asset-issuedto-${a.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${a.issuedTo ? 'bg-amber-950/40 text-amber-400 border-amber-800' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
+                      <button onClick={() => setAssetIssuedTo(a)} data-testid={`asset-issuedto-${a.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${a.issuedTo ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-500 border-slate-300'}`}>
                         {a.issuedTo || 'In store'}
                       </button>
                     </td>
-                    <td className="px-4 py-2 text-right text-slate-300 font-mono">{a.value != null ? Number(a.value).toLocaleString() : '—'}</td>
+                    <td className="px-4 py-2 text-right text-slate-700 font-mono">{a.value != null ? Number(a.value).toLocaleString() : '—'}</td>
                     <td className="px-4 py-2 text-slate-500">{a.notes || '—'}</td>
                     <td className="px-4 py-2 text-right">
-                      <button onClick={() => deleteAsset(a.id)} data-testid={`asset-delete-${a.id}`} className="text-rose-400 hover:text-rose-300 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => deleteAsset(a.id)} data-testid={`asset-delete-${a.id}`} className="text-rose-700 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                     </td>
                   </tr>
                 ))}
@@ -1495,27 +1495,27 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- INCOMING TAB ---------- */}
       {tab === 'incoming' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
-            <select value={newIncoming.materialId} onChange={e => setNewIncoming((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="new-incoming-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white md:col-span-2">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
+            <select value={newIncoming.materialId} onChange={e => setNewIncoming((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="new-incoming-material" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-2">
               <option value="">Material…</option>
               {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit}) · stock: {m.currentStock}</option>)}
             </select>
-            <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Supplier" list="supplier-options" data-testid="new-incoming-supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+            <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input placeholder="Supplier" list="supplier-options" data-testid="new-incoming-supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
             <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Send to Quality</button>
           </div>
           {newIncoming.materialId && Number(newIncoming.qty) > 0 && eqFor(newIncoming.materialId, Number(newIncoming.qty)) && (
-            <div className="mb-3 text-xs font-mono text-emerald-400" data-testid="new-incoming-equiv">
+            <div className="mb-3 text-xs font-mono text-emerald-700" data-testid="new-incoming-equiv">
               {Number(newIncoming.qty)} {materials.find(m => m.id === newIncoming.materialId)?.unit} = {eqFor(newIncoming.materialId, Number(newIncoming.qty))}
             </div>
           )}
           <div className="mb-4 text-[11px] text-slate-500 flex items-center gap-1.5">
-            <ShieldCheck className="h-3.5 w-3.5 text-amber-400" /> New receipts go to <span className="text-amber-400 font-bold">Quality Check</span> first and only join Inventory stock once an inspector passes them.
+            <ShieldCheck className="h-3.5 w-3.5 text-amber-700" /> New receipts go to <span className="text-amber-700 font-bold">Quality Check</span> first and only join Inventory stock once an inspector passes them.
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
-            <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export:</div>
+          <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
+            <div className="text-xs font-bold uppercase text-slate-500 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export:</div>
             <button onClick={exportIncomingExcel} data-testid="export-incoming-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
               <Download className="h-3.5 w-3.5" /> Excel
             </button>
@@ -1525,11 +1525,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <div className="text-[10px] text-slate-500 ml-1">Uses the period set above (or all-time if none selected).</div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">Recent GRN (Goods Received)</div>
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+            <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500">Recent GRN (Goods Received)</div>
             <table className="w-full min-w-[700px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Date</th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Qty</th>
@@ -1542,15 +1542,15 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               </thead>
               <tbody>
                 {filteredIncoming.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(inc => (
-                  <tr key={inc.id} className="border-t border-slate-800">
+                  <tr key={inc.id} className="border-t border-slate-200">
                     <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                    <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-emerald-400/70">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
-                    <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
-                    <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
+                    <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
+                    <td className="px-4 py-2 text-right text-emerald-700 font-mono">+{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-emerald-700/70">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
+                    <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}</td>
+                    <td className="px-4 py-2 text-slate-500">{inc.invoiceNo || '—'}</td>
                     <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
                     <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
-                    <td className="px-4 py-2 text-right"><button onClick={async () => { if (confirm(inc.qcStatus === 'passed' ? 'Delete this GRN and reverse stock?' : 'Delete this GRN record?')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                    <td className="px-4 py-2 text-right"><button onClick={async () => { if (confirm(inc.qcStatus === 'passed' ? 'Delete this GRN and reverse stock?' : 'Delete this GRN record?')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
                 ))}
                 {incoming.length === 0 && <tr><td colSpan={8} className="text-center text-slate-500 py-10">No incoming materials logged yet.</td></tr>}
@@ -1563,20 +1563,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- QUALITY STATUS TAB (read-only — decisions are made in the Quality Inspector portal) ---------- */}
       {tab === 'quality' && (
         <div className="space-y-6">
-          <div className="bg-indigo-950/30 border border-indigo-800/60 rounded-xl px-4 py-3 flex items-start gap-2.5">
-            <ShieldCheck className="h-4 w-4 text-indigo-400 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-indigo-200">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-start gap-2.5">
+            <ShieldCheck className="h-4 w-4 text-indigo-700 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-indigo-800">
               Pass/Hold/Reject decisions for incoming material — including splitting one GRN across multiple outcomes (e.g. pass part, reject part) — are made by the <strong>Quality Inspector</strong> from the Quality Control portal, not from Store. This tab is a read-only status view of every GRN awaiting or already through inspection.
             </p>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-amber-400" /> Awaiting Inspection ({pendingQcCount})
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+            <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-amber-700" /> Awaiting Inspection ({pendingQcCount})
             </div>
             <table className="w-full min-w-[900px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Received</th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Total Qty</th>
@@ -1597,18 +1597,18 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     const passed = Number(inc.qtyPassed || 0), failed = Number(inc.qtyFailed || 0), hold = Number(inc.qtyHold || 0);
                     const pending = Number(inc.qty || 0) - passed - failed - hold;
                     return (
-                      <tr key={inc.id} className="border-t border-slate-800">
+                      <tr key={inc.id} className="border-t border-slate-200">
                         <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
-                        <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                        <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
-                        <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
+                        <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
+                        <td className="px-4 py-2 text-right text-slate-700 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
+                        <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}</td>
                         <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
                         <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
                         <td className="px-4 py-2 text-[10px] space-y-0.5">
-                          {passed > 0 && <div className="text-emerald-400 font-bold">Passed: {passed} {inc.unit}</div>}
-                          {failed > 0 && <div className="text-rose-400 font-bold">Rejected: {failed} {inc.unit}</div>}
-                          {hold > 0 && <div className="text-slate-300 font-bold">On Hold: {hold} {inc.unit}</div>}
-                          {pending > 0 && <div className="text-amber-400 font-bold">Awaiting: {pending} {inc.unit}</div>}
+                          {passed > 0 && <div className="text-emerald-700 font-bold">Passed: {passed} {inc.unit}</div>}
+                          {failed > 0 && <div className="text-rose-700 font-bold">Rejected: {failed} {inc.unit}</div>}
+                          {hold > 0 && <div className="text-slate-700 font-bold">On Hold: {hold} {inc.unit}</div>}
+                          {pending > 0 && <div className="text-amber-700 font-bold">Awaiting: {pending} {inc.unit}</div>}
                         </td>
                       </tr>
                     );
@@ -1620,13 +1620,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             </table>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400 flex items-center gap-1.5">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+            <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 flex items-center gap-1.5">
               <ShieldCheck className="h-3.5 w-3.5" /> Fully Resolved
             </div>
             <table className="w-full min-w-[900px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Received</th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Total Qty</th>
@@ -1645,19 +1645,19 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 })
                   .slice().sort((a, b) => ((a.qcAt || '') < (b.qcAt || '') ? 1 : -1))
                   .map(inc => (
-                    <tr key={inc.id} className="border-t border-slate-800">
+                    <tr key={inc.id} className="border-t border-slate-200">
                       <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
-                      <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
+                      <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
+                      <td className="px-4 py-2 text-right text-slate-700 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}</td>
                       <td className="px-4 py-2">
                         {qcPill(inc.qcStatus)}
                         {inc.qcStatus === 'mixed' && (
-                          <div className="text-[10px] text-slate-400 mt-1">{Number(inc.qtyPassed || 0)} passed · {Number(inc.qtyFailed || 0)} rejected {inc.unit}</div>
+                          <div className="text-[10px] text-slate-500 mt-1">{Number(inc.qtyPassed || 0)} passed · {Number(inc.qtyFailed || 0)} rejected {inc.unit}</div>
                         )}
                       </td>
                       <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
-                      <td className="px-4 py-2 text-slate-400">{inc.qcNotes || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.qcNotes || '—'}</td>
                       <td className="px-4 py-2 text-right">
                         <button onClick={async () => {
                           const passedQty = Number(inc.qtyPassed || 0);
@@ -1665,7 +1665,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                             ? `This will remove the GRN and reverse ${passedQty} ${inc.unit} of ${inc.materialName} from stock. Continue?`
                             : 'Remove this record permanently? (Rejected/held stock never entered inventory, so this is safe.)';
                           if (confirm(msg)) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); }
-                        }} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
+                        }} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                       </td>
                     </tr>
                   ))}
@@ -1685,7 +1685,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- MATERIAL TRACEABILITY TAB (combined receiving + QC log) ---------- */}
       {tab === 'traceability' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
+          <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -1693,7 +1693,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 value={traceSearch}
                 onChange={e => setTraceSearch(e.target.value)}
                 data-testid="traceability-search"
-                className="bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-white w-full"
+                className="bg-slate-100 border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-900 w-full"
               />
             </div>
             <button onClick={exportTraceabilityExcel} data-testid="export-traceability-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
@@ -1707,13 +1707,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             One combined record of every GRN — what was received, when, by whom — and its full inspection history: who decided, when, and why. Uses the period set above (or all-time if none selected).
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <div className="px-4 py-2 border-b border-slate-800 text-xs font-bold uppercase text-slate-400">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+            <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500">
               Material Traceability ({filteredTraceability.length})
             </div>
             <table className="w-full min-w-[1100px] text-xs">
               <thead>
-                <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Date Received</th>
                   <th className="text-left px-4 py-2">Material</th>
                   <th className="text-right px-4 py-2">Total Qty</th>
@@ -1731,22 +1731,22 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   const passed = Number(inc.qtyPassed || 0), failed = Number(inc.qtyFailed || 0), hold = Number(inc.qtyHold || 0);
                   const pending = Math.max(0, Number(inc.qty || 0) - passed - failed - hold);
                   return (
-                    <tr key={inc.id} className="border-t border-slate-800">
+                    <tr key={inc.id} className="border-t border-slate-200">
                       <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-2 text-slate-200 font-semibold">{inc.materialName}</td>
-                      <td className="px-4 py-2 text-right text-slate-300 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
-                      <td className="px-4 py-2 text-slate-400">{inc.supplier || '—'}</td>
-                      <td className="px-4 py-2 text-slate-400">{inc.invoiceNo || '—'}</td>
+                      <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
+                      <td className="px-4 py-2 text-right text-slate-700 font-mono">{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-slate-500">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.invoiceNo || '—'}</td>
                       <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
                       <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
                       <td className="px-4 py-2 text-[10px] space-x-2 whitespace-nowrap">
-                        <span className="text-emerald-400 font-bold">P {passed}</span>
-                        <span className="text-rose-400 font-bold">R {failed}</span>
-                        <span className="text-slate-300 font-bold">H {hold}</span>
-                        <span className="text-amber-400 font-bold">Pend {pending}</span>
+                        <span className="text-emerald-700 font-bold">P {passed}</span>
+                        <span className="text-rose-700 font-bold">R {failed}</span>
+                        <span className="text-slate-700 font-bold">H {hold}</span>
+                        <span className="text-amber-700 font-bold">Pend {pending}</span>
                       </td>
                       <td className="px-4 py-2 text-slate-500">{inc.qcByName || '—'}</td>
-                      <td className="px-4 py-2 text-slate-400">{inc.qcNotes || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{inc.qcNotes || '—'}</td>
                     </tr>
                   );
                 })}
@@ -1763,7 +1763,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {tab === 'requests' && (
         <div className="space-y-3">
           {requestGroups.length === 0 && !loading && (
-            <div className="text-center text-slate-500 text-sm py-16 border border-dashed border-slate-800 rounded-xl">No material requests yet.</div>
+            <div className="text-center text-slate-500 text-sm py-16 border border-dashed border-slate-200 rounded-xl">No material requests yet.</div>
           )}
           {requestGroups
             .slice()
@@ -1778,36 +1778,36 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               // printing must never include rejected lines).
               const pendingIds = group.pending.map(it => it.id);
               return (
-                <div key={group.key} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-start justify-between gap-3">
+                <div key={group.key} className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {/* Show every status actually present in this batch —
                           never collapse a mixed batch down to one pill. */}
                       {group.pending.length > 0 && statusPill('PENDING')}
-                      {group.approved.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-400 border border-emerald-800">{group.approved.length} Approved</span>}
-                      {group.rejected.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-950/40 text-rose-400 border border-rose-800">{group.rejected.length} Rejected</span>}
-                      {group.printed.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">{group.printed.length} Printed</span>}
-                      {group.delivered.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-sky-950/40 text-sky-400 border border-sky-800">{group.delivered.length} Delivered</span>}
+                      {group.approved.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">{group.approved.length} Approved</span>}
+                      {group.rejected.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">{group.rejected.length} Rejected</span>}
+                      {group.printed.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300">{group.printed.length} Printed</span>}
+                      {group.delivered.length > 0 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">{group.delivered.length} Delivered</span>}
                       {Array.from(new Set(group.delivered.map(l => l.doNumber).filter(Boolean))).map(dn => (
-                        <span key={dn as string} data-testid={`req-do-${dn}`} className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 text-sky-300 border border-sky-900">{dn}</span>
+                        <span key={dn as string} data-testid={`req-do-${dn}`} className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-sky-700 border border-sky-200">{dn}</span>
                       ))}
                       <span className="text-xs text-slate-500 font-mono">{new Date(first.createdAt).toLocaleString()}</span>
-                      {group.items.length > 1 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-400 border border-indigo-800">{group.items.length} items</span>}
+                      {group.items.length > 1 && <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">{group.items.length} items</span>}
                     </div>
-                    <div className="text-xs text-slate-400 mb-1.5">
+                    <div className="text-xs text-slate-500 mb-1.5">
                       {first.projectName} / {first.poolType}{first.poolNo ? ` / Pool ${first.poolNo}` : ''} · requested by {first.requestedByName} ({first.requestedByRole})
                     </div>
                     {/* Line items — every material in this request, whether it's 1 or 40.
                         Each chip shows its OWN decision so mixed batches are never ambiguous. */}
                     <div className="flex flex-wrap gap-1.5 mb-1">
                       {group.items.map(it => {
-                        const lineColor = it.status === 'APPROVED' ? 'border-emerald-800 text-emerald-300'
-                          : it.status === 'REJECTED' ? 'border-rose-800 text-rose-300 line-through opacity-70'
-                          : it.status === 'PRINTED' ? 'border-slate-700 text-slate-400'
-                          : it.status === 'DELIVERED' ? 'border-sky-800 text-sky-300'
-                          : 'border-slate-700 text-slate-200';
+                        const lineColor = it.status === 'APPROVED' ? 'border-emerald-200 text-emerald-700'
+                          : it.status === 'REJECTED' ? 'border-rose-200 text-rose-700 line-through opacity-70'
+                          : it.status === 'PRINTED' ? 'border-slate-300 text-slate-500'
+                          : it.status === 'DELIVERED' ? 'border-sky-200 text-sky-700'
+                          : 'border-slate-300 text-slate-800';
                         return (
-                          <span key={it.id} className={`px-2 py-1 rounded-lg bg-slate-800 border text-xs ${lineColor}`} title={it.status}>
+                          <span key={it.id} className={`px-2 py-1 rounded-lg bg-slate-100 border text-xs ${lineColor}`} title={it.status}>
                             {it.materialName}: <span className="font-mono font-bold">{Number(it.status === 'DELIVERED' ? (it.qtyDelivered ?? 0) : (it.qtyApproved ?? it.qtyRequested))}</span> {it.unit}
                             {it.qtyApproved != null && it.qtyApproved < Number(it.qtyRequested) && (
                               <span className="text-slate-500"> (of {Number(it.qtyRequested)})</span>
@@ -1827,12 +1827,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <div className="flex items-center gap-2 shrink-0">
                     {group.pending.length > 0 && (
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-amber-400 font-semibold">Awaiting manager approval (email)</span>
+                        <span className="text-[11px] text-amber-700 font-semibold">Awaiting manager approval (email)</span>
                         <button
                           onClick={() => resendToManager(pendingIds, group.key)}
                           disabled={resendState[group.key] === 'sending'}
                           data-testid={`req-resend-${group.key}`}
-                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded-lg text-xs font-bold cursor-pointer"
+                          className="px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 rounded-lg text-xs font-bold cursor-pointer"
                         >
                           {resendState[group.key] === 'sending' ? 'Sending…' : resendState[group.key] === 'sent' ? 'Sent ✓ — resend' : resendState[group.key] === 'failed' ? 'Failed — retry' : 'Resend to manager'}
                         </button>
@@ -1844,7 +1844,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       </button>
                     )}
                     {group.approved.length === 0 && group.printed.length > 0 && (
-                      <button onClick={() => setPrintBatch(group.printed)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold cursor-pointer">
+                      <button onClick={() => setPrintBatch(group.printed)} className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold cursor-pointer">
                         <Printer className="h-3.5 w-3.5" /> Reprint Slip
                       </button>
                     )}
@@ -1869,25 +1869,25 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- BOM TAB ---------- */}
       {tab === 'bom' && (
         <div>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-5 gap-2">
-            <select value={newBom.projectName} onChange={e => setNewBom((p: any) => ({ ...p, projectName: e.target.value, poolType: '' }))} data-testid="bom-project" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-5 gap-2">
+            <select value={newBom.projectName} onChange={e => setNewBom((p: any) => ({ ...p, projectName: e.target.value, poolType: '' }))} data-testid="bom-project" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="">Project…</option>
               {projectNames.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
-            <select value={newBom.poolType} onChange={e => setNewBom((p: any) => ({ ...p, poolType: e.target.value }))} data-testid="bom-pool-type" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" disabled={!newBom.projectName}>
+            <select value={newBom.poolType} onChange={e => setNewBom((p: any) => ({ ...p, poolType: e.target.value }))} data-testid="bom-pool-type" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" disabled={!newBom.projectName}>
               <option value="">Pool Type…</option>
               {(poolTypesByProject[newBom.projectName] || []).map(t => <option key={t} value={t}>{t}</option>)}
               <option value="__custom__">Other (type manually)…</option>
             </select>
             {newBom.poolType === '__custom__' && (
-              <input placeholder="Pool type name" onChange={e => setNewBom((p: any) => ({ ...p, poolType: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
+              <input placeholder="Pool type name" onChange={e => setNewBom((p: any) => ({ ...p, poolType: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
             )}
-            <select value={newBom.materialId} onChange={e => setNewBom((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="bom-material" className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            <select value={newBom.materialId} onChange={e => setNewBom((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="bom-material" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
               <option value="">Material…</option>
               {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
             </select>
-            <input type="number" step="any" placeholder="Qty per pool" data-testid="bom-qty" value={newBom.qtyPerPool} onChange={e => setNewBom((p: any) => ({ ...p, qtyPerPool: e.target.value }))} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white" />
-            <button onClick={saveBomItem} data-testid="bom-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add to BOM</button>
+            <input type="number" step="any" placeholder="Qty per pool" data-testid="bom-qty" value={newBom.qtyPerPool} onChange={e => setNewBom((p: any) => ({ ...p, qtyPerPool: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+            <button onClick={saveBomItem} data-testid="bom-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add to BOM</button>
           </div>
 
           {projectNames.map(proj => {
@@ -1896,17 +1896,17 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             const types = Array.from(new Set(rows.map(r => r.poolType)));
             return (
               <div key={proj} className="mb-6">
-                <h3 className="text-sm font-bold text-white mb-2">{proj}</h3>
+                <h3 className="text-sm font-bold text-slate-900 mb-2">{proj}</h3>
                 {types.map(type => (
-                  <div key={type} className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto mb-3">
-                    <div className="bg-slate-800/60 px-4 py-2 text-xs font-bold text-orange-400 uppercase">{type}</div>
+                  <div key={type} className="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-3">
+                    <div className="bg-slate-50 px-4 py-2 text-xs font-bold text-primary-700 uppercase">{type}</div>
                     <table className="w-full min-w-[700px] text-xs">
                       <tbody>
                         {rows.filter(r => r.poolType === type).map(r => (
-                          <tr key={r.id} className="border-t border-slate-800">
-                            <td className="px-4 py-2 text-slate-200">{r.materialName}</td>
-                            <td className="px-4 py-2 text-slate-400">{Number(r.qtyPerPool)} {r.unit} / pool</td>
-                            <td className="px-4 py-2 text-right"><button onClick={() => deleteBomItem(r.id)} className="text-slate-500 hover:text-rose-400 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                          <tr key={r.id} className="border-t border-slate-200">
+                            <td className="px-4 py-2 text-slate-800">{r.materialName}</td>
+                            <td className="px-4 py-2 text-slate-500">{Number(r.qtyPerPool)} {r.unit} / pool</td>
+                            <td className="px-4 py-2 text-right"><button onClick={() => deleteBomItem(r.id)} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
                           </tr>
                         ))}
                       </tbody>
@@ -1916,7 +1916,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               </div>
             );
           })}
-          {bom.length === 0 && <div className="text-center text-slate-500 text-sm py-10 border border-dashed border-slate-800 rounded-xl">No BOM defined yet. Add material lines above for each Project + Pool Type.</div>}
+          {bom.length === 0 && <div className="text-center text-slate-500 text-sm py-10 border border-dashed border-slate-200 rounded-xl">No BOM defined yet. Add material lines above for each Project + Pool Type.</div>}
         </div>
       )}
 
@@ -1930,7 +1930,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 key={g}
                 onClick={() => setReportsGroupTab(g)}
                 data-testid={`reports-group-${g}`}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${reportsGroupTab === g ? 'bg-orange-600 border-orange-600 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${reportsGroupTab === g ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'}`}
               >
                 {g === 'all' ? 'All Materials' : GROUP_LABELS[g]}
               </button>
@@ -1952,13 +1952,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* ---------- CONFIRM DELIVERY MODAL ---------- */}
       {deliveryBatch && deliveryBatch.length > 0 && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <span className="text-xs font-bold uppercase text-slate-400">Confirm Hand Over — enter the quantity you actually gave</span>
-              <button onClick={() => setDeliveryBatch(null)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-300 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-4">
+              <span className="text-xs font-bold uppercase text-slate-500">Confirm Hand Over — enter the quantity you actually gave</span>
+              <button onClick={() => setDeliveryBatch(null)} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
             </div>
-            <div className="text-xs text-slate-400 mb-3">
+            <div className="text-xs text-slate-500 mb-3">
               {deliveryBatch[0].projectName} / {deliveryBatch[0].poolType} · requested by {deliveryBatch[0].requestedByName} ({deliveryBatch[0].requestedByRole})
             </div>
             <table className="w-full text-sm mb-3">
@@ -1975,22 +1975,22 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   const mat = materials.find(m => m.id === it.materialId);
                   const approved = Number(it.qtyApproved ?? it.qtyRequested);
                   return (
-                    <tr key={it.id} className="border-t border-slate-800">
-                      <td className="py-2 text-slate-200 font-semibold">
+                    <tr key={it.id} className="border-t border-slate-200">
+                      <td className="py-2 text-slate-800 font-semibold">
                         {it.materialName}
                         {it.awaitingDelivery
-                          ? <div className="text-[10px] font-normal text-emerald-400">Stock will be deducted and shown in Consumption</div>
-                          : <div className="text-[10px] font-normal text-amber-400">Older request: stock was already deducted at approval — only recording hand over</div>}
+                          ? <div className="text-[10px] font-normal text-emerald-700">Stock will be deducted and shown in Consumption</div>
+                          : <div className="text-[10px] font-normal text-amber-700">Older request: stock was already deducted at approval — only recording hand over</div>}
                       </td>
-                      <td className="py-2 text-right font-mono text-slate-400">{mat ? Number(mat.currentStock || 0) : '—'} {it.unit}</td>
-                      <td className="py-2 text-right font-mono text-slate-300">{approved} {it.unit}</td>
+                      <td className="py-2 text-right font-mono text-slate-500">{mat ? Number(mat.currentStock || 0) : '—'} {it.unit}</td>
+                      <td className="py-2 text-right font-mono text-slate-700">{approved} {it.unit}</td>
                       <td className="py-2 text-right">
                         <input
                           type="number" min={0} max={approved} step="any"
                           value={deliveryQty[it.id] ?? ''}
                           onChange={e => setDeliveryQty(prev => ({ ...prev, [it.id]: e.target.value }))}
                           data-testid={`delivery-qty-${it.id}`}
-                          className="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white text-right font-mono"
+                          className="w-24 bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-900 text-right font-mono"
                         />
                         <span className="text-xs text-slate-500 ml-1">{it.unit}</span>
                       </td>
@@ -2002,14 +2002,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input
               type="text" placeholder="Note (optional) — e.g. short stock, balance to follow"
               value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white mb-3"
+              className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 mb-3"
             />
-            {deliveryError && <div className="text-xs text-rose-400 mb-3">{deliveryError}</div>}
+            {deliveryError && <div className="text-xs text-rose-700 mb-3">{deliveryError}</div>}
             <div className="text-[11px] text-slate-500 mb-4">
               Confirming deducts exactly these quantities from Store stock and records them in Consumption. It cannot be done twice for the same request.
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setDeliveryBatch(null)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold cursor-pointer">Cancel</button>
+              <button onClick={() => setDeliveryBatch(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold cursor-pointer">Cancel</button>
               <button onClick={submitDelivery} disabled={deliverySaving} data-testid="delivery-confirm" className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold cursor-pointer">
                 {deliverySaving ? 'Saving…' : 'Confirm Hand Over'}
               </button>
@@ -2060,7 +2060,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* ---------- DELIVERY ORDER (shown right after Confirm Hand Over) ---------- */}
       {deliveryDone && deliveryDone.items.length > 0 && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <style dangerouslySetInnerHTML={{ __html: `
             @media print {
               body * { visibility: hidden !important; }
@@ -2069,29 +2069,29 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               .no-print { display: none !important; }
             }
           `}} />
-          <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="no-print flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+          <div className="bg-white border border-slate-300 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="no-print flex items-center justify-between border-b border-slate-200 pb-3 mb-4">
               <div>
-                <div className="text-[10px] uppercase font-bold text-emerald-400">Hand over confirmed — stock deducted</div>
-                <div className="text-lg font-black text-white font-mono" data-testid="do-number">{deliveryDone.doNumber}</div>
+                <div className="text-[10px] uppercase font-bold text-emerald-700">Hand over confirmed — stock deducted</div>
+                <div className="text-lg font-black text-slate-900 font-mono" data-testid="do-number">{deliveryDone.doNumber}</div>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setTimeout(() => window.print(), 50)} data-testid="do-print" className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer">
                   <Printer className="h-3.5 w-3.5" /> Print Delivery Order
                 </button>
-                <button onClick={() => setDeliveryDone(null)} data-testid="do-close" className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
+                <button onClick={() => setDeliveryDone(null)} data-testid="do-close" className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
               </div>
             </div>
             <div id="printable-do" className="bg-white text-slate-900 p-6 rounded-lg">
-              <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-4">
+              <div className="flex items-center justify-between border-b-2 border-slate-200 pb-3 mb-4">
                 <div className="flex items-center gap-3">
                   <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-12 w-auto object-contain" />
                   <div>
                     <h2 className="text-lg font-black tracking-tight">MAT PLASTIC INDUSTRIES LLC</h2>
-                    <p className="text-xs text-slate-600">Store Department — Delivery Order</p>
+                    <p className="text-xs text-slate-400">Store Department — Delivery Order</p>
                   </div>
                 </div>
-                <div className="text-right text-xs text-slate-600 shrink-0">
+                <div className="text-right text-xs text-slate-400 shrink-0">
                   <div>DO No. <span className="font-mono font-bold text-slate-900 text-sm">{deliveryDone.doNumber}</span></div>
                   <div>{deliveryDone.items[0].deliveredAt ? new Date(deliveryDone.items[0].deliveredAt).toLocaleString() : new Date().toLocaleString()}</div>
                 </div>
@@ -2109,7 +2109,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               </table>
               <table className="w-full text-sm mb-4 border border-slate-300 rounded overflow-hidden">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-600 text-xs uppercase">
+                  <tr className="bg-slate-100 text-slate-400 text-xs uppercase">
                     <th className="text-left px-3 py-2 w-10">#</th>
                     <th className="text-left px-3 py-2">Material</th>
                     <th className="text-right px-3 py-2">Approved</th>
@@ -2138,7 +2138,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* ---------- PRINT SLIP MODAL ---------- */}
       {printBatch && printBatch.length > 0 && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <style dangerouslySetInnerHTML={{ __html: `
             @media print {
               body * { visibility: hidden !important; }
@@ -2147,9 +2147,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               .no-print { display: none !important; }
             }
           `}} />
-          <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="no-print flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <span className="text-xs font-bold uppercase text-slate-400">Material Issue Slip{printBatch.length > 1 ? ` — ${printBatch.length} items` : ''}</span>
+          <div className="bg-white border border-slate-300 p-5 rounded-2xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="no-print flex items-center justify-between border-b border-slate-200 pb-3 mb-4">
+              <span className="text-xs font-bold uppercase text-slate-500">Material Issue Slip{printBatch.length > 1 ? ` — ${printBatch.length} items` : ''}</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
@@ -2165,19 +2165,19 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <Printer className="h-3.5 w-3.5" /> Print
                 </button>
                 <button onClick={() => markPrinted(printBatch.map(it => it.id))} data-testid="slip-mark-printed" title="Use this if the slip was printed another way" className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">Mark Printed</button>
-                <button onClick={() => setPrintBatch(null)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
+                <button onClick={() => setPrintBatch(null)} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
               </div>
             </div>
             <div id="printable-slip" className="bg-white text-slate-900 p-6 rounded-lg">
-              <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-4">
+              <div className="flex items-center justify-between border-b-2 border-slate-200 pb-3 mb-4">
                 <div className="flex items-center gap-3">
                   <img src="/logo.png" alt="MAT Plastic Industries LLC" className="h-12 w-auto object-contain" />
                   <div>
                     <h2 className="text-lg font-black tracking-tight">MAT PLASTIC INDUSTRIES LLC</h2>
-                    <p className="text-xs text-slate-600">Store Department — Material Issue Slip</p>
+                    <p className="text-xs text-slate-400">Store Department — Material Issue Slip</p>
                   </div>
                 </div>
-                <div className="text-right text-xs text-slate-600 shrink-0">
+                <div className="text-right text-xs text-slate-400 shrink-0">
                   <div>Slip No. <span className="font-mono font-bold text-slate-900">MIS-{(printBatch[0].batchId || printBatch[0].id).slice(-8).toUpperCase()}</span></div>
                   <div>{new Date().toLocaleString()}</div>
                 </div>
@@ -2197,7 +2197,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               {/* Line items — one row per material, however many are in this batch */}
               <table className="w-full text-sm mb-4 border border-slate-300 rounded overflow-hidden">
                 <thead>
-                  <tr className="bg-slate-100 text-slate-600 text-xs uppercase">
+                  <tr className="bg-slate-100 text-slate-400 text-xs uppercase">
                     <th className="text-left px-3 py-2 w-10">#</th>
                     <th className="text-left px-3 py-2">Material</th>
                     <th className="text-right px-3 py-2">Approved Qty</th>
@@ -2212,7 +2212,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       <td className="px-3 py-1.5 text-right font-mono">
                         {Number(it.qtyApproved ?? it.qtyRequested)} {it.unit}
                         {it.qtyApproved != null && it.qtyApproved < Number(it.qtyRequested) && (
-                          <div className="text-[10px] text-slate-400 font-sans">(of {Number(it.qtyRequested)} requested)</div>
+                          <div className="text-[10px] text-slate-500 font-sans">(of {Number(it.qtyRequested)} requested)</div>
                         )}
                       </td>
                       <td className="px-3 py-1.5 text-right"><span className="inline-block w-24 border-b border-slate-400">&nbsp;</span></td>
@@ -2251,18 +2251,18 @@ const KeyMaterialsDashboard: React.FC<{ materials: Material[]; analytics: any; o
 
   return (
     <div className="space-y-5" data-testid="key-materials-dashboard">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs text-slate-400">
-          Showing <span className="text-white font-bold">{keyMaterials.length}</span> key material{keyMaterials.length === 1 ? '' : 's'}
-          {lowStockCount > 0 && <span className="ml-2 text-rose-400 font-bold">· {lowStockCount} at/below reorder level</span>}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs text-slate-500">
+          Showing <span className="text-slate-900 font-bold">{keyMaterials.length}</span> key material{keyMaterials.length === 1 ? '' : 's'}
+          {lowStockCount > 0 && <span className="ml-2 text-rose-700 font-bold">· {lowStockCount} at/below reorder level</span>}
         </div>
         <div className="text-[10px] text-slate-500">
-          Auto-included by name/category match (steel, resin, fiber/fibre, glass, mosaic, gelcoat, GRP) — or click the <Star className="inline h-3 w-3 text-amber-400 fill-amber-400 -mt-0.5" /> star on any material in the Inventory tab to add/remove it manually.
+          Auto-included by name/category match (steel, resin, fiber/fibre, glass, mosaic, gelcoat, GRP) — or click the <Star className="inline h-3 w-3 text-amber-700 fill-amber-400 -mt-0.5" /> star on any material in the Inventory tab to add/remove it manually.
         </div>
       </div>
 
       {keyMaterials.length === 0 ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl text-center text-slate-500 text-sm py-10">
+        <div className="bg-white border border-slate-200 rounded-xl text-center text-slate-500 text-sm py-10">
           No key materials found yet. Go to the Inventory tab and click the star next to steel, resin, fiber mat, mosaic, etc. to pin them here.
         </div>
       ) : (
@@ -2274,44 +2274,44 @@ const KeyMaterialsDashboard: React.FC<{ materials: Material[]; analytics: any; o
             const isLow = (m.reorderLevel || 0) > 0 && m.currentStock <= (m.reorderLevel || 0);
             const netMax = Math.max(totalIncoming, totalConsumed, 1);
             return (
-              <div key={m.id} className={`bg-slate-900 border rounded-xl p-4 ${isLow ? 'border-rose-800' : 'border-slate-800'}`}>
+              <div key={m.id} className={`bg-white border rounded-xl p-4 ${isLow ? 'border-rose-200' : 'border-slate-200'}`}>
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div>
-                    <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                       {m.name}
                       <button onClick={() => onToggleCritical(m)} title="Unpin from Key Materials">
-                        <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400 cursor-pointer" />
+                        <Star className="h-3.5 w-3.5 text-amber-700 fill-amber-400 cursor-pointer" />
                       </button>
                     </div>
                     <div className="text-[10px] text-slate-500">{m.category || '—'}{m.erpCode ? ` · ${m.erpCode}` : ''}</div>
                   </div>
                   {isLow && (
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-950/40 text-rose-400 border border-rose-800 shrink-0">
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-rose-50 text-rose-700 border border-rose-200 shrink-0">
                       <AlertTriangle className="h-3 w-3" /> Low
                     </span>
                   )}
                 </div>
 
                 <div className="flex items-baseline gap-1 mb-3">
-                  <span className={`text-2xl font-mono font-bold ${isLow ? 'text-rose-400' : 'text-white'}`}>{m.currentStock}</span>
+                  <span className={`text-2xl font-mono font-bold ${isLow ? 'text-rose-700' : 'text-slate-900'}`}>{m.currentStock}</span>
                   <span className="text-xs text-slate-500">{m.unit} in stock</span>
-                  {(m.reorderLevel || 0) > 0 && <span className="text-[10px] text-slate-600 ml-auto">reorder at {m.reorderLevel}</span>}
+                  {(m.reorderLevel || 0) > 0 && <span className="text-[10px] text-slate-400 ml-auto">reorder at {m.reorderLevel}</span>}
                 </div>
 
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2 text-[10px]">
                     <span className="w-16 text-slate-500 shrink-0">Incoming</span>
-                    <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                       <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.max(4, (totalIncoming / netMax) * 100)}%` }} />
                     </div>
-                    <span className="w-16 text-right font-mono text-emerald-400">+{totalIncoming.toFixed(1)}</span>
+                    <span className="w-16 text-right font-mono text-emerald-700">+{totalIncoming.toFixed(1)}</span>
                   </div>
                   <div className="flex items-center gap-2 text-[10px]">
                     <span className="w-16 text-slate-500 shrink-0">Consumed</span>
-                    <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                       <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.max(4, (totalConsumed / netMax) * 100)}%` }} />
                     </div>
-                    <span className="w-16 text-right font-mono text-rose-400">−{totalConsumed.toFixed(1)}</span>
+                    <span className="w-16 text-right font-mono text-rose-700">−{totalConsumed.toFixed(1)}</span>
                   </div>
                 </div>
               </div>
@@ -2355,28 +2355,28 @@ const ConsumptionReports: React.FC<{
   return (
     <div className="space-y-6" data-testid="consumption-reports">
       {/* Report export toolbar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center gap-2">
-        <div className="text-xs font-bold uppercase text-slate-400 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export:</div>
-        <button onClick={onExportDaily} data-testid="export-daily-report" className="flex items-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+      <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
+        <div className="text-xs font-bold uppercase text-slate-500 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export:</div>
+        <button onClick={onExportDaily} data-testid="export-daily-report" className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold cursor-pointer">
           <Download className="h-3.5 w-3.5" /> Daily Report (Excel)
         </button>
         <button onClick={onExportDailyPDF} data-testid="export-daily-report-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
           <FileText className="h-3.5 w-3.5" /> Daily Report (PDF)
         </button>
-        <button onClick={onExportMonthly} data-testid="export-monthly-report" className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold cursor-pointer">
+        <button onClick={onExportMonthly} data-testid="export-monthly-report" className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold cursor-pointer">
           <Download className="h-3.5 w-3.5" /> Monthly Report (Excel)
         </button>
-        <button onClick={onExportMonthlyPDF} data-testid="export-monthly-report-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold cursor-pointer">
+        <button onClick={onExportMonthlyPDF} data-testid="export-monthly-report-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold cursor-pointer">
           <FileText className="h-3.5 w-3.5" /> Monthly Report (PDF)
         </button>
         <div className="text-[10px] text-slate-500 ml-1">Uses the period set above (or all-time if none selected).</div>
       </div>
 
       {/* Raw consumption log — one row per entry logged by a supervisor */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-        <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
-          <ListChecks className="h-4 w-4 text-orange-400" />
-          <div className="text-sm font-bold text-white">Consumption Log</div>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+        <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center gap-2">
+          <ListChecks className="h-4 w-4 text-primary-700" />
+          <div className="text-sm font-bold text-slate-900">Consumption Log</div>
           <div className="text-xs text-slate-500">Every consumption entry, most recent first</div>
           <div className="ml-auto relative">
             <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -2386,13 +2386,13 @@ const ConsumptionReports: React.FC<{
               value={logSearch}
               onChange={e => onLogSearch(e.target.value)}
               data-testid="consumption-log-search"
-              className="bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-2 py-1.5 text-xs text-white w-72"
+              className="bg-slate-100 border border-slate-300 rounded-lg pl-8 pr-2 py-1.5 text-xs text-slate-900 w-72"
             />
           </div>
         </div>
         <table className="w-full min-w-[800px] text-xs">
           <thead>
-            <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
+            <tr className="sticky top-0 z-10 bg-slate-100 text-slate-500 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Date</th>
               <th className="text-left px-4 py-2">DO No.</th>
               <th className="text-left px-4 py-2">Section</th>
@@ -2404,13 +2404,13 @@ const ConsumptionReports: React.FC<{
           </thead>
           <tbody>
             {logs.slice(0, 500).map(c => (
-              <tr key={c.id} className="border-t border-slate-800">
-                <td className="px-4 py-2 text-slate-400 font-mono">{c.date}</td>
-                <td className="px-4 py-2 text-sky-300 font-mono font-bold">{c.doNumber || '—'}</td>
-                <td className="px-4 py-2 text-slate-300">{c.sectionName || c.sectionId}</td>
-                <td className="px-4 py-2 text-slate-200 font-semibold">{c.materialName}</td>
-                <td className="px-4 py-2 text-right text-rose-400 font-mono">−{Number(c.qty).toFixed(2)} {c.unit}</td>
-                <td className="px-4 py-2 text-slate-400">{c.loggedByName}</td>
+              <tr key={c.id} className="border-t border-slate-200">
+                <td className="px-4 py-2 text-slate-500 font-mono">{c.date}</td>
+                <td className="px-4 py-2 text-sky-700 font-mono font-bold">{c.doNumber || '—'}</td>
+                <td className="px-4 py-2 text-slate-700">{c.sectionName || c.sectionId}</td>
+                <td className="px-4 py-2 text-slate-800 font-semibold">{c.materialName}</td>
+                <td className="px-4 py-2 text-right text-rose-700 font-mono">−{Number(c.qty).toFixed(2)} {c.unit}</td>
+                <td className="px-4 py-2 text-slate-500">{c.loggedByName}</td>
                 <td className="px-4 py-2 text-slate-500">{c.notes || '—'}</td>
               </tr>
             ))}
@@ -2422,20 +2422,20 @@ const ConsumptionReports: React.FC<{
           </tbody>
         </table>
         {logs.length > 500 && (
-          <div className="px-4 py-2 text-[10px] text-slate-500 border-t border-slate-800">Showing first 500 of {logs.length} matching entries — narrow the date range or search to see more precisely.</div>
+          <div className="px-4 py-2 text-[10px] text-slate-500 border-t border-slate-200">Showing first 500 of {logs.length} matching entries — narrow the date range or search to see more precisely.</div>
         )}
       </div>
 
       {/* Store-level stock ledger */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-        <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
-          <BarChart3 className="h-4 w-4 text-orange-400" />
-          <div className="text-sm font-bold text-white">Stock Ledger</div>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+        <div className="px-4 py-3 border-b border-slate-200 flex flex-wrap items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-primary-700" />
+          <div className="text-sm font-bold text-slate-900">Stock Ledger</div>
           <div className="text-xs text-slate-500">Previous stock → delivered → consumed → balance, for the date range above</div>
         </div>
         <table className="w-full min-w-[760px] text-xs">
           <thead>
-            <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
+            <tr className="sticky top-0 z-10 bg-slate-100 text-slate-500 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Material</th>
               <th className="text-right px-4 py-2">Previous Stock</th>
               <th className="text-right px-4 py-2">Delivered</th>
@@ -2449,12 +2449,12 @@ const ConsumptionReports: React.FC<{
               .filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0)
               .sort((a, b) => a.materialName.localeCompare(b.materialName))
               .map(r => (
-                <tr key={r.materialId} className="border-t border-slate-800">
-                  <td className="px-4 py-2 text-slate-200 font-semibold">{r.materialName}</td>
-                  <td className="px-4 py-2 text-right text-slate-300 font-mono">{r.previous.toFixed(2)} {r.unit}</td>
-                  <td className="px-4 py-2 text-right text-sky-400 font-mono">{r.issued ? `+${r.issued.toFixed(2)}` : '0'} {r.unit}</td>
-                  <td className="px-4 py-2 text-right text-rose-400 font-mono">{r.consumed ? `−${r.consumed.toFixed(2)}` : '0'} {r.unit}</td>
-                  <td className="px-4 py-2 text-right text-white font-mono font-bold">{r.balance.toFixed(2)} {r.unit}</td>
+                <tr key={r.materialId} className="border-t border-slate-200">
+                  <td className="px-4 py-2 text-slate-800 font-semibold">{r.materialName}</td>
+                  <td className="px-4 py-2 text-right text-slate-700 font-mono">{r.previous.toFixed(2)} {r.unit}</td>
+                  <td className="px-4 py-2 text-right text-sky-700 font-mono">{r.issued ? `+${r.issued.toFixed(2)}` : '0'} {r.unit}</td>
+                  <td className="px-4 py-2 text-right text-rose-700 font-mono">{r.consumed ? `−${r.consumed.toFixed(2)}` : '0'} {r.unit}</td>
+                  <td className="px-4 py-2 text-right text-slate-900 font-mono font-bold">{r.balance.toFixed(2)} {r.unit}</td>
                 </tr>
               ))}
             {stockLedger.filter(r => r.previous !== 0 || r.issued !== 0 || r.consumed !== 0 || r.balance !== 0).length === 0 && (
@@ -2462,20 +2462,20 @@ const ConsumptionReports: React.FC<{
             )}
           </tbody>
         </table>
-        <div className="px-4 py-2 text-[10px] text-slate-500 border-t border-slate-800">
+        <div className="px-4 py-2 text-[10px] text-slate-500 border-t border-slate-200">
           "Delivered" is what the Store Manager confirmed handing over. Each confirmed delivery is also recorded as consumption for the receiving section, and Balance Stock drops by the delivered quantity.
         </div>
       </div>
 
       {/* Overall inventory summary */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-        <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
-          <Package className="h-4 w-4 text-orange-400" />
-          <div className="text-sm font-bold text-white">Inventory Overview (current + incoming + consumption)</div>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+        <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+          <Package className="h-4 w-4 text-primary-700" />
+          <div className="text-sm font-bold text-slate-900">Inventory Overview (current + incoming + consumption)</div>
         </div>
         <table className="w-full min-w-[700px] text-xs">
           <thead>
-            <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
+            <tr className="sticky top-0 z-10 bg-slate-100 text-slate-500 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Material</th>
               <th className="text-left px-4 py-2">Section</th>
               <th className="text-right px-4 py-2">Total Incoming</th>
@@ -2485,12 +2485,12 @@ const ConsumptionReports: React.FC<{
           </thead>
           <tbody>
             {inventoryReport.map((r: any) => (
-              <tr key={r.materialId} className="border-t border-slate-800">
-                <td className="px-4 py-2 text-slate-200">{r.materialName}</td>
-                <td className="px-4 py-2 text-slate-400">{r.section ? (SECTION_DEFINITIONS.find(s => s.id === r.section)?.name || r.section) : '—'}</td>
-                <td className="px-4 py-2 text-right text-emerald-400 font-mono">+{r.totalIncoming.toFixed(2)} {r.unit}</td>
-                <td className="px-4 py-2 text-right text-rose-400 font-mono">−{r.totalConsumed.toFixed(2)} {r.unit}</td>
-                <td className="px-4 py-2 text-right font-mono text-slate-200 font-bold">{r.currentStock} {r.unit}</td>
+              <tr key={r.materialId} className="border-t border-slate-200">
+                <td className="px-4 py-2 text-slate-800">{r.materialName}</td>
+                <td className="px-4 py-2 text-slate-500">{r.section ? (SECTION_DEFINITIONS.find(s => s.id === r.section)?.name || r.section) : '—'}</td>
+                <td className="px-4 py-2 text-right text-emerald-700 font-mono">+{r.totalIncoming.toFixed(2)} {r.unit}</td>
+                <td className="px-4 py-2 text-right text-rose-700 font-mono">−{r.totalConsumed.toFixed(2)} {r.unit}</td>
+                <td className="px-4 py-2 text-right font-mono text-slate-800 font-bold">{r.currentStock} {r.unit}</td>
               </tr>
             ))}
             {inventoryReport.length === 0 && <tr><td colSpan={5} className="text-center text-slate-500 py-8">No materials yet.</td></tr>}
@@ -2499,10 +2499,10 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Daily consumption sparkline */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-        <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-emerald-400" />
-          <div className="text-sm font-bold text-white">Daily Consumption (all sections, all materials)</div>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+        <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-emerald-700" />
+          <div className="text-sm font-bold text-slate-900">Daily Consumption (all sections, all materials)</div>
         </div>
         {dailyTotals.length === 0 ? (
           <div className="text-center text-slate-500 py-8 text-sm">No consumption data yet.</div>
@@ -2516,7 +2516,7 @@ const ConsumptionReports: React.FC<{
                   <div key={d.date} className="flex flex-col items-center gap-1 min-w-[36px]">
                     <div className="w-6 bg-gradient-to-t from-orange-600 to-amber-400 rounded-t" style={{ height: `${h}px` }} title={`${d.date}: ${d.qty.toFixed(1)}`} />
                     <div className="text-[9px] text-slate-500 font-mono">{d.date.slice(5)}</div>
-                    <div className="text-[9px] text-slate-300 font-bold">{d.qty.toFixed(0)}</div>
+                    <div className="text-[9px] text-slate-700 font-bold">{d.qty.toFixed(0)}</div>
                   </div>
                 );
               })}
@@ -2526,19 +2526,19 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Per project consumption */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-        <div className="px-4 py-3 border-b border-slate-800 text-sm font-bold text-white">Per-Project Material Consumption</div>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+        <div className="px-4 py-3 border-b border-slate-200 text-sm font-bold text-slate-900">Per-Project Material Consumption</div>
         {Object.keys(perProject).length === 0 ? (
           <div className="text-center text-slate-500 py-8 text-sm">No project consumption data yet.</div>
         ) : Object.keys(perProject).map(proj => (
-          <div key={proj} className="border-b border-slate-800 last:border-0">
-            <div className="px-4 py-2 bg-slate-800/40 text-xs font-bold text-orange-400 uppercase">{proj}</div>
+          <div key={proj} className="border-b border-slate-200 last:border-0">
+            <div className="px-4 py-2 bg-slate-50 text-xs font-bold text-primary-700 uppercase">{proj}</div>
             <table className="w-full min-w-[700px] text-xs">
               <tbody>
                 {Object.entries(perProject[proj]).map(([matId, cell]: [string, any]) => (
-                  <tr key={matId} className="border-t border-slate-800">
-                    <td className="px-4 py-2 text-slate-200">{cell.materialName}</td>
-                    <td className="px-4 py-2 text-right text-rose-400 font-mono">{cell.qty.toFixed(2)} {cell.unit}</td>
+                  <tr key={matId} className="border-t border-slate-200">
+                    <td className="px-4 py-2 text-slate-800">{cell.materialName}</td>
+                    <td className="px-4 py-2 text-right text-rose-700 font-mono">{cell.qty.toFixed(2)} {cell.unit}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2548,21 +2548,21 @@ const ConsumptionReports: React.FC<{
       </div>
 
       {/* Per pool type: planned vs actual */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-        <div className="px-4 py-3 border-b border-slate-800 text-sm font-bold text-white">Per-Pool-Type: Planned (BOM) vs Actual (attributed)</div>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+        <div className="px-4 py-3 border-b border-slate-200 text-sm font-bold text-slate-900">Per-Pool-Type: Planned (BOM) vs Actual (attributed)</div>
         {perPoolType.length === 0 ? (
           <div className="text-center text-slate-500 py-8 text-sm">Log production and consumption to see this comparison.</div>
         ) : perPoolType.map((row: any) => {
           const matIds = Array.from(new Set([...Object.keys(row.plannedByMaterial || {}), ...Object.keys(row.actualByMaterial || {})]));
           return (
-            <div key={row.poolTypeKey} className="border-b border-slate-800 last:border-0">
-              <div className="px-4 py-2 bg-slate-800/40 flex items-center justify-between">
-                <div className="text-xs font-bold text-orange-400 uppercase">{row.projectName} — {row.poolType}</div>
-                <div className="text-[10px] text-slate-400">Pools produced: <span className="text-white font-bold">{row.poolsProduced}</span></div>
+            <div key={row.poolTypeKey} className="border-b border-slate-200 last:border-0">
+              <div className="px-4 py-2 bg-slate-50 flex items-center justify-between">
+                <div className="text-xs font-bold text-primary-700 uppercase">{row.projectName} — {row.poolType}</div>
+                <div className="text-[10px] text-slate-500">Pools produced: <span className="text-slate-900 font-bold">{row.poolsProduced}</span></div>
               </div>
               <table className="w-full min-w-[700px] text-xs">
                 <thead>
-                  <tr className="sticky top-0 z-10 bg-slate-900 text-slate-400 uppercase text-[10px]">
+                  <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                     <th className="text-left px-4 py-2">Material</th>
                     <th className="text-right px-4 py-2">Planned</th>
                     <th className="text-right px-4 py-2">Actual</th>
@@ -2579,12 +2579,12 @@ const ConsumptionReports: React.FC<{
                     const perPool = row.poolsProduced > 0 ? diff / row.poolsProduced : 0;
                     const name = p?.materialName || a?.materialName || mid;
                     const unit = p?.unit || a?.unit || '';
-                    const cls = diff > 0 ? 'text-rose-400' : diff < 0 ? 'text-emerald-400' : 'text-slate-400';
+                    const cls = diff > 0 ? 'text-rose-700' : diff < 0 ? 'text-emerald-700' : 'text-slate-500';
                     return (
-                      <tr key={mid} className="border-t border-slate-800">
-                        <td className="px-4 py-2 text-slate-200">{name}</td>
-                        <td className="px-4 py-2 text-right text-slate-300 font-mono">{planned.toFixed(2)} {unit}</td>
-                        <td className="px-4 py-2 text-right text-slate-300 font-mono">{actual.toFixed(2)} {unit}</td>
+                      <tr key={mid} className="border-t border-slate-200">
+                        <td className="px-4 py-2 text-slate-800">{name}</td>
+                        <td className="px-4 py-2 text-right text-slate-700 font-mono">{planned.toFixed(2)} {unit}</td>
+                        <td className="px-4 py-2 text-right text-slate-700 font-mono">{actual.toFixed(2)} {unit}</td>
                         <td className={`px-4 py-2 text-right font-mono font-bold ${cls}`}>{diff.toFixed(2)} {unit} <span className="text-[10px] opacity-70 ml-1">({perPool.toFixed(2)}/pool)</span></td>
                       </tr>
                     );
