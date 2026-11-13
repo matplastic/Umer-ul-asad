@@ -3,7 +3,7 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
   Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
-  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen, Building2,
+  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen, Building2, Paperclip, Loader2,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -12,11 +12,11 @@ import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
   dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch, dbFetchStockAdjustments, dbFetchSuppliers,
-  dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial,
+  dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial, dbUpdateIncomingMaterialDocs,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs,
   dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields, dbFetchProductionLogs,
 } from '../lib/firebaseService';
-import { Material, BOMItem, MaterialRequest, IncomingMaterial, ConsumptionLog, StockAdjustment, Supplier, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
+import { Material, BOMItem, MaterialRequest, IncomingMaterial, GrnAttachment, ConsumptionLog, StockAdjustment, Supplier, CompanyAsset, ExtraUnit, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS } from '../types';
 import { ExtraUnitsEditor } from './ExtraUnitsEditor';
 import { cleanExtraUnits, equivalentsText, perUnitText } from '../lib/materialUnits';
 import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS } from '../lib/stockAlerts';
@@ -27,6 +27,7 @@ import { StockLedgerModal } from './StockLedgerModal';
 import { InventoryLedgerPage } from './InventoryLedgerPage';
 import { SuppliersPage } from './SuppliersPage';
 import { normName } from '../lib/suppliers';
+import { uploadGrnFile, deleteGrnFile, validateGrnFile, GRN_ACCEPT, KIND_LABEL, type GrnDocKind } from '../lib/grnAttachments';
 
 type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'ledger' | 'suppliers' | 'key' | 'assets' | 'reorder';
 
@@ -150,7 +151,7 @@ const isMaterialCritical = (m: Material): boolean => {
   return CRITICAL_MATERIAL_KEYWORDS.some(k => haystack.includes(k));
 };
 const emptyBom = { projectName: '', poolType: '', materialId: '', qtyPerPool: '' };
-const emptyIncoming = { materialId: '', qty: '', supplier: '', invoiceNo: '', notes: '' };
+const emptyIncoming = { materialId: '', qty: '', supplier: '', invoiceNo: '', doNo: '', notes: '' };
 const emptyAsset = { name: '', assetNumber: '', erpNo: '', issuedTo: '', value: '', notes: '' };
 
 export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, projectNames, poolTypesByProject }) => {
@@ -193,6 +194,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [unitsEdit, setUnitsEdit] = useState<{ material: Material; extraUnits: ExtraUnit[] } | null>(null);
   const [newBom, setNewBom] = useState<any>(emptyBom);
   const [newIncoming, setNewIncoming] = useState<any>(emptyIncoming);
+  // Supplier DO / invoice files picked on the Incoming form, uploaded when the receipt is saved.
+  const [incomingFiles, setIncomingFiles] = useState<{ do: File[]; invoice: File[] }>({ do: [], invoice: [] });
+  const [incomingSaving, setIncomingSaving] = useState(false);
+  // Receipt currently getting a file added from the GRN table.
+  const [docBusyId, setDocBusyId] = useState<string | null>(null);
   const [newAsset, setNewAsset] = useState<any>(emptyAsset);
   // Company Assets tab search — matches asset name, asset number, or who it's issued to.
   const [assetSearch, setAssetSearch] = useState('');
@@ -752,18 +758,19 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       Unit: inc.unit,
       Supplier: inc.supplier || '',
       Invoice: inc.invoiceNo || '',
+      'Supplier DO': inc.doNo || '',
       'Received By': inc.receivedByName,
       'QC Status': (inc.qcStatus || 'pending').toUpperCase(),
     }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Date: '', Material: '', Qty: '', Unit: '', Supplier: '', Invoice: '', 'Received By': '', 'QC Status': '' }]), 'Incoming Materials');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Date: '', Material: '', Qty: '', Unit: '', Supplier: '', Invoice: '', 'Supplier DO': '', 'Received By': '', 'QC Status': '' }]), 'Incoming Materials');
     XLSX.writeFile(wb, `incoming_material_report_${fileLabel()}.xlsx`);
   };
 
   const exportIncomingPDF = () => {
     const rows = filteredIncoming.slice().sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1))
-      .map(inc => [(inc.receivedAt || '').slice(0, 10), inc.materialName, Number(inc.qty).toFixed(2), inc.unit, inc.supplier || '—', inc.invoiceNo || '—', inc.receivedByName, (inc.qcStatus || 'pending').toUpperCase()]);
-    pdfFromTable('New Incoming Material Report', ['Date', 'Material', 'Qty', 'Unit', 'Supplier', 'Invoice', 'Received By', 'QC Status'], rows, 'incoming_material_report');
+      .map(inc => [(inc.receivedAt || '').slice(0, 10), inc.materialName, Number(inc.qty).toFixed(2), inc.unit, inc.supplier || '—', inc.invoiceNo || '—', inc.doNo || '—', inc.receivedByName, (inc.qcStatus || 'pending').toUpperCase()]);
+    pdfFromTable('New Incoming Material Report', ['Date', 'Material', 'Qty', 'Unit', 'Supplier', 'Invoice', 'Supplier DO', 'Received By', 'QC Status'], rows, 'incoming_material_report');
   };
 
   // --- Material Traceability — one combined receiving + QC-decision log,
@@ -986,25 +993,100 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
   // --- Incoming ---
   const saveIncoming = async () => {
-    if (!newIncoming.materialId || !newIncoming.qty) return;
+    if (!newIncoming.materialId || !newIncoming.qty || incomingSaving) return;
     const sup = suppliers.find(sp => normName(sp.name) === normName(newIncoming.supplier));
     if (sup?.status === 'blocked') {
       alert(`${sup.name} is BLOCKED in the supplier list, so material can't be received from them. Change their status under Suppliers first if this is correct.`);
       return;
     }
     if (sup?.status === 'on_hold' && !window.confirm(`${sup.name} is ON HOLD. Receive this material anyway?`)) return;
-    await dbCreateIncomingMaterial({
-      materialId: newIncoming.materialId,
-      materialName: '',
-      unit: '',
-      qty: Number(newIncoming.qty),
-      supplier: newIncoming.supplier || null,
-      invoiceNo: newIncoming.invoiceNo || null,
-      notes: newIncoming.notes || null,
-      receivedByName: currentUserName,
-      receivedAt: new Date().toISOString(),
-    } as any);
-    setNewIncoming(emptyIncoming);
+
+    // Check every picked file BEFORE creating the receipt, so a bad file
+    // can't leave a half-finished GRN behind.
+    const picked = [
+      ...incomingFiles.do.map(f => ({ f, kind: 'do' as GrnDocKind })),
+      ...incomingFiles.invoice.map(f => ({ f, kind: 'invoice' as GrnDocKind })),
+    ];
+    for (const { f } of picked) {
+      const bad = validateGrnFile(f);
+      if (bad) { alert(bad); return; }
+    }
+
+    setIncomingSaving(true);
+    try {
+      const created: any = await dbCreateIncomingMaterial({
+        materialId: newIncoming.materialId,
+        materialName: '',
+        unit: '',
+        qty: Number(newIncoming.qty),
+        supplier: newIncoming.supplier || null,
+        invoiceNo: newIncoming.invoiceNo || null,
+        doNo: newIncoming.doNo || null,
+        notes: newIncoming.notes || null,
+        receivedByName: currentUserName,
+        receivedAt: new Date().toISOString(),
+      } as any);
+
+      const newId: string | undefined = created?.item?.id;
+      if (picked.length && newId) {
+        try {
+          const uploaded: GrnAttachment[] = [];
+          for (const { f, kind } of picked) uploaded.push(await uploadGrnFile(f, newId, kind, currentUserName));
+          await dbUpdateIncomingMaterialDocs(newId, { addAttachments: uploaded });
+        } catch (e: any) {
+          alert(`The receipt was saved, but the file upload failed: ${e?.message || e}\n\nOpen the receipt in the table below and use "+ DO" / "+ Invoice" to attach the files again.`);
+        }
+      } else if (picked.length) {
+        alert('The receipt was saved, but its ID was not returned, so the files were not attached. Use "+ DO" / "+ Invoice" on the receipt in the table below.');
+      }
+      setNewIncoming(emptyIncoming);
+      setIncomingFiles({ do: [], invoice: [] });
+      loadAll(true);
+    } finally {
+      setIncomingSaving(false);
+    }
+  };
+
+  // Add files to a receipt that already exists (late DO, photo of the invoice…).
+  const addDocsToReceipt = async (inc: IncomingMaterial, kind: GrnDocKind, files: FileList | null) => {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    for (const f of list) {
+      const bad = validateGrnFile(f);
+      if (bad) { alert(bad); return; }
+    }
+    setDocBusyId(inc.id);
+    try {
+      const uploaded: GrnAttachment[] = [];
+      for (const f of list) uploaded.push(await uploadGrnFile(f, inc.id, kind, currentUserName));
+      await dbUpdateIncomingMaterialDocs(inc.id, { addAttachments: uploaded });
+      loadAll(true);
+    } catch (e: any) {
+      alert(`Upload failed: ${e?.message || e}`);
+    } finally {
+      setDocBusyId(null);
+    }
+  };
+
+  const removeReceiptDoc = async (inc: IncomingMaterial, att: GrnAttachment) => {
+    if (!window.confirm(`Remove ${KIND_LABEL[att.kind]} file "${att.name}" from this receipt?`)) return;
+    setDocBusyId(inc.id);
+    try {
+      await dbUpdateIncomingMaterialDocs(inc.id, { removeAttachmentIds: [att.id] });
+      await deleteGrnFile(att);
+      loadAll(true);
+    } catch (e: any) {
+      alert(`Could not remove the file: ${e?.message || e}`);
+    } finally {
+      setDocBusyId(null);
+    }
+  };
+
+  const editReceiptNumber = async (inc: IncomingMaterial, field: 'doNo' | 'invoiceNo') => {
+    const label = field === 'doNo' ? 'Supplier DO number' : 'Invoice number';
+    const v = window.prompt(label, (inc[field] as string) || '');
+    if (v === null) return;
+    await dbUpdateIncomingMaterialDocs(inc.id, { [field]: v.trim() || null });
     loadAll(true);
   };
 
@@ -1503,7 +1585,35 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
             <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
             <input placeholder="Supplier" list="supplier-options" data-testid="new-incoming-supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
             <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <button onClick={saveIncoming} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Send to Quality</button>
+            <button onClick={saveIncoming} disabled={incomingSaving} data-testid="new-incoming-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait text-white rounded-lg text-xs font-bold cursor-pointer">
+              {incomingSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} {incomingSaving ? 'Saving…' : 'Send to Quality'}
+            </button>
+            {/* second row: supplier DO number + scans of the supplier's DO and invoice */}
+            <div className="md:col-span-6 grid grid-cols-1 md:grid-cols-4 gap-2 items-start">
+              <input placeholder="Supplier DO #" data-testid="new-incoming-do" value={newIncoming.doNo} onChange={e => setNewIncoming((p: any) => ({ ...p, doNo: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+              {([['do', 'Attach DO (photo / PDF)'], ['invoice', 'Attach invoice (photo / PDF)']] as const).map(([kind, label]) => (
+                <div key={kind} className="min-w-0">
+                  <label className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 border border-dashed border-slate-400 text-slate-700 rounded-lg text-xs font-bold cursor-pointer">
+                    <Paperclip className="h-3.5 w-3.5" /> {label}
+                    <input
+                      type="file" multiple accept={GRN_ACCEPT} className="hidden" data-testid={`new-incoming-file-${kind}`}
+                      onChange={e => {
+                        const picked = Array.from(e.target.files || []);
+                        e.target.value = '';
+                        if (picked.length) setIncomingFiles(p => ({ ...p, [kind]: [...p[kind], ...picked] }));
+                      }}
+                    />
+                  </label>
+                  {incomingFiles[kind].map((f, idx) => (
+                    <div key={`${f.name}-${idx}`} className="mt-1 flex items-center justify-between gap-2 text-[10px] text-slate-600">
+                      <span className="truncate">{f.name}</span>
+                      <button onClick={() => setIncomingFiles(p => ({ ...p, [kind]: p[kind].filter((_, i) => i !== idx) }))} className="text-slate-400 hover:text-rose-600 cursor-pointer"><X className="h-3 w-3" /></button>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div className="text-[10px] text-slate-500 self-center">PDF or photo, up to 10&nbsp;MB each. You can also add files later from the table below.</div>
+            </div>
           </div>
           {newIncoming.materialId && Number(newIncoming.qty) > 0 && eqFor(newIncoming.materialId, Number(newIncoming.qty)) && (
             <div className="mb-3 text-xs font-mono text-emerald-700" data-testid="new-incoming-equiv">
@@ -1527,7 +1637,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
             <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500">Recent GRN (Goods Received)</div>
-            <table className="w-full min-w-[700px] text-xs">
+            <table className="w-full min-w-[1000px] text-xs">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
                   <th className="text-left px-4 py-2">Date</th>
@@ -1535,6 +1645,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <th className="text-right px-4 py-2">Qty</th>
                   <th className="text-left px-4 py-2">Supplier</th>
                   <th className="text-left px-4 py-2">Invoice</th>
+                  <th className="text-left px-4 py-2">Supplier DO</th>
+                  <th className="text-left px-4 py-2">Documents</th>
                   <th className="text-left px-4 py-2">Received By</th>
                   <th className="text-left px-4 py-2">QC Status</th>
                   <th className="px-4 py-2"></th>
@@ -1547,13 +1659,38 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
                     <td className="px-4 py-2 text-right text-emerald-700 font-mono">+{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-emerald-700/70">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
                     <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}</td>
-                    <td className="px-4 py-2 text-slate-500">{inc.invoiceNo || '—'}</td>
+                    <td className="px-4 py-2 text-slate-500">
+                      <button onClick={() => editReceiptNumber(inc, 'invoiceNo')} title="Click to edit invoice number" className="font-mono hover:text-primary-700 hover:underline decoration-dotted underline-offset-2 cursor-pointer">{inc.invoiceNo || '—'}</button>
+                    </td>
+                    <td className="px-4 py-2 text-slate-500">
+                      <button onClick={() => editReceiptNumber(inc, 'doNo')} title="Click to edit supplier DO number" data-testid={`grn-do-${inc.id}`} className="font-mono hover:text-primary-700 hover:underline decoration-dotted underline-offset-2 cursor-pointer">{inc.doNo || '—'}</button>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {(inc.attachments || []).map(a => (
+                          <span key={a.id} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-sky-50 border border-sky-200 text-[10px] font-bold text-sky-700">
+                            <a href={a.url} target="_blank" rel="noopener noreferrer" title={a.name} className="hover:underline">{KIND_LABEL[a.kind]}</a>
+                            <button onClick={() => removeReceiptDoc(inc, a)} title="Remove file" className="text-sky-400 hover:text-rose-600 cursor-pointer"><X className="h-3 w-3" /></button>
+                          </span>
+                        ))}
+                        {docBusyId === inc.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                        ) : (
+                          (['do', 'invoice'] as const).map(kind => (
+                            <label key={kind} data-testid={`grn-add-${kind}-${inc.id}`} className="px-1.5 py-0.5 rounded-md border border-dashed border-slate-300 text-[10px] font-bold text-slate-500 hover:text-primary-700 hover:border-primary-400 cursor-pointer">
+                              + {KIND_LABEL[kind]}
+                              <input type="file" multiple accept={GRN_ACCEPT} className="hidden" onChange={e => { const f = e.target.files; addDocsToReceipt(inc, kind, f); e.target.value = ''; }} />
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
                     <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
-                    <td className="px-4 py-2 text-right"><button onClick={async () => { if (confirm(inc.qcStatus === 'passed' ? 'Delete this GRN and reverse stock?' : 'Delete this GRN record?')) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); } }} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                    <td className="px-4 py-2 text-right"><button onClick={async () => { if (confirm(inc.qcStatus === 'passed' ? 'Delete this GRN and reverse stock?' : 'Delete this GRN record?')) { await dbDeleteIncomingMaterial(inc.id); for (const a of inc.attachments || []) await deleteGrnFile(a); loadAll(true); } }} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
                 ))}
-                {incoming.length === 0 && <tr><td colSpan={8} className="text-center text-slate-500 py-10">No incoming materials logged yet.</td></tr>}
+                {incoming.length === 0 && <tr><td colSpan={10} className="text-center text-slate-500 py-10">No incoming materials logged yet.</td></tr>}
               </tbody>
             </table>
           </div>

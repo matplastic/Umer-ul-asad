@@ -602,6 +602,22 @@ export interface SupervisorPurchaseRequest {
   billUploadedAt?: string | null;
 }
 
+// A scanned/photographed supplier document attached to a goods receipt (GRN).
+// The file itself lives in Firebase Storage — only this small metadata record
+// is kept on the receipt, so the incomingMaterials document stays far below
+// Firestore's 1 MiB limit no matter how many documents are attached.
+export interface GrnAttachment {
+  id: string;
+  kind: 'do' | 'invoice' | 'other';   // supplier Delivery Order / supplier invoice
+  name: string;                       // original file name
+  url: string;                        // Firebase Storage download URL
+  path: string;                       // Storage object path (used for delete)
+  type: string;                       // MIME type
+  size: number;                       // bytes, after any image compression
+  uploadedAt: string;
+  uploadedByName: string;
+}
+
 export interface IncomingMaterial {
   id: string;
   materialId: string;
@@ -610,6 +626,11 @@ export interface IncomingMaterial {
   qty: number;
   supplier?: string | null;
   invoiceNo?: string | null;
+  // Supplier's Delivery Order / delivery note number (NOT the ERP's own
+  // outgoing DO that is raised when material is handed to the floor).
+  doNo?: string | null;
+  // Scanned supplier DO / invoice files — see GrnAttachment.
+  attachments?: GrnAttachment[] | null;
   notes?: string | null;
   receivedByName: string;
   receivedAt: string;

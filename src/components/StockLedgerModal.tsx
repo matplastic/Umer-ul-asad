@@ -6,6 +6,8 @@ import {
   buildMovements, filterAndSummarise, groupMovements, periodRange, localDay,
   type PeriodKey, type GroupBy, type StockMovement,
 } from '../lib/stockMovements';
+import { MaterialReceiptsPanel } from './MaterialReceiptsPanel';
+import { receiptsForMaterial, namedSupplierCount } from '../lib/materialReceipts';
 
 interface Props {
   material: Material;
@@ -36,6 +38,8 @@ const fmtTime = (iso: string) => {
 };
 
 export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming, adjustments, onClose }) => {
+  // 'ledger' = every movement of this material; 'receipts' = who delivered it and the paperwork.
+  const [tab, setTab] = useState<'ledger' | 'receipts'>('ledger');
   const [period, setPeriod] = useState<PeriodKey>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -96,6 +100,8 @@ export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming
     XLSX.writeFile(wb, `Stock_Ledger_${safe}_${localDay(new Date().toISOString())}.xlsx`);
   };
 
+  const supplierCount = useMemo(() => namedSupplierCount(receiptsForMaterial(material.id, incoming)), [material.id, incoming]);
+
   const chip = (active: boolean) =>
     `px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${active ? 'bg-orange-600 text-white shadow' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`;
 
@@ -105,20 +111,37 @@ export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming
         {/* header */}
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-800">
           <div>
-            <div className="text-[10px] uppercase font-bold text-slate-500">Stock Ledger</div>
+            <div className="text-[10px] uppercase font-bold text-slate-500">{tab === 'ledger' ? 'Stock Ledger' : 'Supplier & Receipts'}</div>
             <h2 className="text-lg font-black text-white">{material.name}</h2>
             <div className="text-xs text-slate-400">
               Current stock <span className="font-mono font-bold text-slate-200">{fmt(Number(material.currentStock || 0))} {material.unit}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={exportExcel} data-testid="ledger-export" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer">
-              <Download className="h-3.5 w-3.5" /> Excel
-            </button>
+            {tab === 'ledger' && (
+              <button onClick={exportExcel} data-testid="ledger-export" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer">
+                <Download className="h-3.5 w-3.5" /> Excel
+              </button>
+            )}
             <button onClick={onClose} data-testid="ledger-close" className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg cursor-pointer"><X className="h-4 w-4" /></button>
           </div>
         </div>
 
+        {/* tabs */}
+        <div className="flex items-center gap-2 px-5 pt-3">
+          <button onClick={() => setTab('ledger')} data-testid="material-tab-ledger" className={chip(tab === 'ledger')}>Stock Ledger</button>
+          <button onClick={() => setTab('receipts')} data-testid="material-tab-receipts" className={chip(tab === 'receipts')}>
+            Supplier &amp; Receipts
+            <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] ${tab === 'receipts' ? 'bg-orange-800' : 'bg-slate-700'}`}>
+              {supplierCount} {supplierCount === 1 ? 'supplier' : 'suppliers'}
+            </span>
+          </button>
+        </div>
+
+        {tab === 'receipts' ? (
+          <MaterialReceiptsPanel material={material} incoming={incoming} />
+        ) : (
+        <>
         {/* controls */}
         <div className="px-5 py-3 border-b border-slate-800 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -258,6 +281,8 @@ export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming
             "Out" rows are confirmed deliveries, each with its Delivery Order (DO) number. Balances are worked back from today's stock. Stock changes made before manual adjustments were logged, or imported in bulk, are included in the opening balance.
           </p>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

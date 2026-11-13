@@ -3267,7 +3267,7 @@ export async function dbUpdatePin(role: string, pin: string) {
 // NEW STORE FEATURES: Excel Bulk, Incoming, Consumption, Production, Analytics
 // ==========================================================
 
-import type { IncomingMaterial, ConsumptionLog, ProductionLog } from '../types';
+import type { IncomingMaterial, GrnAttachment, ConsumptionLog, ProductionLog } from '../types';
 
 // Accepts common header variations (e.g. "Material Name", "Stock", "UOM",
 // "Reorder Point") so the Excel import isn't fragile about exact column
@@ -3387,6 +3387,42 @@ export async function dbCreateIncomingMaterial(payload: Omit<IncomingMaterial, '
     body: JSON.stringify({ ...payload, qcStatus: 'pending' }),
   });
   return res.json();
+}
+
+// Edit the paperwork on an existing goods receipt: supplier DO / invoice
+// numbers and the scanned files. Attachments are merged INSIDE the update
+// (add / remove by id against the latest stored record) so two people adding
+// files to the same receipt at the same moment cannot overwrite each other.
+// Never touches qty, QC state or stock.
+export async function dbUpdateIncomingMaterialDocs(
+  id: string,
+  patch: {
+    doNo?: string | null;
+    invoiceNo?: string | null;
+    addAttachments?: GrnAttachment[];
+    removeAttachmentIds?: string[];
+  },
+) {
+  if (apiBase()) {
+    throw new Error('Editing receipt documents is only supported in direct-Firestore mode (VITE_API_URL is set).');
+  }
+  let result: IncomingMaterial | null = null;
+  await updateFirestoreDocArray('incomingMaterials', (arr) =>
+    arr.map((i) => {
+      if (i.id !== id) return i;
+      const drop = new Set(patch.removeAttachmentIds || []);
+      const kept = (i.attachments || []).filter((a: GrnAttachment) => !drop.has(a.id));
+      const next: IncomingMaterial = {
+        ...i,
+        ...(patch.doNo !== undefined ? { doNo: patch.doNo } : {}),
+        ...(patch.invoiceNo !== undefined ? { invoiceNo: patch.invoiceNo } : {}),
+        attachments: [...kept, ...(patch.addAttachments || [])],
+      };
+      result = next;
+      return next;
+    })
+  );
+  return { success: !!result, item: result as IncomingMaterial | null };
 }
 
 // Inspector decision on a pending GRN, for a specific quantity out of the
