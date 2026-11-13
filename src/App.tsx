@@ -4011,7 +4011,7 @@ export default function App() {
 
       {/* Simulation Helper banner */}
       <div className="bg-slate-900 border-b border-slate-800 py-2.5 px-4 text-[11px] text-slate-350">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-1.5">
+        <div className="max-w-none mx-auto flex flex-col md:flex-row md:items-center justify-between gap-1.5">
           <div className="flex flex-wrap items-center gap-3">
             <span className="px-2 py-0.5 bg-cyan-900/30 text-cyan-400 border border-cyan-800 rounded font-bold font-mono text-[10px]">
               ROLEPLAY SIMULATOR MODE
@@ -4073,7 +4073,7 @@ export default function App() {
       </div>
 
       {/* Central View Dashboard Container */}
-      <main className={`flex-1 w-full mx-auto py-6 ${currentRole === 'store' ? 'max-w-none px-2 sm:px-4' : 'max-w-7xl px-4 sm:px-6 lg:px-8'}`}>
+      <main className="flex-1 w-full mx-auto py-6 max-w-none px-2 sm:px-4">
         {/* One-time upgrade (Mosaic + Grouting merged into one stage): until it
             has been saved, every portal is replaced by this screen so nobody
             works on pools whose stage positions are still in the old format. */}
