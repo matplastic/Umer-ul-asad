@@ -3,6 +3,7 @@ import { ViewRole, StageId } from '../types';
 import { STAGES } from '../data/mockData';
 import { getAllowedRoles } from '../lib/authClient';
 import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight, Factory, Truck, PackageCheck } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
 
 interface RoleSelectorProps {
   currentRole: ViewRole;
@@ -75,8 +76,9 @@ export const TopBar: React.FC<{
       </div>
     </div>
 
-    {/* Right slot — Exit Portal (office users) or Exit (kiosk worker) */}
-    <div className="flex items-center justify-end">
+    {/* Right slot — theme switch + Exit Portal (office users) or Exit (kiosk worker) */}
+    <div className="flex items-center justify-end gap-2">
+      <ThemeToggle />
       {workerExit ? (
         <button
           onClick={workerExit.onExit}
