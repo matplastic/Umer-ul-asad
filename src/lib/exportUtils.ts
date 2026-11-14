@@ -6,110 +6,26 @@
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import {
+  COMPANY_NAME, PDF_COLORS, PDF_LAYOUT, loadLogo, drawLetterhead, drawFooter, themedTable, currentPage,
+  type PdfLogo, type RGB,
+} from './pdfTheme';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared PDF letterhead — logo + company name + orange accent bar, repeated
-// identically on every page of every report this file exports, so a
-// multi-page report (e.g. 182 absentees) never loses its header/footer or
-// bleeds into the next page's content. Coordinates are in points (jsPDF's
-// 'pt' unit), matching the a4/pt documents built below.
-// ─────────────────────────────────────────────────────────────────────────────
-const COMPANY_NAME = 'MAT PLASTIC INDUSTRIES LLC';
-const BRAND_ORANGE: [number, number, number] = [234, 88, 12];
-
-let logoCache: Promise<{ dataUrl: string; ratio: number } | null> | null = null;
-function loadLogo(): Promise<{ dataUrl: string; ratio: number } | null> {
-  if (!logoCache) {
-    logoCache = (async () => {
-      try {
-        const res = await fetch('/logo.png');
-        if (!res.ok) return null;
-        const blob = await res.blob();
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-        const ratio = await new Promise<number>((resolve) => {
-          const img = new Image();
-          img.onload = () => resolve((img.naturalWidth || 1) / (img.naturalHeight || 1));
-          img.onerror = () => resolve(1);
-          img.src = dataUrl;
-        });
-        return { dataUrl, ratio };
-      } catch {
-        return null;
-      }
-    })();
-  }
-  return logoCache;
+// ───────────────────────────────────────────────────────────
+// PDF look & feel lives in ./pdfTheme (MAT teal letterhead, striped tables,
+// coloured status words, "Page X of Y" footer). The small helpers below keep
+// the call sites in this file short.
+// ───────────────────────────────────────────────────────────
+function drawPdfHeader(
+  doc: jsPDF, logo: PdfLogo | null, deptLine: string, title: string, subtitle?: string,
+  firstPage = true, badge?: string, badgeTone?: RGB,
+): number {
+  return drawLetterhead(doc, { logo, dept: deptLine, title, subtitle, firstPage, badge, badgeTone });
 }
-
-/**
- * Draws logo + company name + report title/subtitle at the top of whichever
- * page the doc is currently on. Meant to be called from autoTable's
- * `didDrawPage` so it repeats on every page of a multi-page report — this is
- * what actually fixes overlap: the header is only ever drawn in the fixed
- * band above `margin.top`, autoTable never lets table rows draw above that
- * band, and each new page gets its own fresh copy instead of the first
- * page's header bleeding into page 2's row content.
- */
-function drawPdfHeader(doc: jsPDF, logo: { dataUrl: string; ratio: number } | null, deptLine: string, title: string, subtitle?: string): number {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const logoH = 34;
-  const logoW = logo ? logoH * logo.ratio : 0;
-  if (logo) {
-    try { doc.addImage(logo.dataUrl, 'PNG', 32, 12, logoW, logoH); } catch { /* unreadable logo — skip, rest of header still renders */ }
-  }
-  const textX = logo ? 32 + logoW + 10 : 32;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(20, 20, 20);
-  doc.text(COMPANY_NAME, textX, 26);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(120, 120, 120);
-  doc.text(deptLine, textX, 37);
-  doc.setFontSize(7.5);
-  doc.text(`Generated: ${new Date().toLocaleString('en-GB')}`, pageWidth - 32, 18, { align: 'right' });
-
-  doc.setDrawColor(...BRAND_ORANGE);
-  doc.setLineWidth(1.1);
-  doc.line(32, 50, pageWidth - 32, 50);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12.5);
-  doc.setTextColor(20, 20, 20);
-  doc.text(title, 32, 64);
-  let y = 74;
-  if (subtitle) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text(subtitle, 32, y);
-    y += 10;
-  }
-  return y + 12; // table startY
-}
-
-/** Thin rule + "Page X of Y" footer stamped on every page already in the doc. */
-function drawPdfFooter(doc: jsPDF, footerLabel: string) {
-  const pageCount = doc.getNumberOfPages();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.5);
-    doc.line(32, pageHeight - 28, pageWidth - 32, pageHeight - 28);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text(footerLabel, 32, pageHeight - 16);
-    doc.text(`Page ${i} of ${pageCount}`, pageWidth - 32, pageHeight - 16, { align: 'right' });
-  }
-}
+const drawPdfFooter = drawFooter;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const emptyRow = (cols: number, text = 'No records for the selected filters') =>
+  [[{ content: text, colSpan: cols, styles: { halign: 'center' as const, textColor: PDF_COLORS.muted, fontStyle: 'italic' as const } }]];
 
 /**
  * Export any array of records to an .xlsx file the user can download.
@@ -159,42 +75,56 @@ export async function exportTablePdf(opts: {
   deptLine?: string;
 }) {
   const logo = await loadLogo();
-  const doc = new jsPDF({
-    orientation: opts.orientation || 'landscape',
-    unit: 'pt',
-    format: 'a4',
-  });
+  const doc = new jsPDF({ orientation: opts.orientation || 'landscape', unit: 'pt', format: 'a4' });
   const deptLine = opts.deptLine || 'Store & Production ERP';
+  const head = opts.columns.map((c) => c.header);
+  const body = opts.rows.map((r) => opts.columns.map((c) => r[c.dataKey] ?? ''));
+  const startPage = currentPage(doc);
 
   autoTable(doc, {
-    startY: 96,
-    head: [opts.columns.map((c) => c.header)],
-    body: opts.rows.map((r) => opts.columns.map((c) => r[c.dataKey] ?? '')),
-    styles: { fontSize: 8, cellPadding: 4, textColor: [30, 41, 59] },
-    headStyles: {
-      fillColor: BRAND_ORANGE,
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
+    ...themedTable(head, body),
+    startY: PDF_LAYOUT.firstTop,
+    head: [head],
+    body: body.length > 0 ? body : emptyRow(head.length),
+    didDrawPage: () => {
+      drawPdfHeader(doc, logo, deptLine, opts.title, opts.subtitle, currentPage(doc) === startPage, plural(opts.rows.length, 'record'));
     },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    // page-break rules keep a row from being sliced in half at a page
-    // boundary, and the top margin leaves the exact space the header needs
-    // — so the header never overlaps row content, on page 1 or any page after.
-    margin: { top: 96, left: 32, right: 32, bottom: 44 },
-    rowPageBreak: 'avoid',
-    didDrawPage: () => { drawPdfHeader(doc, logo, deptLine, opts.title, opts.subtitle); },
   });
 
-  const finalY = (doc as any).lastAutoTable?.finalY || 96;
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(8);
-  doc.setTextColor(148, 163, 184);
-  doc.text(`${opts.rows.length} record${opts.rows.length === 1 ? '' : 's'}`, 32, finalY + 14);
-
-  drawPdfFooter(doc, `${COMPANY_NAME} — ERP System`);
-
+  drawPdfFooter(doc, `${COMPANY_NAME}  ·  ${deptLine}`);
   const stamp = new Date().toISOString().slice(0, 10);
   doc.save(`${opts.filename}_${stamp}.pdf`);
+}
+
+/**
+ * Several tables in one PDF — each section starts on its own page with its own
+ * title (e.g. Store "Consumption Report" + "Stock Ledger"). Same look as
+ * exportTablePdf. `filename` is used as-is (without ".pdf").
+ */
+export async function exportMultiTablePdf(opts: {
+  filename: string;
+  deptLine?: string;
+  orientation?: 'portrait' | 'landscape';
+  sections: { title: string; subtitle?: string; head: string[]; rows: (string | number)[][] }[];
+}) {
+  const logo = await loadLogo();
+  const doc = new jsPDF({ orientation: opts.orientation || 'landscape', unit: 'pt', format: 'a4' });
+  const deptLine = opts.deptLine || 'Store & Production ERP';
+  opts.sections.forEach((sec, i) => {
+    if (i > 0) doc.addPage();
+    const startPage = currentPage(doc);
+    autoTable(doc, {
+      ...themedTable(sec.head, sec.rows),
+      startY: PDF_LAYOUT.firstTop,
+      head: [sec.head],
+      body: sec.rows.length > 0 ? sec.rows : emptyRow(sec.head.length),
+      didDrawPage: () => {
+        drawPdfHeader(doc, logo, deptLine, sec.title, sec.subtitle, currentPage(doc) === startPage, plural(sec.rows.length, 'record'));
+      },
+    });
+  });
+  drawPdfFooter(doc, `${COMPANY_NAME}  ·  ${deptLine}`);
+  doc.save(`${opts.filename}.pdf`);
 }
 
 /**
@@ -224,6 +154,8 @@ export async function exportDailyDefectReportPdf(report: {
   const logo = await loadLogo();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
   const subtitle = `${report.projectName}  •  Date: ${report.date}  •  Controller: ${report.controller}`;
+  const dept = report.workshopName;
+  const totalDefects = report.catalogRows.reduce((sum, r) => sum + r.qty, 0);
 
   // ── PAGE 1 — DEFECTS (every catalogue defect, zero-qty included) ───────
   // Each occurrence is its own line inside the "Pool Details" cell, formatted
@@ -236,63 +168,86 @@ export async function exportDailyDefectReportPdf(report: {
       .join('\n');
     return [defect, qty > 0 ? String(qty) : '-', detailLines || '-'];
   });
+  const defectHead = ['Defect', 'Qty', 'Pool No. — Project — Orientation — Type'];
+  const defectBody = defectRows.length > 0 ? defectRows : [['— No defect catalogue configured for this workshop —', '', '']];
+  const defectTheme = themedTable(defectHead, defectBody);
+  let startPage = currentPage(doc);
 
   autoTable(doc, {
-    startY: 96,
-    head: [['Defect', 'Qty', 'Pool No. — Project — Orientation — Type']],
-    body: defectRows.length > 0 ? defectRows : [['— No defect catalogue configured for this workshop —', '', '']],
-    styles: { fontSize: 8.5, cellPadding: 5, textColor: [30, 41, 59], valign: 'top' },
-    headStyles: { fillColor: BRAND_ORANGE, textColor: [255, 255, 255], fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 0: { cellWidth: 140 }, 1: { cellWidth: 40, halign: 'center' }, 2: { cellWidth: 'auto' } },
-    margin: { top: 96, left: 32, right: 32, bottom: 44 },
-    rowPageBreak: 'avoid',
-    didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Defects', subtitle); },
+    ...defectTheme,
+    startY: PDF_LAYOUT.firstTop,
+    head: [defectHead],
+    body: defectBody,
+    styles: { ...(defectTheme.styles as any), fontSize: 8.5, valign: 'top' },
+    columnStyles: { 0: { cellWidth: 140, fontStyle: 'bold' }, 1: { cellWidth: 40, halign: 'center' }, 2: { cellWidth: 'auto' } },
+    didParseCell: (d) => {
+      (defectTheme.didParseCell as any)?.(d);
+      if (d.column.index === 1) d.cell.styles.halign = 'center';
+    },
+    didDrawPage: () => {
+      drawPdfHeader(doc, logo, dept, 'Quality Control Report — Defects', subtitle, currentPage(doc) === startPage,
+        totalDefects > 0 ? plural(totalDefects, 'defect') : 'No defects', totalDefects > 0 ? PDF_COLORS.bad : PDF_COLORS.good);
+    },
   });
 
-  const p1FinalY = (doc as any).lastAutoTable?.finalY || 96;
+  const p1FinalY = (doc as any).lastAutoTable?.finalY || PDF_LAYOUT.firstTop;
   if (report.remarks) {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Remarks: ${report.remarks}`, 32, p1FinalY + 16, { maxWidth: doc.internal.pageSize.getWidth() - 64 });
+    doc.setTextColor(...PDF_COLORS.muted);
+    doc.text(`Remarks: ${report.remarks}`, PDF_LAYOUT.marginX, p1FinalY + 18, { maxWidth: doc.internal.pageSize.getWidth() - PDF_LAYOUT.marginX * 2 });
   }
-  drawPdfFooter(doc, `${COMPANY_NAME} — ${report.workshopName} — Defect Page`);
 
   // ── PAGE 2 — PRODUCTION (single shift) ─────────────────────────────────
   doc.addPage();
+  startPage = currentPage(doc);
+  const totalHead = ['Total Pools Produced'];
+  const totalBody = [[String(report.totalProduction)]];
+  const totalTheme = themedTable(totalHead, totalBody);
   autoTable(doc, {
-    startY: 96,
-    head: [['Total Pools Produced']],
-    body: [[String(report.totalProduction)]],
-    styles: { fontSize: 11, cellPadding: 8, textColor: [30, 41, 59], halign: 'center' },
-    headStyles: { fillColor: BRAND_ORANGE, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
-    bodyStyles: { fontStyle: 'bold', fontSize: 14 },
-    margin: { top: 96, left: 32, right: 32, bottom: 44 },
-    didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Production', subtitle); },
+    ...totalTheme,
+    startY: PDF_LAYOUT.firstTop,
+    head: [totalHead],
+    body: totalBody,
+    styles: { ...(totalTheme.styles as any), fontSize: 11, cellPadding: 8, halign: 'center' },
+    headStyles: { ...(totalTheme.headStyles as any), halign: 'center' },
+    bodyStyles: { fontStyle: 'bold', fontSize: 18, textColor: PDF_COLORS.teal },
+    didDrawPage: () => {
+      drawPdfHeader(doc, logo, dept, 'Quality Control Report — Production', subtitle, currentPage(doc) === startPage,
+        plural(report.pools.length, 'pool'));
+    },
   });
 
-  const totalTableY = (doc as any).lastAutoTable?.finalY || 96;
+  const totalTableY = (doc as any).lastAutoTable?.finalY || PDF_LAYOUT.firstTop;
+  const poolHead = ['Pool Number', 'Project', 'Orientation / Type', 'Status'];
   const poolRows = report.pools.map(p => [
     p.poolNo,
     p.projectName,
     [p.orientation, p.poolType].filter(Boolean).join(' / ') || '-',
-    p.defects.length === 0 ? 'OK' : `${p.defects.length} defect${p.defects.length > 1 ? 's' : ''}`,
+    p.defects.length === 0 ? 'OK' : plural(p.defects.length, 'defect'),
   ]);
+  const poolBody = poolRows.length > 0 ? poolRows : [['— No pools recorded —', '', '', '']];
+  const poolTheme = themedTable(poolHead, poolBody);
   autoTable(doc, {
+    ...poolTheme,
     startY: totalTableY + 20,
-    head: [['Pool Number', 'Project', 'Orientation / Type', 'Status']],
-    body: poolRows.length > 0 ? poolRows : [['— No pools recorded —', '', '', '']],
-    styles: { fontSize: 8.5, cellPadding: 4, textColor: [30, 41, 59] },
-    headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 0: { cellWidth: 90 }, 1: { cellWidth: 150 }, 2: { cellWidth: 110 }, 3: { cellWidth: 'auto' } },
-    margin: { top: 96, left: 32, right: 32, bottom: 44 },
-    rowPageBreak: 'avoid',
-    didDrawPage: () => { drawPdfHeader(doc, logo, report.workshopName, 'Quality Control Report — Production', subtitle); },
+    head: [poolHead],
+    body: poolBody,
+    columnStyles: { 0: { cellWidth: 90, fontStyle: 'bold' }, 1: { cellWidth: 150 }, 2: { cellWidth: 110 }, 3: { cellWidth: 'auto' } },
+    didParseCell: (d) => {
+      (poolTheme.didParseCell as any)?.(d);
+      if (d.section === 'body' && d.column.index === 3 && /defect/i.test(String(d.cell.raw))) {
+        d.cell.styles.textColor = PDF_COLORS.bad;
+        d.cell.styles.fontStyle = 'bold';
+      }
+    },
+    didDrawPage: () => {
+      drawPdfHeader(doc, logo, dept, 'Quality Control Report — Production', subtitle, currentPage(doc) === startPage,
+        plural(report.pools.length, 'pool'));
+    },
   });
 
-  drawPdfFooter(doc, `${COMPANY_NAME} — ${report.workshopName} — Production Page`);
+  drawPdfFooter(doc, `${COMPANY_NAME}  ·  ${dept}  ·  Quality Control Report`);
 
   const stamp = report.date || new Date().toISOString().slice(0, 10);
   doc.save(`${report.workshopName.replace(/\s+/g, '_')}_${report.projectName.replace(/\s+/g, '_')}_${stamp}.pdf`);
@@ -301,88 +256,88 @@ export async function exportDailyDefectReportPdf(report: {
 /**
  * Pool lifecycle PDF — full history for a single pool, ready for filing.
  */
-export function exportPoolHistoryPdf(pool: any, stages: { id: string; name: string }[]) {
+export async function exportPoolHistoryPdf(pool: any, stages: { id: string; name: string }[]) {
+  const logo = await loadLogo();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-  const w = doc.internal.pageSize.getWidth();
+  const pw = doc.internal.pageSize.getWidth();
+  const mx = PDF_LAYOUT.marginX;
+  const C = PDF_COLORS;
 
-  // Header band
-  doc.setFillColor(79, 70, 229);
-  doc.rect(0, 0, w, 60, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.text(`Pool ${pool.poolNo}`, 32, 30);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`${pool.projectName} • ${pool.orientation} • ${pool.shape}`, 32, 48);
+  const statusText = pool.isDelivered ? 'DELIVERED' : pool.completedAt ? 'COMPLETED' : 'IN PRODUCTION';
+  const statusColor: RGB = pool.isDelivered || pool.completedAt ? C.good : C.warn;
+  const subtitle = [pool.projectName, pool.orientation, pool.shape].filter(Boolean).join('  •  ');
 
-  // Meta block
-  doc.setTextColor(30, 41, 59);
-  doc.setFontSize(9);
-  let y = 82;
-  const metaRows = [
-    ['Pool ID', pool.id],
-    ['Project', pool.projectName],
-    ['Pool No.', pool.poolNo],
-    ['Orientation', pool.orientation],
-    ['Dimensions', pool.dimensions || '—'],
-    ['Shape', pool.shape || '—'],
-    ['Notes', pool.notes || '—'],
-    ['Created', pool.createdAt ? new Date(pool.createdAt).toLocaleString('en-GB') : '—'],
-    ['Status', pool.isDelivered ? 'DELIVERED' : pool.completedAt ? 'COMPLETED' : 'IN PRODUCTION'],
+  // ── identity card (3 columns × 3 rows) ───────────────────────────────
+  const cardRows: [string, string][][] = [
+    [['Pool ID', pool.id || '—'], ['Project', pool.projectName || '—'], ['Pool No.', pool.poolNo || '—']],
+    [['Orientation', pool.orientation || '—'], ['Dimensions', pool.dimensions || '—'], ['Shape', pool.shape || '—']],
+    [['Created', pool.createdAt ? new Date(pool.createdAt).toLocaleString('en-GB') : '—'], ['Status', statusText], ['Notes', pool.notes || '—']],
   ];
-  metaRows.forEach(([k, v]) => {
-    doc.setFont('helvetica', 'bold');
-    doc.text(String(k) + ':', 32, y);
-    doc.setFont('helvetica', 'normal');
-    doc.text(String(v), 130, y);
-    y += 14;
-  });
+  const cardTop = PDF_LAYOUT.firstTop;
+  const cardH = 14 + cardRows.length * 34;
+  const colW = (pw - mx * 2 - 24) / 3;
+  const drawCard = () => {
+    doc.setFillColor(...C.tealSoft); doc.setDrawColor(...C.line); doc.setLineWidth(0.7);
+    doc.roundedRect(mx, cardTop, pw - mx * 2, cardH, 6, 6, 'FD');
+    cardRows.forEach((row, r) => {
+      row.forEach(([label, value], c) => {
+        const x = mx + 12 + c * colW, y = cardTop + 20 + r * 34;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...C.muted);
+        doc.text(label.toUpperCase(), x, y);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5);
+        doc.setTextColor(...(label === 'Status' ? statusColor : C.ink));
+        doc.text(String(doc.splitTextToSize(String(value), colW - 10)[0] ?? ''), x, y + 13);
+      });
+    });
+  };
 
-  // Stage history table
-  const historyRows = stages.map((s) => {
+  // ── stage history table ──────────────────────────────────────────────
+  const head = ['Stage', 'Status', 'Team', 'Start', 'End', 'Duration', 'Inspector', 'Rej.'];
+  const body = stages.map((s) => {
     const h = pool.stageHistory?.[s.id] || {};
-    return {
-      stage: s.name,
-      status: h.status || 'NOT_STARTED',
-      team: h.teamId || '—',
-      start: h.startTime ? new Date(h.startTime).toLocaleString('en-GB') : '—',
-      end: h.endTime ? new Date(h.endTime).toLocaleString('en-GB') : '—',
-      duration: h.durationMinutes ? `${h.durationMinutes} min` : '—',
-      inspector: h.inspectorId || '—',
-      rejections: h.rejectionCount ?? 0,
-    };
+    return [
+      s.name,
+      String(h.status || 'NOT_STARTED').replace(/_/g, ' '),
+      h.teamId || '—',
+      h.startTime ? new Date(h.startTime).toLocaleString('en-GB') : '—',
+      h.endTime ? new Date(h.endTime).toLocaleString('en-GB') : '—',
+      h.durationMinutes ? `${h.durationMinutes} min` : '—',
+      h.inspectorId || '—',
+      h.rejectionCount ?? 0,
+    ];
   });
-
+  const theme = themedTable(head, body);
+  const startPage = currentPage(doc);
   autoTable(doc, {
-    startY: y + 8,
-    head: [['Stage', 'Status', 'Team', 'Start', 'End', 'Duration', 'Inspector', 'Rej.']],
-    body: historyRows.map((r) => [
-      r.stage,
-      r.status,
-      r.team,
-      r.start,
-      r.end,
-      r.duration,
-      r.inspector,
-      r.rejections,
-    ]),
-    styles: { fontSize: 7, cellPadding: 3 },
-    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255] },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    margin: { left: 24, right: 24 },
+    ...theme,
+    startY: cardTop + cardH + 36,
+    head: [head],
+    body,
+    styles: { ...(theme.styles as any), fontSize: 7.5 },
+    columnStyles: { 0: { fontStyle: 'bold' } },
+    didParseCell: (d) => {
+      (theme.didParseCell as any)?.(d);
+      if (d.section === 'body' && d.column.index === 1) {
+        const t = String(d.cell.raw).toLowerCase();
+        if (t === 'not started') { d.cell.styles.textColor = C.faint; d.cell.styles.fontStyle = 'normal'; }
+        if (t === 'pending inspection' || t === 'in progress') { d.cell.styles.textColor = C.warn; d.cell.styles.fontStyle = 'bold'; }
+      }
+      if (d.section === 'body' && d.column.index === 7 && Number(d.cell.raw) > 0) {
+        d.cell.styles.textColor = C.bad; d.cell.styles.fontStyle = 'bold';
+      }
+    },
+    didDrawPage: () => {
+      const first = currentPage(doc) === startPage;
+      drawPdfHeader(doc, logo, 'Production — Pool Lifecycle Record', `Pool ${pool.poolNo} — Lifecycle History`, subtitle, first, statusText, statusColor);
+      if (first) {
+        drawCard();
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(...C.ink);
+        doc.text('Stage history', mx, cardTop + cardH + 24);
+      }
+    },
   });
 
-  // Footer
-  doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text(
-    `Generated ${new Date().toLocaleString('en-GB')}  •  MAT-ERP`,
-    w / 2,
-    doc.internal.pageSize.getHeight() - 16,
-    { align: 'center' }
-  );
-
+  drawPdfFooter(doc, `${COMPANY_NAME}  ·  Pool ${pool.poolNo}`);
   doc.save(`Pool_${pool.poolNo}_history_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
@@ -629,7 +584,7 @@ export async function exportPoolBirthCertificatePdf(
   const ensureSpace = (needed: number) => {
     if (y + needed > pageHeight - 40) {
       doc.addPage();
-      y = 32;
+      y = drawPdfHeader(doc, logo, 'Quality Control — Swimming Pool Control Sheet', `Pool Birth Certificate — ${pool.poolNo}`, undefined, false) + 8;
     }
   };
 
@@ -647,7 +602,7 @@ export async function exportPoolBirthCertificatePdf(
       pool.createdAt ? new Date(pool.createdAt).toLocaleDateString('en-GB') : '—',
     ]],
     styles: { fontSize: 8, cellPadding: 5, halign: 'center' },
-    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+    headStyles: { fillColor: PDF_COLORS.teal, textColor: [255, 255, 255], fontStyle: 'bold' },
     margin: { left: marginLeft, right: 32 },
   });
   y = (doc as any).lastAutoTable.finalY + 12;
@@ -797,7 +752,7 @@ export async function exportPoolBirthCertificatePdf(
       pool.isDelivered ? 'Yes' : 'No',
     ]],
     styles: { fontSize: 8.5, cellPadding: 5, halign: 'center' },
-    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+    headStyles: { fillColor: PDF_COLORS.teal, textColor: [255, 255, 255], fontStyle: 'bold' },
     margin: { left: marginLeft, right: 32 },
   });
 
