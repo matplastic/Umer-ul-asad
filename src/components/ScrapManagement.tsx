@@ -1417,7 +1417,7 @@ function Materials({
 
 const CSS = `
 .sm-root{--bg:#f4f6f9;--card:#fff;--ink:#1a2333;--muted:#6b7686;--line:#e3e8ef;--brand:#0f5f8a;--brand-d:#0b4a6c;--good:#15803d;--bad:#b91c1c;
-  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg);padding:16px;border-radius:10px;max-width:1200px;margin:0 auto}
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg);padding:16px;border-radius:10px;width:100%;max-width:none;margin:0;align-self:stretch}
 .sm-root *{box-sizing:border-box}
 .sm-header{margin-bottom:12px}
 .sm-title{display:flex;gap:12px;align-items:center;color:var(--brand)}
