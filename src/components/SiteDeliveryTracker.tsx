@@ -348,7 +348,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
           </div>
           <table className="w-full text-xs border-collapse mb-8">
             <thead>
-              <tr className="bg-slate-900 text-white">
+              <tr className="bg-slate-50 text-slate-500">
                 <th className="text-left p-2 border border-slate-300">#</th>
                 <th className="text-left p-2 border border-slate-300">Description</th>
                 <th className="text-left p-2 border border-slate-300">Qty</th>
@@ -378,7 +378,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
 
       <div className="flex items-center justify-between mb-5 print:hidden">
         <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-2xl bg-slate-900 text-white flex items-center justify-center"><Truck className="h-5 w-5" /></div>
+          <div className="h-11 w-11 rounded-2xl bg-primary-600 text-white flex items-center justify-center"><Truck className="h-5 w-5" /></div>
           <div>
             <h2 className="text-lg font-black text-slate-800">Site Deliveries</h2>
             <p className="text-xs text-slate-400">{syncing ? 'Syncing…' : `${deliveries.length} total deliveries`}</p>
@@ -522,7 +522,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
               </div>
 
               <button onClick={submitDispatch} disabled={!canSubmitDispatch}
-                className="w-full mt-2 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-2">
+                className="w-full mt-2 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl cursor-pointer flex items-center justify-center gap-2">
                 <Send className="h-4 w-4" /> Dispatch & Print Slip
               </button>
             </div>
@@ -614,7 +614,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
               <label className="text-[11px] font-bold text-slate-500 flex items-center gap-1"><CalendarDays className="h-3 w-3" /> Range</label>
               <div className="flex gap-1 mt-1">
                 {(['day', 'week', 'month', 'year', 'custom'] as const).map(m => (
-                  <button key={m} onClick={() => setRangeMode(m)} className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer capitalize ${rangeMode === m ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{m}</button>
+                  <button key={m} onClick={() => setRangeMode(m)} className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer capitalize ${rangeMode === m ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{m}</button>
                 ))}
               </div>
             </div>
@@ -742,7 +742,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
                 <label className="text-[11px] font-bold text-slate-500">Status</label>
                 <div className="flex gap-1.5 mt-1">
                   {(['RECEIVED', 'PARTIAL', 'DISPUTED'] as const).map(s => (
-                    <button key={s} onClick={() => setReceiveForm(f => ({ ...f, status: s }))} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer ${receiveForm.status === s ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>{s}</button>
+                    <button key={s} onClick={() => setReceiveForm(f => ({ ...f, status: s }))} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer ${receiveForm.status === s ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{s}</button>
                   ))}
                 </div>
               </div>

@@ -143,7 +143,7 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({ logs, qcDe
           <button
             type="button"
             onClick={handlePdf}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-xl cursor-pointer transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-black rounded-xl cursor-pointer transition-colors"
           >
             <Printer className="h-4 w-4" /> Download PDF
           </button>
@@ -161,7 +161,7 @@ export const DailyDefectReport: React.FC<DailyDefectReportProps> = ({ logs, qcDe
               onClick={() => { setStageId(id); setProjectFilter('all'); }}
               className={`text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-colors cursor-pointer ${
                 stageId === id
-                  ? 'bg-slate-900 text-white border-slate-900'
+                  ? 'bg-primary-600 text-white border-primary-600'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >

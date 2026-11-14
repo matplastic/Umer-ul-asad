@@ -96,7 +96,7 @@ export const SearchableSelect: React.FC<Props> = ({
         onClick={() => setOpen(true)}
         onChange={e => { setQuery(e.target.value); setOpen(true); setActive(0); }}
         onKeyDown={onKeyDown}
-        className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-7 py-2 text-xs text-white placeholder:text-slate-500 disabled:opacity-50 focus:outline-none focus:border-orange-500"
+        className="w-full bg-slate-100 border border-slate-300 rounded-lg pl-8 pr-7 py-2 text-xs text-slate-900 placeholder:text-slate-500 disabled:opacity-50 focus:outline-none focus:border-primary-500"
       />
       {value && !disabled && (
         <button
@@ -104,7 +104,7 @@ export const SearchableSelect: React.FC<Props> = ({
           title="Clear"
           data-testid={testId ? `${testId}-clear` : undefined}
           onMouseDown={e => { e.preventDefault(); onChange(''); setQuery(''); }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white cursor-pointer"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-900 cursor-pointer"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -114,7 +114,7 @@ export const SearchableSelect: React.FC<Props> = ({
         <div
           ref={listRef}
           role="listbox"
-          className="absolute z-30 mt-1 w-full min-w-[280px] max-h-72 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-2xl"
+          className="absolute z-30 mt-1 w-full min-w-[280px] max-h-72 overflow-y-auto bg-slate-100 border border-slate-300 rounded-lg shadow-2xl"
         >
           {shown.length === 0 && (
             <div className="px-3 py-3 text-xs text-slate-500">
@@ -130,17 +130,17 @@ export const SearchableSelect: React.FC<Props> = ({
               data-testid={testId ? `${testId}-option` : undefined}
               onMouseDown={e => { e.preventDefault(); choose(o); }}
               onMouseEnter={() => setActive(i)}
-              className={`px-3 py-2 border-b border-slate-900 last:border-b-0 cursor-pointer ${i === active ? 'bg-slate-700' : ''} ${o.id === value ? 'border-l-2 border-l-orange-500' : ''}`}
+              className={`px-3 py-2 border-b border-slate-200 last:border-b-0 cursor-pointer ${i === active ? 'bg-slate-200' : ''} ${o.id === value ? 'border-l-2 border-l-primary-500' : ''}`}
             >
-              <div className="text-xs font-semibold text-white flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-slate-900 flex items-center justify-between gap-2">
                 <span>{o.label}</span>
-                {o.right && <span className="text-emerald-400 font-mono shrink-0">{o.right}</span>}
+                {o.right && <span className="text-emerald-700 font-mono shrink-0">{o.right}</span>}
               </div>
               {o.sub && <div className="text-[10px] text-slate-500 truncate">{o.sub}</div>}
             </div>
           ))}
           {matches.length > shown.length && (
-            <div className="px-3 py-2 text-[10px] text-slate-500 bg-slate-900/60 sticky bottom-0">
+            <div className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50 sticky bottom-0">
               Showing first {shown.length} of {matches.length} — keep typing to narrow it down.
             </div>
           )}

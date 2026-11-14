@@ -2090,7 +2090,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           )}
           <div className="flex gap-3 ml-auto items-center flex-wrap">
             {isSelectedDateSunday && (
-              <span className="bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5">
+              <span className="bg-primary-600 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5">
                 <CalendarOff className="h-3.5 w-3.5" /> Sunday — Holiday
               </span>
             )}

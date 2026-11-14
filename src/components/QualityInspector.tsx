@@ -1067,7 +1067,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             <button
               onClick={() => { setFilterMode('pending'); setSearchQuery(''); }}
               className={`py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
-                filterMode === 'pending' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
+                filterMode === 'pending' ? 'bg-primary-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
               }`}
             >
               <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
@@ -1076,7 +1076,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             <button
               onClick={() => { setFilterMode('all'); setSearchQuery(''); }}
               className={`py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
-                filterMode === 'all' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
+                filterMode === 'all' ? 'bg-primary-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'
               }`}
             >
               <Filter className="h-3.5 w-3.5 text-indigo-400" />
@@ -1253,7 +1253,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                         } else if (sStatus === 'IN_PROGRESS') {
                           badgeBg = isSelected ? 'bg-blue-600 border-blue-600 text-white font-bold' : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100';
                         } else if (isSelected) {
-                          badgeBg = 'bg-slate-800 border-slate-800 text-white font-bold';
+                          badgeBg = 'bg-slate-600 border-slate-600 text-white font-bold';
                         }
 
                         return (
@@ -1515,7 +1515,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
       <div className="fixed bottom-5 right-5 z-40">
         {aiOpen ? (
           <div className="w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ maxHeight: '70vh' }}>
-            <div className="flex items-center justify-between px-4 py-3 bg-slate-900 text-white">
+            <div className="flex items-center justify-between px-4 py-3 bg-primary-700 text-white">
               <span className="text-sm font-bold">Ask AI — Quality Inspector</span>
               <button onClick={() => setAiOpen(false)} className="cursor-pointer text-slate-300 hover:text-white">
                 <XCircle className="h-5 w-5" />
@@ -1627,7 +1627,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                   onClick={aiVoice.toggle}
                   disabled={aiLoading}
                   title={aiVoice.isListening ? 'Stop listening' : 'Speak a command'}
-                  className={`cursor-pointer text-white text-xs font-bold px-3 rounded-lg disabled:opacity-40 ${aiVoice.isListening ? 'bg-rose-600 hover:bg-rose-700 animate-pulse' : 'bg-slate-700 hover:bg-slate-800'}`}
+                  className={`cursor-pointer text-white text-xs font-bold px-3 rounded-lg disabled:opacity-40 ${aiVoice.isListening ? 'bg-rose-600 hover:bg-rose-700 animate-pulse' : 'bg-primary-600 hover:bg-primary-700'}`}
                 >
                   {aiVoice.isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
                 </button>
@@ -1644,7 +1644,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
         ) : (
           <button
             onClick={() => setAiOpen(true)}
-            className="cursor-pointer flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold px-4 py-3 rounded-full shadow-xl"
+            className="cursor-pointer flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-bold px-4 py-3 rounded-full shadow-xl"
           >
             <Compass className="h-4 w-4" />
             Ask AI

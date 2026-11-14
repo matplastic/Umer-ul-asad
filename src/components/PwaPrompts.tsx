@@ -80,17 +80,17 @@ export const PwaPrompts: React.FC = () => {
       )}
 
       {updateReady && (
-        <div data-testid="pwa-update" className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 z-[9999] flex items-center gap-3 bg-slate-800 border border-orange-500/60 text-white text-xs rounded-xl shadow-2xl px-4 py-3">
-          <RefreshCw className="h-4 w-4 text-orange-400 shrink-0" />
+        <div data-testid="pwa-update" className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 z-[9999] flex items-center gap-3 bg-slate-800 border border-primary-500/60 text-white text-xs rounded-xl shadow-2xl px-4 py-3">
+          <RefreshCw className="h-4 w-4 text-primary-400 shrink-0" />
           <span className="font-semibold">A new version of MAT-ERP is available.</span>
-          <button onClick={() => window.location.reload()} data-testid="pwa-reload" className="ml-auto px-3 py-1.5 bg-orange-600 hover:bg-orange-700 rounded-lg font-bold cursor-pointer">Reload</button>
+          <button onClick={() => window.location.reload()} data-testid="pwa-reload" className="ml-auto px-3 py-1.5 bg-primary-600 hover:bg-orange-700 rounded-lg font-bold cursor-pointer">Reload</button>
           <button onClick={() => setUpdateReady(false)} title="Later" className="text-slate-400 hover:text-white cursor-pointer"><X className="h-4 w-4" /></button>
         </div>
       )}
 
       {installEvent && !updateReady && (
         <div className="fixed bottom-4 left-4 z-[9998] flex items-center gap-1 bg-slate-800 border border-slate-600 rounded-full shadow-2xl pl-1 pr-2 py-1">
-          <button onClick={install} data-testid="pwa-install" className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-full text-xs font-bold cursor-pointer">
+          <button onClick={install} data-testid="pwa-install" className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 hover:bg-orange-700 text-white rounded-full text-xs font-bold cursor-pointer">
             <Download className="h-3.5 w-3.5" /> Install app
           </button>
           <button onClick={dismissInstall} data-testid="pwa-install-dismiss" title="Not now" className="text-slate-400 hover:text-white p-1 cursor-pointer"><X className="h-3.5 w-3.5" /></button>

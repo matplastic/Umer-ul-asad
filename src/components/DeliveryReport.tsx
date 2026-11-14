@@ -179,7 +179,7 @@ export function DeliveryReport({ pools }: DeliveryReportProps) {
               key={k}
               onClick={() => setRange(k)}
               className={`text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-colors ${
-                range === k ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                range === k ? 'bg-primary-600 text-white border-primary-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}
             >
               {k === 'today' ? 'Today' : k === 'week' ? 'This Week' : k === 'month' ? 'This Month' : k === 'all' ? 'All Time' : 'Custom'}
@@ -226,7 +226,7 @@ export function DeliveryReport({ pools }: DeliveryReportProps) {
 
         {/* Totals strip */}
         <div className="flex flex-wrap gap-2 pt-1">
-          <div className="px-3 py-2 rounded-xl bg-slate-900 text-white">
+          <div className="px-3 py-2 rounded-xl bg-primary-600 text-white">
             <div className="text-[9px] font-bold uppercase tracking-wide text-teal-300">Total Delivered ({rangeLabel})</div>
             <div className="text-lg font-black">{grandTotal}</div>
           </div>

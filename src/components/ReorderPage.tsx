@@ -83,7 +83,7 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
       key={id}
       onClick={() => setFilter(id)}
       data-testid={`reorder-filter-${id}`}
-      className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${filter === id ? activeClass : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
+      className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${filter === id ? activeClass : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'}`}
     >
       {label} <span className="opacity-70">({count})</span>
     </button>
@@ -93,28 +93,28 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
     <div data-testid="reorder-page">
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-        <div className="bg-rose-950/60 border border-rose-700/70 rounded-xl p-4">
-          <div className="text-[10px] font-bold uppercase text-rose-300">Urgent reorder</div>
-          <div className="text-2xl font-black text-white mt-1" data-testid="reorder-urgent-count">{urgentCount}</div>
-          <div className="text-[11px] text-rose-300/80">at or below urgent level</div>
+        <div className="bg-rose-50 border border-rose-300 rounded-xl p-4">
+          <div className="text-[10px] font-bold uppercase text-rose-700">Urgent reorder</div>
+          <div className="text-2xl font-black text-slate-900 mt-1" data-testid="reorder-urgent-count">{urgentCount}</div>
+          <div className="text-[11px] text-rose-700/80">at or below urgent level</div>
         </div>
-        <div className="bg-rose-950/30 border border-rose-900/70 rounded-xl p-4">
-          <div className="text-[10px] font-bold uppercase text-rose-300">Below reorder level</div>
-          <div className="text-2xl font-black text-white mt-1" data-testid="reorder-low-count">{reorderCount}</div>
-          <div className="text-[11px] text-rose-300/80">need to be reordered soon</div>
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4">
+          <div className="text-[10px] font-bold uppercase text-rose-700">Below reorder level</div>
+          <div className="text-2xl font-black text-slate-900 mt-1" data-testid="reorder-low-count">{reorderCount}</div>
+          <div className="text-[11px] text-rose-700/80">need to be reordered soon</div>
         </div>
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <div className="text-[10px] font-bold uppercase text-slate-400">Materials tracked</div>
-          <div className="text-2xl font-black text-white mt-1">{materials.filter(m => num(m.reorderLevel) > 0 || num(m.urgentLevel) > 0).length}</div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-[10px] font-bold uppercase text-slate-500">Materials tracked</div>
+          <div className="text-2xl font-black text-slate-900 mt-1">{materials.filter(m => num(m.reorderLevel) > 0 || num(m.urgentLevel) > 0).length}</div>
           <div className="text-[11px] text-slate-500">have a reorder or urgent level set</div>
         </div>
       </div>
 
       {/* Filters + search + export */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        {pill('all', 'All low stock', lowRows.length, 'bg-orange-600 border-orange-600 text-white')}
+        {pill('all', 'All low stock', lowRows.length, 'bg-primary-600 border-primary-600 text-white')}
         {pill('urgent', 'Urgent', urgentCount, 'bg-rose-600 border-rose-600 text-white')}
-        {pill('reorder', 'Reorder', reorderCount, 'bg-rose-900 border-rose-700 text-white')}
+        {pill('reorder', 'Reorder', reorderCount, 'bg-rose-600 border-rose-600 text-white')}
         <div className="ml-auto flex items-center gap-2">
           <div className="relative">
             <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -123,7 +123,7 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
               value={search}
               onChange={e => setSearch(e.target.value)}
               data-testid="reorder-search"
-              className="bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-2 py-1.5 text-xs text-white w-64"
+              className="bg-slate-100 border border-slate-300 rounded-lg pl-8 pr-2 py-1.5 text-xs text-slate-900 w-64"
             />
           </div>
           <button
@@ -137,10 +137,10 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
       </div>
 
       {/* Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
+      <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
         <table className="w-full min-w-[820px] text-xs">
           <thead>
-            <tr className="sticky top-0 z-10 bg-slate-800 text-slate-400 uppercase text-[10px]">
+            <tr className="sticky top-0 z-10 bg-slate-100 text-slate-500 uppercase text-[10px]">
               <th className="text-left px-4 py-2">Status</th>
               <th className="text-left px-4 py-2">ERP Code</th>
               <th className="text-left px-4 py-2">Material</th>
@@ -155,16 +155,16 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
           </thead>
           <tbody>
             {shown.map(({ m, status, short }) => (
-              <tr key={m.id} className={`border-t border-slate-800 ${STATUS_ROW_CLASS[status]}`} data-testid={`reorder-row-${m.id}`}>
+              <tr key={m.id} className={`border-t border-slate-200 ${STATUS_ROW_CLASS[status]}`} data-testid={`reorder-row-${m.id}`}>
                 <td className="px-4 py-2"><StockStatusBadge status={status} /></td>
-                <td className="px-4 py-2 text-slate-400 font-mono">{m.erpCode || '—'}</td>
-                <td className="px-4 py-2 text-slate-100 font-semibold">{m.name}</td>
-                <td className="px-4 py-2 text-slate-400">{m.supplierName || '—'}</td>
-                <td className="px-4 py-2 text-slate-400">{m.location || '—'}</td>
-                <td className="px-4 py-2 text-right font-mono font-bold text-rose-300">{m.currentStock} {m.unit}</td>
-                <td className="px-4 py-2 text-right text-slate-400">{num(m.reorderLevel) || '—'}</td>
-                <td className="px-4 py-2 text-right text-slate-400">{num(m.urgentLevel) || '—'}</td>
-                <td className="px-4 py-2 text-right font-mono text-slate-200">{short > 0 ? `${short} ${m.unit}` : 'at level'}</td>
+                <td className="px-4 py-2 text-slate-500 font-mono">{m.erpCode || '—'}</td>
+                <td className="px-4 py-2 text-slate-900 font-semibold">{m.name}</td>
+                <td className="px-4 py-2 text-slate-500">{m.supplierName || '—'}</td>
+                <td className="px-4 py-2 text-slate-500">{m.location || '—'}</td>
+                <td className="px-4 py-2 text-right font-mono font-bold text-rose-700">{m.currentStock} {m.unit}</td>
+                <td className="px-4 py-2 text-right text-slate-500">{num(m.reorderLevel) || '—'}</td>
+                <td className="px-4 py-2 text-right text-slate-500">{num(m.urgentLevel) || '—'}</td>
+                <td className="px-4 py-2 text-right font-mono text-slate-800">{short > 0 ? `${short} ${m.unit}` : 'at level'}</td>
                 <td className="px-4 py-2">
                   <div className="flex items-center justify-end gap-2">
                     <button
@@ -174,14 +174,14 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
                       className="cursor-pointer"
                     >
                       {isFollowed(m)
-                        ? <Bell className="h-3.5 w-3.5 text-emerald-400" />
-                        : <BellOff className="h-3.5 w-3.5 text-slate-600" />}
+                        ? <Bell className="h-3.5 w-3.5 text-emerald-700" />
+                        : <BellOff className="h-3.5 w-3.5 text-slate-400" />}
                     </button>
                     <button
                       onClick={() => onEditAlerts(m)}
                       data-testid={`reorder-edit-${m.id}`}
                       title="Edit reorder / urgent levels"
-                      className="text-slate-500 hover:text-orange-400 cursor-pointer"
+                      className="text-slate-500 hover:text-primary-700 cursor-pointer"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
@@ -195,7 +195,7 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
         {shown.length === 0 && (
           <div className="text-center text-sm py-12 px-4">
             {lowRows.length === 0 ? (
-              <div className="text-emerald-400 flex flex-col items-center gap-2">
+              <div className="text-emerald-700 flex flex-col items-center gap-2">
                 <CheckCircle2 className="h-6 w-6" />
                 <span className="font-semibold">Nothing to reorder — all stock is above its reorder level.</span>
                 <span className="text-slate-500 text-xs">Set Reorder / Urgent levels from the Inventory tab (Alerts button).</span>

@@ -30,13 +30,13 @@ export const ExtraUnitsEditor: React.FC<Props> = ({ unit, value, onChange, previ
   const remove = (i: number) => onChange(value.filter((_, k) => k !== i));
   const add = (label = '', u = '') => onChange([...value, { label, unit: u, perUnit: 0 }]);
 
-  const input = 'bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white';
+  const input = 'bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900';
   const preview = previewQty !== undefined && previewQty > 0 ? equivalentsText({ extraUnits: value }, previewQty) : '';
 
   return (
     <div className="space-y-2" data-testid={`${testIdPrefix}-editor`}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
           Extra units — what ONE {mainUnit} contains
         </span>
         <span className="text-[11px] text-slate-500">add:</span>
@@ -46,7 +46,7 @@ export const ExtraUnitsEditor: React.FC<Props> = ({ unit, value, onChange, previ
             type="button"
             onClick={() => add(p.label, p.unit)}
             data-testid={`${testIdPrefix}-add-${p.label.toLowerCase()}`}
-            className="px-2 py-1 text-[11px] font-bold rounded-lg bg-slate-800 hover:bg-slate-700 text-orange-300 border border-slate-700 cursor-pointer"
+            className="px-2 py-1 text-[11px] font-bold rounded-lg bg-slate-100 hover:bg-slate-200 text-primary-700 border border-slate-300 cursor-pointer"
           >
             + {p.label} ({p.unit})
           </button>
@@ -55,7 +55,7 @@ export const ExtraUnitsEditor: React.FC<Props> = ({ unit, value, onChange, previ
           type="button"
           onClick={() => add()}
           data-testid={`${testIdPrefix}-add-custom`}
-          className="px-2 py-1 text-[11px] font-bold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer flex items-center gap-1"
+          className="px-2 py-1 text-[11px] font-bold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer flex items-center gap-1"
         >
           <Plus className="h-3 w-3" /> Other
         </button>
@@ -69,7 +69,7 @@ export const ExtraUnitsEditor: React.FC<Props> = ({ unit, value, onChange, previ
         <div className="space-y-1.5">
           {value.map((u, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2" data-testid={`${testIdPrefix}-row-${i}`}>
-              <span className="text-[11px] text-slate-400">1 {mainUnit} =</span>
+              <span className="text-[11px] text-slate-500">1 {mainUnit} =</span>
               <input
                 type="number"
                 step="any"
@@ -94,7 +94,7 @@ export const ExtraUnitsEditor: React.FC<Props> = ({ unit, value, onChange, previ
                 data-testid={`${testIdPrefix}-label-${i}`}
                 className={`${input} w-32`}
               />
-              <button type="button" onClick={() => remove(i)} title="Remove" className="text-slate-500 hover:text-rose-400 cursor-pointer">
+              <button type="button" onClick={() => remove(i)} title="Remove" className="text-slate-500 hover:text-rose-700 cursor-pointer">
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -103,7 +103,7 @@ export const ExtraUnitsEditor: React.FC<Props> = ({ unit, value, onChange, previ
       )}
 
       {preview && (
-        <p className="text-[11px] text-emerald-400 font-mono" data-testid={`${testIdPrefix}-preview`}>
+        <p className="text-[11px] text-emerald-700 font-mono" data-testid={`${testIdPrefix}-preview`}>
           {previewQty} {mainUnit} = {preview}
         </p>
       )}

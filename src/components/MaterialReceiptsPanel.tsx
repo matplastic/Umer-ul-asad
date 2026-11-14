@@ -19,12 +19,12 @@ const fmtDay = (iso: string) =>
 const dayKey = (iso: string) => (iso || '').slice(0, 10);
 
 const QC_PILL: Record<string, string> = {
-  pending: 'bg-amber-950/40 text-amber-400 border-amber-800',
-  partial: 'bg-sky-950/40 text-sky-400 border-sky-800',
-  passed: 'bg-emerald-950/40 text-emerald-400 border-emerald-800',
-  failed: 'bg-rose-950/40 text-rose-400 border-rose-800',
-  hold: 'bg-slate-800 text-slate-300 border-slate-600',
-  mixed: 'bg-violet-950/40 text-violet-300 border-violet-800',
+  pending: 'bg-amber-50 text-amber-700 border-amber-200',
+  partial: 'bg-sky-50 text-sky-700 border-sky-200',
+  passed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  failed: 'bg-rose-50 text-rose-700 border-rose-200',
+  hold: 'bg-slate-100 text-slate-700 border-slate-300',
+  mixed: 'bg-violet-50 text-violet-700 border-violet-200',
 };
 const QC_LABEL: Record<string, string> = {
   pending: 'Pending QC', partial: 'Partial', passed: 'Passed', failed: 'Rejected', hold: 'On hold', mixed: 'Split',
@@ -82,7 +82,7 @@ export const MaterialReceiptsPanel: React.FC<Props> = ({ material, incoming }) =
     XLSX.writeFile(wb, `Supplier_Receipts_${safe}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const input = 'bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white';
+  const input = 'bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900';
 
   return (
     <div className="overflow-auto flex-1 px-5 pb-4" data-testid="material-receipts">
@@ -95,16 +95,16 @@ export const MaterialReceiptsPanel: React.FC<Props> = ({ material, incoming }) =
           { label: 'Passed QC', value: fmt(totalPassed), sub: material.unit, id: 'passed' },
           { label: 'Last delivery', value: last ? fmtDay(last.receivedAt) : '—', sub: last?.supplier || '', id: 'last' },
         ].map((c) => (
-          <div key={c.label} className="bg-slate-800/60 border border-slate-800 rounded-xl px-3 py-2">
+          <div key={c.label} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
             <div className="text-[10px] uppercase font-bold text-slate-500">{c.label}</div>
-            <div className="font-mono font-black text-base text-white" data-testid={`receipts-sum-${c.id}`}>{c.value}</div>
+            <div className="font-mono font-black text-base text-slate-900" data-testid={`receipts-sum-${c.id}`}>{c.value}</div>
             <div className="text-[10px] text-slate-500 truncate">{c.sub}</div>
           </div>
         ))}
       </div>
 
       {/* per-supplier roll-up — click a row to filter the deliveries below */}
-      <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">By supplier <span className="normal-case font-normal text-slate-600">(click a supplier to filter the deliveries)</span></div>
+      <div className="text-[10px] uppercase font-bold text-slate-500 mb-1">By supplier <span className="normal-case font-normal text-slate-400">(click a supplier to filter the deliveries)</span></div>
       <table className="w-full text-xs mb-5">
         <thead>
           <tr className="text-[10px] uppercase text-slate-500">
@@ -125,17 +125,17 @@ export const MaterialReceiptsPanel: React.FC<Props> = ({ material, incoming }) =
               key={s.key}
               onClick={() => setSupplierKey(supplierKey === s.key ? '' : s.key)}
               data-testid={`supplier-row-${s.key}`}
-              className={`border-t border-slate-800 cursor-pointer ${supplierKey === s.key ? 'bg-orange-950/30' : 'hover:bg-slate-800/40'}`}
+              className={`border-t border-slate-200 cursor-pointer ${supplierKey === s.key ? 'bg-primary-50' : 'hover:bg-slate-50'}`}
             >
-              <td className="py-2 pr-3 text-slate-100 font-semibold">{s.name}</td>
-              <td className="py-2 pr-3 text-right text-slate-300">{s.deliveries}</td>
-              <td className="py-2 pr-3 text-right font-mono text-slate-200">{fmt(s.qtyReceived)} {material.unit}</td>
-              <td className="py-2 pr-3 text-right font-mono text-emerald-400">{fmt(s.qtyPassed)}</td>
-              <td className="py-2 pr-3 text-right font-mono text-rose-400">{s.qtyFailed ? fmt(s.qtyFailed) : '—'}</td>
-              <td className="py-2 pr-3 text-slate-400 whitespace-nowrap">{fmtDay(s.firstAt)}</td>
-              <td className="py-2 pr-3 text-slate-300 whitespace-nowrap">{fmtDay(s.lastAt)}</td>
-              <td className="py-2 pr-3 text-slate-400 font-mono">{[s.lastInvoice, s.lastDo].filter(Boolean).join(' / ') || '—'}</td>
-              <td className={`py-2 text-right ${s.missingDocs ? 'text-amber-400 font-bold' : 'text-slate-600'}`}>{s.missingDocs || '—'}</td>
+              <td className="py-2 pr-3 text-slate-900 font-semibold">{s.name}</td>
+              <td className="py-2 pr-3 text-right text-slate-700">{s.deliveries}</td>
+              <td className="py-2 pr-3 text-right font-mono text-slate-800">{fmt(s.qtyReceived)} {material.unit}</td>
+              <td className="py-2 pr-3 text-right font-mono text-emerald-700">{fmt(s.qtyPassed)}</td>
+              <td className="py-2 pr-3 text-right font-mono text-rose-700">{s.qtyFailed ? fmt(s.qtyFailed) : '—'}</td>
+              <td className="py-2 pr-3 text-slate-500 whitespace-nowrap">{fmtDay(s.firstAt)}</td>
+              <td className="py-2 pr-3 text-slate-700 whitespace-nowrap">{fmtDay(s.lastAt)}</td>
+              <td className="py-2 pr-3 text-slate-500 font-mono">{[s.lastInvoice, s.lastDo].filter(Boolean).join(' / ') || '—'}</td>
+              <td className={`py-2 text-right ${s.missingDocs ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>{s.missingDocs || '—'}</td>
             </tr>
           ))}
           {suppliers.length === 0 && (
@@ -150,7 +150,7 @@ export const MaterialReceiptsPanel: React.FC<Props> = ({ material, incoming }) =
           Deliveries ({visible.length}{visible.length !== receipts.length ? ` of ${receipts.length}` : ''})
         </div>
         {supplierKey && (
-          <button onClick={() => setSupplierKey('')} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-orange-600 text-white cursor-pointer">
+          <button onClick={() => setSupplierKey('')} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-primary-600 text-white cursor-pointer">
             {suppliers.find((s) => s.key === supplierKey)?.name} ✕
           </button>
         )}
@@ -170,7 +170,7 @@ export const MaterialReceiptsPanel: React.FC<Props> = ({ material, incoming }) =
       </div>
 
       <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-slate-900">
+        <thead className="sticky top-0 bg-white">
           <tr className="text-[10px] uppercase text-slate-500">
             <th className="text-left py-2 pr-3">Date</th>
             <th className="text-left py-2 pr-3">Supplier</th>
@@ -189,25 +189,25 @@ export const MaterialReceiptsPanel: React.FC<Props> = ({ material, incoming }) =
             const noDo = !hasDoc(r, 'do');
             const noInv = !hasDoc(r, 'invoice');
             return (
-              <tr key={r.id} className="border-t border-slate-800 hover:bg-slate-800/40 align-top">
-                <td className="py-2 pr-3 text-slate-300 whitespace-nowrap">{fmtDay(r.receivedAt)}</td>
-                <td className="py-2 pr-3 text-slate-100 font-semibold">{r.supplier || <span className="text-slate-600 font-normal">—</span>}</td>
-                <td className="py-2 pr-3 font-mono text-slate-400">{r.batchNo || '—'}</td>
-                <td className="py-2 pr-3 text-right font-mono text-emerald-400 whitespace-nowrap">+{fmt(Number(r.qty || 0))} {r.unit || material.unit}</td>
-                <td className="py-2 pr-3 font-mono text-slate-300">{r.invoiceNo || '—'}</td>
-                <td className="py-2 pr-3 font-mono text-sky-300">{r.doNo || '—'}</td>
+              <tr key={r.id} className="border-t border-slate-200 hover:bg-slate-50 align-top">
+                <td className="py-2 pr-3 text-slate-700 whitespace-nowrap">{fmtDay(r.receivedAt)}</td>
+                <td className="py-2 pr-3 text-slate-900 font-semibold">{r.supplier || <span className="text-slate-400 font-normal">—</span>}</td>
+                <td className="py-2 pr-3 font-mono text-slate-500">{r.batchNo || '—'}</td>
+                <td className="py-2 pr-3 text-right font-mono text-emerald-700 whitespace-nowrap">+{fmt(Number(r.qty || 0))} {r.unit || material.unit}</td>
+                <td className="py-2 pr-3 font-mono text-slate-700">{r.invoiceNo || '—'}</td>
+                <td className="py-2 pr-3 font-mono text-sky-700">{r.doNo || '—'}</td>
                 <td className="py-2 pr-3">
                   <div className="flex flex-wrap gap-1">
                     {(r.attachments || []).map((a) => (
                       <a
                         key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" title={a.name}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-bold text-sky-300"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[10px] font-bold text-sky-700"
                       >
                         <FileText className="h-3 w-3" /> {KIND_LABEL[a.kind]} <ExternalLink className="h-2.5 w-2.5 opacity-60" />
                       </a>
                     ))}
-                    {noDo && <span className="px-1.5 py-0.5 rounded-md text-[10px] text-amber-400 bg-amber-950/30 border border-amber-900">no DO</span>}
-                    {noInv && <span className="px-1.5 py-0.5 rounded-md text-[10px] text-amber-400 bg-amber-950/30 border border-amber-900">no invoice</span>}
+                    {noDo && <span className="px-1.5 py-0.5 rounded-md text-[10px] text-amber-700 bg-amber-50 border border-amber-200">no DO</span>}
+                    {noInv && <span className="px-1.5 py-0.5 rounded-md text-[10px] text-amber-700 bg-amber-50 border border-amber-200">no invoice</span>}
                   </div>
                 </td>
                 <td className="py-2 pr-3">
@@ -215,8 +215,8 @@ export const MaterialReceiptsPanel: React.FC<Props> = ({ material, incoming }) =
                     {QC_LABEL[r.qcStatus || 'pending'] || r.qcStatus}
                   </span>
                 </td>
-                <td className="py-2 pr-3 text-slate-400">{r.receivedByName || '—'}</td>
-                <td className="py-2 text-slate-400 max-w-[220px] break-words">{r.notes || ''}</td>
+                <td className="py-2 pr-3 text-slate-500">{r.receivedByName || '—'}</td>
+                <td className="py-2 text-slate-500 max-w-[220px] break-words">{r.notes || ''}</td>
               </tr>
             );
           })}
@@ -225,7 +225,7 @@ export const MaterialReceiptsPanel: React.FC<Props> = ({ material, incoming }) =
           )}
         </tbody>
       </table>
-      <p className="text-[10px] text-slate-600 mt-4">
+      <p className="text-[10px] text-slate-400 mt-4">
         Every goods receipt logged under Incoming for this material. "Supplier DO #" is the delivery note that came with the
         supplier's truck; it is separate from the DO numbers on the Stock Ledger tab, which are raised when material is handed to the floor.
         Add or replace files from the Incoming tab.

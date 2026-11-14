@@ -4634,18 +4634,18 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 ) : (
                   // Employee of the Year presidential certificate suite
                   <div className="space-y-4 pt-1 flex-1 flex flex-col justify-between">
-                    <div className="bg-slate-900 border-2 border-amber-400/80 p-5 rounded-2xl text-slate-100 relative shadow-md overflow-hidden space-y-4">
+                    <div className="bg-white border-2 border-amber-400/80 p-5 rounded-2xl text-slate-900 relative shadow-md overflow-hidden space-y-4">
                       
                       {/* Technical certificate backdrop watermark */}
                       <div className="absolute -right-10 -bottom-10 opacity-10 pointer-events-none">
-                        <Trophy className="h-44 w-44 text-amber-400" />
+                        <Trophy className="h-44 w-44 text-amber-700" />
                       </div>
 
                       <div className="text-center space-y-1">
-                        <span className="text-[9px] font-mono font-black text-amber-400 tracking-widest uppercase block animate-pulse">
+                        <span className="text-[9px] font-mono font-black text-amber-700 tracking-widest uppercase block animate-pulse">
                           MAT PLASTIC INDUSTRIES LLC
                         </span>
-                        <h4 className="text-xs font-serif font-extrabold tracking-wide text-slate-300 uppercase">
+                        <h4 className="text-xs font-serif font-extrabold tracking-wide text-slate-700 uppercase">
                           Employee of the Year Nomination
                         </h4>
                         <div className="h-0.5 w-16 bg-gradient-to-r from-transparent via-amber-400 to-transparent mx-auto mt-1" />
@@ -4653,7 +4653,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                       {/* Registration of nominee select box */}
                       <div className="space-y-1 relative z-10">
-                        <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block">
+                        <label className="text-[9.5px] font-black text-slate-500 uppercase tracking-wider block">
                           Select Employee Profile
                         </label>
                         <select
@@ -4667,10 +4667,10 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                               setNominationCitation(`For outstanding leadership in the ${emp.department} department. Exhibited 100% adherence to safety regulations and engineered stellar zero-margin finish quality.`);
                             }
                           }}
-                          className="w-full bg-slate-800 border-slate-700 border text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
+                          className="w-full bg-slate-100 border-slate-300 border text-slate-800 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
                         >
                           {employees.map(emp => (
-                            <option key={emp.id} value={emp.id} className="bg-slate-800 text-slate-200">
+                            <option key={emp.id} value={emp.id} className="bg-white text-slate-800">
                               {emp.name} ({emp.department} — {emp.role || 'Operator'})
                             </option>
                           ))}
@@ -4679,7 +4679,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                       {/* Citation input block */}
                       <div className="space-y-1 relative z-10">
-                        <label className="text-[9.5px] font-black text-slate-400 uppercase tracking-wider block">
+                        <label className="text-[9.5px] font-black text-slate-500 uppercase tracking-wider block">
                           Achievement Nomination Citation
                         </label>
                         <textarea
@@ -4689,7 +4689,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             setNominationCitation(e.target.value);
                             setIsAwardConferred(false);
                           }}
-                          className="w-full bg-slate-800 border-slate-700 border text-slate-200 text-[10.5px] leading-relaxed rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                          className="w-full bg-slate-100 border-slate-300 border text-slate-800 text-[10.5px] leading-relaxed rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
                           placeholder="State the technical achievement or citation details..."
                         />
                       </div>
@@ -4700,14 +4700,14 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         if (!activeEmp) return null;
 
                         return (
-                          <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60 flex items-center gap-3 relative z-10">
-                            <div className="h-9 w-9 rounded-full bg-amber-500/25 border border-amber-400/55 flex items-center justify-center font-mono font-black text-amber-300 text-xs shadow-xs">
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-300 flex items-center gap-3 relative z-10">
+                            <div className="h-9 w-9 rounded-full bg-amber-500/25 border border-amber-400/55 flex items-center justify-center font-mono font-black text-amber-700 text-xs shadow-xs">
                               {activeEmp.name.split(' ').map(n=>n[0]).join('').slice(0, 2).toUpperCase()}
                             </div>
                             <div className="space-y-0.5 text-xs truncate">
-                              <p className="font-extrabold text-slate-100">{activeEmp.name}</p>
-                              <p className="text-[10px] text-amber-400 font-bold">{activeEmp.role || 'Senior Specialist'}</p>
-                              <p className="text-[9.5px] text-slate-400 truncate">{activeEmp.department} Office</p>
+                              <p className="font-extrabold text-slate-900">{activeEmp.name}</p>
+                              <p className="text-[10px] text-amber-700 font-bold">{activeEmp.role || 'Senior Specialist'}</p>
+                              <p className="text-[9.5px] text-slate-500 truncate">{activeEmp.department} Office</p>
                             </div>
                           </div>
                         );
@@ -5097,7 +5097,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                           <div className="flex justify-between items-center text-[11px]">
                             <span className="flex items-center gap-1">
                               <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded ${
-                                isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
+                                isSelected ? 'bg-primary-700 text-white' : 'bg-slate-100 text-slate-500'
                               }`}>
                                 {pool.poolNo}
                               </span>
@@ -7290,7 +7290,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       >
                         <span className="flex items-center gap-1.5 min-w-0">
                           <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
-                            isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
+                            isSelected ? 'bg-primary-700 text-white' : 'bg-slate-100 text-slate-500'
                           }`}>
                             {pool.poolNo}
                           </span>
@@ -7463,7 +7463,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       >
                         <span className="flex items-center gap-1.5 min-w-0">
                           <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
-                            isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
+                            isSelected ? 'bg-primary-700 text-white' : 'bg-slate-100 text-slate-500'
                           }`}>
                             {pool.poolNo}
                           </span>
@@ -8866,7 +8866,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                         window.location.reload();
                       }
                     }}
-                    className="mt-2 w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-lg transition-all cursor-pointer text-xs"
+                    className="mt-2 w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 font-bold rounded-lg transition-all cursor-pointer text-xs"
                   >
                     Re-Seed Initial Demonstration State
                   </button>
@@ -9255,7 +9255,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       <div className="fixed bottom-5 right-5 z-40">
         {mgmtAiOpen ? (
           <div className="w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden" style={{ maxHeight: '70vh' }}>
-            <div className="flex items-center justify-between px-4 py-3 bg-slate-900 text-white">
+            <div className="flex items-center justify-between px-4 py-3 bg-primary-700 text-white">
               <span className="text-sm font-bold">Ask AI — Management</span>
               <button onClick={() => setMgmtAiOpen(false)} className="cursor-pointer text-slate-300 hover:text-white">
                 <XCircle className="h-5 w-5" />
@@ -9321,7 +9321,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   onClick={mgmtAiVoice.toggle}
                   disabled={mgmtAiLoading}
                   title={mgmtAiVoice.isListening ? 'Stop listening' : 'Speak a command'}
-                  className={`cursor-pointer text-white text-xs font-bold px-3 rounded-lg disabled:opacity-40 ${mgmtAiVoice.isListening ? 'bg-rose-600 hover:bg-rose-700 animate-pulse' : 'bg-slate-700 hover:bg-slate-800'}`}
+                  className={`cursor-pointer text-white text-xs font-bold px-3 rounded-lg disabled:opacity-40 ${mgmtAiVoice.isListening ? 'bg-rose-600 hover:bg-rose-700 animate-pulse' : 'bg-primary-600 hover:bg-primary-700'}`}
                 >
                   {mgmtAiVoice.isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
                 </button>

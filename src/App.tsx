@@ -4010,19 +4010,19 @@ export default function App() {
       )}
 
       {/* Simulation Helper banner */}
-      <div className="bg-slate-900 border-b border-slate-800 py-2.5 px-4 text-[11px] text-slate-350">
+      <div className="bg-white border-b border-slate-200 py-2.5 px-4 text-[11px] text-slate-700">
         <div className="max-w-none mx-auto flex flex-col md:flex-row md:items-center justify-between gap-1.5">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="px-2 py-0.5 bg-cyan-900/30 text-cyan-400 border border-cyan-800 rounded font-bold font-mono text-[10px]">
+            <span className="px-2 py-0.5 bg-cyan-50 text-cyan-700 border border-cyan-200 rounded font-bold font-mono text-[10px]">
               ROLEPLAY SIMULATOR MODE
             </span>
             
             {/* Cloud SQL/Firestore Sync Status Badge */}
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/60 border border-slate-700/80 font-mono text-[10px]">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-50 border border-slate-300 font-mono text-[10px]">
               {firebaseStatus === 'linking' && (
                 <>
-                  <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" />
-                  <span className="text-amber-300">
+                  <RefreshCw className="h-3 w-3 text-amber-700 animate-spin" />
+                  <span className="text-amber-700">
                     {((import.meta as any).env?.VITE_API_URL) ? 'Cloud SQL Connecting...' : 'Firestore Connecting...'}
                   </span>
                 </>
@@ -4033,15 +4033,15 @@ export default function App() {
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  <span className="text-emerald-400 font-bold">
+                  <span className="text-emerald-700 font-bold">
                     {((import.meta as any).env?.VITE_API_URL) ? 'Cloud SQL Synced' : 'Firestore Live Connection'}
                   </span>
                 </>
               )}
               {firebaseStatus === 'error' && (
                 <>
-                  <WifiOff className="h-3 w-3 text-rose-400 shrink-0" />
-                  <span className="text-rose-400 font-bold" title={firebaseError || 'Cloud SQL limited access mode'}>
+                  <WifiOff className="h-3 w-3 text-rose-700 shrink-0" />
+                  <span className="text-rose-700 font-bold" title={firebaseError || 'Cloud SQL limited access mode'}>
                     Local Mode (Backup Only)
                   </span>
                 </>
@@ -4054,17 +4054,17 @@ export default function App() {
                 retry never silently looks identical to a fully-synced one. */}
             {pendingWriteCount > 0 && (
               <div
-                className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/60 border border-amber-700/80 font-mono text-[10px]"
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-50 border border-amber-300 font-mono text-[10px]"
                 title="Saved on this device. Retrying automatically until the signal is strong enough to reach the cloud."
               >
-                <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" />
-                <span className="text-amber-300 font-bold">
+                <RefreshCw className="h-3 w-3 text-amber-700 animate-spin" />
+                <span className="text-amber-700 font-bold">
                   {pendingWriteCount} change{pendingWriteCount > 1 ? 's' : ''} syncing...
                 </span>
               </div>
             )}
 
-            <span className="text-slate-400 hidden xl:inline">
+            <span className="text-slate-500 hidden xl:inline">
               | Switch roles using the portal buttons to test the cross-functional pipeline in real-time.
             </span>
           </div>
@@ -4225,7 +4225,7 @@ export default function App() {
           ) : (
             <div className="min-h-[70vh] flex items-center justify-center px-4">
               <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-100 shadow-sm p-6 text-center">
-                <div className="h-12 w-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto mb-3 font-black text-lg">
+                <div className="h-12 w-12 rounded-2xl bg-primary-600 text-white flex items-center justify-center mx-auto mb-3 font-black text-lg">
                   #
                 </div>
                 <h3 className="text-sm font-black text-slate-800">Enter Your Team Code</h3>
@@ -4247,7 +4247,7 @@ export default function App() {
                 )}
                 <button
                   onClick={handleTeamCodeSubmit}
-                  className="w-full mt-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl cursor-pointer"
+                  className="w-full mt-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white font-bold text-xs rounded-xl cursor-pointer"
                 >
                   Check In
                 </button>
@@ -4417,7 +4417,7 @@ export default function App() {
           ) : (
             <div className="min-h-[70vh] flex items-center justify-center px-4">
               <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-100 shadow-sm p-6 text-center">
-                <div className="h-12 w-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto mb-3 font-black text-lg">
+                <div className="h-12 w-12 rounded-2xl bg-primary-600 text-white flex items-center justify-center mx-auto mb-3 font-black text-lg">
                   #
                 </div>
                 <h3 className="text-sm font-black text-slate-800">Enter Your Code</h3>
@@ -4440,7 +4440,7 @@ export default function App() {
                 <button
                   onClick={handleSupervisorCodeSubmit}
                   disabled={supervisorCodeChecking}
-                  className="w-full mt-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs rounded-xl cursor-pointer"
+                  className="w-full mt-4 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white font-bold text-xs rounded-xl cursor-pointer"
                 >
                   {supervisorCodeChecking ? 'Checking…' : 'Continue'}
                 </button>
@@ -4531,8 +4531,8 @@ export default function App() {
 
       {/* Dynamic Iframe-Safe Custom Unlock PIN Modal Overlay */}
       {isUnlockModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-800 text-slate-100 w-full max-w-sm rounded-2xl shadow-2xl p-6 relative overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white border border-slate-200 text-slate-800 w-full max-w-sm rounded-2xl shadow-2xl p-6 relative overflow-hidden">
             {/* Header decor bar */}
             <div className="absolute top-0 left-0 right-0 h-1.5 bg-amber-500" />
             
@@ -4540,10 +4540,10 @@ export default function App() {
               <div className="inline-flex p-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-full mb-1">
                 <ShieldAlert className="h-6 w-6 animate-pulse" />
               </div>
-              <h3 className="text-lg font-black tracking-tight text-white uppercase">
+              <h3 className="text-lg font-black tracking-tight text-slate-900 uppercase">
                 Authorize Terminal Unlock
               </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <p className="text-xs text-slate-500 leading-relaxed">
                 To exit workstation-locked mode and restore full site-wide management permissions, input your Security PIN block.
               </p>
             </div>
@@ -4564,11 +4564,11 @@ export default function App() {
                     setUnlockError(null);
                     setUnlockPinInput(e.target.value.replace(/\D/g, ''));
                   }}
-                  className="w-full text-center bg-slate-950 border border-slate-800 text-2xl font-black font-mono tracking-[0.5em] text-cyan-400 placeholder:text-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  className="w-full text-center bg-slate-50 border border-slate-200 text-2xl font-black font-mono tracking-[0.5em] text-cyan-700 placeholder:text-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 />
                 
                 {unlockError && (
-                  <p className="text-xs text-rose-400 font-bold text-center bg-rose-950/20 py-1.5 px-2 rounded-lg border border-rose-900/40 animate-pulse">
+                  <p className="text-xs text-rose-700 font-bold text-center bg-rose-50 py-1.5 px-2 rounded-lg border border-rose-200 animate-pulse">
                     ⚠️ {unlockError}
                   </p>
                 )}
@@ -4586,7 +4586,7 @@ export default function App() {
                         setUnlockPinInput(prev => prev + num);
                       }
                     }}
-                    className="py-2.5 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/40 text-sm font-black rounded-lg cursor-pointer transition-all active:scale-95"
+                    className="py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-sm font-black rounded-lg cursor-pointer transition-all active:scale-95"
                   >
                     {num}
                   </button>
@@ -4597,7 +4597,7 @@ export default function App() {
                     setUnlockError(null);
                     setUnlockPinInput('');
                   }}
-                  className="py-2.5 bg-slate-800/20 hover:bg-slate-800/45 text-xs text-slate-400 font-bold rounded-lg cursor-pointer transition-all"
+                  className="py-2.5 bg-slate-50 hover:bg-slate-50 text-xs text-slate-500 font-bold rounded-lg cursor-pointer transition-all"
                 >
                   Clear
                 </button>
@@ -4609,7 +4609,7 @@ export default function App() {
                       setUnlockPinInput(prev => prev + '0');
                     }
                   }}
-                  className="py-2.5 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/40 text-sm font-black rounded-lg cursor-pointer transition-all active:scale-95"
+                  className="py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 text-sm font-black rounded-lg cursor-pointer transition-all active:scale-95"
                 >
                   0
                 </button>
@@ -4619,7 +4619,7 @@ export default function App() {
                     setUnlockError(null);
                     setUnlockPinInput(prev => prev.slice(0, -1));
                   }}
-                  className="py-2.5 bg-slate-800/20 hover:bg-slate-800/45 text-xs text-slate-400 font-bold rounded-lg cursor-pointer transition-all"
+                  className="py-2.5 bg-slate-50 hover:bg-slate-50 text-xs text-slate-500 font-bold rounded-lg cursor-pointer transition-all"
                 >
                   Delete
                 </button>
@@ -4640,23 +4640,23 @@ export default function App() {
                     setUnlockPinInput('');
                     setUnlockError(null);
                   }}
-                  className="w-full bg-slate-800/40 hover:bg-slate-800 text-slate-300 font-bold text-xs py-2 rounded-lg cursor-pointer transition-all"
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs py-2 rounded-lg cursor-pointer transition-all"
                 >
                   Cancel
                 </button>
               </div>
 
               {/* Non-brick Safety Emergency Bypass Section */}
-              <div className="pt-3 border-t border-slate-800 text-center space-y-1.5">
+              <div className="pt-3 border-t border-slate-200 text-center space-y-1.5">
                 <p className="text-[10px] text-slate-500">
-                  Forgot PIN? Default setup code is <span className="text-slate-300 font-mono font-bold">1234</span>
+                  Forgot PIN? Default setup code is <span className="text-slate-700 font-mono font-bold">1234</span>
                 </p>
                 <button
                   type="button"
                   onClick={() => {
                     handleEmergencyUnlock();
                   }}
-                  className="text-[10px] text-amber-500/80 hover:text-amber-400 underline cursor-pointer font-bold transition-all block mx-auto"
+                  className="text-[10px] text-amber-500/80 hover:text-amber-700 underline cursor-pointer font-bold transition-all block mx-auto"
                 >
                   Emergency Bypass (Forced Unlock)
                 </button>
@@ -4669,42 +4669,42 @@ export default function App() {
 
       {/* Google Auth Global Status Overlay / Toast */}
       {authNotification && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl relative text-slate-100 space-y-4">
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-md w-full shadow-2xl relative text-slate-800 space-y-4">
             <button 
               onClick={() => setAuthNotification(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-100 cursor-pointer p-1 rounded-full hover:bg-slate-800 transition-all"
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-900 cursor-pointer p-1 rounded-full hover:bg-slate-100 transition-all"
             >
               <X className="h-4 w-4" />
             </button>
             
             <div className="flex items-start gap-4">
               {authNotification.type === 'success' ? (
-                <div className="p-2.5 bg-emerald-500/10 rounded-xl text-emerald-400 shrink-0">
+                <div className="p-2.5 bg-emerald-500/10 rounded-xl text-emerald-700 shrink-0">
                   <CheckCircle2 className="h-6 w-6" />
                 </div>
               ) : authNotification.type === 'error' ? (
-                <div className="p-2.5 bg-amber-500/10 rounded-xl text-amber-400 shrink-0">
+                <div className="p-2.5 bg-amber-500/10 rounded-xl text-amber-700 shrink-0">
                   <AlertCircle className="h-6 w-6" />
                 </div>
               ) : (
-                <div className="p-2.5 bg-blue-500/10 rounded-xl text-blue-400 shrink-0">
+                <div className="p-2.5 bg-blue-500/10 rounded-xl text-blue-700 shrink-0">
                   <Info className="h-6 w-6" />
                 </div>
               )}
               
               <div className="space-y-1 flex-1">
-                <h3 className="text-sm font-black text-white tracking-tight uppercase">
+                <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">
                   {authNotification.title}
                 </h3>
-                <p className="text-xs text-slate-300 leading-relaxed font-sans font-medium">
+                <p className="text-xs text-slate-700 leading-relaxed font-sans font-medium">
                   {authNotification.message}
                 </p>
               </div>
             </div>
             
             {authNotification.isAuthError ? (
-              <div className="pt-3 border-t border-slate-800 space-y-2">
+              <div className="pt-3 border-t border-slate-200 space-y-2">
                 <button
                   onClick={() => {
                     setAuthNotification(null);
@@ -4718,7 +4718,7 @@ export default function App() {
                   onClick={() => {
                     window.open(window.location.href, '_blank');
                   }}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer transition-all uppercase tracking-wider font-mono shadow-sm flex items-center justify-center gap-1.5"
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold text-xs py-2.5 rounded-xl cursor-pointer transition-all uppercase tracking-wider font-mono shadow-sm flex items-center justify-center gap-1.5"
                 >
                   <Info className="h-3.5 w-3.5" /> Open App in New Tab (Prevents Blocks)
                 </button>
@@ -4727,13 +4727,13 @@ export default function App() {
                     setAuthNotification(null);
                     handleGoogleSignIn();
                   }}
-                  className="w-full bg-slate-800/50 hover:bg-slate-800 text-slate-300 font-bold text-xs py-2 rounded-xl cursor-pointer transition-all uppercase tracking-normal"
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs py-2 rounded-xl cursor-pointer transition-all uppercase tracking-normal"
                 >
                   Retry Original popup
                 </button>
                 <button
                   onClick={() => setAuthNotification(null)}
-                  className="w-full text-slate-500 hover:text-slate-400 font-bold text-[11px] pt-1"
+                  className="w-full text-slate-500 hover:text-slate-500 font-bold text-[11px] pt-1"
                 >
                   Cancel
                 </button>
@@ -4742,7 +4742,7 @@ export default function App() {
               <div className="pt-2">
                 <button
                   onClick={() => setAuthNotification(null)}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl cursor-pointer transition-all uppercase tracking-wider font-mono shadow-sm"
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold text-xs py-2.5 rounded-xl cursor-pointer transition-all uppercase tracking-wider font-mono shadow-sm"
                 >
                   Acknowledge
                 </button>

@@ -41,7 +41,7 @@ export function ScrollButtons() {
         data-testid="scroll-to-top-btn"
         title="Page Up (scroll to top)"
         aria-label="Scroll to top"
-        className="h-11 w-11 rounded-full bg-slate-900/90 hover:bg-cyan-600 border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-white shadow-lg shadow-black/40 flex items-center justify-center cursor-pointer transition-colors backdrop-blur"
+        className="h-11 w-11 rounded-full bg-white/95 hover:bg-primary-600 border border-slate-200 hover:border-primary-600 text-slate-500 hover:text-white shadow-lg shadow-slate-900/10 flex items-center justify-center cursor-pointer transition-colors backdrop-blur"
       >
         <ChevronUp className="h-5 w-5" />
       </button>
@@ -51,7 +51,7 @@ export function ScrollButtons() {
         data-testid="scroll-to-bottom-btn"
         title="Page Down (scroll to bottom)"
         aria-label="Scroll to bottom"
-        className="h-11 w-11 rounded-full bg-slate-900/90 hover:bg-cyan-600 border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-white shadow-lg shadow-black/40 flex items-center justify-center cursor-pointer transition-colors backdrop-blur"
+        className="h-11 w-11 rounded-full bg-white/95 hover:bg-primary-600 border border-slate-200 hover:border-primary-600 text-slate-500 hover:text-white shadow-lg shadow-slate-900/10 flex items-center justify-center cursor-pointer transition-colors backdrop-blur"
       >
         <ChevronDown className="h-5 w-5" />
       </button>

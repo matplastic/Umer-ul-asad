@@ -81,13 +81,13 @@ export const RejectionLogView: React.FC<RejectionLogViewProps> = ({ pools, teams
             <div className="flex rounded-xl border border-slate-200 overflow-hidden">
               <button
                 onClick={() => setRejectionFilterMode('day')}
-                className={`text-xs font-bold px-3 py-2 cursor-pointer ${rejectionFilterMode === 'day' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                className={`text-xs font-bold px-3 py-2 cursor-pointer ${rejectionFilterMode === 'day' ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
               >
                 Single Day
               </button>
               <button
                 onClick={() => setRejectionFilterMode('range')}
-                className={`text-xs font-bold px-3 py-2 cursor-pointer ${rejectionFilterMode === 'range' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                className={`text-xs font-bold px-3 py-2 cursor-pointer ${rejectionFilterMode === 'range' ? 'bg-primary-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
               >
                 Date Range
               </button>
@@ -137,17 +137,17 @@ export const RejectionLogView: React.FC<RejectionLogViewProps> = ({ pools, teams
       </div>
 
       {/* Summary strip */}
-      <div className="bg-slate-900 text-white rounded-2xl p-5 flex items-center justify-between flex-wrap gap-4">
+      <div className="bg-white text-slate-900 rounded-2xl p-5 border border-slate-200 shadow-[var(--shadow-elevation-1)] flex items-center justify-between flex-wrap gap-4">
         <div>
-          <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+          <p className="text-xs font-semibold text-slate-500">
             {rejectionFilterMode === 'day'
               ? new Date(rejectionFilterDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
               : `${rejectionFromDate} to ${rejectionToDate}`}
           </p>
           <p className="text-2xl font-extrabold mt-1">{rejectionTotal} pool rejection{rejectionTotal === 1 ? '' : 's'}</p>
-          {rejectionLoading && <p className="text-[11px] text-slate-400 mt-1">Loading full history…</p>}
+          {rejectionLoading && <p className="text-[11px] text-slate-500 mt-1">Loading full history…</p>}
           {!rejectionLoading && rejectionRecordCount > 0 && (
-            <p className="text-[11px] text-amber-300 mt-1 max-w-md">
+            <p className="text-[11px] text-amber-600 mt-1 max-w-md">
               {rejectionRecordCount} of these come from older stage records (no detailed log kept) — they show the last inspection date and note only.
             </p>
           )}
@@ -156,7 +156,7 @@ export const RejectionLogView: React.FC<RejectionLogViewProps> = ({ pools, teams
           {rejectionsByStage.map(s => (
             <div key={s.stage.id} className="text-center px-3">
               <span className="block text-lg font-bold">{s.count}</span>
-              <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wide">{s.stage.name}</span>
+              <span className="text-[11px] text-slate-500 font-medium">{s.stage.name}</span>
             </div>
           ))}
         </div>

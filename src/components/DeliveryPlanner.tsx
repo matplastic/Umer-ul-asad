@@ -599,12 +599,12 @@ export const DeliveryPlanner: React.FC<DeliveryPlannerProps> = ({ pools, onUpdat
                   key={pool.id}
                   onClick={() => loadPool(pool)}
                   className={`w-full text-left p-2.5 rounded-xl border cursor-pointer flex items-center justify-between gap-2 transition-colors ${
-                    isSelected ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-100 hover:bg-slate-50'
+                    isSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-slate-100 hover:bg-slate-50'
                   }`}
                 >
                   <span className="flex items-center gap-1.5 min-w-0">
                     <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
-                      isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
+                      isSelected ? 'bg-primary-700 text-white' : 'bg-slate-100 text-slate-500'
                     }`}>
                       {pool.poolNo}
                     </span>

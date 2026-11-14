@@ -98,24 +98,24 @@ export const PoolRegisterView: React.FC<PoolRegisterViewProps> = ({ pools, teams
                     onClick={() => setSelectedPoolId(pool.id)}
                     className={`w-full text-left p-3 rounded-xl border cursor-pointer block transition-all ${
                       isSelected
-                        ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+                        ? 'border-primary-600 bg-primary-600 text-white shadow-md'
                         : 'border-slate-100 hover:border-slate-205 hover:bg-slate-50'
                     }`}
                   >
                     <div className="flex justify-between items-center text-[11px]">
                       <span className="flex items-center gap-1">
                         <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded ${
-                          isSelected ? 'bg-slate-800 text-teal-400' : 'bg-slate-100 text-slate-500'
+                          isSelected ? 'bg-primary-700 text-white' : 'bg-slate-100 text-slate-500'
                         }`}>
                           {pool.poolNo}
                         </span>
                         <span className={`text-[9px] font-bold px-1 py-0.2 rounded uppercase ${
-                          isSelected ? 'bg-slate-700 text-teal-300' : 'bg-indigo-50 text-indigo-700'
+                          isSelected ? 'bg-primary-700 text-white' : 'bg-indigo-50 text-indigo-700'
                         }`}>
                           {pool.poolType || 'Type 3'}
                         </span>
                       </span>
-                      <span className={`text-[9.5px] font-bold ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
+                      <span className={`text-[9.5px] font-bold ${isSelected ? 'text-teal-100' : 'text-slate-500'}`}>
                         {currentStage ? currentStage.name : 'Completed & Dispatched'}
                       </span>
                     </div>

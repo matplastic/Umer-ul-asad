@@ -976,13 +976,13 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
             }
           `}} />
 
-          <div className="bg-slate-900 border border-slate-755 border-slate-700 p-5 rounded-2xl max-w-3xl w-full flex flex-col max-h-[90vh] shadow-2xl relative animate-in fade-in zoom-in-95 duration-200 text-left">
+          <div className="bg-white border border-slate-300 p-5 rounded-2xl max-w-3xl w-full flex flex-col max-h-[90vh] shadow-2xl relative animate-in fade-in zoom-in-95 duration-200 text-left">
             
             {/* Banner buttons (Hidden in Print) */}
-            <div className="no-print flex items-center justify-between border-b border-slate-800 pb-3 mb-4 shrink-0">
+            <div className="no-print flex items-center justify-between border-b border-slate-200 pb-3 mb-4 shrink-0">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
-                <span className="text-xs font-bold font-mono tracking-widest uppercase text-slate-400">Print Preview Slip</span>
+                <span className="text-xs font-bold font-mono tracking-widest uppercase text-slate-500">Print Preview Slip</span>
               </div>
               <div className="flex flex-wrap gap-2 items-center">
                 {googleUser ? (
@@ -992,12 +992,12 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                     onClick={() => handleUploadTravelerToDrive(printPool)}
                     className={`px-3 py-2 border rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
                       driveUploading === 'uploading'
-                        ? 'bg-slate-800 text-slate-400 border-slate-700'
+                        ? 'bg-slate-100 text-slate-500 border-slate-300'
                         : driveUploading === 'success'
-                        ? 'bg-emerald-900/40 text-emerald-400 border-emerald-500/40'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-500/40'
                         : driveUploading === 'error'
-                        ? 'bg-rose-950/40 text-rose-450 border-rose-800'
-                        : 'bg-slate-800 hover:bg-slate-750 text-cyan-400 border-slate-705 border-slate-700 hover:border-cyan-500/40'
+                        ? 'bg-rose-50 text-rose-450 border-rose-200'
+                        : 'bg-slate-100 hover:bg-slate-200 text-cyan-700 border-slate-300 hover:border-cyan-500/40'
                     }`}
                   >
                     {driveUploading === 'uploading' ? (
@@ -1007,14 +1007,14 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       </>
                     ) : driveUploading === 'success' ? (
                       <>
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />
                         <span>Sent to Drive Folder!</span>
                       </>
                     ) : driveUploading === 'error' ? (
                       <span>Failed (Retry)</span>
                     ) : (
                       <>
-                        <Cloud className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+                        <Cloud className="h-3.5 w-3.5 text-cyan-700 shrink-0" />
                         <span>Store in Google Drive</span>
                       </>
                     )}
@@ -1023,10 +1023,10 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                   <button
                     type="button"
                     onClick={onGoogleSignIn}
-                    className="px-3 py-2 bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-350 hover:text-white rounded-lg text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-100 border border-slate-300 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-mono font-bold transition-all flex items-center gap-1.5 cursor-pointer"
                     title="Connect Google Drive to direct-store Travelers"
                   >
-                    <Cloud className="h-3.5 w-3.5 text-cyan-400" />
+                    <Cloud className="h-3.5 w-3.5 text-cyan-700" />
                     <span>Connect Drive</span>
                   </button>
                 )}
@@ -1038,7 +1038,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                       window.print();
                     }, 50);
                   }}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-900/30 font-mono"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-200 font-mono"
                 >
                   <Printer className="h-4 w-4" />
                   <span>Browser Print</span>
@@ -1050,7 +1050,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                     setPrintPool(null);
                     setDriveUploading('idle');
                   }}
-                  className="p-2 bg-slate-850 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors border border-slate-750 border-slate-705 cursor-pointer"
+                  className="p-2 bg-slate-100 hover:bg-slate-100 text-slate-500 hover:text-slate-900 rounded-lg transition-colors border border-slate-300 cursor-pointer"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -1069,7 +1069,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                     <div className="space-y-1">
                       <span className="text-[10px] font-black tracking-widest uppercase text-slate-500 block">SHOP PRODUCTION TRAVEL CARD</span>
                       <h3 className="text-lg font-black tracking-tight text-slate-900">MAT PLASTIC PRODUCTS</h3>
-                      <span className="text-[9px] text-slate-400 block font-bold leading-none tracking-widest">Composite Pool Fabrication System</span>
+                      <span className="text-[9px] text-slate-500 block font-bold leading-none tracking-widest">Composite Pool Fabrication System</span>
                     </div>
 
                     {/* monospaced beautiful Barcode */}
@@ -1088,7 +1088,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         <span className="w-1 bg-black shrink-0 mr-[2px]" />
                         <span className="w-2 bg-black shrink-0" />
                       </div>
-                      <span className="text-[10px] font-bold text-slate-600 mt-1 uppercase tracking-widest">{printPool.poolNo}</span>
+                      <span className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{printPool.poolNo}</span>
                     </div>
                   </div>
 
@@ -1096,29 +1096,29 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                   <div className="py-6 border-b-2 border-slate-300 grid grid-cols-2 gap-4 text-xs">
                     <div className="space-y-1.5">
                       <p className="flex justify-between border-b pb-1 pr-4">
-                        <span className="text-slate-400 uppercase font-bold tracking-wider text-[10px]">Project:</span>
+                        <span className="text-slate-500 uppercase font-bold tracking-wider text-[10px]">Project:</span>
                         <strong className="text-slate-900 font-bold max-w-[150px] break-all truncate">{printPool.projectName}</strong>
                       </p>
                       <p className="flex justify-between border-b pb-1 pr-4">
-                        <span className="text-slate-400 uppercase font-bold tracking-wider text-[10px]">Component ID:</span>
+                        <span className="text-slate-500 uppercase font-bold tracking-wider text-[10px]">Component ID:</span>
                         <strong className="text-slate-900 font-bold">{printPool.poolNo}</strong>
                       </p>
                       <p className="flex justify-between border-b pb-1 pr-4">
-                        <span className="text-slate-400 uppercase font-bold tracking-wider text-[10px]">Matrix Date:</span>
+                        <span className="text-slate-500 uppercase font-bold tracking-wider text-[10px]">Matrix Date:</span>
                         <strong className="text-slate-905 text-slate-900 font-bold">{new Date(printPool.createdAt).toLocaleDateString()}</strong>
                       </p>
                     </div>
                     <div className="space-y-1.5">
                       <p className="flex justify-between border-b pb-1 pr-4">
-                        <span className="text-slate-400 uppercase font-bold tracking-wider text-[10px]">Shape Matrix:</span>
+                        <span className="text-slate-500 uppercase font-bold tracking-wider text-[10px]">Shape Matrix:</span>
                         <strong className="text-slate-900 font-bold">{printPool.shape}</strong>
                       </p>
                       <p className="flex justify-between border-b pb-1 pr-4">
-                        <span className="text-slate-400 uppercase font-bold tracking-wider text-[10px]">Dimensions:</span>
+                        <span className="text-slate-500 uppercase font-bold tracking-wider text-[10px]">Dimensions:</span>
                         <strong className="text-slate-900 font-bold">{printPool.dimensions}</strong>
                       </p>
                       <p className="flex justify-between border-b pb-1 pr-4">
-                        <span className="text-slate-400 uppercase font-bold tracking-wider text-[10px]">Orientation:</span>
+                        <span className="text-slate-500 uppercase font-bold tracking-wider text-[10px]">Orientation:</span>
                         <strong className="text-slate-900 font-bold">{printPool.orientation} orientation</strong>
                       </p>
                     </div>
@@ -1139,7 +1139,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                     <span className="text-xs uppercase font-extrabold tracking-widest text-slate-500 block">Manufacturing Phase Routing Log</span>
                     
                     <div className="border border-slate-300 rounded overflow-hidden">
-                      <div className="grid grid-cols-12 bg-slate-100 text-[9px] font-black uppercase text-slate-600 tracking-wider p-2 text-center border-b border-slate-300">
+                      <div className="grid grid-cols-12 bg-slate-100 text-[9px] font-black uppercase text-slate-400 tracking-wider p-2 text-center border-b border-slate-300">
                         <span className="col-span-1 border-r text-center">No</span>
                         <span className="col-span-3 border-r text-left pl-2">Stage Name</span>
                         <span className="col-span-2 border-r">Status</span>
@@ -1178,7 +1178,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                             key={s.id} 
                             className={`grid grid-cols-12 text-[10px] p-2 items-center border-b border-slate-200/80 hover:bg-slate-50 ${rowColor}`}
                           >
-                            <span className="col-span-1 text-center font-bold text-slate-400 border-r pr-1">0{idx + 1}</span>
+                            <span className="col-span-1 text-center font-bold text-slate-500 border-r pr-1">0{idx + 1}</span>
                             
                             <span className="col-span-3 border-r text-left pl-2 font-bold text-slate-800 tracking-tight truncate">
                               {s.name}
@@ -1190,7 +1190,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                                 statusText === 'ACTIVE' ? 'bg-blue-100 text-blue-800' :
                                 statusText === 'REWORK' ? 'bg-rose-100 text-rose-800' :
                                 statusText === 'INSPECTION' ? 'bg-amber-100 text-amber-800' :
-                                'bg-slate-100 text-slate-400'
+                                'bg-slate-100 text-slate-500'
                               }`}>
                                 {statusText}
                               </span>
@@ -1209,13 +1209,13 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                                 <div className="truncate">
                                   <span className="font-bold text-slate-800 block text-[9px] leading-tight">SIG: {hist.inspectorId}</span>
                                   {hist.inspectionTime && (
-                                    <span className="text-[8px] text-slate-400 italic block">
+                                    <span className="text-[8px] text-slate-500 italic block">
                                       {new Date(hist.inspectionTime).toLocaleDateString()}
                                     </span>
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-[8.5px] text-slate-300 tracking-wide">QC SIGN</span>
+                                <span className="text-[8.5px] text-slate-700 tracking-wide">QC SIGN</span>
                               )}
                             </div>
                           </div>
@@ -1233,7 +1233,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         <span>Released By:</span>
                         <span className="border-b border-black/60 flex-1 h-[14px]" />
                       </p>
-                      <p className="text-[8.5px] text-slate-400 leading-normal">
+                      <p className="text-[8.5px] text-slate-500 leading-normal">
                         Certifies structure is authorized for primary stage-worker assignment and production line tracking.
                       </p>
                     </div>
@@ -1242,12 +1242,12 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
                         <span>Despatched Sign:</span>
                         <span className="border-b border-black/60 flex-1 h-[14px]" />
                       </p>
-                      <p className="text-[8.5px] text-slate-400 leading-normal">
+                      <p className="text-[8.5px] text-slate-500 leading-normal">
                         QC Director sign-off verifies all 7 components passed 100% structural, hydrostatic, & mosaic inspection gates.
                       </p>
                     </div>
                   </div>
-                  <div className="text-center text-[8px] text-slate-300 font-black tracking-widest mt-6 uppercase">
+                  <div className="text-center text-[8px] text-slate-700 font-black tracking-widest mt-6 uppercase">
                     SYSTEM IDENTIFIER: SECURE_ROUTING_TAG_MATCH_ISO_9001
                   </div>
                 </div>
@@ -1264,7 +1264,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
           <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full overflow-hidden animate-scaleUp">
             
             {/* Header */}
-            <div className="bg-slate-900 text-slate-100 py-4 px-6 flex items-center justify-between">
+            <div className="bg-primary-700 text-white py-4 px-6 flex items-center justify-between">
               <div>
                 <h3 className="font-extrabold text-sm tracking-wide flex items-center gap-2">
                   <Eye className="h-4.5 w-4.5 text-indigo-400" />
@@ -1320,7 +1320,7 @@ export const StageDashboard: React.FC<StageDashboardProps> = ({
               </div>
               <button
                 onClick={() => setViewingDrawingPool(null)}
-                className="bg-slate-900 hover:bg-slate-800 text-white font-black px-4 py-2 rounded-xl text-xs cursor-pointer shadow-sm ml-auto"
+                className="bg-primary-600 hover:bg-primary-700 text-white font-black px-4 py-2 rounded-xl text-xs cursor-pointer shadow-sm ml-auto"
               >
                 Close Drawing Screen
               </button>

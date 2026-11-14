@@ -356,7 +356,7 @@ export const WarehouseRegister: React.FC<Props> = ({ pools, currentUserName, onR
                     className={`${inputCls} flex-1`}
                     data-testid="warehouse-typed"
                   />
-                  <button onClick={applyTyped} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-white hover:bg-slate-900 cursor-pointer">Select</button>
+                  <button onClick={applyTyped} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-primary-600 text-white hover:bg-primary-700 cursor-pointer">Select</button>
                 </div>
                 {typedFeedback && <p className="text-[11px] text-slate-500 mt-1">{typedFeedback}</p>}
               </div>

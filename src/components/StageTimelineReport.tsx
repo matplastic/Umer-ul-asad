@@ -647,7 +647,7 @@ export const StageTimelineReport: React.FC<StageTimelineReportProps> = ({ pools,
           <button
             onClick={() => { setStageFilter('all'); setVisibleRows(100); }}
             className={`px-3 py-1.5 text-xs font-bold rounded-full cursor-pointer transition-all ${
-              stageFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              stageFilter === 'all' ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             All stages
@@ -744,7 +744,7 @@ export const StageTimelineReport: React.FC<StageTimelineReportProps> = ({ pools,
                 key={id}
                 onClick={() => setGroupBy(id)}
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all ${
-                  groupBy === id ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  groupBy === id ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 {label}
