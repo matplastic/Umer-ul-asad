@@ -62,11 +62,12 @@ function getAdminDb() {
   return getFirestore();
 }
 
+const { readArray } = require('./shardedState.cjs');
+
 async function readMaterials(db) {
-  // Materials live in ONE document: system_state/materials -> { data: [ ... ] }
-  const snap = await db.collection('system_state').doc('materials').get();
-  const data = snap.exists ? snap.data() : null;
-  return Array.isArray(data && data.data) ? data.data : [];
+  // Materials are saved as several small documents (see lib/shardedState.cjs);
+  // this reads them all (plus the old single document if it still holds data).
+  return readArray(db, 'materials');
 }
 
 function buildEmail(alerts, siteUrl) {

@@ -14,6 +14,8 @@
 //   recycleBin      deleted items — the bin itself is the safety net
 //   employeePunches stored as weekly documents, far larger than a manual file
 
+import { SHARD_COUNTS, shardDocNamesFor, mergeLegacy } from './shardConfig';
+
 export type BackupGroup = 'store' | 'production' | 'hr';
 
 export interface BackupDocDef {
@@ -164,9 +166,41 @@ export function extractBackupDocs(parsed: Record<string, any>): Record<string, a
   const docs: Record<string, any[]> = {};
   for (const id of BACKUP_DOC_IDS) {
     const payload = parsed[id];
-    if (payload && Array.isArray(payload.data)) docs[id] = payload.data;
+    const legacy: any[] | null = payload && Array.isArray(payload.data) ? payload.data : null;
+    if ((SHARD_COUNTS[id] || 1) > 1) {
+      // This list is stored as several small documents (<id>__s0, <id>__s1 ...).
+      // A snapshot taken after the switch has them as separate entries and an
+      // emptied <id> document; an older snapshot has everything in <id>. Put
+      // them back together either way, so a restore never sees an empty list.
+      const fromShards: any[] = [];
+      let anyShard = false;
+      for (const nm of shardDocNamesFor(id)) {
+        const part = parsed[nm];
+        if (part && Array.isArray(part.data)) { anyShard = true; fromShards.push(...part.data); }
+      }
+      if (legacy || anyShard) docs[id] = mergeLegacy(legacy || [], fromShards);
+    } else if (legacy) {
+      docs[id] = legacy;
+    }
   }
   return docs;
+}
+
+// Cut a list into pieces whose JSON stays under `maxBytes`, keeping order. Used
+// for the safety copy taken before a restore, so even a big list (now allowed to
+// be larger than one database document) can be saved in full. A single record
+// larger than the limit goes in a piece of its own.
+export function chunkByBytes(items: any[], maxBytes: number): any[][] {
+  const chunks: any[][] = [];
+  let cur: any[] = [];
+  let size = 2;
+  for (const it of items) {
+    const n = JSON.stringify(it).length + 1;
+    if (cur.length > 0 && size + n > maxBytes) { chunks.push(cur); cur = []; size = 2; }
+    cur.push(it); size += n;
+  }
+  if (cur.length > 0 || chunks.length === 0) chunks.push(cur);
+  return chunks;
 }
 
 // ---------- restore engine ----------

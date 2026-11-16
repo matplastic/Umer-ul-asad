@@ -1,7 +1,8 @@
 import { auth, app, clientDb } from './googleDrive.ts';
 import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { applySupplierSave } from './suppliers';
-import { BACKUP_DOC_IDS, runRestore, RestoreMode, RestoreReportRow } from './backupSets';
+import { shardCountFor, shardDocNamesFor, splitIntoShards, mergeLegacy } from './shardConfig';
+import { BACKUP_DOC_IDS, runRestore, chunkByBytes, RestoreMode, RestoreReportRow } from './backupSets';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, StockAdjustment, Supplier, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
 import { scheduleStockAlertCheck } from './stockAlerts';
 // NOTE: clientDb now comes from googleDrive.ts, which is the ONLY place
@@ -262,28 +263,57 @@ async function collectionDiffWrite(name: string, newArray: any[]): Promise<void>
 // COLLECTION_BACKED above). See the block above for why COLLECTION_BACKED is
 // now the preferred approach for high-churn / large collections.
 // ─────────────────────────────────────────────────────────────────────────────
-const SHARD_COUNTS: Record<string, number> = {};
+// Small-files storage settings live in ./shardConfig (shared with backups).
+export { storageCapacityBytes, fnv1a, SHARD_BYTES_PER_DOC } from './shardConfig';
 
-function shardCountFor(docName: string): number {
-  return SHARD_COUNTS[docName] || 1;
+export class StaleClientError extends Error {
+  constructor() {
+    super('This page is out of date (the app was updated). Please refresh your browser (Ctrl+F5) and try again — nothing was lost.');
+    this.name = 'StaleClientError';
+  }
 }
 
-function shardDocNamesFor(docName: string): string[] {
+interface ShardRead {
+  n: number;
+  legacyRef: any;
+  shardRefs: any[];
+  shardData: any[][];
+  shardMeta: Array<{ exists: boolean; shardCount?: number }>;
+  legacyData: any[];
+  current: any[];
+}
+
+// Reads the old single document plus every shard through `get` (a plain getDoc,
+// or transaction.get when called inside a transaction).
+async function readShards(docName: string, get: (ref: any) => Promise<any>, enforceGuard: boolean): Promise<ShardRead> {
   const n = shardCountFor(docName);
-  if (n <= 1) return [docName];
-  return Array.from({ length: n }, (_, i) => `${docName}__s${i}`);
+  const legacyRef = doc(clientDb, 'system_state', docName);
+  const shardRefs = shardDocNamesFor(docName).map((sn) => doc(clientDb, 'system_state', sn));
+  const snaps = await Promise.all([legacyRef, ...shardRefs].map((r) => get(r)));
+  const [legacySnap, ...shardSnaps] = snaps;
+  const arrOf = (snap: any) => (snap.exists() && Array.isArray(snap.data()?.data) ? snap.data().data : []);
+  const legacyData: any[] = arrOf(legacySnap);
+  const shardData: any[][] = shardSnaps.map(arrOf);
+  const shardMeta = shardSnaps.map((sn: any) => ({ exists: sn.exists(), shardCount: sn.exists() ? sn.data()?.shardCount : undefined }));
+  if (enforceGuard && shardMeta.some((m) => typeof m.shardCount === 'number' && m.shardCount > n)) throw new StaleClientError();
+  return { n, legacyRef, shardRefs, shardData, shardMeta, legacyData, current: mergeLegacy(legacyData, shardData.flat()) };
 }
 
-// Split a full array into N shard arrays by index % N. Deterministic, so the
-// same item always lands in a predictable shard as the array is re-split on
-// every write (order within the merged array from readShardedArrays is not
-// guaranteed to match insertion order — callers already treat these as sets
-// keyed by `id`, never relying on array order).
-function splitIntoShards(data: any[], n: number): any[][] {
-  if (n <= 1) return [data];
-  const shards: any[][] = Array.from({ length: n }, () => []);
-  data.forEach((item, i) => shards[i % n].push(item));
-  return shards;
+// Which documents must be written to turn `rd.current` into `updated`.
+// Only shards whose contents really changed are written; if the old single
+// document still holds data, every shard is written and the old one is emptied
+// in the same transaction (the automatic migration).
+function planShardWrites(rd: ShardRead, updated: any[]): Array<{ ref: any; data: any }> {
+  const shards = splitIntoShards(removeUndefined(updated), rd.n);
+  const migrating = rd.legacyData.length > 0;
+  const writes: Array<{ ref: any; data: any }> = [];
+  shards.forEach((data, i) => {
+    const meta = rd.shardMeta[i];
+    const unchanged = !migrating && meta.exists && meta.shardCount === rd.n && JSON.stringify(rd.shardData[i]) === JSON.stringify(data);
+    if (!unchanged) writes.push({ ref: rd.shardRefs[i], data: { data, shardCount: rd.n } });
+  });
+  if (migrating) writes.push({ ref: rd.legacyRef, data: { data: [], migratedToShards: rd.n, migratedAt: new Date().toISOString() } });
+  return writes;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -565,25 +595,17 @@ async function getFirestoreDocArray(docName: string): Promise<any[]> {
     if (isCollectionBacked(docName)) {
       return await collectionGetAll(docName);
     }
-    const shardNames = shardDocNamesFor(docName);
-    if (shardNames.length === 1) {
-      const docRef = doc(clientDb, 'system_state', docName);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        const resp = snap.data();
-        return Array.isArray(resp?.data) ? resp.data : [];
-      }
-      return [];
+    if (shardCountFor(docName) > 1) {
+      // Reading never needs the stale-app guard (it can't corrupt anything).
+      return (await readShards(docName, (ref) => getDoc(ref), false)).current;
     }
-    // Sharded read: fetch all shards in parallel and merge.
-    const snaps = await Promise.all(
-      shardNames.map(sn => getDoc(doc(clientDb, 'system_state', sn)))
-    );
-    return snaps.flatMap(snap => {
-      if (!snap.exists()) return [];
+    const docRef = doc(clientDb, 'system_state', docName);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
       const resp = snap.data();
       return Array.isArray(resp?.data) ? resp.data : [];
-    });
+    }
+    return [];
   } catch (err) {
     console.warn(`Direct client Firestore fetch warning for '${docName}':`, err);
   }
@@ -611,27 +633,19 @@ async function getFirestoreDocArrayStrict(docName: string): Promise<any[]> {
     // naturally on failure), so this is just a direct pass-through.
     return await collectionGetAll(docName);
   }
-  const shardNames = shardDocNamesFor(docName);
-  if (shardNames.length === 1) {
-    const docRef = doc(clientDb, 'system_state', docName);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const resp = snap.data();
-      return Array.isArray(resp?.data) ? resp.data : [];
-    }
-    return [];
+  if (shardCountFor(docName) > 1) {
+    // Sharded strict read: deliberately does NOT catch errors (see the note
+    // above): if any shard read fails, the error must propagate so callers
+    // refuse to treat a failed check as "empty".
+    return (await readShards(docName, (ref) => getDoc(ref), false)).current;
   }
-  // Sharded strict read — deliberately does NOT catch errors (see the
-  // function-level note above this one): if any shard read fails, the error
-  // must propagate so callers refuse to treat a failed check as "empty".
-  const snaps = await Promise.all(
-    shardNames.map(sn => getDoc(doc(clientDb, 'system_state', sn)))
-  );
-  return snaps.flatMap(snap => {
-    if (!snap.exists()) return [];
+  const docRef = doc(clientDb, 'system_state', docName);
+  const snap = await getDoc(docRef);
+  if (snap.exists()) {
     const resp = snap.data();
     return Array.isArray(resp?.data) ? resp.data : [];
-  });
+  }
+  return [];
 }
 
 // Recursively removes undefined values — Firestore rejects them
@@ -681,12 +695,14 @@ async function setFirestoreDocArray(docName: string, data: any[], allowEmpty: bo
       return;
     }
     // Sharded write: split the array across N docs so no single document
-    // can hit Firestore's 1 MiB limit.
+    // can hit Firestore's 1 MiB limit, and empty the old single document so
+    // its stale copy can never be merged back in.
     const cleaned = removeUndefined(data);
     const shards = splitIntoShards(cleaned, shardNames.length);
-    await Promise.all(
-      shardNames.map((sn, i) => setDoc(doc(clientDb, 'system_state', sn), { data: shards[i] }))
-    );
+    await Promise.all([
+      ...shardNames.map((sn, i) => setDoc(doc(clientDb, 'system_state', sn), { data: shards[i], shardCount: shardNames.length })),
+      setDoc(doc(clientDb, 'system_state', docName), { data: [], migratedToShards: shardNames.length, migratedAt: new Date().toISOString() }),
+    ]);
   } catch (err) {
     console.error(`Direct client Firestore write error for '${docName}':`, err);
     throw err;
@@ -762,24 +778,27 @@ async function updateFirestoreDocArraysCore(
     return results;
   }
 
-  // Each remaining legacy collection may map to 1 or N shard doc refs.
-  const shardNamesByCollection = legacyNames.map((name) => shardDocNamesFor(name));
-  const docRefsByCollection = shardNamesByCollection.map((shardNames) =>
-    shardNames.map((sn) => doc(clientDb, 'system_state', sn))
-  );
-
   await runTransaction(clientDb, async (transaction) => {
     // All reads first (Firestore transaction rule: reads before writes).
+    // A "sharded" name reads its old single document plus every shard; a
+    // plain name reads just its own document.
+    const plainReads: Record<string, { refs: any[]; current: any[] }> = {};
+    const shardReads: Record<string, ShardRead> = {};
     const currents: Record<string, any[]> = {};
-    for (let i = 0; i < legacyNames.length; i++) {
-      const snaps = await Promise.all(docRefsByCollection[i].map((ref) => transaction.get(ref)));
-      currents[legacyNames[i]] = snaps.flatMap((snap) =>
-        snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : []
-      );
+    for (const name of legacyNames) {
+      if (shardCountFor(name) > 1) {
+        shardReads[name] = await readShards(name, (ref) => transaction.get(ref), true);
+        currents[name] = shardReads[name].current;
+      } else {
+        const refs = shardDocNamesFor(name).map((sn) => doc(clientDb, 'system_state', sn));
+        const snaps = await Promise.all(refs.map((ref) => transaction.get(ref)));
+        const current = snaps.flatMap((snap) => (snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : []));
+        plainReads[name] = { refs, current };
+        currents[name] = current;
+      }
     }
-    // Then apply every update function and write every doc (or shard set).
-    for (let i = 0; i < legacyNames.length; i++) {
-      const name = legacyNames[i];
+    // Then apply every update function (in the order given) and write.
+    for (const name of legacyNames) {
       const current = currents[name];
       const updated = updates[name]([...current]);
       if (!allowEmpty[name] && updated.length === 0 && current.length > 0) {
@@ -788,10 +807,13 @@ async function updateFirestoreDocArraysCore(
         continue;
       }
       results[name] = updated;
-      const refs = docRefsByCollection[i];
-      const cleaned = removeUndefined(updated);
-      const shards = splitIntoShards(cleaned, refs.length);
-      refs.forEach((ref, j) => transaction.set(ref, { data: shards[j] }));
+      if (shardReads[name]) {
+        for (const w of planShardWrites(shardReads[name], updated)) transaction.set(w.ref, w.data);
+      } else {
+        const { refs } = plainReads[name];
+        const shards = splitIntoShards(removeUndefined(updated), refs.length);
+        refs.forEach((ref, j) => transaction.set(ref, { data: shards[j] }));
+      }
     }
   });
 
@@ -825,6 +847,26 @@ async function updateFirestoreDocArrayCore(docName: string, updateFn: (arr: any[
     }
     await collectionDiffWrite(docName, updatedArr);
     return updatedArr;
+  }
+
+  if (shardCountFor(docName) > 1) {
+    let shardedResult: any[] = [];
+    try {
+      await runTransaction(clientDb, async (transaction) => {
+        const rd = await readShards(docName, (ref) => transaction.get(ref), true);
+        shardedResult = updateFn([...rd.current]);
+        if (!allowEmpty && shardedResult.length === 0 && rd.current.length > 0) {
+          console.warn(`[updateFirestoreDocArray] Refusing to write empty array to '${docName}' (current has ${rd.current.length} items). Skipping write.`);
+          shardedResult = rd.current;
+          return;
+        }
+        for (const w of planShardWrites(rd, shardedResult)) transaction.set(w.ref, w.data);
+      });
+    } catch (err) {
+      console.error(`[updateFirestoreDocArray] Transaction failed for '${docName}':`, err);
+      throw err;
+    }
+    return shardedResult;
   }
 
   const shardNames = shardDocNamesFor(docName);
@@ -2626,13 +2668,20 @@ export async function dbRestoreBackupDocs(args: {
     io: {
       readCurrent: (id) => getFirestoreDocArrayStrict(id),
       saveSafetyCopy: async (id, current, meta) => {
-        await setDoc(doc(clientDb, 'system_state', `preRestore_${stamp}__${id}`), {
-          data: removeUndefined(current),
-          savedAt: new Date().toISOString(),
-          restoredFrom: meta.restoredFrom,
-          mode: meta.mode,
-          source: id,
-        });
+        const baseName = `preRestore_${stamp}__${id}`;
+        const header = { savedAt: new Date().toISOString(), restoredFrom: meta.restoredFrom, mode: meta.mode, source: id };
+        const pieces = chunkByBytes(removeUndefined(current), 700000);
+        if (pieces.length <= 1) {
+          // Small list: one document, exactly as before.
+          await setDoc(doc(clientDb, 'system_state', baseName), { data: pieces[0] || [], ...header });
+          return;
+        }
+        // Big list (lists can now be larger than one 1 MiB document): save it in
+        // numbered pieces, then the header LAST, so a header only ever exists
+        // for a complete copy. To recover, join <name>__p0, __p1, ... in order.
+        await Promise.all(pieces.map((piece, i) =>
+          setDoc(doc(clientDb, 'system_state', `${baseName}__p${i}`), { data: piece, part: i, parts: pieces.length, ...header })));
+        await setDoc(doc(clientDb, 'system_state', baseName), { data: [], parts: pieces.length, note: `Full copy is in ${baseName}__p0 ... __p${pieces.length - 1}`, ...header });
       },
       apply: (id, update, allowEmpty) => updateFirestoreDocArray(id, update, allowEmpty),
     },
@@ -2659,7 +2708,15 @@ export async function dbAdjustMaterialStock(id: string, delta: number, byName?: 
   if (!apiBase()) {
     // Logged as its own record so the Stock Ledger can show it as a movement.
     const results = await updateFirestoreDocArrays({
-      materials: (arr) => arr.map((m) => (m.id === id ? { ...m, currentStock: (m.currentStock || 0) + delta } : m)),
+      materials: (arr) => arr.map((m) => {
+        if (m.id !== id) return m;
+        const cur = Number(m.currentStock || 0);
+        if (cur + delta < -1e-9) {
+          throw new NotInStockError(`Stock can't go below 0: ${m.name} has ${fmtQty(cur)} ${m.unit} in store, so it can't be reduced by ${fmtQty(-delta)}.`,
+            [{ materialId: m.id, name: m.name, unit: m.unit, available: Math.max(0, cur), needed: -delta }]);
+        }
+        return { ...m, currentStock: cur + delta };
+      }),
       stockAdjustments: (arr) => {
         if (delta !== 0) arr.push({ id: newId('adj'), materialId: id, delta, byName: byName || null, note: note || null, at: new Date().toISOString() });
         return arr;
@@ -2719,17 +2776,29 @@ export async function dbFetchMaterialRequests(): Promise<MaterialRequest[]> {
 export function subscribeToMaterialRequests(
   callback: (items: MaterialRequest[]) => void
 ): Unsubscribe {
-  return onSnapshot(
-    doc(clientDb, 'system_state', 'materialRequests'),
-    snap => {
-      if (snap.exists()) {
-        const raw = snap.data();
-        const data = Array.isArray(raw?.data) ? raw.data : [];
-        callback(data as MaterialRequest[]);
-      }
-    },
-    err => console.warn('[subscribeToMaterialRequests] subscription error:', err)
+  // Listens to the old single document and every shard, and hands the app the
+  // merged list whenever any of them changes (same trick as subscribeToLiveState).
+  const names = ['materialRequests', ...shardDocNamesFor('materialRequests')];
+  const cache: any[][] = names.map(() => []);
+  const seen: boolean[] = names.map(() => false);
+  let anyExists = false;
+  const unsubs = names.map((nm, i) =>
+    onSnapshot(
+      doc(clientDb, 'system_state', nm),
+      snap => {
+        if (snap.exists()) anyExists = true;
+        const raw = snap.exists() ? snap.data() : null;
+        cache[i] = Array.isArray(raw?.data) ? raw.data : [];
+        seen[i] = true;
+        // Wait until every document has reported once so we never fire a
+        // partial list; stay silent if nothing exists yet (see the BUGFIX
+        // note in subscribeToLiveState about empty-array callbacks).
+        if (seen.every(Boolean) && anyExists) callback(mergeLegacy(cache[0], cache.slice(1).flat()) as MaterialRequest[]);
+      },
+      err => console.warn('[subscribeToMaterialRequests] subscription error:', err)
+    )
   );
+  return () => unsubs.forEach((u) => u());
 }
 
 // Section Supervisor submits their whole cart (1 to however-many material
@@ -2867,6 +2936,20 @@ export async function dbMarkMaterialRequestBatchPrinted(ids: string[]): Promise<
   return { success: true, items: results };
 }
 
+// Raised whenever an action would take stock below zero. Stock never goes
+// negative: the whole action is refused and NOTHING is saved.
+export interface StockShortage { materialId: string; name: string; unit: string; available: number; needed: number; }
+const fmtQty = (n: number) => String(Math.round(n * 1000) / 1000);
+export function shortageText(sh: StockShortage): string {
+  return sh.available <= 0
+    ? `${sh.name}: Not in stock.`
+    : `${sh.name}: Not in stock — only ${fmtQty(sh.available)} ${sh.unit} available, ${fmtQty(sh.needed)} ${sh.unit} needed.`;
+}
+export class NotInStockError extends Error {
+  shortages: StockShortage[];
+  constructor(message: string, shortages: StockShortage[] = []) { super(message); this.name = 'NotInStockError'; this.shortages = shortages; }
+}
+
 export class DeliveryConfirmationError extends Error {
   constructor(message: string) { super(message); this.name = 'DeliveryConfirmationError'; }
 }
@@ -2943,7 +3026,20 @@ export async function dbConfirmMaterialDeliveryBatch(
     materials: (arr) => {
       if (failure) return arr;
       const deltas: Record<string, number> = {};
-      for (const d of confirmed) if (d.awaitingDelivery) deltas[d.materialId] = (deltas[d.materialId] || 0) + Number(d.qtyDelivered);
+      for (const d of confirmed) if (d.awaitingDelivery && Number(d.qtyDelivered) > 0) deltas[d.materialId] = (deltas[d.materialId] || 0) + Number(d.qtyDelivered);
+      // Stock must cover EVERYTHING being handed over. Checked here, inside the
+      // transaction, so two keepers can't both take the last items. Throwing
+      // aborts the whole transaction: no DO, no request update, no consumption.
+      const shortages: StockShortage[] = [];
+      for (const [materialId, needed] of Object.entries(deltas)) {
+        const m = arr.find((x) => x.id === materialId);
+        const available = m ? Number(m.currentStock || 0) : 0;
+        if (available - needed < -1e-9) {
+          const line = confirmed.find((c) => c.materialId === materialId);
+          shortages.push({ materialId, name: m?.name || line?.materialName || 'Material', unit: m?.unit || line?.unit || '', available: Math.max(0, available), needed });
+        }
+      }
+      if (shortages.length > 0) throw new NotInStockError(shortages.map(shortageText).join('\n'), shortages);
       return arr.map((m) => (deltas[m.id] ? { ...m, currentStock: Number(m.currentStock || 0) - deltas[m.id] } : m));
     },
     // Delivered material is consumption from this moment — there is no
@@ -3520,25 +3616,36 @@ export async function dbDecideIncomingQc(
 
 export async function dbDeleteIncomingMaterial(id: string) {
   if (!apiBase()) {
-    let materialId: string | null = null;
-    let qty = 0;
-    await updateFirestoreDocArray('incomingMaterials', (arr) => {
-      const rec = arr.find((i) => i.id === id);
-      if (rec) {
-        materialId = rec.materialId;
-        // Only reverse the portion that actually reached inventory. Legacy
-        // fully-passed records have no qtyPassed field — fall back to the
-        // full qty for those; partial/mixed records reverse just their
-        // qtyPassed slice.
-        qty = rec.qtyPassed != null ? Number(rec.qtyPassed) : (rec.qcStatus === 'passed' ? Number(rec.qty || 0) : 0);
-      }
-      return arr.filter((i) => i.id !== id);
-    }, true);
-    if (qty > 0 && materialId) {
-      await updateFirestoreDocArray('materials', (arr) =>
-        arr.map((m) => (m.id === materialId ? { ...m, currentStock: (m.currentStock || 0) - qty } : m))
-      );
-    }
+    // Deleting a receipt reverses the stock it added. Both changes happen in ONE
+    // transaction (before, they were two separate saves), and if some of that
+    // stock has already been used the delete is refused instead of going negative.
+    const ctx = { materialId: null as string | null, qty: 0 };
+    await updateFirestoreDocArrays({
+      incomingMaterials: (arr) => {
+        ctx.materialId = null; ctx.qty = 0;   // clean slate if the transaction is retried
+        const rec = arr.find((i) => i.id === id);
+        if (rec) {
+          ctx.materialId = rec.materialId;
+          // Only reverse the portion that actually reached inventory. Legacy
+          // fully-passed records have no qtyPassed field, so fall back to the
+          // full qty for those; partial/mixed records reverse just qtyPassed.
+          ctx.qty = rec.qtyPassed != null ? Number(rec.qtyPassed) : (rec.qcStatus === 'passed' ? Number(rec.qty || 0) : 0);
+        }
+        return arr.filter((i) => i.id !== id);
+      },
+      materials: (arr) => {
+        if (!ctx.materialId || ctx.qty <= 0) return arr;
+        return arr.map((m) => {
+          if (m.id !== ctx.materialId) return m;
+          const cur = Number(m.currentStock || 0);
+          if (cur - ctx.qty < -1e-9) {
+            throw new NotInStockError(`Can't delete this receipt: ${fmtQty(ctx.qty)} ${m.unit} of ${m.name} came in on it, but only ${fmtQty(cur)} ${m.unit} is in store now (the rest was already used).`,
+              [{ materialId: m.id, name: m.name, unit: m.unit, available: Math.max(0, cur), needed: ctx.qty }]);
+          }
+          return { ...m, currentStock: cur - ctx.qty };
+        });
+      },
+    }, { incomingMaterials: true });
     return { success: true };
   }
   const headers = await getHeaders();

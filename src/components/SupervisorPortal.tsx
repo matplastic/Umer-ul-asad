@@ -753,7 +753,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
                 <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto bg-slate-100 border border-slate-300 rounded-lg shadow-2xl">
                   {requestSearchResults.length === 0 && (
                     <div className="px-3 py-3 text-xs text-slate-500">
-                      {rSearch ? `No available material matches "${rSearch}".` : 'No materials currently in stock.'}
+                      {(() => {
+                        const q = rSearch.trim().toLowerCase();
+                        const out = q ? materials.filter(m => Number(m.currentStock || 0) <= 0 && (m.name || '').toLowerCase().includes(q) && (rGroup === 'all' || materialGroup(m) === rGroup)).slice(0, 5) : [];
+                        if (out.length > 0) return `Not in stock: ${out.map(m => m.name).join(', ')}.`;
+                        return rSearch ? `No available material matches "${rSearch}".` : 'No materials currently in stock.';
+                      })()}
                     </div>
                   )}
                   {requestSearchResults.map(m => (

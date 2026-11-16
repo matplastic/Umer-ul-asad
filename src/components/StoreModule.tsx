@@ -10,7 +10,7 @@ import { exportMultiTablePdf } from '../lib/exportUtils';
 import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
-  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch, dbFetchStockAdjustments, dbFetchSuppliers,
+  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch, dbFetchStockAdjustments, shortageText, storageCapacityBytes, dbFetchSuppliers,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial, dbUpdateIncomingMaterialDocs,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs,
   dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields, dbFetchProductionLogs,
@@ -477,11 +477,20 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       alert('Please enter a valid number.');
       return;
     }
+    if (newQty < 0) {
+      alert("Stock can't be negative. Enter 0 or more.");
+      return;
+    }
     // dbAdjustMaterialStock takes a DELTA (added to currentStock), so we
     // compute the delta from what the person actually typed — the new
     // total — instead of asking them to do that math themselves.
     const delta = newQty - currentQty;
-    await dbAdjustMaterialStock(id, delta, currentUserName, `Set to ${newQty} (was ${currentQty})`);
+    try {
+      await dbAdjustMaterialStock(id, delta, currentUserName, `Set to ${newQty} (was ${currentQty})`);
+    } catch (e: any) {
+      alert(e?.message || 'Could not adjust the stock.');
+      return;
+    }
     loadAll(true);
   };
 
@@ -839,11 +848,34 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // the Store Manager overwrites whatever differs from what he really handed over.
   const openDelivery = (lines: MaterialRequest[]) => {
     const init: Record<string, string> = {};
-    for (const it of lines) init[it.id] = String(Number(it.qtyApproved ?? it.qtyRequested));
+    for (const it of lines) {
+      const approved = Number(it.qtyApproved ?? it.qtyRequested);
+      // Lines that will deduct stock start at the smaller of "approved" and "what is
+      // actually in store", so the form never opens already asking for stock we don't have.
+      const inStore = Math.max(0, Number(materials.find(m => m.id === it.materialId)?.currentStock || 0));
+      init[it.id] = String(it.awaitingDelivery ? Math.min(approved, inStore) : approved);
+    }
     setDeliveryQty(init);
     setDeliveryNotes('');
     setDeliveryError(null);
     setDeliveryBatch(lines);
+  };
+
+  // For lines that will take stock out of the Store: how much of each material is
+  // being asked for vs what is actually in store. Stock never goes negative.
+  const deliveryShortages = (batch: MaterialRequest[], qtyMap: Record<string, string>) => {
+    const need: Record<string, { name: string; unit: string; qty: number }> = {};
+    for (const it of batch) {
+      if (!it.awaitingDelivery) continue;
+      const q = Number(qtyMap[it.id]);
+      if (!Number.isFinite(q) || q <= 0) continue;
+      const e = need[it.materialId] || { name: it.materialName, unit: it.unit, qty: 0 };
+      e.qty += q; need[it.materialId] = e;
+    }
+    return Object.entries(need).flatMap(([materialId, n]) => {
+      const available = Math.max(0, Number(materials.find(m => m.id === materialId)?.currentStock || 0));
+      return n.qty > available + 1e-9 ? [{ materialId, name: n.name, unit: n.unit, available, needed: n.qty }] : [];
+    });
   };
 
   const submitDelivery = async () => {
@@ -855,14 +887,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       if (deliveryQty[it.id] === '' || !Number.isFinite(q) || q < 0) { setDeliveryError(`Enter a valid quantity for ${it.materialName}.`); return; }
       if (q > approved) { setDeliveryError(`${it.materialName}: cannot deliver more than the approved ${approved} ${it.unit}.`); return; }
     }
-    const short = deliveryBatch
-      .map(it => {
-        const mat = materials.find(m => m.id === it.materialId);
-        const after = mat ? Number(mat.currentStock || 0) - Number(deliveryQty[it.id]) : null;
-        return after !== null && after < 0 ? `${it.materialName}: short by ${-after} ${it.unit}` : null;
-      })
-      .filter(Boolean) as string[];
-    if (short.length > 0 && !window.confirm(`This will take Store stock negative for:\n\n${short.join('\n')}\n\nConfirm anyway?`)) return;
+    const shortages = deliveryShortages(deliveryBatch, deliveryQty);
+    if (shortages.length > 0) { setDeliveryError(shortages.map(shortageText).join('\n')); return; }
+    if (lines.every(l => l.qtyDelivered <= 0)) {
+      setDeliveryError('Nothing is being delivered. If the material is not in stock, close this window and confirm once it arrives.');
+      return;
+    }
     setDeliverySaving(true);
     setDeliveryError(null);
     try {
@@ -1021,18 +1051,21 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     loadAll(true);
   };
 
-  // Each of these lists is saved as ONE database document, and the database
-  // refuses to save a document over 1 MiB. When that happens, saves fail (new
-  // requests, deliveries, receipts all stop working). This warns well before.
+  const deliveryProblems = deliveryBatch ? deliveryShortages(deliveryBatch, deliveryQty).map(shortageText) : [];
+  const deliveryTotal = deliveryBatch ? deliveryBatch.reduce((t, it) => t + (Number.isFinite(Number(deliveryQty[it.id])) ? Math.max(0, Number(deliveryQty[it.id])) : 0), 0) : 0;
+
+  // Each of these lists is saved as several small database documents ("small
+  // files"), so it can hold many times the old 1 MiB limit. There is still a
+  // ceiling (number of small files x 1 MiB), and when a list reaches it saves to
+  // that list fail. This warns well before that happens.
   const storageWarnings = useMemo(() => {
-    const LIMIT = 1048576;
     const sizeOf = (list: unknown[]) => { try { return JSON.stringify(list).length; } catch { return 0; } };
     return [
-      { key: 'requests', label: 'Material requests', used: sizeOf(requests), count: requests.length },
-      { key: 'consumption', label: 'Consumption log', used: sizeOf(consumptionLogs), count: consumptionLogs.length },
-      { key: 'incoming', label: 'Goods receipts', used: sizeOf(incoming), count: incoming.length },
-      { key: 'materials', label: 'Inventory items', used: sizeOf(materials), count: materials.length },
-    ].map(x => ({ ...x, pct: (x.used / LIMIT) * 100 })).filter(x => x.pct >= 70);
+      { key: 'requests', label: 'Material requests', used: sizeOf(requests), count: requests.length, cap: storageCapacityBytes('materialRequests') },
+      { key: 'consumption', label: 'Consumption log', used: sizeOf(consumptionLogs), count: consumptionLogs.length, cap: storageCapacityBytes('consumptionLogs') },
+      { key: 'incoming', label: 'Goods receipts', used: sizeOf(incoming), count: incoming.length, cap: storageCapacityBytes('incomingMaterials') },
+      { key: 'materials', label: 'Inventory items', used: sizeOf(materials), count: materials.length, cap: storageCapacityBytes('materials') },
+    ].map(x => ({ ...x, pct: (x.used / x.cap) * 100 })).filter(x => x.pct >= 70);
   }, [requests, consumptionLogs, incoming, materials]);
 
   return (
@@ -1043,7 +1076,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           {storageWarnings.map(w => (
             <div key={w.key}>{w.label}: <strong>{w.pct.toFixed(0)}% full</strong> ({w.count.toLocaleString()} records)</div>
           ))}
-          <div className="mt-1 opacity-90">At 100% the app can no longer save changes to these records (new requests, deliveries and receipts will fail). Ask your developer to archive old records before that happens.</div>
+          <div className="mt-1 opacity-90">At 100% the app can no longer save changes to these records (new requests, deliveries and receipts will fail). Ask your developer to add more storage (more small files) or archive old records before that happens.</div>
         </div>
       )}
       {/* Edit extra units (length / weight per unit) of an existing material */}
@@ -1349,7 +1382,9 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         <td className="px-2 py-2 text-right text-emerald-700 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
                         <td className="px-2 py-2 text-right text-rose-700 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
                         <td className={`px-2 py-2 text-right font-mono ${stockStatus === 'urgent' ? 'text-rose-700 font-black' : stockStatus === 'reorder' ? 'text-rose-700 font-bold' : 'text-slate-800'}`}>
-                          {m.currentStock} {m.unit}
+                          {Number(m.currentStock) > 0
+                             ? <>{m.currentStock} {m.unit}</>
+                             : <span className="text-rose-700 font-bold font-sans" data-testid={`mat-notinstock-${m.id}`}>Not in stock{Number(m.currentStock) < 0 && <span className="block text-[10px] font-normal text-rose-300/80">(recorded as {m.currentStock} — please correct with Adjust)</span>}</span>}
                           {equivalentsText(m, m.currentStock) && (
                             <div className="text-[10px] font-mono text-emerald-700/80 font-normal" data-testid={`mat-equiv-${m.id}`}>= {equivalentsText(m, m.currentStock)}</div>
                           )}
@@ -1573,7 +1608,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     </td>
                     <td className="px-4 py-2 text-slate-500">{inc.receivedByName}</td>
                     <td className="px-4 py-2">{qcPill(inc.qcStatus)}</td>
-                    <td className="px-4 py-2 text-right"><button onClick={async () => { if (confirm(inc.qcStatus === 'passed' ? 'Delete this GRN and reverse stock?' : 'Delete this GRN record?')) { await dbDeleteIncomingMaterial(inc.id); for (const a of inc.attachments || []) await deleteGrnFile(a); loadAll(true); } }} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                    <td className="px-4 py-2 text-right"><button onClick={async () => { if (confirm(inc.qcStatus === 'passed' ? 'Delete this GRN and reverse stock?' : 'Delete this GRN record?')) { try { await dbDeleteIncomingMaterial(inc.id); for (const a of inc.attachments || []) await deleteGrnFile(a); } catch (e: any) { alert(e?.message || 'Could not delete this receipt.'); } loadAll(true); } }} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button></td>
                   </tr>
                 ))}
                 {incoming.length === 0 && <tr><td colSpan={10} className="text-center text-slate-500 py-10">No incoming materials logged yet.</td></tr>}
@@ -1687,7 +1722,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           const msg = passedQty > 0
                             ? `This will remove the GRN and reverse ${passedQty} ${inc.unit} of ${inc.materialName} from stock. Continue?`
                             : 'Remove this record permanently? (Rejected/held stock never entered inventory, so this is safe.)';
-                          if (confirm(msg)) { await dbDeleteIncomingMaterial(inc.id); loadAll(true); }
+                          if (confirm(msg)) { try { await dbDeleteIncomingMaterial(inc.id); for (const a of inc.attachments || []) await deleteGrnFile(a); } catch (e: any) { alert(e?.message || 'Could not delete this receipt.'); } loadAll(true); }
                         }} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
                       </td>
                     </tr>
@@ -2005,7 +2040,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                           ? <div className="text-[10px] font-normal text-emerald-700">Stock will be deducted and shown in Consumption</div>
                           : <div className="text-[10px] font-normal text-amber-700">Older request: stock was already deducted at approval — only recording hand over</div>}
                       </td>
-                      <td className="py-2 text-right font-mono text-slate-500">{mat ? Number(mat.currentStock || 0) : '—'} {it.unit}</td>
+                      <td className="py-2 text-right font-mono">
+                        {!mat ? <span className="text-slate-500">—</span>
+                          : Number(mat.currentStock || 0) > 0
+                            ? <span className="text-slate-500">{Number(mat.currentStock)} {it.unit}</span>
+                            : <span className="text-rose-700 font-bold font-sans" data-testid={`delivery-notinstock-${it.id}`}>Not in stock</span>}
+                      </td>
                       <td className="py-2 text-right font-mono text-slate-700">{approved} {it.unit}</td>
                       <td className="py-2 text-right">
                         <input
@@ -2027,13 +2067,18 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               value={deliveryNotes} onChange={e => setDeliveryNotes(e.target.value)}
               className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 mb-3"
             />
-            {deliveryError && <div className="text-xs text-rose-700 mb-3">{deliveryError}</div>}
+            {deliveryProblems.length > 0 && (
+              <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-3 whitespace-pre-line" data-testid="delivery-stock-problem">
+                {deliveryProblems.join('\n')}{'\n'}Lower the quantity to what is in store, or close this window and confirm once stock arrives.
+              </div>
+            )}
+            {deliveryError && deliveryProblems.length === 0 && <div className="text-xs text-rose-700 mb-3 whitespace-pre-line">{deliveryError}</div>}
             <div className="text-[11px] text-slate-500 mb-4">
               Confirming deducts exactly these quantities from Store stock and records them in Consumption. It cannot be done twice for the same request.
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeliveryBatch(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold cursor-pointer">Cancel</button>
-              <button onClick={submitDelivery} disabled={deliverySaving} data-testid="delivery-confirm" className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <button onClick={submitDelivery} disabled={deliverySaving || deliveryProblems.length > 0 || deliveryTotal <= 0} data-testid="delivery-confirm" className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold cursor-pointer">
                 {deliverySaving ? 'Saving…' : 'Confirm Hand Over'}
               </button>
             </div>
