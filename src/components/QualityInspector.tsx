@@ -37,6 +37,8 @@ interface QualityInspectorProps {
   currentUserName?: string;
   onDeletePool?: (poolId: string, operatorName: string) => void;
   onSkipOrCarryOnSite?: (poolId: string, stageId: StageId, option: 'SKIPPED' | 'CARRIED_ON_SITE', operatorName: string) => void;
+  // Reverse a Skip For Now / Will Carry on Site mark that was tapped by mistake.
+  onUndoSkipOrCarryOnSite?: (poolId: string, stageId: StageId, operatorName: string) => void;
   pendingUndoRequests?: UndoClaimRequest[];
   onApproveUndo?: (requestId: string, poolId: string, stageId: StageId, inspectorName: string) => void;
   onRejectUndo?: (requestId: string) => void;
@@ -64,6 +66,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   currentUserName,
   onDeletePool,
   onSkipOrCarryOnSite,
+  onUndoSkipOrCarryOnSite,
   pendingUndoRequests = [],
   onApproveUndo,
   onRejectUndo,
@@ -114,6 +117,16 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const [filterMode, setFilterMode] = useState<'pending' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [reviewStageId, setReviewStageId] = useState<StageId | null>(null);
+  // Confirmation popup for Skip For Now / Will Carry on Site (and for reversing
+  // one), so a stray tap can never change a stage on its own.
+  const [pendingDispatchAction, setPendingDispatchAction] = useState<{
+    kind: 'SKIPPED' | 'CARRIED_ON_SITE' | 'REVERSE';
+    poolId: string;
+    poolNo: string;
+    stageId: StageId;
+    stageName: string;
+    prevStatus?: 'SKIPPED' | 'CARRIED_ON_SITE';
+  } | null>(null);
   // Voice input for the Ask AI box — dictates into the same text box and
   // auto-sends, exactly as if typed + Enter. The AI still only ever
   // PROPOSES an action (see aiPending/aiPendingBulk above), so a
@@ -585,6 +598,71 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
 
   return (
     <div className="space-y-6">
+
+      {/* ── Confirm Skip / Carry on Site / Reverse ───────────────────────────── */}
+      {pendingDispatchAction && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
+          onClick={() => setPendingDispatchAction(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 space-y-3 font-sans"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle className={`h-5 w-5 flex-shrink-0 ${pendingDispatchAction.kind === 'REVERSE' ? 'text-amber-600' : 'text-indigo-600'}`} />
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">
+                {pendingDispatchAction.kind === 'REVERSE'
+                  ? 'Reverse this mark?'
+                  : pendingDispatchAction.kind === 'SKIPPED'
+                    ? 'Skip this stage for now?'
+                    : 'Carry this stage on site?'}
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 font-medium leading-snug">
+              {pendingDispatchAction.kind === 'REVERSE' ? (
+                <>
+                  <strong className="text-slate-800">{pendingDispatchAction.stageName}</strong> on <strong className="font-mono text-slate-800">{pendingDispatchAction.poolNo}</strong> will go back to
+                  &ldquo;not started&rdquo; and become available for a team to claim again. The mark will be removed.
+                </>
+              ) : (
+                <>
+                  <strong className="text-slate-800">{pendingDispatchAction.stageName}</strong> on <strong className="font-mono text-slate-800">{pendingDispatchAction.poolNo}</strong> will be marked as{' '}
+                  <strong className="text-slate-800">{pendingDispatchAction.kind === 'SKIPPED' ? 'Skipped For Now' : 'Will Carry on Site'}</strong> and the pool will move on to the next stage.
+                  {' '}You can reverse this afterwards if needed.
+                </>
+              )}
+            </p>
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setPendingDispatchAction(null)}
+                className="py-2 bg-white hover:bg-slate-50 text-slate-700 font-black text-xs rounded-lg border border-slate-200 cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const a = pendingDispatchAction;
+                  setPendingDispatchAction(null);
+                  if (a.kind === 'REVERSE') {
+                    onUndoSkipOrCarryOnSite?.(a.poolId, a.stageId, selectedInspector);
+                  } else {
+                    onSkipOrCarryOnSite?.(a.poolId, a.stageId, a.kind, selectedInspector);
+                    setActivePoolId(null);
+                  }
+                }}
+                className={`py-2 text-white font-black text-xs rounded-lg cursor-pointer transition-colors shadow-sm ${
+                  pendingDispatchAction.kind === 'REVERSE' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
+                }`}
+              >
+                {pendingDispatchAction.kind === 'REVERSE' ? 'Yes, Reverse' : 'Yes, Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Undo Claim Requests Panel ─────────────────────────────────────────── */}
       {pendingUndoRequests.length > 0 && (
@@ -1279,33 +1357,75 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
                     </div>
                   </div>
 
-                  {activeReviewStage && onSkipOrCarryOnSite && (
-                    <div className="mt-4 p-4 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-2 text-slate-800 font-sans text-left">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-indigo-800">Off-Sequence Delivery Alternatives</span>
-                        <span className="text-[9px] font-bold text-indigo-500 bg-white border border-indigo-100 px-1.5 py-0.5 rounded">Actionable Zone</span>
+                  {activeReviewStage && onSkipOrCarryOnSite && (() => {
+                    const dispatchStatus = activeReviewPool.stageHistory[activeReviewStage.id]?.status;
+                    const isDispatchMarked = dispatchStatus === 'SKIPPED' || dispatchStatus === 'CARRIED_ON_SITE';
+
+                    // Already marked: show what it was marked as, with a way to put it back.
+                    if (isDispatchMarked) {
+                      const markedAt = activeReviewHistory?.inspectionTime
+                        ? new Date(activeReviewHistory.inspectionTime).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+                        : null;
+                      return (
+                        <div className="mt-4 p-4 bg-amber-50/80 border border-amber-200 rounded-xl space-y-2 text-slate-800 font-sans text-left">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-800">
+                              Marked: {dispatchStatus === 'SKIPPED' ? 'Skipped For Now' : 'Will Carry on Site'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 leading-tight font-medium">
+                            {activeReviewStage.name} was marked this way{activeReviewHistory?.inspectorId ? ` by ${activeReviewHistory.inspectorId}` : ''}{markedAt ? ` on ${markedAt}` : ''}.
+                            Tapped by mistake? Reverse it to open the stage again for the shop floor.
+                          </p>
+                          {onUndoSkipOrCarryOnSite && (
+                            <button
+                              type="button"
+                              onClick={() => setPendingDispatchAction({
+                                kind: 'REVERSE',
+                                poolId: activeReviewPool.id,
+                                poolNo: activeReviewPool.poolNo,
+                                stageId: activeReviewStage.id,
+                                stageName: activeReviewStage.name,
+                                prevStatus: dispatchStatus as 'SKIPPED' | 'CARRIED_ON_SITE',
+                              })}
+                              className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-lg text-center cursor-pointer transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                              <span>Reverse — Put Stage Back</span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="mt-4 p-4 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-2 text-slate-800 font-sans text-left">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-indigo-800">Off-Sequence Delivery Alternatives</span>
+                          <span className="text-[9px] font-bold text-indigo-500 bg-white border border-indigo-100 px-1.5 py-0.5 rounded">Actionable Zone</span>
+                        </div>
+                        <p className="text-xs text-slate-600 leading-tight font-medium">
+                          For these stages, we occasionally skip them or perform the carry on-site during ship dispatch. Select an option to record the status and unlock the next sequence:
+                        </p>
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setPendingDispatchAction({ kind: 'SKIPPED', poolId: activeReviewPool.id, poolNo: activeReviewPool.poolNo, stageId: activeReviewStage.id, stageName: activeReviewStage.name })}
+                            className="py-2 bg-white hover:bg-slate-50 text-slate-700 font-black text-xs rounded-lg border border-slate-200 text-center cursor-pointer transition-colors shadow-xs"
+                          >
+                            Skip For Now
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDispatchAction({ kind: 'CARRIED_ON_SITE', poolId: activeReviewPool.id, poolNo: activeReviewPool.poolNo, stageId: activeReviewStage.id, stageName: activeReviewStage.name })}
+                            className="py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-lg text-center cursor-pointer transition-colors shadow-sm"
+                          >
+                            Will Carry on Site
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-600 leading-tight font-medium">
-                        For these stages, we occasionally skip them or perform the carry on-site during ship dispatch. Select an option to record the status and unlock the next sequence:
-                      </p>
-                      <div className="grid grid-cols-2 gap-3 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => { onSkipOrCarryOnSite(activeReviewPool.id, activeReviewStage.id, 'SKIPPED', selectedInspector); setActivePoolId(null); }}
-                          className="py-2 bg-white hover:bg-slate-50 text-slate-700 font-black text-xs rounded-lg border border-slate-200 text-center cursor-pointer transition-colors shadow-xs"
-                        >
-                          Skip For Now
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { onSkipOrCarryOnSite(activeReviewPool.id, activeReviewStage.id, 'CARRIED_ON_SITE', selectedInspector); setActivePoolId(null); }}
-                          className="py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-lg text-center cursor-pointer transition-colors shadow-sm"
-                        >
-                          Will Carry on Site
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
 
                 {/* ── QC DEFECT PANEL ───────────────────────────────────────────── */}
