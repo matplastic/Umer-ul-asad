@@ -3879,6 +3879,91 @@ export default function App() {
     saveState(updatedPools, updatedTeams, updatedLogs, inspectors, engineers, updatedPlans);
   };
 
+  // ── Reverse a "Skip For Now" / "Will Carry on Site" mark ─────────────────────
+  // For when an inspector tapped one of those buttons by mistake. Puts the stage
+  // back to an un-started, unclaimed state and (when safe) pulls the pool back
+  // to that stage so it shows up in the shop-floor claim list again.
+  const handleUndoSkipOrCarryOnSite = (poolId: string, stageId: StageId, inspectorName: string) => {
+    const poolIndex = poolsRef.current.findIndex(p => p.id === poolId);
+    if (poolIndex === -1) return;
+
+    const basePool = poolsRef.current[poolIndex];
+    const prevStatus = basePool.stageHistory[stageId]?.status;
+    if (prevStatus !== 'SKIPPED' && prevStatus !== 'CARRIED_ON_SITE') return; // safety: only reverse a real skip / carry-on-site mark
+
+    const pool = { ...basePool, stageHistory: { ...basePool.stageHistory } };
+    const stageHist = { ...pool.stageHistory[stageId] };
+    const stageIndex = STAGES.findIndex(s => s.id === stageId);
+
+    const stageHasDownstreamWork = (checkStageId: StageId | null) => {
+      if (!checkStageId) return false;
+      const st = pool.stageHistory[checkStageId]?.status;
+      return !!st && st !== 'NOT_STARTED';
+    };
+
+    const blockedMsg = 'Cannot reverse — work has already started on the next stage (or the pool is fully completed). Use the Management Portal to make a manual correction instead.';
+
+    // Pull the pool back to this stage so it is claimable again.
+    const reverseDualGroup = getDualGroupForStage(stageId);
+    if (reverseDualGroup) {
+      const gateIdx = STAGES.findIndex(s => s.id === reverseDualGroup[0]);
+      const nextIndex = gateIdx + reverseDualGroup.length;
+      if (pool.currentStageIndex > gateIdx) {
+        const nextStageId = nextIndex < STAGES.length ? STAGES[nextIndex].id : null;
+        // Still inside the shared gate range is fine; only block when the pool
+        // has genuinely moved past the whole gate and started the next stage.
+        if (pool.currentStageIndex >= nextIndex && (pool.completedAt || stageHasDownstreamWork(nextStageId))) {
+          alert(blockedMsg);
+          return;
+        }
+        pool.currentStageIndex = gateIdx;
+      }
+    } else if (pool.currentStageIndex > stageIndex) {
+      const nextStageId = stageIndex + 1 < STAGES.length ? STAGES[stageIndex + 1].id : null;
+      if (pool.completedAt || stageHasDownstreamWork(nextStageId)) {
+        alert(blockedMsg);
+        return;
+      }
+      pool.currentStageIndex = stageIndex;
+    }
+
+    // Restore the stage to un-started and unclaimed.
+    stageHist.status = 'NOT_STARTED';
+    stageHist.startTime = null;
+    stageHist.endTime = null;
+    stageHist.durationMinutes = null;
+    stageHist.teamId = undefined;
+    stageHist.teamName = undefined;
+    stageHist.inspectorId = undefined;
+    stageHist.inspectorNotes = undefined;
+    stageHist.inspectionTime = undefined;
+    pool.stageHistory[stageId] = stageHist;
+
+    const updatedPools = [...poolsRef.current];
+    updatedPools[poolIndex] = pool;
+
+    const labelStr = prevStatus === 'SKIPPED' ? 'SKIP FOR NOW' : 'CARRY ON SITE';
+    const stageName = STAGES.find(s => s.id === stageId)?.name || stageId;
+    const newLog: any = {
+      id: `log_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      poolId: pool.id,
+      poolNo: pool.poolNo,
+      projectName: pool.projectName,
+      stageId,
+      type: 'QA_UNDO_SKIP',
+      operatorName: inspectorName,
+      notes: `STAGE DISPATCH REVERSAL: "${labelStr}" mark on ${stageName} was reversed by the inspector. Stage is open again and waiting to be claimed.`
+    };
+
+    const updatedLogs = [...logs, newLog];
+
+    setPools(updatedPools);
+    poolsRef.current = updatedPools; // keep ref in sync for any immediately-following action
+    setLogs(updatedLogs);
+    saveState(updatedPools, teamsRef.current, updatedLogs, inspectors, engineers, plannedPools);
+  };
+
   const handleStageChange = (stageId: StageId) => {
     setSelectedStageId(stageId);
     const stageTeams = teams.filter(t => t.stageId === stageId);
@@ -4264,6 +4349,7 @@ export default function App() {
             onApproveStage={handleApproveStage}
             onRejectStage={handleRejectStage}
             onUndoApproval={handleUndoApproval}
+            onUndoSkipOrCarryOnSite={handleUndoSkipOrCarryOnSite}
             inspectors={inspectors}
             currentUserName={loggedInUser?.displayName}
             onDeletePool={handleDeletePool}
