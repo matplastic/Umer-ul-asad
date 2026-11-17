@@ -58,6 +58,18 @@ export const BACKUP_DOCS: BackupDocDef[] = [
   { id: 'hrPurchaseRequests', label: 'HR purchase requests', group: 'hr' },
   { id: 'supervisorPurchaseRequests', label: 'Supervisor purchase requests', group: 'hr' },
   { id: 'companies', label: 'Visa sponsor companies', group: 'hr' },
+  // HR Suite (profiles, documents, cases, requests, training, PPE, reviews, letters, audit)
+  { id: 'hrProfiles', label: 'HR employee profiles (extended)', group: 'hr' },
+  { id: 'hrDocuments', label: 'HR document vault', group: 'hr' },
+  { id: 'hrLifecycle', label: 'HR onboarding / exit checklists', group: 'hr' },
+  { id: 'hrCases', label: 'HR disciplinary cases', group: 'hr' },
+  { id: 'hrRequests', label: 'HR requests (advances, loans, OT, letters)', group: 'hr' },
+  { id: 'hrTraining', label: 'HR training records', group: 'hr' },
+  { id: 'hrPPE', label: 'HR PPE issue log', group: 'hr' },
+  { id: 'hrAccidentCases', label: 'HR accident follow-ups', group: 'hr' },
+  { id: 'hrReviews', label: 'HR performance reviews', group: 'hr' },
+  { id: 'hrLetters', label: 'HR letters issued', group: 'hr' },
+  { id: 'hrAudit', label: 'HR audit trail', group: 'hr' },
 ];
 
 export const BACKUP_DOC_IDS: string[] = BACKUP_DOCS.map(d => d.id);

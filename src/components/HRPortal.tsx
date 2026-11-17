@@ -6,7 +6,8 @@ import {
   Plus, Search, Trash2, Edit2, CheckCircle, XCircle, Check,
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
-  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2
+  Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2,
+  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
@@ -36,6 +37,17 @@ const PASSPORT_COUNTRIES = [
   'China', 'United Kingdom', 'United States', 'South Africa', 'Morocco', 'Tunisia',
 ].sort();
 import { EmployeeAttendanceReport } from './EmployeeAttendanceReport';
+import { HRDashboard } from './hr/HRDashboard';
+import { Employee360 } from './hr/Employee360';
+import { DocumentsVault } from './hr/DocumentsVault';
+import { DisciplineCases } from './hr/DisciplineCases';
+import { RequestCenter } from './hr/RequestCenter';
+import { SafetyTraining } from './hr/SafetyTraining';
+import { PerformanceReviews } from './hr/PerformanceReviews';
+import { LettersCenter } from './hr/LettersCenter';
+import { AuditTrail } from './hr/AuditTrail';
+import { HRToastHost } from './hr/hrUi';
+import { useHRCollection, HRRequest, loanDueIn } from '../lib/hrStore';
 import {
   listUserAccounts, createUserAccount, updateUserAccount,
   resetUserPassword, deactivateUserAccount, getAllowedRoles, type AuthUser
@@ -952,7 +964,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   companyList,
   onSaveCompanies,
 }) => {
-  const [activeTab, setActiveTab] = useState<'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('directory');
+  const [activeTab, setActiveTab] = useState<'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('hrdash');
+
+  // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
+  const hrReqC = useHRCollection<HRRequest>('hrRequests');
 
   // ── A4 print/PDF report state (Absent / Accident / Medical reports) ──
   const [printReport, setPrintReport] = useState<{
@@ -2398,6 +2413,21 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState<Partial<PayrollRecord>>({});
     const [monthFilter, setMonthFilter] = useState(localMonthStr());
+    // HR Suite: ids of loans/advances whose installment was applied to this entry.
+    const [appliedLoanIds, setAppliedLoanIds] = useState<string[]>([]);
+
+    // Approved overtime + loan installments for the selected employee/month.
+    const suiteAdjust = (() => {
+      if (!form.employeeId) return null;
+      const reqs = hrReqC.items.filter(r => r.employeeId === form.employeeId);
+      const ot = reqs.filter(r => r.type === 'Overtime' && (r.status === 'Approved' || r.status === 'Completed') && (r.otDate || '').startsWith(monthFilter));
+      const normal = ot.filter(r => r.otKind !== 'Sunday').reduce((s, r) => s + (r.otHours || 0), 0);
+      const sunday = ot.filter(r => r.otKind === 'Sunday').reduce((s, r) => s + (r.otHours || 0), 0);
+      const loans = reqs.map(r => ({ r, due: loanDueIn(r, monthFilter) })).filter(x => x.due > 0);
+      const loanTotal = loans.reduce((s, x) => s + x.due, 0);
+      if (!normal && !sunday && !loanTotal) return null;
+      return { normal, sunday, loans, loanTotal };
+    })();
 
     const filtered = payroll.filter(p => p.month === monthFilter);
     const totalNet = filtered.reduce((s, p) => s + p.netSalary, 0);
@@ -2425,6 +2455,13 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         ? payroll.map((p, i) => i === existing ? record : p)
         : [record, ...payroll];
       savePayroll(updated);
+      // Record the loan/advance installments that were applied to this entry.
+      const stillDue = new Set((suiteAdjust?.loans || []).map(x => x.r.id));
+      appliedLoanIds.filter(id => stillDue.has(id)).forEach(id => {
+        hrReqC.patch(id, cur => (cur.deductedMonths || []).includes(monthFilter) ? cur : { ...cur, deductedMonths: [...(cur.deductedMonths || []), monthFilter] })
+          .catch(err => console.error('[HRPortal] Could not record loan deduction:', err));
+      });
+      setAppliedLoanIds([]);
       setShowForm(false);
       setForm({});
     };
@@ -2475,6 +2512,26 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                   </select>
                 </div>
+                {suiteAdjust && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-900 space-y-1.5">
+                    <div className="font-black">Approved in HR Suite for {monthFilter}</div>
+                    {(suiteAdjust.normal > 0 || suiteAdjust.sunday > 0) && <div>Overtime: {suiteAdjust.normal}h normal · {suiteAdjust.sunday}h Sunday</div>}
+                    {suiteAdjust.loans.map(x => <div key={x.r.id}>{x.r.type} installment: {fmtCurrency(x.due)}</div>)}
+                    <button
+                      type="button"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg"
+                      onClick={() => {
+                        setForm(p => ({
+                          ...p,
+                          normalOtHours: suiteAdjust.normal || p.normalOtHours,
+                          sundayOtHours: suiteAdjust.sunday || p.sundayOtHours,
+                          deductions: suiteAdjust.loanTotal ? Math.round(suiteAdjust.loanTotal * 100) / 100 : p.deductions,
+                        }));
+                        setAppliedLoanIds(suiteAdjust.loans.map(x => x.r.id));
+                      }}
+                    >Apply to this entry</button>
+                  </div>
+                )}
                 {[
                   { label: 'Base Salary (AED) *', key: 'baseSalary' },
                   { label: 'Allowances (AED)', key: 'allowances' },
@@ -4573,6 +4630,18 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   // TABS CONFIG
   // ─────────────────────────────────────────────────────────────────────────────
 
+  const suiteTabs = [
+    { id: 'hrdash', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
+    { id: 'emp360', label: 'Employee 360', icon: <UserSquare2 className="h-4 w-4" /> },
+    { id: 'docs', label: 'Documents', icon: <FolderOpen className="h-4 w-4" /> },
+    { id: 'cases', label: 'Discipline', icon: <Gavel className="h-4 w-4" /> },
+    { id: 'requests', label: 'Requests', icon: <Inbox className="h-4 w-4" /> },
+    { id: 'safety', label: 'Safety & Training', icon: <HardHat className="h-4 w-4" /> },
+    { id: 'reviews', label: 'Performance', icon: <Star className="h-4 w-4" /> },
+    { id: 'letters', label: 'Letters', icon: <Mail className="h-4 w-4" /> },
+    { id: 'audit', label: 'Audit Trail', icon: <History className="h-4 w-4" /> },
+  ] as const;
+
   const tabs = [
     { id: 'directory', label: 'Directory', icon: <Users className="h-4 w-4" /> },
     { id: 'passports', label: 'Passports', icon: <FileText className="h-4 w-4" /> },
@@ -4655,6 +4724,29 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       </div>
 
       {/* Tabs */}
+      <div className="space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 w-16">HR Suite</span>
+        <div className="flex gap-1 bg-violet-50 p-1 rounded-xl w-fit flex-wrap">
+          {suiteTabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeTab === tab.id ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+              {tab.id === 'requests' && hrReqC.items.filter(r => r.status === 'Pending').length > 0 && (
+                <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">{hrReqC.items.filter(r => r.status === 'Pending').length}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 w-16">Records</span>
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit flex-wrap">
         {tabs.map(tab => (
           <button
@@ -4677,8 +4769,23 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           </button>
         ))}
       </div>
+      </div>
+      </div>
+
+      <HRToastHost />
 
       {/* Tab Content */}
+      {activeTab === 'hrdash' && <HRDashboard employees={employees} employeePunches={employeePunches} leaves={leaves} warnings={warnings} accidents={accidents} onNavigate={(t) => setActiveTab(t as any)} />}
+      {activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={payroll} />}
+      {activeTab === 'docs' && <DocumentsVault employees={employees} user={currentUserName} />}
+      {activeTab === 'cases' && <DisciplineCases employees={employees} user={currentUserName} warnings={warnings}
+        onIssueWarning={(w) => saveWarnings([w as Warning, ...warnings])} />}
+      {activeTab === 'requests' && <RequestCenter employees={employees} user={currentUserName} onGoLetters={() => setActiveTab('letters')} />}
+      {activeTab === 'safety' && <SafetyTraining employees={employees} user={currentUserName} accidents={accidents}
+        onAccidentStatus={(id, status) => saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a))} />}
+      {activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
+      {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={payroll} />}
+      {activeTab === 'audit' && <AuditTrail />}
       {activeTab === 'directory' && <DirectoryTab />}
       {activeTab === 'passports' && <PassportsTab />}
       {activeTab === 'attendance' && <AttendanceTab />}
