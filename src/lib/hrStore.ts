@@ -17,7 +17,8 @@ import { clientDb } from './googleDrive.ts';
 // ─── Document names ─────────────────────────────────────────
 export type HRDocName =
   | 'hrProfiles' | 'hrDocuments' | 'hrLifecycle' | 'hrCases' | 'hrRequests'
-  | 'hrTraining' | 'hrPPE' | 'hrAccidentCases' | 'hrReviews' | 'hrLetters' | 'hrAudit';
+  | 'hrTraining' | 'hrPPE' | 'hrAccidentCases' | 'hrReviews' | 'hrLetters' | 'hrAudit'
+  | 'hrVacancies' | 'hrCandidates' | 'hrSettlements' | 'hrNotices' | 'hrGrievances';
 
 /** Every list the HR Suite owns — also registered for backup/restore. */
 export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
@@ -32,6 +33,11 @@ export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
   { id: 'hrReviews', label: 'HR performance reviews' },
   { id: 'hrLetters', label: 'HR letters issued' },
   { id: 'hrAudit', label: 'HR audit trail' },
+  { id: 'hrVacancies', label: 'HR vacancies' },
+  { id: 'hrCandidates', label: 'HR recruitment candidates' },
+  { id: 'hrSettlements', label: 'HR final settlements' },
+  { id: 'hrNotices', label: 'HR notice board' },
+  { id: 'hrGrievances', label: 'HR grievances & suggestions' },
 ];
 
 // ─── Record types ───────────────────────────────────────────
@@ -223,6 +229,114 @@ export interface HRAuditEntry {
   module: string;
   action: string;
   target?: string;
+}
+
+export interface HRVacancy {
+  id: string;
+  title: string;
+  department: string;
+  openings: number;
+  status: 'Open' | 'On Hold' | 'Filled' | 'Closed';
+  requestedBy?: string;
+  requirements?: string;
+  createdAt: string;
+}
+export const CANDIDATE_STAGES = ['Applied', 'Screening', 'Interview', 'Trade Test', 'Offer', 'Hired', 'Rejected'] as const;
+export type CandidateStage = typeof CANDIDATE_STAGES[number];
+export interface HRCandidate {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  nationality?: string;
+  vacancyId?: string;
+  position: string;
+  department?: string;
+  source?: string;
+  currentVisaStatus?: string;
+  expectedSalary?: number;
+  stage: CandidateStage;
+  interviews: { id: string; date: string; interviewer: string; rating: number; notes: string }[];
+  offerSalary?: number;
+  offerDate?: string;
+  expectedJoining?: string;
+  rejectReason?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface HRSettlement {
+  id: string;
+  refNo: string;
+  employeeId: string;
+  employeeName: string;
+  joiningDate: string;
+  lastWorkingDay: string;
+  basicSalary: number;
+  unpaidDays: number;
+  serviceYears: number;
+  gratuity: number;
+  leaveDays: number;
+  leaveAmount: number;
+  pendingSalaryDays: number;
+  pendingSalaryAmount: number;
+  noticePay: number;
+  otherAdditions: number;
+  loanDeduction: number;
+  otherDeductions: number;
+  net: number;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface HRNotice {
+  id: string;
+  title: string;
+  body: string;
+  category: 'General' | 'Safety' | 'Policy' | 'Holiday' | 'Event' | 'Urgent';
+  audience: string; // 'All' or a department
+  pinned?: boolean;
+  expiresOn?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface HRGrievance {
+  id: string;
+  refNo: string;
+  kind: 'Complaint' | 'Suggestion' | 'Grievance';
+  employeeId?: string; // empty when raised anonymously
+  employeeName?: string;
+  subject: string;
+  details: string;
+  status: 'Open' | 'In Review' | 'Resolved' | 'Closed';
+  assignedTo?: string;
+  resolution?: string;
+  history: { at: string; by: string; action: string }[];
+  createdAt: string;
+}
+
+/** UAE private-sector end-of-service gratuity (Federal Decree-Law 33/2021, Art. 51). */
+export function calcGratuity(basicMonthly: number, joining: string, lastDay: string, unpaidDays = 0) {
+  const j = new Date(joining + 'T00:00:00').getTime();
+  const l = new Date(lastDay + 'T00:00:00').getTime();
+  if (isNaN(j) || isNaN(l) || l < j || !(basicMonthly > 0)) return { years: 0, gratuity: 0, capped: false, eligible: false, daily: 0 };
+  // Whole calendar years first (so leap years don't drift), then the remainder as a fraction.
+  const js = new Date(joining + 'T00:00:00'); const end = new Date(new Date(lastDay + 'T00:00:00').getTime() + 86400000); // last day counts
+  let whole = end.getFullYear() - js.getFullYear();
+  let anchor = new Date(js.getFullYear() + whole, js.getMonth(), js.getDate());
+  if (anchor > end) { whole--; anchor = new Date(js.getFullYear() + whole, js.getMonth(), js.getDate()); }
+  const remDays = Math.round((end.getTime() - anchor.getTime()) / 86400000);
+  const years = Math.max(0, whole + (remDays - Math.max(0, unpaidDays)) / 365);
+  const daily = basicMonthly / 30;
+  if (years < 1) return { years, gratuity: 0, capped: false, eligible: false, daily };
+  const first = Math.min(years, 5) * 21 * daily;
+  const rest = Math.max(0, years - 5) * 30 * daily;
+  const raw = first + rest;
+  const cap = basicMonthly * 24;
+  return { years, gratuity: Math.round(Math.min(raw, cap) * 100) / 100, capped: raw > cap, eligible: true, daily };
 }
 
 // ─── Minimal views of the existing HR records (owned by HRPortal) ───

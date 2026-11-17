@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Users, UserCheck, CalendarOff, Inbox, FileWarning, Gavel, Siren, ChevronRight } from 'lucide-react';
+import { Cake, Award, Users, UserCheck, CalendarOff, Inbox, FileWarning, Gavel, Siren, ChevronRight } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
 } from 'recharts';
@@ -95,7 +95,24 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
       if (ce !== null && ce >= 0 && ce <= 60) alerts.push({ tone: 'sky', text: `${e.name}: contract ends ${fmtD(p!.contractEndDate)}`, tab: 'emp360' });
     });
 
-    return { activeCount: active.length, presentToday, punchingCount: punching.length, trend, onLeave, pendingLeave, pendingReq, joined30, exited90,
+    // Birthdays & work anniversaries in the next 14 days (and today)
+    const celebrations: { name: string; kind: 'birthday' | 'anniversary'; days: number; label: string }[] = [];
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    active.forEach(e => {
+      const p = pm.get(e.id);
+      const upcoming = (iso?: string) => {
+        if (!iso) return null;
+        const src = new Date(iso + 'T00:00:00'); if (isNaN(src.getTime())) return null;
+        let next = new Date(now.getFullYear(), src.getMonth(), src.getDate());
+        if (next < now) next = new Date(now.getFullYear() + 1, src.getMonth(), src.getDate());
+        return { days: Math.round((next.getTime() - now.getTime()) / 86400000), years: next.getFullYear() - src.getFullYear() };
+      };
+      const b = upcoming(p?.dob); if (b && b.days <= 14) celebrations.push({ name: e.name, kind: 'birthday', days: b.days, label: 'Birthday' });
+      const a = upcoming(p?.joiningDate); if (a && a.days <= 14 && a.years >= 1) celebrations.push({ name: e.name, kind: 'anniversary', days: a.days, label: `${a.years} year${a.years > 1 ? 's' : ''} with the company` });
+    });
+    celebrations.sort((x, y) => x.days - y.days);
+
+    return { celebrations, activeCount: active.length, presentToday, punchingCount: punching.length, trend, onLeave, pendingLeave, pendingReq, joined30, exited90,
       docExpired, docSoon, openCases, unsigned, warn30, daysSinceAcc, openAcc, deptData, alerts };
   }, [employees, employeePunches, leaves, warnings, accidents, profC.items, docsC.items, casesC.items, reqC.items, trainC.items, ppeC.items, accC.items]);
 
@@ -149,6 +166,7 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
           </SectionCard>
         </div>
 
+        <div className="space-y-4">
         <SectionCard title={`Needs attention (${d.alerts.length})`}>
           {d.alerts.length === 0 ? <p className="text-sm text-emerald-600 font-semibold py-6 text-center">All clear — nothing needs action right now.</p> : (
             <div className="space-y-1.5 max-h-72 overflow-y-auto">
@@ -160,6 +178,21 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
             </div>
           )}
         </SectionCard>
+        <SectionCard title="Birthdays & anniversaries (next 14 days)">
+          {d.celebrations.length === 0 ? <p className="text-sm text-slate-400 py-3 text-center">Nothing coming up. Add date of birth and joining date in Employee 360.</p> : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {d.celebrations.map((c, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  {c.kind === 'birthday' ? <Cake className="h-4 w-4 text-pink-500 shrink-0" /> : <Award className="h-4 w-4 text-violet-500 shrink-0" />}
+                  <span className="font-semibold text-slate-800 truncate">{c.name}</span>
+                  <span className="text-xs text-slate-400 truncate">{c.label}</span>
+                  <span className="ml-auto text-[11px] font-bold text-slate-500 whitespace-nowrap">{c.days === 0 ? 'Today' : c.days === 1 ? 'Tomorrow' : `in ${c.days}d`}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+        </div>
       </div>
     </div>
   );

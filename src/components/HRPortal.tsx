@@ -7,7 +7,7 @@ import {
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
   Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2,
-  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History
+  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
@@ -46,6 +46,9 @@ import { SafetyTraining } from './hr/SafetyTraining';
 import { PerformanceReviews } from './hr/PerformanceReviews';
 import { LettersCenter } from './hr/LettersCenter';
 import { AuditTrail } from './hr/AuditTrail';
+import { Recruitment } from './hr/Recruitment';
+import { FinalSettlement } from './hr/FinalSettlement';
+import { EmployeeRelations } from './hr/EmployeeRelations';
 import { HRToastHost } from './hr/hrUi';
 import { useHRCollection, HRRequest, loanDueIn } from '../lib/hrStore';
 import {
@@ -964,7 +967,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   companyList,
   onSaveCompanies,
 }) => {
-  const [activeTab, setActiveTab] = useState<'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('hrdash');
+  const [activeTab, setActiveTab] = useState<'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('hrdash');
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
   const hrReqC = useHRCollection<HRRequest>('hrRequests');
@@ -4638,6 +4641,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'requests', label: 'Requests', icon: <Inbox className="h-4 w-4" /> },
     { id: 'safety', label: 'Safety & Training', icon: <HardHat className="h-4 w-4" /> },
     { id: 'reviews', label: 'Performance', icon: <Star className="h-4 w-4" /> },
+    { id: 'recruit', label: 'Recruitment', icon: <UserPlus className="h-4 w-4" /> },
+    { id: 'relations', label: 'Employee Relations', icon: <Megaphone className="h-4 w-4" /> },
+    { id: 'settle', label: 'Final Settlement', icon: <Calculator className="h-4 w-4" /> },
     { id: 'letters', label: 'Letters', icon: <Mail className="h-4 w-4" /> },
     { id: 'audit', label: 'Audit Trail', icon: <History className="h-4 w-4" /> },
   ] as const;
@@ -4785,6 +4791,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         onAccidentStatus={(id, status) => saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a))} />}
       {activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
       {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={payroll} />}
+      {activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}
+      {activeTab === 'relations' && <EmployeeRelations employees={employees} user={currentUserName} />}
+      {activeTab === 'settle' && <FinalSettlement employees={employees} user={currentUserName} />}
       {activeTab === 'audit' && <AuditTrail />}
       {activeTab === 'directory' && <DirectoryTab />}
       {activeTab === 'passports' && <PassportsTab />}

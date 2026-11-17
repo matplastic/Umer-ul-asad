@@ -128,7 +128,7 @@ const pron = (g?: 'Male' | 'Female') =>
       : { title: '', he: 'they', his: 'their', him: 'them' };
 const who = (p: PersonCtx) => `${pron(p.gender).title ? pron(p.gender).title + ' ' : ''}${p.name}`;
 
-export type LetterKind = 'Experience Certificate' | 'Salary Certificate' | 'NOC' | 'Appreciation Letter' | 'Warning Letter' | 'Custom Letter';
+export type LetterKind = 'Offer Letter' | 'Experience Certificate' | 'Salary Certificate' | 'NOC' | 'Appreciation Letter' | 'Warning Letter' | 'Custom Letter';
 export interface LetterInput {
   kind: LetterKind;
   person: PersonCtx;
@@ -139,6 +139,8 @@ export interface LetterInput {
   purpose?: string; reason?: string;
   warningType?: string; incidentDate?: string;
   subject?: string; body?: string;
+  // Offer letter
+  offerPosition?: string; offerSalary?: number; offerJoining?: string;
 }
 
 export function composeLetter(inp: LetterInput): { subject: string; addressedTo: string; paragraphs: string[]; acknowledgment?: boolean } {
@@ -154,6 +156,17 @@ export function composeLetter(inp: LetterInput): { subject: string; addressedTo:
   const dept = p.department ? ` in the ${p.department} department` : '';
 
   switch (inp.kind) {
+    case 'Offer Letter':
+      return {
+        subject: 'Offer of Employment',
+        addressedTo: inp.addressedTo || `Dear ${p.name},`,
+        paragraphs: [
+          `We are pleased to offer you the position of ${inp.offerPosition || role}${dept} at ${COMPANY_NAME}${inp.offerJoining ? `, with an expected joining date of ${fmtD(inp.offerJoining)}` : ''}.`,
+          `Your monthly salary will be ${fmtAED(inp.offerSalary)}${inp.reason ? `, as follows: ${inp.reason}` : ''}. This offer is subject to a valid UAE work visa, a satisfactory medical fitness test, and the terms of your employment contract and the UAE Labour Law.`,
+          'Please sign and return a copy of this letter to confirm your acceptance. We look forward to welcoming you to the team.',
+        ],
+        acknowledgment: true,
+      };
     case 'Experience Certificate': {
       const to = p.joiningDate ? fmtD(p.joiningDate) : '[joining date]';
       const end = p.exitDate ? fmtD(p.exitDate) : 'date';
@@ -258,4 +271,49 @@ export async function exportEmployeeProfilePdf(opts: {
   }
   drawFooter(doc, `${COMPANY_NAME}  ·  HR Department`);
   doc.save(`Employee_Profile_${opts.name.replace(/\s+/g, '_')}.pdf`);
+}
+
+// ─── Final settlement sheet ─────────────────────────────────
+export async function exportSettlementPdf(r: {
+  refNo: string; employeeName: string; joiningDate: string; lastWorkingDay: string; serviceYears: number; basicSalary: number;
+  gratuity: number; leaveDays: number; leaveAmount: number; pendingSalaryDays: number; pendingSalaryAmount: number; noticePay: number;
+  otherAdditions: number; loanDeduction: number; otherDeductions: number; net: number; notes?: string;
+}) {
+  const logo = await loadLogo();
+  const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+  const startPage = currentPage(doc);
+  const hdr = () => drawLetterhead(doc, {
+    logo, dept: 'Human Resources Department', title: 'Final Settlement', subtitle: `${r.employeeName}  ·  Ref ${r.refNo}`,
+    firstPage: currentPage(doc) === startPage,
+  });
+  const yrs = `${Math.floor(r.serviceYears)} yr ${Math.round((r.serviceYears % 1) * 12)} mo`;
+  const info: [string, string][] = [
+    ['Employee', r.employeeName], ['Joining date', fmtD(r.joiningDate)], ['Last working day', fmtD(r.lastWorkingDay)],
+    ['Service (excl. unpaid leave)', yrs], ['Last basic salary', fmtAED(r.basicSalary)],
+  ];
+  autoTable(doc, { ...themedTable(['Details', ''], info), startY: PDF_LAYOUT.firstTop, head: [['Details', '']], body: info,
+    columnStyles: { 0: { cellWidth: 170, fontStyle: 'bold', textColor: PDF_COLORS.muted } }, didDrawPage: () => { hdr(); } });
+  const y1 = (doc as any).lastAutoTable.finalY + 14;
+  const add: [string, string][] = [
+    ['End-of-service gratuity', fmtAED(r.gratuity)],
+    [`Unused annual leave (${r.leaveDays} day(s))`, fmtAED(r.leaveAmount)],
+    [`Pending salary (${r.pendingSalaryDays} day(s))`, fmtAED(r.pendingSalaryAmount)],
+    ['Notice pay', fmtAED(r.noticePay)], ['Other additions', fmtAED(r.otherAdditions)],
+  ];
+  const ded: [string, string][] = [['Loan / advance balance', fmtAED(r.loanDeduction)], ['Other deductions', fmtAED(r.otherDeductions)]];
+  const body = [...add, ...ded, ['NET AMOUNT PAYABLE', fmtAED(r.net)]];
+  autoTable(doc, { ...themedTable(['Item', 'Amount'], body), startY: y1, head: [['Item', 'Amount']], body,
+    columnStyles: { 1: { halign: 'right' } },
+    didParseCell: d => { if (d.section === 'body' && d.row.index === body.length - 1) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = PDF_COLORS.tealSoft as any; } },
+    didDrawPage: () => { hdr(); } });
+  let y = (doc as any).lastAutoTable.finalY + 14;
+  if (r.notes) { doc.setFontSize(9); doc.setTextColor(...PDF_COLORS.muted); doc.text(doc.splitTextToSize(`Notes: ${r.notes}`, 480) as string[], 56, y); y += 30; }
+  doc.setFontSize(8); doc.setTextColor(...PDF_COLORS.faint);
+  doc.text('Gratuity estimated under UAE Federal Decree-Law 33/2021 (21 days per year for 5 years, 30 days after, capped at 2 years’ wage).', 56, y + 6);
+  y += 60;
+  doc.setDrawColor(...PDF_COLORS.muted); doc.setTextColor(...PDF_COLORS.text); doc.setFontSize(9);
+  doc.line(56, y, 226, y); doc.line(330, y, 500, y);
+  doc.text('HR Manager', 56, y + 12); doc.text('Employee signature & date', 330, y + 12);
+  drawFooter(doc, `${COMPANY_NAME}  ·  HR Department`);
+  doc.save(`Final_Settlement_${r.employeeName.replace(/\s+/g, '_')}.pdf`);
 }

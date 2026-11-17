@@ -70,6 +70,11 @@ export const BACKUP_DOCS: BackupDocDef[] = [
   { id: 'hrReviews', label: 'HR performance reviews', group: 'hr' },
   { id: 'hrLetters', label: 'HR letters issued', group: 'hr' },
   { id: 'hrAudit', label: 'HR audit trail', group: 'hr' },
+  { id: 'hrVacancies', label: 'HR vacancies', group: 'hr' },
+  { id: 'hrCandidates', label: 'HR recruitment candidates', group: 'hr' },
+  { id: 'hrSettlements', label: 'HR final settlements', group: 'hr' },
+  { id: 'hrNotices', label: 'HR notice board', group: 'hr' },
+  { id: 'hrGrievances', label: 'HR grievances & suggestions', group: 'hr' },
 ];
 
 export const BACKUP_DOC_IDS: string[] = BACKUP_DOCS.map(d => d.id);
