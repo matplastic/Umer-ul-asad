@@ -18,6 +18,8 @@ export const STAGES: StageDefinition[] = [
 
 // Each inner array is a set of stages that run in PARALLEL on the shop
 // floor, sharing one "gate" slot in STAGES:
+//  - Steel Primer / Plumbing: once Steel Fabrication is approved the pool
+//    shows on BOTH boards; primer and plumbing are worked independently.
 //  - Skimmer Fitting / Lamination: skimmer boxes get set into the shell
 //    during the lamination layup, not after it.
 //  - Mechanical Fitting / Skimmer Test / Mosaic (door_cutting): any of the
@@ -32,6 +34,7 @@ export const STAGES: StageDefinition[] = [
 // A group's stages must be adjacent in STAGES (this is what makes a single
 // "gate index" meaningful for them), and can be any length >= 2.
 export const DUAL_STAGE_GROUPS: StageId[][] = [
+  ['steel_primer', 'plumbing'],
   ['skimmer_fitting', 'lamination'],
   ['mechanical_fitting', 'skimmer_test', 'door_cutting'],
 ];

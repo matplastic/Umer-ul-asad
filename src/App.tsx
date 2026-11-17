@@ -3,7 +3,7 @@ import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPoo
 import StoreModule from './components/StoreModule';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
-import { STAGES, getDualGroupForStage, isAtDualStageGate, getInitialData, createEmptyHistory, getMaxConcurrentClaims, allowsExtraClaimWhileAwaitingQC, isPoolAwaitingQcAtStage } from './data/mockData';
+import { STAGES, getDualGroupForStage, getDualGroupForIndex, getInitialData, createEmptyHistory, getMaxConcurrentClaims, allowsExtraClaimWhileAwaitingQC, isPoolAwaitingQcAtStage } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { AutoPrintMaterialSlip } from './components/AutoPrintMaterialSlip';
 import { LoginScreen } from './components/LoginScreen';
@@ -3474,7 +3474,7 @@ export default function App() {
       // QC-approved — not just one other sibling, since a group can now
       // have more than two members.
       const gateIdx = STAGES.findIndex(s => s.id === dualGroup[0]);
-      if (isAtDualStageGate(pool.currentStageIndex)) {
+      if (getDualGroupForIndex(pool.currentStageIndex) === dualGroup) {
         const otherIds = dualGroup.filter(id => id !== stageId);
         const allSiblingsApproved = otherIds.every(id => pool.stageHistory[id]?.status === 'APPROVED');
         if (allSiblingsApproved) {

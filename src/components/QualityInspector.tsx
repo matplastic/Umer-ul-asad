@@ -261,8 +261,9 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
     if (p.currentStageIndex >= STAGES.length) return false;
     // While parked anywhere in the shared Skimmer Fitting/Lamination gate
     // range, either sibling stage can independently be waiting on QC sign-off.
-    if (isAtDualStageGate(p.currentStageIndex)) {
-      return DUAL_STAGE_IDS.some((id) => p.stageHistory[id]?.status === 'PENDING_INSPECTION');
+    const pendingGateGroup = getDualGroupForIndex(p.currentStageIndex);
+    if (pendingGateGroup) {
+      return pendingGateGroup.some((id) => p.stageHistory[id]?.status === 'PENDING_INSPECTION');
     }
     const currentStageId = STAGES[p.currentStageIndex].id;
     return p.stageHistory[currentStageId]?.status === 'PENDING_INSPECTION';
