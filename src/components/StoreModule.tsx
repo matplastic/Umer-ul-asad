@@ -3,7 +3,7 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
   Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
-  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen, Building2, Paperclip, Loader2,
+  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen, Building2, Paperclip, Loader2, ChevronRight, ChevronDown,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { exportMultiTablePdf } from '../lib/exportUtils';
@@ -23,6 +23,7 @@ import { StockStatusBadge } from './StockStatusBadge';
 import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
 import { StockLedgerModal } from './StockLedgerModal';
+import { MaterialDetailPanel } from './MaterialDetailPanel';
 import { InventoryLedgerPage } from './InventoryLedgerPage';
 import { SuppliersPage } from './SuppliersPage';
 import { normName } from '../lib/suppliers';
@@ -69,6 +70,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   // Material whose Stock Ledger window is open (click a material in Inventory).
   const [ledgerMaterial, setLedgerMaterial] = useState<Material | null>(null);
+  // Material whose detail panel is open (click a row in Inventory) — holds every per-material action.
+  const [detailId, setDetailId] = useState<string | null>(null);
+  // "+ Add Material" modal and the Excel import dropdown on the Inventory tab.
+  const [showAddMaterial, setShowAddMaterial] = useState(false);
+  const [showImportMenu, setShowImportMenu] = useState(false);
   // Set right after a hand over is confirmed — drives the Delivery Order screen.
   const [deliveryDone, setDeliveryDone] = useState<{ doNumber: string; items: MaterialRequest[] } | null>(null);
   const [companyAssets, setCompanyAssets] = useState<CompanyAsset[]>([]);
@@ -380,8 +386,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   }, [materials, requests, passedIncoming, filteredConsumptionLogs, fromDate, toDate, inDateRange]);
 
   // --- Materials ---
-  const saveMaterial = async () => {
-    if (!newMaterial.name || !newMaterial.unit) return;
+  const saveMaterial = async (): Promise<boolean> => {
+    if (!newMaterial.name || !newMaterial.unit) return false;
     const item = {
       ...newMaterial,
       extraUnits: cleanExtraUnits(newMaterial.extraUnits),
@@ -392,6 +398,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     await dbSaveMaterial(item);
     setNewMaterial(emptyMaterial);
     loadAll(true);
+    return true;
   };
 
   // Save the extra units of an existing material (does not touch its stock)
@@ -512,6 +519,31 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const toggleFollow = async (mat: Material) => {
     await dbUpdateMaterialFields(mat.id, { alertsEnabled: !isFollowed(mat) });
     loadAll(true);
+  };
+
+  // --- Material detail panel handlers ---
+  // Field-level update: editing a description can never overwrite a newer stock quantity.
+  const saveMaterialFields = async (id: string, patch: Partial<Material>) => {
+    await dbUpdateMaterialFields(id, patch);
+    await loadAll(true);
+  };
+
+  // Set stock to the quantity actually counted. Returns an error message, or null on success.
+  const adjustStockTo = async (id: string, newQty: number, note: string): Promise<string | null> => {
+    const mat = materials.find(m => m.id === id);
+    const currentQty = Number(mat?.currentStock || 0);
+    try {
+      await dbAdjustMaterialStock(id, newQty - currentQty, currentUserName, note || `Set to ${newQty} (was ${currentQty})`);
+    } catch (e: any) {
+      return e?.message || 'Could not adjust the stock.';
+    }
+    await loadAll(true);
+    return null;
+  };
+
+  const saveMaterialUnits = async (id: string, units: ExtraUnit[]) => {
+    await dbUpdateMaterialFields(id, { extraUnits: cleanExtraUnits(units) });
+    await loadAll(true);
   };
 
   // Materials currently at/below a level — drives the Reorder tab badge.
@@ -1051,6 +1083,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     loadAll(true);
   };
 
+  // Rows shown in the Inventory table (search + section + portal tab applied).
+  const visibleInventory = filteredMaterials
+    .filter(m => sectionFilter === '__blank__' ? !m.section : true)
+    .filter(m => invGroupTab === 'all' ? true : invGroupTab === 'key' ? isMaterialCritical(m) : materialGroup(m) === invGroupTab);
+  const detailMaterial = detailId ? (materials.find(m => m.id === detailId) || null) : null;
+  const detailInv = detailMaterial ? analytics?.inventoryReport?.find((r: any) => r.materialId === detailMaterial.id) : null;
+
   const deliveryProblems = deliveryBatch ? deliveryShortages(deliveryBatch, deliveryQty).map(shortageText) : [];
   const deliveryTotal = deliveryBatch ? deliveryBatch.reduce((t, it) => t + (Number.isFinite(Number(deliveryQty[it.id])) ? Math.max(0, Number(deliveryQty[it.id])) : 0), 0) : 0;
 
@@ -1210,88 +1249,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         </button>
       </div>
 
-      {/* ---------- INVENTORY TAB (Excel + Section-wise) ---------- */}
+      {/* ---------- INVENTORY TAB ----------
+          Row 1: portal tabs (left) + Excel / PDF export (far right)
+          Row 2: search + section filter + Import menu + Add Material
+          Table: one clean row per material. Click a row → MaterialDetailPanel
+          (edit details, adjust stock, alerts, units, ledger, move to assets, delete). */}
       {tab === 'inventory' && (
         <div>
-          {/* Excel toolbar */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-2">
-            <div className="text-xs font-bold uppercase text-slate-500 mr-1 flex items-center gap-1.5"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel:</div>
-            <button onClick={downloadTemplate} data-testid="excel-template-btn" className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold cursor-pointer">
-              <Download className="h-3.5 w-3.5" /> Download Template
-            </button>
-            <select value={importMode} onChange={e => setImportMode(e.target.value as any)} data-testid="excel-import-mode" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
-              <option value="both">Add new + update existing</option>
-              <option value="add">Only add new</option>
-              <option value="update">Only update existing stock</option>
-            </select>
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" data-testid="excel-upload-input" />
-            <button onClick={() => fileInputRef.current?.click()} data-testid="excel-upload-btn" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-              <Upload className="h-3.5 w-3.5" /> Upload Excel to Update Inventory
-            </button>
-            <div className="ml-auto flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Search name, ERP code, brand, supplier, location…"
-                value={inventorySearch}
-                onChange={e => setInventorySearch(e.target.value)}
-                data-testid="inventory-search"
-                className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900 w-64"
-              />
-              <label className="text-[10px] uppercase text-slate-500 font-bold">Filter by section:</label>
-              <select value={sectionFilter} onChange={e => setSectionFilter(e.target.value)} data-testid="section-filter" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900">
-                <option value="">All sections</option>
-                {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
-                <option value="__blank__">Unassigned</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Add material form */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-7 gap-2">
-            <input placeholder="Material name" data-testid="new-mat-name" value={newMaterial.name} onChange={e => setNewMaterial((p: any) => ({ ...p, name: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-2" />
-            <select value={newMaterial.section} onChange={e => setNewMaterial((p: any) => ({ ...p, section: e.target.value }))} data-testid="new-mat-section" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
-              <option value="">Section…</option>
-              {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
-            </select>
-            <select value={newMaterial.inventoryGroup} onChange={e => setNewMaterial((p: any) => ({ ...p, inventoryGroup: e.target.value }))} data-testid="new-mat-group" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
-              <option value="mep">MEP Material</option>
-              <option value="civil">Civil Material</option>
-              <option value="other">Other Material</option>
-            </select>
-            <input placeholder="Category" value={newMaterial.category} onChange={e => setNewMaterial((p: any) => ({ ...p, category: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <input placeholder="Unit (kg/ltr/pcs)" data-testid="new-mat-unit" value={newMaterial.unit} onChange={e => setNewMaterial((p: any) => ({ ...p, unit: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <input type="number" placeholder="Opening stock" data-testid="new-mat-stock" value={newMaterial.currentStock} onChange={e => setNewMaterial((p: any) => ({ ...p, currentStock: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-700 cursor-pointer" title="Force this into the Key Materials dashboard regardless of name/category">
-              <input type="checkbox" checked={!!newMaterial.isCritical} onChange={e => setNewMaterial((p: any) => ({ ...p, isCritical: e.target.checked }))} className="accent-orange-500" />
-              Critical
-            </label>
-            <button onClick={saveMaterial} data-testid="new-mat-save" className="flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold cursor-pointer"><Plus className="h-3.5 w-3.5" /> Add Material</button>
-            <input placeholder="ERP Code" data-testid="new-mat-erpcode" value={newMaterial.erpCode} onChange={e => setNewMaterial((p: any) => ({ ...p, erpCode: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <input placeholder="Supplier name" list="supplier-options" data-testid="new-mat-supplier" value={newMaterial.supplierName} onChange={e => setNewMaterial((p: any) => ({ ...p, supplierName: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-2" />
-            <input placeholder="Brand" data-testid="new-mat-brand" value={newMaterial.brand} onChange={e => setNewMaterial((p: any) => ({ ...p, brand: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <input placeholder="Location (Rack/Bin)" data-testid="new-mat-location" value={newMaterial.location} onChange={e => setNewMaterial((p: any) => ({ ...p, location: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <input type="number" min={0} placeholder="Reorder level" title="Highlighted red and e-mailed when stock is at or below this" data-testid="new-mat-reorder" value={newMaterial.reorderLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, reorderLevel: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <input type="number" min={0} placeholder="Urgent level" title="Urgent alert when stock is at or below this (must be ≤ reorder level)" data-testid="new-mat-urgent" value={newMaterial.urgentLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, urgentLevel: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
-            <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-700 cursor-pointer" title="E-mail me when this material reaches its reorder / urgent level">
-              <input type="checkbox" checked={newMaterial.alertsEnabled !== false} onChange={e => setNewMaterial((p: any) => ({ ...p, alertsEnabled: e.target.checked }))} className="accent-emerald-500" />
-              Follow stock
-            </label>
-            <div className="md:col-span-7 border-t border-slate-200 pt-3 mt-1">
-              <ExtraUnitsEditor
-                unit={newMaterial.unit}
-                value={newMaterial.extraUnits || []}
-                onChange={(next) => setNewMaterial((p: any) => ({ ...p, extraUnits: next }))}
-                previewQty={Number(newMaterial.currentStock) || 0}
-                testIdPrefix="new-mat-extra"
-              />
-            </div>
-          </div>
-
-          {/* Inventory portal switch: MEP / Civil / Other run as separate views;
-              Key Materials is a cross-cutting filter (any material starred as
-              critical, regardless of portal) so it gets its own amber accent
-              to read as "a different kind of filter" rather than a 4th portal. */}
+          {/* Row 1 — portal tabs + export on the far right */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
             {(['all', 'mep', 'civil', 'other'] as const).map(g => {
               const count = g === 'all' ? materials.length : materials.filter(m => materialGroup(m) === g).length;
@@ -1306,7 +1271,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 </button>
               );
             })}
-            <span className="w-px h-5 bg-slate-100 mx-1" aria-hidden="true" />
+            <span className="w-px h-5 bg-slate-200 mx-1" aria-hidden="true" />
             <button
               onClick={() => setInvGroupTab(prev => (prev === 'key' ? 'all' : 'key'))}
               data-testid="inv-group-key"
@@ -1314,107 +1279,202 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border transition-all ${
                 invGroupTab === 'key'
                   ? 'bg-amber-500 border-amber-500 text-slate-900'
-                  : 'bg-white border-amber-200 text-amber-700 hover:text-amber-700 hover:border-amber-300'
+                  : 'bg-white border-amber-200 text-amber-700 hover:border-amber-300'
               }`}
             >
               <Star className={`h-3.5 w-3.5 ${invGroupTab === 'key' ? 'fill-slate-900' : 'fill-amber-400'}`} />
               Key Materials <span className="opacity-70">({materials.filter(isMaterialCritical).length})</span>
             </button>
+
+            {/* Export — Total Incoming/Consumed follow the period bar above; Current Stock is always the live balance */}
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={exportInventoryExcel} data-testid="export-inventory-excel" title="Export inventory report to Excel" className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                <Download className="h-3.5 w-3.5" /> Excel
+              </button>
+              <button onClick={exportInventoryPDF} data-testid="export-inventory-pdf" title="Export inventory report to PDF" className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                <FileText className="h-3.5 w-3.5" /> PDF
+              </button>
+            </div>
           </div>
 
-          {/* Inventory report export — Total Incoming/Consumed follow the period bar above; Current Stock is always the live shelf balance */}
+          {/* Row 2 — search (where the export strip used to be) + section filter + import + add */}
           <div className="bg-white border border-slate-200 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
-            <div className="text-xs font-bold uppercase text-slate-500 mr-1 flex items-center gap-1.5"><FileDown className="h-3.5 w-3.5" /> Export Inventory Report:</div>
-            <button onClick={exportInventoryExcel} data-testid="export-inventory-excel" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-              <Download className="h-3.5 w-3.5" /> Excel
-            </button>
-            <button onClick={exportInventoryPDF} data-testid="export-inventory-pdf" className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer">
-              <FileText className="h-3.5 w-3.5" /> PDF
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="h-3.5 w-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search name, ERP code, brand, supplier, location…"
+                value={inventorySearch}
+                onChange={e => setInventorySearch(e.target.value)}
+                data-testid="inventory-search"
+                className="w-full bg-slate-100 border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-900"
+              />
+            </div>
+            <select value={sectionFilter} onChange={e => setSectionFilter(e.target.value)} data-testid="section-filter" title="Filter by section" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
+              <option value="">All sections</option>
+              {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
+              <option value="__blank__">Unassigned</option>
+            </select>
+
+            {/* Excel import tools, tucked into one menu */}
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" data-testid="excel-upload-input" />
+            <div className="relative">
+              <button onClick={() => setShowImportMenu(v => !v)} data-testid="excel-menu-btn" className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold cursor-pointer">
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Import <ChevronDown className="h-3 w-3" />
+              </button>
+              {showImportMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-20 w-72 bg-white border border-slate-300 rounded-xl shadow-xl p-3 space-y-2">
+                    <div className="text-[10px] font-black uppercase text-slate-500">Excel import</div>
+                    <button onClick={() => { downloadTemplate(); setShowImportMenu(false); }} data-testid="excel-template-btn" className="w-full flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold cursor-pointer">
+                      <Download className="h-3.5 w-3.5" /> Download Template
+                    </button>
+                    <select value={importMode} onChange={e => setImportMode(e.target.value as any)} data-testid="excel-import-mode" className="w-full bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
+                      <option value="both">Add new + update existing</option>
+                      <option value="add">Only add new</option>
+                      <option value="update">Only update existing stock</option>
+                    </select>
+                    <button onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }} data-testid="excel-upload-btn" className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+                      <Upload className="h-3.5 w-3.5" /> Upload Excel to Update Inventory
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button onClick={() => setShowAddMaterial(true)} data-testid="open-add-material" className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-bold cursor-pointer">
+              <Plus className="h-3.5 w-3.5" /> Add Material
             </button>
           </div>
 
-          {/* Inventory table with incoming + consumed columns */}
+          {/* Inventory table — click a row to open the material panel */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <table className="w-full min-w-[700px] text-xs">
+            <table className="w-full min-w-[640px] text-xs">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-100 text-slate-500 uppercase text-[10px]">
-                  <th className="px-2 py-2" title="Key material"></th>
+                  <th className="px-2 py-2 w-8" title="Key material"></th>
                   <th className="text-left px-2 py-2">ERP Code</th>
                   <th className="text-left px-2 py-2">Material</th>
                   <th className="text-left px-2 py-2">Portal</th>
-                  <th className="text-left px-2 py-2">Location</th>
-                  <th className="text-right px-2 py-2">Incoming</th>
-                  <th className="text-right px-2 py-2">Consumed</th>
                   <th className="text-right px-2 py-2">Current Stock</th>
-                  <th className="text-right px-2 py-2">Reorder At</th>
-                  <th className="text-right px-2 py-2">Urgent At</th>
                   <th className="text-center px-2 py-2">Status</th>
-                  <th className="px-2 py-2"></th>
+                  <th className="px-2 py-2 w-8"></th>
                 </tr>
               </thead>
               <tbody>
-                {filteredMaterials
-                  .filter(m => sectionFilter === '__blank__' ? !m.section : true)
-                  .filter(m => invGroupTab === 'all' ? true : invGroupTab === 'key' ? isMaterialCritical(m) : materialGroup(m) === invGroupTab)
-                  .map(m => {
-                    const inv = analytics?.inventoryReport?.find((r: any) => r.materialId === m.id);
-                    const grp = materialGroup(m);
-                    const stockStatus = getStockStatus(m);
-                    return (
-                      <tr key={m.id} data-testid={`mat-row-${m.id}`} data-stock-status={stockStatus} className={`border-t border-slate-200 ${STATUS_ROW_CLASS[stockStatus]}`}>
-                        <td className="px-2 py-2 text-center">
-                          <button onClick={() => toggleCritical(m)} title={isMaterialCritical(m) ? 'Marked as Key Material — click to unmark' : 'Click to mark as Key Material'} className="cursor-pointer">
-                            <Star className={`h-3.5 w-3.5 ${isMaterialCritical(m) ? 'text-amber-700 fill-amber-400' : 'text-slate-400'}`} />
-                          </button>
-                        </td>
-                        <td className="px-2 py-2 text-slate-500 font-mono">{(m as any).erpCode || '—'}</td>
-                        <td className="px-2 py-2 text-slate-800 font-semibold min-w-[150px] max-w-[260px] break-words">
-                          <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-open-${m.id}`} title="Open stock ledger — see every DO and movement" className="text-left hover:text-primary-700 hover:underline decoration-dotted underline-offset-2 cursor-pointer font-semibold">{m.name}</button>
-                        </td>
-                        <td className="px-2 py-2">
-                          <select value={grp} onChange={e => setMaterialGroup(m, e.target.value as any)} data-testid={`mat-group-${m.id}`} className={`px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase border cursor-pointer bg-transparent ${GROUP_BADGE[grp]}`}>
-                            <option className="bg-white" value="mep">MEP</option>
-                            <option className="bg-white" value="civil">Civil</option>
-                            <option className="bg-white" value="other">Other</option>
-                          </select>
-                        </td>
-                        <td className="px-2 py-2 text-slate-500 max-w-[170px] break-words">{(m as any).location || '—'}</td>
-                        <td className="px-2 py-2 text-right text-emerald-700 font-mono">+{(inv?.totalIncoming || 0).toFixed(2)}</td>
-                        <td className="px-2 py-2 text-right text-rose-700 font-mono">−{(inv?.totalConsumed || 0).toFixed(2)}</td>
-                        <td className={`px-2 py-2 text-right font-mono ${stockStatus === 'urgent' ? 'text-rose-700 font-black' : stockStatus === 'reorder' ? 'text-rose-700 font-bold' : 'text-slate-800'}`}>
-                          {Number(m.currentStock) > 0
-                             ? <>{m.currentStock} {m.unit}</>
-                             : <span className="text-rose-700 font-bold font-sans" data-testid={`mat-notinstock-${m.id}`}>Not in stock{Number(m.currentStock) < 0 && <span className="block text-[10px] font-normal text-rose-300/80">(recorded as {m.currentStock} — please correct with Adjust)</span>}</span>}
-                          {equivalentsText(m, m.currentStock) && (
-                            <div className="text-[10px] font-mono text-emerald-700/80 font-normal" data-testid={`mat-equiv-${m.id}`}>= {equivalentsText(m, m.currentStock)}</div>
-                          )}
-                          {perUnitText(m) && <div className="text-[10px] text-slate-500 font-normal">1 {m.unit} = {perUnitText(m).replace(` per ${m.unit}`, '')}</div>}
-                        </td>
-                        <td className="px-2 py-2 text-right text-slate-500">{m.reorderLevel || 0}</td>
-                        <td className="px-2 py-2 text-right text-slate-500">{num(m.urgentLevel) || 0}</td>
-                        <td className="px-2 py-2 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
-                        <td className="px-2 py-2 text-right"><div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 max-w-[270px] ml-auto">
-                          <button onClick={() => adjustStock(m.id)} data-testid={`adjust-${m.id}`} className="text-slate-500 hover:text-emerald-700 cursor-pointer text-[11px] font-bold">Adjust</button>
-                          <button onClick={() => toggleFollow(m)} data-testid={`follow-${m.id}`} title={isFollowed(m) ? 'Following — e-mails on. Click to turn off' : 'Not following — click to turn e-mails on'} className="cursor-pointer">
-                            {isFollowed(m) ? <Bell className="h-3.5 w-3.5 text-emerald-700" /> : <BellOff className="h-3.5 w-3.5 text-slate-400" />}
-                          </button>
-                          <button onClick={() => setAlertEdit(m)} data-testid={`alerts-${m.id}`} title="Set reorder / urgent levels" className="flex items-center gap-1 text-slate-500 hover:text-rose-700 cursor-pointer text-[11px] font-bold"><SlidersHorizontal className="h-3 w-3" />Alerts</button>
-                          <button onClick={() => setUnitsEdit({ material: m, extraUnits: (m.extraUnits || []).map(u => ({ ...u })) })} data-testid={`units-${m.id}`} title="Add length / weight per unit" className="text-slate-500 hover:text-primary-700 cursor-pointer text-[11px] font-bold">Units</button>
-                          <button onClick={() => setLedgerMaterial(m)} data-testid={`ledger-btn-${m.id}`} title="Stock ledger" className="text-sky-700 hover:text-sky-700 cursor-pointer text-[11px] font-bold">Ledger</button>
-                          <button onClick={() => moveMaterialToAsset(m)} data-testid={`move-to-asset-${m.id}`} title="Move to Company Assets" className="text-slate-500 hover:text-violet-700 cursor-pointer text-[11px] font-bold">Move to Assets</button>
-                          <button onClick={() => deleteMaterial(m.id)} className="text-slate-500 hover:text-rose-700 cursor-pointer"><Trash2 className="h-3.5 w-3.5" /></button>
-                        </div></td>
-                      </tr>
-                    );
-                  })}
+                {visibleInventory.map(m => {
+                  const grp = materialGroup(m);
+                  const stockStatus = getStockStatus(m);
+                  return (
+                    <tr
+                      key={m.id}
+                      data-testid={`mat-row-${m.id}`}
+                      data-stock-status={stockStatus}
+                      onClick={() => setDetailId(m.id)}
+                      title="Click to open — edit details, adjust stock, ledger and more"
+                      className={`border-t border-slate-200 cursor-pointer hover:bg-slate-50 ${STATUS_ROW_CLASS[stockStatus]}`}
+                    >
+                      <td className="px-2 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => toggleCritical(m)} title={isMaterialCritical(m) ? 'Marked as Key Material — click to unmark' : 'Click to mark as Key Material'} className="cursor-pointer">
+                          <Star className={`h-3.5 w-3.5 ${isMaterialCritical(m) ? 'text-amber-700 fill-amber-400' : 'text-slate-400'}`} />
+                        </button>
+                      </td>
+                      <td className="px-2 py-2.5 text-slate-500 font-mono whitespace-nowrap">{(m as any).erpCode || '—'}</td>
+                      <td className="px-2 py-2.5 min-w-[180px] max-w-[420px]">
+                        <div data-testid={`ledger-open-${m.id}`} className="text-slate-800 font-semibold break-words">{m.name}</div>
+                        {m.notes && <div className="text-[11px] text-slate-500 font-normal truncate">{m.notes}</div>}
+                      </td>
+                      <td className="px-2 py-2.5">
+                        <span data-testid={`mat-group-${m.id}`} className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${GROUP_BADGE[grp]}`}>{grp}</span>
+                      </td>
+                      <td className={`px-2 py-2.5 text-right font-mono ${stockStatus === 'urgent' ? 'text-rose-700 font-black' : stockStatus === 'reorder' ? 'text-rose-700 font-bold' : 'text-slate-800'}`}>
+                        {Number(m.currentStock) > 0
+                          ? <>{m.currentStock} {m.unit}</>
+                          : <span className="text-rose-700 font-bold font-sans" data-testid={`mat-notinstock-${m.id}`}>Not in stock{Number(m.currentStock) < 0 && <span className="block text-[10px] font-normal text-rose-300/80">(recorded as {m.currentStock} — open and correct with Adjust)</span>}</span>}
+                        {equivalentsText(m, m.currentStock) && (
+                          <div className="text-[10px] font-mono text-emerald-700/80 font-normal" data-testid={`mat-equiv-${m.id}`}>= {equivalentsText(m, m.currentStock)}</div>
+                        )}
+                        {perUnitText(m) && <div className="text-[10px] text-slate-500 font-normal">1 {m.unit} = {perUnitText(m).replace(` per ${m.unit}`, '')}</div>}
+                      </td>
+                      <td className="px-2 py-2.5 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
+                      <td className="px-2 py-2.5 text-slate-400"><ChevronRight className="h-4 w-4" /></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-            {filteredMaterials.filter(m => invGroupTab === 'all' ? true : invGroupTab === 'key' ? isMaterialCritical(m) : materialGroup(m) === invGroupTab).length === 0 && (
+            {visibleInventory.length === 0 && (
               <div className="text-center text-slate-500 text-sm py-10">
-                {inventorySearch ? `No materials match "${inventorySearch}".` : `No ${invGroupTab === 'all' ? '' : invGroupTab === 'key' ? 'Key ' : GROUP_LABELS[invGroupTab] + ' '}materials found. Add materials above or upload Excel.`}
+                {inventorySearch ? `No materials match "${inventorySearch}".` : `No ${invGroupTab === 'all' ? '' : invGroupTab === 'key' ? 'Key ' : GROUP_LABELS[invGroupTab] + ' '}materials found. Use “Add Material” or Import from Excel.`}
               </div>
             )}
           </div>
+
+          {/* ---------- ADD MATERIAL MODAL ---------- */}
+          {showAddMaterial && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60" onClick={() => setShowAddMaterial(false)} data-testid="add-material-modal">
+              <div className="bg-white border border-slate-300 rounded-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto p-5 space-y-4" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-extrabold text-slate-900">Add material</h3>
+                  <button onClick={() => setShowAddMaterial(false)} className="text-slate-500 hover:text-slate-900 cursor-pointer"><X className="h-4 w-4" /></button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                  <input placeholder="Material name *" data-testid="new-mat-name" value={newMaterial.name} onChange={e => setNewMaterial((p: any) => ({ ...p, name: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-3" />
+                  <select value={newMaterial.section} onChange={e => setNewMaterial((p: any) => ({ ...p, section: e.target.value }))} data-testid="new-mat-section" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
+                    <option value="">Section…</option>
+                    {SECTION_DEFINITIONS.map(s => <option key={s.id as string} value={s.id as string}>{s.name}</option>)}
+                  </select>
+                  <select value={newMaterial.inventoryGroup} onChange={e => setNewMaterial((p: any) => ({ ...p, inventoryGroup: e.target.value }))} data-testid="new-mat-group" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900">
+                    <option value="mep">MEP Material</option>
+                    <option value="civil">Civil Material</option>
+                    <option value="other">Other Material</option>
+                  </select>
+                  <input placeholder="Category" value={newMaterial.category} onChange={e => setNewMaterial((p: any) => ({ ...p, category: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+
+                  <textarea placeholder="Description (size, grade, specification…)" rows={2} data-testid="new-mat-notes" value={newMaterial.notes} onChange={e => setNewMaterial((p: any) => ({ ...p, notes: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-6 resize-y" />
+
+                  <input placeholder="Unit (kg/ltr/pcs) *" data-testid="new-mat-unit" value={newMaterial.unit} onChange={e => setNewMaterial((p: any) => ({ ...p, unit: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+                  <input type="number" placeholder="Opening stock" data-testid="new-mat-stock" value={newMaterial.currentStock} onChange={e => setNewMaterial((p: any) => ({ ...p, currentStock: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+                  <input placeholder="ERP Code" data-testid="new-mat-erpcode" value={newMaterial.erpCode} onChange={e => setNewMaterial((p: any) => ({ ...p, erpCode: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+                  <input placeholder="HS Code" data-testid="new-mat-hscode" value={newMaterial.hsCode} onChange={e => setNewMaterial((p: any) => ({ ...p, hsCode: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+                  <input placeholder="Brand" data-testid="new-mat-brand" value={newMaterial.brand} onChange={e => setNewMaterial((p: any) => ({ ...p, brand: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+                  <input placeholder="Location (Rack/Bin)" data-testid="new-mat-location" value={newMaterial.location} onChange={e => setNewMaterial((p: any) => ({ ...p, location: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+
+                  <input placeholder="Supplier name" list="supplier-options" data-testid="new-mat-supplier" value={newMaterial.supplierName} onChange={e => setNewMaterial((p: any) => ({ ...p, supplierName: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-2" />
+                  <input type="number" min={0} placeholder="Reorder level" title="Highlighted red and e-mailed when stock is at or below this" data-testid="new-mat-reorder" value={newMaterial.reorderLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, reorderLevel: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+                  <input type="number" min={0} placeholder="Urgent level" title="Urgent alert when stock is at or below this (must be ≤ reorder level)" data-testid="new-mat-urgent" value={newMaterial.urgentLevel || ''} onChange={e => setNewMaterial((p: any) => ({ ...p, urgentLevel: Number(e.target.value) }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
+                  <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-700 cursor-pointer" title="Force this into the Key Materials dashboard regardless of name/category">
+                    <input type="checkbox" checked={!!newMaterial.isCritical} onChange={e => setNewMaterial((p: any) => ({ ...p, isCritical: e.target.checked }))} className="accent-orange-500" />
+                    Critical
+                  </label>
+                  <label className="flex items-center gap-1.5 px-2 py-2 text-xs text-slate-700 cursor-pointer" title="E-mail me when this material reaches its reorder / urgent level">
+                    <input type="checkbox" checked={newMaterial.alertsEnabled !== false} onChange={e => setNewMaterial((p: any) => ({ ...p, alertsEnabled: e.target.checked }))} className="accent-emerald-500" />
+                    Follow stock
+                  </label>
+                </div>
+                <div className="border-t border-slate-200 pt-3">
+                  <ExtraUnitsEditor
+                    unit={newMaterial.unit}
+                    value={newMaterial.extraUnits || []}
+                    onChange={(next) => setNewMaterial((p: any) => ({ ...p, extraUnits: next }))}
+                    previewQty={Number(newMaterial.currentStock) || 0}
+                    testIdPrefix="new-mat-extra"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setShowAddMaterial(false)} className="px-3 py-2 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer">Cancel</button>
+                  <button
+                    onClick={async () => { if (await saveMaterial()) setShowAddMaterial(false); }}
+                    data-testid="new-mat-save"
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-primary-600 hover:bg-primary-700 text-white cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Material
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2112,6 +2172,24 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           incoming={incoming}
           adjustments={stockAdjustments}
           onOpenMaterial={(m) => setLedgerMaterial(m)}
+        />
+      )}
+
+      {/* ---------- MATERIAL DETAIL PANEL (click a row in Inventory) ---------- */}
+      {detailMaterial && (
+        <MaterialDetailPanel
+          material={detailMaterial}
+          isCritical={isMaterialCritical(detailMaterial)}
+          periodIncoming={detailInv?.totalIncoming || 0}
+          periodConsumed={detailInv?.totalConsumed || 0}
+          onClose={() => setDetailId(null)}
+          onSaveFields={(patch) => saveMaterialFields(detailMaterial.id, patch)}
+          onAdjustStock={(qty, note) => adjustStockTo(detailMaterial.id, qty, note)}
+          onSaveUnits={(units) => saveMaterialUnits(detailMaterial.id, units)}
+          onToggleCritical={() => toggleCritical(detailMaterial)}
+          onOpenLedger={() => setLedgerMaterial(detailMaterial)}
+          onMoveToAsset={() => moveMaterialToAsset(detailMaterial)}
+          onDelete={() => deleteMaterial(detailMaterial.id)}
         />
       )}
 
