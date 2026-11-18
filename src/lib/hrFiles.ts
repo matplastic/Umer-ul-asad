@@ -14,6 +14,7 @@
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { app } from './googleDrive';
 import type { HRFile } from './hrStore';
+import { isHRSandbox } from './hrStore';
 
 export const HR_FILE_ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp';
 export const HR_MAX_FILE_BYTES = 1_000_000;   // 1 MB hard cap per file
@@ -71,6 +72,11 @@ function friendly(e: any): Error {
 export async function uploadHRFile(file: File, employeeId: string, recordId: string, uploadedBy?: string): Promise<HRFile> {
   const bad = validateHRFile(file);
   if (bad) throw new Error(bad);
+  if (isHRSandbox()) {
+    // Demo screen: keep the file in the browser only — nothing is uploaded or stored.
+    const id = `demo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    return { id, name: file.name, url: URL.createObjectURL(file), path: '', type: file.type || 'application/octet-stream', size: file.size, uploadedAt: new Date().toISOString(), uploadedBy };
+  }
   if (!app.options.storageBucket) throw new Error('Firebase Storage is not set up (storage bucket is empty in the app settings).');
   try {
     const body = isPdf(file) ? file : await shrinkImageUnderCap(file);
@@ -88,7 +94,7 @@ export async function uploadHRFile(file: File, employeeId: string, recordId: str
 /** Best-effort: a missing / already-deleted object must never block removing the record. */
 export async function deleteHRFile(f: Pick<HRFile, 'path'>): Promise<void> {
   try {
-    if (!f.path || !app.options.storageBucket) return;
+    if (isHRSandbox() || !f.path || !app.options.storageBucket) return;
     await deleteObject(ref(getStorage(app), f.path));
   } catch (e) { console.warn('[hr] could not delete stored file', f.path, e); }
 }

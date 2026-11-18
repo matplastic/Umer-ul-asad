@@ -14,7 +14,7 @@
 //   • The same names are registered in firebaseService COLLECTION_BACKED so
 //     the existing backup / restore treats them as collections.
 // ───────────────────────────────────────────────────────────
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   collection, doc, onSnapshot, setDoc, deleteDoc, getDoc, getDocs, runTransaction, writeBatch,
   query, orderBy, limit, Unsubscribe,
@@ -420,6 +420,26 @@ export function loanDueIn(r: HRRequest, month: string): number {
   return Math.min(li.installment, li.balance);
 }
 
+// ─── Demo / sandbox mode ────────────────────────────────────
+// The HR Administration portal shows the Executive-only screens as DEMOS.
+// Inside <HRSandboxProvider> every list lives only in memory: nothing is read
+// from or written to Firestore / Storage, no audit entry is written, and
+// everything is thrown away when the demo screen is closed.
+export const HRSandboxContext = createContext(false);
+let SANDBOX_ON = false;
+export const setHRSandboxActive = (v: boolean) => { SANDBOX_ON = v; };
+export const isHRSandbox = () => SANDBOX_ON;
+const sandboxData = new Map<string, any[]>();
+const sandboxSubs = new Map<string, Set<() => void>>();
+export const clearHRSandbox = () => { sandboxData.clear(); sandboxSubs.forEach(set => set.forEach(fn => fn())); };
+const sbGet = (name: string): any[] => sandboxData.get(name) || [];
+const sbSet = (name: string, list: any[]) => { sandboxData.set(name, list); sandboxSubs.get(name)?.forEach(fn => fn()); };
+const sbSubscribe = (name: string, fn: () => void) => {
+  if (!sandboxSubs.has(name)) sandboxSubs.set(name, new Set());
+  sandboxSubs.get(name)!.add(fn);
+  return () => { sandboxSubs.get(name)?.delete(fn); };
+};
+
 // ─── Core read/write (one document per record) ──────────────
 const col = (name: HRDocName) => collection(clientDb, name);
 
@@ -441,15 +461,18 @@ export function subscribeHR<T>(name: HRDocName, cb: (items: T[]) => void): Unsub
 }
 
 export async function upsertHR<T extends { id: string }>(name: HRDocName, rec: T): Promise<void> {
+  if (SANDBOX_ON) return;
   await setDoc(doc(clientDb, name, rec.id), clean(rec));
 }
 
 export async function removeHR(name: HRDocName, id: string): Promise<void> {
+  if (SANDBOX_ON) return;
   await deleteDoc(doc(clientDb, name, id));
 }
 
 /** Atomically apply a function to ONE record (by id) using the freshest copy. */
 export async function patchHR<T extends { id: string }>(name: HRDocName, id: string, fn: (cur: T) => T): Promise<void> {
+  if (SANDBOX_ON) return;
   const r = doc(clientDb, name, id);
   await runTransaction(clientDb, async tx => {
     const snap = await tx.get(r);
@@ -475,8 +498,14 @@ export function useHRCollection<T extends { id: string }>(name: HRDocName, enabl
   // Records saved on THIS screen but not yet confirmed by the server. They are
   // laid over every incoming snapshot so the screen never flickers back to old data.
   const pending = useRef<Map<string, T | null>>(new Map());
+  const sandbox = useContext(HRSandboxContext);
 
   useEffect(() => {
+    if (sandbox) {
+      const push = () => { setItems([...(sbGet(name) as T[])]); setLoaded(true); };
+      push();
+      return sbSubscribe(name, push);
+    }
     if (!enabled) { setItems([]); return; }
     const unsub = subscribeHR<T>(name, list => {
       let merged = list;
@@ -490,30 +519,38 @@ export function useHRCollection<T extends { id: string }>(name: HRDocName, enabl
       setLoaded(true);
     });
     return () => unsub();
-  }, [name, enabled]);
+  }, [name, enabled, sandbox]);
 
   const save = useCallback(async (rec: T) => {
+    if (sandbox) {
+      const cur = sbGet(name) as T[];
+      sbSet(name, cur.some(x => x.id === rec.id) ? cur.map(x => (x.id === rec.id ? rec : x)) : [rec, ...cur]);
+      return;
+    }
     pending.current.set(rec.id, rec);
     setItems(prev => (prev.some(x => x.id === rec.id) ? prev.map(x => (x.id === rec.id ? rec : x)) : [rec, ...prev]));
     try { await upsertHR(name, rec); } finally { pending.current.delete(rec.id); }
-  }, [name]);
+  }, [name, sandbox]);
 
   const remove = useCallback(async (id: string) => {
+    if (sandbox) { sbSet(name, (sbGet(name) as T[]).filter(x => x.id !== id)); return; }
     pending.current.set(id, null);
     setItems(prev => prev.filter(x => x.id !== id));
     try { await removeHR(name, id); } finally { pending.current.delete(id); }
-  }, [name]);
+  }, [name, sandbox]);
 
   const patch = useCallback(async (id: string, fn: (cur: T) => T) => {
+    if (sandbox) { sbSet(name, (sbGet(name) as T[]).map(x => (x.id === id ? fn(x) : x))); return; }
     setItems(prev => prev.map(x => (x.id === id ? fn(x) : x)));
     await patchHR<T>(name, id, fn);
-  }, [name]);
+  }, [name, sandbox]);
 
   return { items, loaded, save, remove, patch };
 }
 
 // ─── Audit trail (one small document per entry) ─────────────
 export function logAudit(by: string | undefined, module: string, action: string, target?: string): void {
+  if (SANDBOX_ON) return;
   const entry: HRAuditEntry = { id: newId('au'), at: new Date().toISOString(), by: by || 'HR', module, action, target };
   setDoc(doc(clientDb, 'hrAudit', entry.id), clean(entry))
     .catch(err => console.warn('[hrStore] audit write failed:', err));
@@ -526,6 +563,7 @@ export function logAudit(by: string | undefined, module: string, action: string,
 // times: it only creates records that are missing (never overwrites newer
 // edits) and leaves the old documents untouched as a backup.
 export async function migrateHRSuiteIfNeeded(): Promise<{ moved: number } | null> {
+  if (SANDBOX_ON) return null;
   const flagRef = doc(clientDb, 'system_state', 'hrSuiteMigrated');
   const flag = await getDoc(flagRef);
   if (flag.exists()) return null;

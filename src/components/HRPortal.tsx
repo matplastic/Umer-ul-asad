@@ -50,6 +50,7 @@ import { Recruitment } from './hr/Recruitment';
 import { FinalSettlement } from './hr/FinalSettlement';
 import { EmployeeRelations } from './hr/EmployeeRelations';
 import { HRToastHost } from './hr/hrUi';
+import { HRSandboxProvider, DemoRecords } from './hr/HRDemo';
 import { useHRCollection, HRRequest, loanDueIn, migrateHRSuiteIfNeeded } from '../lib/hrStore';
 import {
   listUserAccounts, createUserAccount, updateUserAccount,
@@ -207,6 +208,9 @@ interface HRPortalProps {
 
 // The only tabs the HR Administration portal shows.
 const HR_ADMIN_TABS = ['directory', 'attendance', 'leave', 'warnings', 'accidents', 'medical'] as const;
+// Everything else is shown to HR Administration as a DEMO (sample data, nothing saved).
+const HR_SUITE_TAB_IDS = ['hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
+const HR_DEMO_RECORD_TABS = ['passports', 'payroll', 'purchases', 'reports', 'accounts'];
 
 // A staff member currently deployed to a site/factory job away from the
 // badge machine. While listed here, Attendance excludes them from the
@@ -989,10 +993,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       .catch(err => console.warn('[HR] storage migration skipped:', err));
   }, [isAdmin]);
 
-  // HR Administration can never land on a tab outside its short list.
-  useEffect(() => {
-    if (isAdmin && !(HR_ADMIN_TABS as readonly string[]).includes(activeTab)) setActiveTab('directory');
-  }, [isAdmin, activeTab]);
+
 
   // ── A4 print/PDF report state (Absent / Accident / Medical reports) ──
   const [printReport, setPrintReport] = useState<{
@@ -4711,7 +4712,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'reports', label: 'Reports', icon: <BarChart2 className="h-4 w-4" /> },
     { id: 'accounts', label: 'Accounts', icon: <KeyRound className="h-4 w-4" /> },
   ] as const;
-  const tabs = isAdmin ? allTabs.filter(t => (HR_ADMIN_TABS as readonly string[]).includes(t.id)) : allTabs;
+  const tabs = allTabs;
+  const isDemoTab = (id: string) => isAdmin && !(HR_ADMIN_TABS as readonly string[]).includes(id);
 
   const pendingLeaveCount = leaves.filter(l => l.status === 'Pending').length;
   const pendingPurchaseCount = purchaseRequests.filter(r => r.status === 'Pending').length;
@@ -4749,7 +4751,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           </div>
           <div>
             <h2 className="text-xl font-black text-slate-800">{isAdmin ? 'HR Administration' : 'HR Executive Portal'}</h2>
-            <p className="text-sm text-slate-500">{isAdmin ? 'Employee directory, attendance, leave, warnings, accidents & medical records' : 'Employee directory, attendance, payroll, leave management, recruitment & HR reports'}</p>
+            <p className="text-sm text-slate-500">{isAdmin ? 'Employee directory, attendance, payroll, leave management, recruitment & HR reports' : 'Employee directory, attendance, payroll, leave management, recruitment & HR reports'}</p>
           </div>
           <div className="ml-auto flex gap-2">
             <span className="bg-violet-50 text-violet-700 text-xs font-bold px-3 py-1.5 rounded-full border border-violet-200">
@@ -4782,7 +4784,6 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
       {/* Tabs */}
       <div className="space-y-2">
-      {!isAdmin && (
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 w-16">HR Suite</span>
         <div className="flex gap-1 bg-violet-50 p-1 rounded-xl w-fit flex-wrap">
@@ -4803,9 +4804,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           ))}
         </div>
       </div>
-      )}
       <div className="flex items-center gap-2 flex-wrap">
-        {!isAdmin && <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 w-16">Records</span>}
+        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 w-16">Records</span>
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit flex-wrap">
         {tabs.map(tab => (
           <button
@@ -4834,20 +4834,31 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       <HRToastHost />
 
       {/* Tab Content */}
-      {!isAdmin && activeTab === 'hrdash' && <HRDashboard employees={employees} employeePunches={employeePunches} leaves={leaves} warnings={warnings} accidents={accidents} onNavigate={(t) => setActiveTab(t as any)} />}
-      {!isAdmin && activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={payroll} />}
-      {!isAdmin && activeTab === 'docs' && <DocumentsVault employees={employees} user={currentUserName} />}
-      {!isAdmin && activeTab === 'cases' && <DisciplineCases employees={employees} user={currentUserName} warnings={warnings}
-        onIssueWarning={(w) => saveWarnings([w as Warning, ...warnings])} />}
-      {!isAdmin && activeTab === 'requests' && <RequestCenter employees={employees} user={currentUserName} onGoLetters={() => setActiveTab('letters')} />}
-      {!isAdmin && activeTab === 'safety' && <SafetyTraining employees={employees} user={currentUserName} accidents={accidents}
-        onAccidentStatus={(id, status) => saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a))} />}
-      {!isAdmin && activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
-      {!isAdmin && activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={payroll} />}
-      {!isAdmin && activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}
-      {!isAdmin && activeTab === 'relations' && <EmployeeRelations employees={employees} user={currentUserName} />}
-      {!isAdmin && activeTab === 'settle' && <FinalSettlement employees={employees} user={currentUserName} />}
-      {!isAdmin && activeTab === 'audit' && <AuditTrail />}
+      {(() => {
+        // HR Suite screens. In HR Administration these run inside the in-memory demo sandbox.
+        const demo = isAdmin;
+        const suite = (
+          <>
+            {activeTab === 'hrdash' && <HRDashboard employees={employees} employeePunches={employeePunches} leaves={leaves} warnings={warnings} accidents={accidents} onNavigate={(t) => setActiveTab(t as any)} />}
+            {activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={demo ? [] : payroll} />}
+            {activeTab === 'docs' && <DocumentsVault employees={employees} user={currentUserName} />}
+            {activeTab === 'cases' && <DisciplineCases employees={employees} user={currentUserName} warnings={demo ? [] : warnings}
+              onIssueWarning={(w) => { if (!demo) saveWarnings([w as Warning, ...warnings]); }} />}
+            {activeTab === 'requests' && <RequestCenter employees={employees} user={currentUserName} onGoLetters={() => setActiveTab('letters')} />}
+            {activeTab === 'safety' && <SafetyTraining employees={employees} user={currentUserName} accidents={demo ? [] : accidents}
+              onAccidentStatus={(id, status) => { if (!demo) saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a)); }} />}
+            {activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
+            {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={demo ? [] : payroll} />}
+            {activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}
+            {activeTab === 'relations' && <EmployeeRelations employees={employees} user={currentUserName} />}
+            {activeTab === 'settle' && <FinalSettlement employees={employees} user={currentUserName} />}
+            {activeTab === 'audit' && <AuditTrail />}
+          </>
+        );
+        if (HR_SUITE_TAB_IDS.includes(activeTab)) return demo ? <HRSandboxProvider key={activeTab}>{suite}</HRSandboxProvider> : suite;
+        return null;
+      })()}
+      {isAdmin && (HR_DEMO_RECORD_TABS as string[]).includes(activeTab) && <DemoRecords kind={activeTab as any} />}
       {activeTab === 'directory' && <DirectoryTab />}
       {!isAdmin && activeTab === 'passports' && <PassportsTab />}
       {activeTab === 'attendance' && <AttendanceTab />}
