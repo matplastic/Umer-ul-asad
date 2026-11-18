@@ -50,7 +50,7 @@ import { Recruitment } from './hr/Recruitment';
 import { FinalSettlement } from './hr/FinalSettlement';
 import { EmployeeRelations } from './hr/EmployeeRelations';
 import { HRToastHost } from './hr/hrUi';
-import { useHRCollection, HRRequest, loanDueIn } from '../lib/hrStore';
+import { useHRCollection, HRRequest, loanDueIn, migrateHRSuiteIfNeeded } from '../lib/hrStore';
 import {
   listUserAccounts, createUserAccount, updateUserAccount,
   resetUserPassword, deactivateUserAccount, getAllowedRoles, type AuthUser
@@ -971,6 +971,14 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
   const hrReqC = useHRCollection<HRRequest>('hrRequests');
+
+  // One-time, automatic: copy anything saved in the old single-document HR lists
+  // into one-document-per-record collections (see hrStore.ts). Safe to repeat.
+  useEffect(() => {
+    migrateHRSuiteIfNeeded()
+      .then(r => { if (r && r.moved > 0) console.info(`[HR] moved ${r.moved} HR record(s) to the new storage`); })
+      .catch(err => console.warn('[HR] storage migration skipped:', err));
+  }, []);
 
   // ── A4 print/PDF report state (Absent / Accident / Medical reports) ──
   const [printReport, setPrintReport] = useState<{

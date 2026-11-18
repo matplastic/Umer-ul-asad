@@ -116,6 +116,27 @@ const COLLECTION_BACKED: Record<string, boolean> = {
   // reading from the new empty `plannedPools` collection instead of the old
   // system_state/plannedPools document).
   plannedPools: true,
+  // HR Suite: every record is its own document so no HR list can ever reach
+  // the 1 MiB single-document limit. Registering the names here makes the
+  // existing backup / restore read and write them as collections. The HR
+  // portal copies any data from the old single-document lists automatically
+  // the first time it opens (see migrateHRSuiteIfNeeded in hrStore.ts).
+  hrProfiles: true,
+  hrDocuments: true,
+  hrLifecycle: true,
+  hrCases: true,
+  hrRequests: true,
+  hrTraining: true,
+  hrPPE: true,
+  hrAccidentCases: true,
+  hrReviews: true,
+  hrLetters: true,
+  hrAudit: true,
+  hrVacancies: true,
+  hrCandidates: true,
+  hrSettlements: true,
+  hrNotices: true,
+  hrGrievances: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

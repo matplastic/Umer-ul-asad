@@ -11,7 +11,7 @@ import {
   Field, inputCls, btnPrimary, btnGhost, Badge, ExpiryBadge, SectionCard, SearchBox, SubTabs, Empty,
   runSave, useConfirm, hrToast,
 } from './hrUi';
-import { AddDocumentModal, buildDocRows } from './DocumentsVault';
+import { AddDocumentModal, DocFilesModal, DocRowActions, buildDocRows } from './DocumentsVault';
 
 interface Props {
   employees: Employee[];
@@ -40,7 +40,8 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
   const [q, setQ] = useState('');
   const [statusF, setStatusF] = useState<'Active' | 'Former' | 'All'>('Active');
   const [tab, setTab] = useState('overview');
-  const [showDoc, setShowDoc] = useState(false);
+  const [addDoc, setAddDoc] = useState<null | { type?: string; number?: string; expiry?: string | null }>(null);
+  const [filesDoc, setFilesDoc] = useState<HRDocument | null>(null);
   const { ask, node } = useConfirm();
 
   const profMap = useMemo(() => new Map(profC.items.map(p => [p.id, p])), [profC.items]);
@@ -135,27 +136,22 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
           )}
 
           {tab === 'docs' && (
-            <SectionCard title="Documents & expiry" right={<button className={btnGhost} onClick={() => setShowDoc(true)}><Plus className="h-3.5 w-3.5" />Add</button>}>
+            <SectionCard title="Documents & expiry" right={<button className={btnGhost} onClick={() => setAddDoc({})}><Plus className="h-3.5 w-3.5" />Add</button>}>
               {(() => {
                 const rows = buildDocRows([emp], profC.items, docsC.items, emp.id);
-                if (!rows.length) return <Empty text="No documents tracked yet." />;
+                if (!rows.length) return <Empty text="No documents tracked yet. Use Add to store a passport, ID or visa with its scan." />;
                 return (
                   <div className="divide-y divide-slate-100">
                     {rows.map(r => (
-                      <div key={r.key} className="flex items-center justify-between py-2 gap-3">
+                      <div key={r.key} className="flex flex-wrap items-center justify-between py-2 gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-slate-800">{r.docType} {r.docNumber && <span className="text-slate-400 font-normal">· {r.docNumber}</span>}</div>
                           <div className="text-[11px] text-slate-400">Expires {fmtD(r.expiryDate)} · {r.source}</div>
                         </div>
                         <div className="flex items-center gap-2">
                           <ExpiryBadge date={r.expiryDate} />
-                          {r.vaultId && (
-                            <button className="text-slate-300 hover:text-rose-600" aria-label="Delete" onClick={async () => {
-                              if (!(await ask(`Delete this ${r.docType} record?`))) return;
-                              const ok = await runSave(() => docsC.remove(r.vaultId!), 'Record deleted');
-                              if (ok) logAudit(user, 'Documents', `Deleted ${r.docType}`, emp.name);
-                            }}><Trash2 className="h-4 w-4" /></button>
-                          )}
+                          <DocRowActions row={r} docsC={docsC} user={user} onFiles={setFilesDoc}
+                            onAttach={row => setAddDoc({ type: row.docType, number: row.docNumber, expiry: row.expiryDate })} />
                         </div>
                       </div>
                     ))}
@@ -176,7 +172,8 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
           )}
         </div>
       )}
-      {showDoc && emp && <AddDocumentModal employees={employees} presetEmployeeId={emp.id} user={user} onClose={() => setShowDoc(false)} save={docsC.save} />}
+      {addDoc && emp && <AddDocumentModal employees={employees} presetEmployeeId={emp.id} presetType={addDoc.type} presetNumber={addDoc.number} presetExpiry={addDoc.expiry} user={user} onClose={() => setAddDoc(null)} save={docsC.save} />}
+      {filesDoc && <DocFilesModal doc={filesDoc} user={user} docsC={docsC} onClose={() => setFilesDoc(null)} />}
     </div>
   );
 };

@@ -1,17 +1,24 @@
 // ───────────────────────────────────────────────────────────
 // MAT-ERP — HR Suite data layer
 //
-// Every new HR record list lives in its own `system_state/<name>` document
-// (same `{ data: [...] }` shape the rest of the ERP uses, so the existing
-// Firestore rules, backup and restore all work with it).
-//
-// RACE SAFETY: every write is a Firestore *transaction* that re-reads the
-// document, changes ONLY the one record involved (matched by id), and writes
-// it back. Two HR users editing different records at the same time can never
-// overwrite each other, and a stale screen can never wipe the list.
+// 1 MiB-PROOF DESIGN
+//   • Every HR record is its OWN Firestore document in a top-level collection
+//     named after the list (hrCases/{id}, hrProfiles/{employeeId}, …). A list
+//     can grow to any size — no single document ever holds a list, so the
+//     1 MiB document limit can never be reached by adding more records.
+//   • A single record is a few KB at most (files are NEVER embedded — they
+//     live in Firebase Storage and the record only keeps a small link; see
+//     hrFiles.ts, which also caps every file at 1 MB).
+//   • Writes touch exactly one document (setDoc / deleteDoc / one-doc
+//     transaction), so two HR users can never overwrite each other's work.
+//   • The same names are registered in firebaseService COLLECTION_BACKED so
+//     the existing backup / restore treats them as collections.
 // ───────────────────────────────────────────────────────────
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { doc, onSnapshot, runTransaction, Unsubscribe } from 'firebase/firestore';
+import {
+  collection, doc, onSnapshot, setDoc, deleteDoc, getDoc, getDocs, runTransaction, writeBatch,
+  query, orderBy, limit, Unsubscribe,
+} from 'firebase/firestore';
 import { clientDb } from './googleDrive.ts';
 
 // ─── Document names ─────────────────────────────────────────
@@ -79,8 +86,21 @@ export interface HRDocument {
   issueDate?: string;
   expiryDate?: string;
   notes?: string;
+  /** Scans / photos kept in Firebase Storage (max 1 MB each). Only this small link is stored here. */
+  files?: HRFile[];
   createdAt: string;
   createdBy?: string;
+}
+
+export interface HRFile {
+  id: string;
+  name: string;
+  url: string;
+  path: string;   // Firebase Storage path — used to delete the file
+  type: string;   // application/pdf | image/jpeg | …
+  size: number;   // bytes, after compression
+  uploadedAt: string;
+  uploadedBy?: string;
 }
 
 export interface ChecklistItem { id: string; label: string; done: boolean; doneAt?: string; doneBy?: string }
@@ -400,56 +420,43 @@ export function loanDueIn(r: HRRequest, month: string): number {
   return Math.min(li.installment, li.balance);
 }
 
-// ─── Core read/write ────────────────────────────────────────
-const ref = (name: HRDocName) => doc(clientDb, 'system_state', name);
-
-export function subscribeHR<T>(name: HRDocName, cb: (items: T[]) => void): Unsubscribe {
-  return onSnapshot(
-    ref(name),
-    snap => {
-      const raw = snap.exists() ? snap.data() : null;
-      cb(Array.isArray(raw?.data) ? (raw!.data as T[]) : []);
-    },
-    err => console.warn(`[hrStore] listener for '${name}' failed:`, err),
-  );
-}
+// ─── Core read/write (one document per record) ──────────────
+const col = (name: HRDocName) => collection(clientDb, name);
 
 function clean<T>(v: T): T {
   // Firestore rejects `undefined` anywhere in a document.
   return JSON.parse(JSON.stringify(v));
 }
 
+/** The audit trail only ever loads its newest entries (it can grow forever on disk). */
+const AUDIT_LOAD_LIMIT = 500;
+
+export function subscribeHR<T>(name: HRDocName, cb: (items: T[]) => void): Unsubscribe {
+  const q = name === 'hrAudit' ? query(col(name), orderBy('at', 'desc'), limit(AUDIT_LOAD_LIMIT)) : col(name);
+  return onSnapshot(
+    q,
+    snap => cb(snap.docs.map(d => { const data = d.data() as any; return (data && data.id ? data : { ...data, id: d.id }) as T; })),
+    err => console.warn(`[hrStore] listener for '${name}' failed:`, err),
+  );
+}
+
 export async function upsertHR<T extends { id: string }>(name: HRDocName, rec: T): Promise<void> {
-  const r = ref(name);
-  await runTransaction(clientDb, async tx => {
-    const snap = await tx.get(r);
-    const cur: T[] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
-    const i = cur.findIndex(x => x.id === rec.id);
-    const next = i >= 0 ? cur.map((x, k) => (k === i ? rec : x)) : [rec, ...cur];
-    tx.set(r, { data: clean(next) });
-  });
+  await setDoc(doc(clientDb, name, rec.id), clean(rec));
 }
 
 export async function removeHR(name: HRDocName, id: string): Promise<void> {
-  const r = ref(name);
-  await runTransaction(clientDb, async tx => {
-    const snap = await tx.get(r);
-    const cur: { id: string }[] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
-    if (!cur.some(x => x.id === id)) return;
-    tx.set(r, { data: clean(cur.filter(x => x.id !== id)) });
-  });
+  await deleteDoc(doc(clientDb, name, id));
 }
 
 /** Atomically apply a function to ONE record (by id) using the freshest copy. */
 export async function patchHR<T extends { id: string }>(name: HRDocName, id: string, fn: (cur: T) => T): Promise<void> {
-  const r = ref(name);
+  const r = doc(clientDb, name, id);
   await runTransaction(clientDb, async tx => {
     const snap = await tx.get(r);
-    const cur: T[] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
-    const i = cur.findIndex(x => x.id === id);
-    if (i < 0) return;
-    const next = cur.map((x, k) => (k === i ? fn(x) : x));
-    tx.set(r, { data: clean(next) });
+    if (!snap.exists()) return;
+    const data = snap.data() as any;
+    const cur = (data && data.id ? data : { ...data, id }) as T;
+    tx.set(r, clean(fn(cur)));
   });
 }
 
@@ -504,16 +511,39 @@ export function useHRCollection<T extends { id: string }>(name: HRDocName): HRCo
   return { items, loaded, save, remove, patch };
 }
 
-// ─── Audit trail ────────────────────────────────────────────
-const AUDIT_CAP = 2000;
+// ─── Audit trail (one small document per entry) ─────────────
 export function logAudit(by: string | undefined, module: string, action: string, target?: string): void {
   const entry: HRAuditEntry = { id: newId('au'), at: new Date().toISOString(), by: by || 'HR', module, action, target };
-  const r = ref('hrAudit');
-  runTransaction(clientDb, async tx => {
-    const snap = await tx.get(r);
-    const cur: HRAuditEntry[] = snap.exists() && Array.isArray(snap.data()?.data) ? snap.data()!.data : [];
-    tx.set(r, { data: clean([entry, ...cur].slice(0, AUDIT_CAP)) });
-  }).catch(err => console.warn('[hrStore] audit write failed:', err));
+  setDoc(doc(clientDb, 'hrAudit', entry.id), clean(entry))
+    .catch(err => console.warn('[hrStore] audit write failed:', err));
+}
+
+// ─── One-time move from the old single-document lists ───────
+// Version 1/2 of the HR Suite kept each list as ONE array inside
+// system_state/<name>. That could eventually hit the 1 MiB limit, so every
+// record is copied into its own document here. Safe to run any number of
+// times: it only creates records that are missing (never overwrites newer
+// edits) and leaves the old documents untouched as a backup.
+export async function migrateHRSuiteIfNeeded(): Promise<{ moved: number } | null> {
+  const flagRef = doc(clientDb, 'system_state', 'hrSuiteMigrated');
+  const flag = await getDoc(flagRef);
+  if (flag.exists()) return null;
+  let moved = 0;
+  for (const { id: name } of HR_SUITE_DOCS) {
+    const legacy = await getDoc(doc(clientDb, 'system_state', name));
+    const arr: any[] = legacy.exists() && Array.isArray(legacy.data()?.data) ? legacy.data()!.data : [];
+    if (arr.length === 0) continue;
+    const existing = new Set((await getDocs(col(name))).docs.map(d => d.id));
+    const todo = arr.filter(r => r && r.id && !existing.has(String(r.id)));
+    for (let i = 0; i < todo.length; i += 400) {
+      const batch = writeBatch(clientDb);
+      todo.slice(i, i + 400).forEach(r => batch.set(doc(clientDb, name, String(r.id)), clean(r)));
+      await batch.commit();
+    }
+    moved += todo.length;
+  }
+  await setDoc(flagRef, { done: true, at: new Date().toISOString(), moved });
+  return { moved };
 }
 
 // ─── Reference numbers (letters, cases, requests) ───────────
@@ -558,8 +588,8 @@ export const EXIT_TEMPLATE = [
   'Removed from attendance system',
 ];
 export const DOC_TYPES = [
-  'Emirates ID', 'Labour Card', 'Employment Contract', 'Health Insurance',
-  'Driving License', 'Medical Fitness', 'Safety Card', 'Educational Certificate', 'Other',
+  'Passport', 'Visa', 'Emirates ID', 'Labour Card', 'Employment Contract', 'Health Insurance',
+  'Driving License', 'Medical Fitness', 'Safety Card', 'Educational Certificate', 'Photo', 'Other',
 ];
 export const TRAINING_COURSES = [
   'HSE Safety Induction', 'First Aid', 'Fire Safety', 'Working at Height',

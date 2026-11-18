@@ -25,7 +25,7 @@ export const AuditTrail: React.FC = () => {
         </div>
         <button className={btnGhost} onClick={() => shown.length ? exportToExcel(shown.map(a => ({ When: fmt(a.at), User: a.by, Module: a.module, Action: a.action, Employee: a.target || '' })), 'HR_Audit_Trail', 'Audit') : hrToast('Nothing to export', 'err')}><Download className="h-3.5 w-3.5" />Excel</button>
       </div>
-      <p className="text-xs text-slate-400">Every change made in the new HR modules is logged here with who did it and when. The latest 2,000 entries are kept.</p>
+      <p className="text-xs text-slate-400">Every change made in the new HR modules is logged here with who did it and when. All entries are kept permanently; the newest 500 are shown here.</p>
       {shown.length === 0 ? <Empty text="No activity recorded yet." /> : (
         <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
