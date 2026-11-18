@@ -28,6 +28,8 @@ type Group = 'mep' | 'civil' | 'other';
 
 interface Props {
   material: Material;
+  /** Which tab to show when the panel opens (Reorder page opens it on 'stock'). */
+  initialTab?: PanelTab;
   isCritical: boolean;
   periodIncoming: number;
   periodConsumed: number;
@@ -47,6 +49,7 @@ const labelCls = 'block text-[10px] font-bold uppercase text-slate-500 mb-1';
 
 const toDraft = (m: Material) => ({
   name: m.name || '',
+  unit: m.unit || '',
   notes: m.notes || '',
   category: m.category || '',
   brand: (m.brand as string) || '',
@@ -59,10 +62,10 @@ const toDraft = (m: Material) => ({
 });
 
 export const MaterialDetailPanel: React.FC<Props> = ({
-  material, isCritical, periodIncoming, periodConsumed,
+  material, initialTab = 'details', isCritical, periodIncoming, periodConsumed,
   onClose, onSaveFields, onAdjustStock, onSaveUnits, onToggleCritical, onOpenLedger, onMoveToAsset, onDelete,
 }) => {
-  const [tab, setTab] = useState<PanelTab>('details');
+  const [tab, setTab] = useState<PanelTab>(initialTab);
   const [flash, setFlash] = useState<string | null>(null);
 
   // ----- Details form -----
@@ -85,7 +88,7 @@ export const MaterialDetailPanel: React.FC<Props> = ({
 
   // Start fresh whenever a different material is opened.
   useEffect(() => {
-    setTab('details');
+    setTab(initialTab);
     setDraft(toDraft(material));
     setNewQty(String(material.currentStock ?? 0));
     setAdjustNote('');
@@ -125,11 +128,12 @@ export const MaterialDetailPanel: React.FC<Props> = ({
     setDraft(p => ({ ...p, [k]: e.target.value }));
 
   const saveDetails = async () => {
-    if (!draft.name.trim()) return;
+    if (!draft.name.trim() || !draft.unit.trim()) return;
     setSavingDetails(true);
     try {
       await onSaveFields({
         name: draft.name.trim(),
+        unit: draft.unit.trim(),
         notes: draft.notes.trim() || null,
         category: draft.category.trim() || null,
         brand: draft.brand.trim() || null,
@@ -303,8 +307,18 @@ export const MaterialDetailPanel: React.FC<Props> = ({
                   </select>
                 </div>
               </div>
-              <div className="text-[11px] text-slate-500">
-                Unit: <strong className="text-slate-700">{material.unit}</strong> — change stock from the <em>Stock &amp; Alerts</em> tab, not here.
+              <div>
+                <label className={labelCls}>Unit</label>
+                <input value={draft.unit} onChange={set('unit')} list="panel-unit-options" placeholder="kg / ltr / pcs / m / roll…" data-testid="panel-unit" className={inputCls} />
+                <datalist id="panel-unit-options">
+                  {['kg', 'g', 'ltr', 'ml', 'pcs', 'm', 'mm', 'm²', 'roll', 'bag', 'box', 'set', 'drum', 'bundle', 'sheet'].map(u => <option key={u} value={u} />)}
+                </datalist>
+                {!draft.unit.trim() && <div className="text-[11px] text-rose-700 mt-1">Unit can't be empty.</div>}
+                {draft.unit.trim() && draft.unit.trim() !== material.unit && (
+                  <div className="text-[11px] text-amber-700 mt-1" data-testid="panel-unit-warning">
+                    Changing the unit from <strong>{material.unit}</strong> to <strong>{draft.unit.trim()}</strong> does <strong>not</strong> convert the stock — {material.currentStock} stays as {material.currentStock}. If the count is now different, correct it in <em>Stock &amp; Alerts</em>. Old ledger lines keep their original unit.
+                  </div>
+                )}
               </div>
 
               {/* Danger zone */}
@@ -413,7 +427,7 @@ export const MaterialDetailPanel: React.FC<Props> = ({
             <div className="text-[11px] text-slate-500">{dirty ? 'You have unsaved changes.' : 'All changes saved.'}</div>
             <div className="flex gap-2">
               <button onClick={() => setDraft(toDraft(material))} disabled={!dirty} className="px-3 py-2 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 cursor-pointer">Reset</button>
-              <button onClick={saveDetails} disabled={!dirty || !draft.name.trim() || savingDetails} data-testid="panel-save" className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white cursor-pointer">
+              <button onClick={saveDetails} disabled={!dirty || !draft.name.trim() || !draft.unit.trim() || savingDetails} data-testid="panel-save" className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white cursor-pointer">
                 {savingDetails ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save changes
               </button>
             </div>

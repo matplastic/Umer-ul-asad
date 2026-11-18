@@ -3,7 +3,7 @@ import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
   Truck, BarChart3, FileSpreadsheet, Star, Search, FileDown, FileText, ShieldCheck, PauseCircle,
-  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen, Building2, Paperclip, Loader2, ChevronRight, ChevronDown,
+  Wrench, Bell, BellOff, ShoppingCart, SlidersHorizontal, Scale, BookOpen, Building2, Paperclip, Loader2, ChevronRight, ChevronDown, ArrowUpDown,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { exportMultiTablePdf } from '../lib/exportUtils';
@@ -24,6 +24,7 @@ import { StockAlertModal, StockAlertPatch } from './StockAlertModal';
 import { ReorderPage } from './ReorderPage';
 import { StockLedgerModal } from './StockLedgerModal';
 import { MaterialDetailPanel } from './MaterialDetailPanel';
+import { QuickAdjustModal } from './QuickAdjustModal';
 import { InventoryLedgerPage } from './InventoryLedgerPage';
 import { SuppliersPage } from './SuppliersPage';
 import { normName } from '../lib/suppliers';
@@ -72,6 +73,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [ledgerMaterial, setLedgerMaterial] = useState<Material | null>(null);
   // Material whose detail panel is open (click a row in Inventory) — holds every per-material action.
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Tab the panel opens on, and a counter that re-mounts it on every open (so the tab resets).
+  const [detailTab, setDetailTab] = useState<'details' | 'stock' | 'units'>('details');
+  const [detailOpenCount, setDetailOpenCount] = useState(0);
+  // Material whose small "adjust stock" pop-up is open (icon after Status / on Reorder rows).
+  const [quickAdjustId, setQuickAdjustId] = useState<string | null>(null);
   // "+ Add Material" modal and the Excel import dropdown on the Inventory tab.
   const [showAddMaterial, setShowAddMaterial] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
@@ -1087,6 +1093,12 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const visibleInventory = filteredMaterials
     .filter(m => sectionFilter === '__blank__' ? !m.section : true)
     .filter(m => invGroupTab === 'all' ? true : invGroupTab === 'key' ? isMaterialCritical(m) : materialGroup(m) === invGroupTab);
+  const openMaterial = (m: Material, tab: 'details' | 'stock' | 'units' = 'details') => {
+    setDetailTab(tab);
+    setDetailOpenCount(c => c + 1);
+    setDetailId(m.id);
+  };
+  const quickAdjustMaterial = quickAdjustId ? (materials.find(m => m.id === quickAdjustId) || null) : null;
   const detailMaterial = detailId ? (materials.find(m => m.id === detailId) || null) : null;
   const detailInv = detailMaterial ? analytics?.inventoryReport?.find((r: any) => r.materialId === detailMaterial.id) : null;
 
@@ -1359,6 +1371,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                   <th className="text-left px-2 py-2">Portal</th>
                   <th className="text-right px-2 py-2">Current Stock</th>
                   <th className="text-center px-2 py-2">Status</th>
+                  <th className="px-2 py-2 w-8 text-center" title="Adjust stock">Adjust</th>
                   <th className="px-2 py-2 w-8"></th>
                 </tr>
               </thead>
@@ -1371,7 +1384,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                       key={m.id}
                       data-testid={`mat-row-${m.id}`}
                       data-stock-status={stockStatus}
-                      onClick={() => setDetailId(m.id)}
+                      onClick={() => openMaterial(m)}
                       title="Click to open — edit details, adjust stock, ledger and more"
                       className={`border-t border-slate-200 cursor-pointer hover:bg-slate-50 ${STATUS_ROW_CLASS[stockStatus]}`}
                     >
@@ -1398,6 +1411,16 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                         {perUnitText(m) && <div className="text-[10px] text-slate-500 font-normal">1 {m.unit} = {perUnitText(m).replace(` per ${m.unit}`, '')}</div>}
                       </td>
                       <td className="px-2 py-2.5 text-center" data-testid={`mat-status-${m.id}`}><StockStatusBadge status={stockStatus} /></td>
+                      <td className="px-2 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => setQuickAdjustId(m.id)}
+                          data-testid={`adjust-${m.id}`}
+                          title="Adjust stock"
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 border border-transparent hover:border-emerald-200 cursor-pointer"
+                        >
+                          <ArrowUpDown className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
                       <td className="px-2 py-2.5 text-slate-400"><ChevronRight className="h-4 w-4" /></td>
                     </tr>
                   );
@@ -1480,7 +1503,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* ---------- REORDER TAB (everything at/below its reorder or urgent level) ---------- */}
       {tab === 'reorder' && (
-        <ReorderPage materials={materials} onEditAlerts={setAlertEdit} onToggleFollow={toggleFollow} />
+        <ReorderPage materials={materials} onOpenMaterial={openMaterial} onQuickAdjust={(m) => setQuickAdjustId(m.id)} onToggleFollow={toggleFollow} />
       )}
 
       {/* ---------- COMPANY ASSETS TAB (tools, equipment — not consumed, just tracked: name, tag number, who has it, value) ---------- */}
@@ -2178,6 +2201,8 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- MATERIAL DETAIL PANEL (click a row in Inventory) ---------- */}
       {detailMaterial && (
         <MaterialDetailPanel
+          key={`${detailMaterial.id}:${detailOpenCount}`}
+          initialTab={detailTab}
           material={detailMaterial}
           isCritical={isMaterialCritical(detailMaterial)}
           periodIncoming={detailInv?.totalIncoming || 0}
@@ -2190,6 +2215,15 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           onOpenLedger={() => setLedgerMaterial(detailMaterial)}
           onMoveToAsset={() => moveMaterialToAsset(detailMaterial)}
           onDelete={() => deleteMaterial(detailMaterial.id)}
+        />
+      )}
+
+      {/* ---------- QUICK STOCK ADJUST (icon after Status on Inventory / Reorder rows) ---------- */}
+      {quickAdjustMaterial && (
+        <QuickAdjustModal
+          material={quickAdjustMaterial}
+          onApply={(qty, note) => adjustStockTo(quickAdjustMaterial.id, qty, note)}
+          onClose={() => setQuickAdjustId(null)}
         />
       )}
 

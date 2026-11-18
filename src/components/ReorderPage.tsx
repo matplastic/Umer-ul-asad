@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Bell, BellOff, CheckCircle2, Download, Pencil, Search, ShoppingCart } from 'lucide-react';
+import { ArrowUpDown, Bell, BellOff, CheckCircle2, ChevronRight, Download, Search, ShoppingCart } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Material } from '../types';
 import { getStockStatus, isFollowed, num, STATUS_ROW_CLASS, StockStatus } from '../lib/stockAlerts';
@@ -7,7 +7,10 @@ import { StockStatusBadge } from './StockStatusBadge';
 
 interface Props {
   materials: Material[];
-  onEditAlerts: (m: Material) => void;
+  /** Open the material panel (same one as Inventory). 'stock' opens it on Stock & Alerts. */
+  onOpenMaterial: (m: Material, tab?: 'details' | 'stock' | 'units') => void;
+  /** Open the small quick stock-adjust pop-up. */
+  onQuickAdjust: (m: Material) => void;
   onToggleFollow: (m: Material) => void;
 }
 
@@ -19,7 +22,7 @@ const SEVERITY: Record<StockStatus, number> = { ok: 0, reorder: 1, urgent: 2 };
 // Dedicated Reorder page: every material at or below its Reorder Level,
 // Urgent ones first. Shows ALL low materials whether or not e-mail
 // following is on — following only controls the e-mails.
-export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggleFollow }) => {
+export const ReorderPage: React.FC<Props> = ({ materials, onOpenMaterial, onQuickAdjust, onToggleFollow }) => {
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
 
@@ -150,12 +153,19 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
               <th className="text-right px-4 py-2">Reorder At</th>
               <th className="text-right px-4 py-2">Urgent At</th>
               <th className="text-right px-4 py-2">Short By</th>
-              <th className="px-4 py-2 text-right">Alerts</th>
+              <th className="px-4 py-2 text-right">Actions</th>
+              <th className="px-2 py-2 w-8"></th>
             </tr>
           </thead>
           <tbody>
             {shown.map(({ m, status, short }) => (
-              <tr key={m.id} className={`border-t border-slate-200 ${STATUS_ROW_CLASS[status]}`} data-testid={`reorder-row-${m.id}`}>
+              <tr
+                key={m.id}
+                onClick={() => onOpenMaterial(m)}
+                title="Click to open — edit details, unit, stock, levels and more"
+                className={`border-t border-slate-200 cursor-pointer hover:bg-slate-50 ${STATUS_ROW_CLASS[status]}`}
+                data-testid={`reorder-row-${m.id}`}
+              >
                 <td className="px-4 py-2"><StockStatusBadge status={status} /></td>
                 <td className="px-4 py-2 text-slate-500 font-mono">{m.erpCode || '—'}</td>
                 <td className="px-4 py-2 text-slate-900 font-semibold">{m.name}</td>
@@ -165,7 +175,7 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
                 <td className="px-4 py-2 text-right text-slate-500">{num(m.reorderLevel) || '—'}</td>
                 <td className="px-4 py-2 text-right text-slate-500">{num(m.urgentLevel) || '—'}</td>
                 <td className="px-4 py-2 text-right font-mono text-slate-800">{short > 0 ? `${short} ${m.unit}` : 'at level'}</td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-2">
                     <button
                       onClick={() => onToggleFollow(m)}
@@ -178,15 +188,16 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
                         : <BellOff className="h-3.5 w-3.5 text-slate-400" />}
                     </button>
                     <button
-                      onClick={() => onEditAlerts(m)}
-                      data-testid={`reorder-edit-${m.id}`}
-                      title="Edit reorder / urgent levels"
-                      className="text-slate-500 hover:text-primary-700 cursor-pointer"
+                      onClick={() => onQuickAdjust(m)}
+                      data-testid={`reorder-adjust-${m.id}`}
+                      title="Adjust stock"
+                      className="text-slate-500 hover:text-emerald-700 cursor-pointer"
                     >
-                      <Pencil className="h-3.5 w-3.5" />
+                      <ArrowUpDown className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </td>
+                <td className="px-2 py-2 text-slate-400"><ChevronRight className="h-4 w-4" /></td>
               </tr>
             ))}
           </tbody>
@@ -198,7 +209,7 @@ export const ReorderPage: React.FC<Props> = ({ materials, onEditAlerts, onToggle
               <div className="text-emerald-700 flex flex-col items-center gap-2">
                 <CheckCircle2 className="h-6 w-6" />
                 <span className="font-semibold">Nothing to reorder — all stock is above its reorder level.</span>
-                <span className="text-slate-500 text-xs">Set Reorder / Urgent levels from the Inventory tab (Alerts button).</span>
+                <span className="text-slate-500 text-xs">Set Reorder / Urgent levels by opening a material in the Inventory tab (Stock & Alerts).</span>
               </div>
             ) : (
               <span className="text-slate-500 flex items-center justify-center gap-2"><ShoppingCart className="h-4 w-4" /> No materials match this filter.</span>
