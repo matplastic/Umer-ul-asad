@@ -3,7 +3,7 @@ import React from 'react';
 const sections: { label: string; tabs: [string, string][] }[] = [
   { label: 'Overview', tabs: [
     ['analytics', 'Analytics'], ['projects_portal', 'Projects'],
-    ['pools', 'Pools'], ['daily_progress', 'Daily Progress'],
+    ['pools', 'Pools'], ['pool_starts', 'Pool Starts'], ['daily_progress', 'Daily Progress'],
     ['team_performance', 'Team Performance'], ['team_search', 'Team Search'],
     ['project_progress', 'Project Progress'], ['stage_reports', 'Stage Reports'],
     ['stage_timeline', 'Stage Timeline'],

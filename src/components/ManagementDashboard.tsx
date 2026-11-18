@@ -22,6 +22,7 @@ import ScrapManagement from './ScrapManagement';
 import { StageDashboard } from './StageDashboard';
 import { StageReportsTab } from './StageReportsTab';
 import { ProjectProgressReport } from './ProjectProgressReport';
+import { PoolStartReport } from './PoolStartReport';
 import { StageTimelineReport } from './StageTimelineReport';
 import { DeliveryPlanner } from './DeliveryPlanner';
 import { DeliveryReport } from './DeliveryReport';
@@ -408,7 +409,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     setMgmtAiPending(null);
   };
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'stage_timeline' | 'project_progress' | 'delivery' | 'site_deliveries' | 'warehouse' | 'scrap'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'pool_starts' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'stage_timeline' | 'project_progress' | 'delivery' | 'site_deliveries' | 'warehouse' | 'scrap'>('analytics');
   const [deliverySubTab, setDeliverySubTab] = useState<'confirm' | 'planner' | 'report'>('confirm');
 
   // When a tab is opened, bring the tab bar to the top of the screen so the
@@ -5751,6 +5752,11 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             )}
 
           </div>
+        )}
+
+        {/* Tab: Pool Starts — pools started (Steel Fabrication claimed) by day/week/month/range */}
+        {activeTab === 'pool_starts' && (
+          <PoolStartReport pools={pools} logs={logs} />
         )}
 
         {/* Tab: Stage Reports — per-stage PDF/Excel export, Remaining/Unclaimed + Completed */}
