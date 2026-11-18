@@ -200,7 +200,13 @@ interface HRPortalProps {
   /** Editable list of company / visa-sponsor names, synced via Firestore. */
   companyList?: string[];
   onSaveCompanies?: (list: string[]) => void;
+  /** 'executive' = the full HR Executive portal (everything).
+   *  'admin' = HR Administration: only Directory, Attendance, Leave, Warnings, Accidents and Medical. */
+  mode?: 'executive' | 'admin';
 }
+
+// The only tabs the HR Administration portal shows.
+const HR_ADMIN_TABS = ['directory', 'attendance', 'leave', 'warnings', 'accidents', 'medical'] as const;
 
 // A staff member currently deployed to a site/factory job away from the
 // badge machine. While listed here, Attendance excludes them from the
@@ -966,19 +972,27 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   onIdleTimeoutChange,
   companyList,
   onSaveCompanies,
+  mode = 'executive',
 }) => {
-  const [activeTab, setActiveTab] = useState<'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>('hrdash');
+  const isAdmin = mode === 'admin';
+  const [activeTab, setActiveTab] = useState<'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(mode === 'admin' ? 'directory' : 'hrdash');
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
-  const hrReqC = useHRCollection<HRRequest>('hrRequests');
+  const hrReqC = useHRCollection<HRRequest>('hrRequests', !isAdmin);
 
   // One-time, automatic: copy anything saved in the old single-document HR lists
   // into one-document-per-record collections (see hrStore.ts). Safe to repeat.
   useEffect(() => {
+    if (isAdmin) return;
     migrateHRSuiteIfNeeded()
       .then(r => { if (r && r.moved > 0) console.info(`[HR] moved ${r.moved} HR record(s) to the new storage`); })
       .catch(err => console.warn('[HR] storage migration skipped:', err));
-  }, []);
+  }, [isAdmin]);
+
+  // HR Administration can never land on a tab outside its short list.
+  useEffect(() => {
+    if (isAdmin && !(HR_ADMIN_TABS as readonly string[]).includes(activeTab)) setActiveTab('directory');
+  }, [isAdmin, activeTab]);
 
   // ── A4 print/PDF report state (Absent / Accident / Medical reports) ──
   const [printReport, setPrintReport] = useState<{
@@ -3860,7 +3874,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { value: 'factory_supervisor', label: 'Factory Supervisor' },
     { value: 'factory_entrance', label: 'Factory Entrance TV Monitor' },
     { value: 'section_dashboard', label: 'Section TV Dashboard' },
-    { value: 'hr_portal', label: 'HR Management Portal' },
+    { value: 'hr_portal', label: 'HR Executive Portal' },
+    { value: 'hr_admin', label: 'HR Administration Portal' },
     { value: 'store', label: 'Store & Inventory' },
     { value: 'section_supervisor', label: 'Section Supervisor' },
     { value: 'reports_analytics', label: 'Reports & Analytics' },
@@ -3874,6 +3889,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [loadError, setLoadError] = useState<string | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [search, setSearch] = useState('');
+    const [accountFilter, setAccountFilter] = useState<'all' | 'hr_admin'>('all');
 
     // New-account form
     const [newUsername, setNewUsername] = useState('');
@@ -3918,9 +3934,12 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     useEffect(() => { loadAccounts(); }, []);
 
     const filtered = useMemo(() => accounts.filter(a =>
-      (a.username || '').toLowerCase().includes(search.toLowerCase()) ||
-      (a.displayName || '').toLowerCase().includes(search.toLowerCase())
-    ), [accounts, search]);
+      (accountFilter === 'all' || a.role === 'hr_admin') && (
+        (a.username || '').toLowerCase().includes(search.toLowerCase()) ||
+        (a.displayName || '').toLowerCase().includes(search.toLowerCase())
+      )
+    ), [accounts, search, accountFilter]);
+    const hrAdminCount = accounts.filter(a => a.role === 'hr_admin').length;
 
     const resetForm = () => {
       setNewUsername('');
@@ -4165,12 +4184,35 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <RefreshCw className="h-3.5 w-3.5" /> Refresh
             </button>
             <button
+              onClick={() => {
+                resetForm();
+                setNewRole('hr_admin');
+                setNewAllowedRoles(['hr_admin']);
+                setShowForm(true);
+                setFormError(null);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-violet-300 text-violet-700 text-xs font-bold hover:bg-violet-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> New HR Administrator
+            </button>
+            <button
               onClick={() => { setShowForm(true); setFormError(null); }}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700"
             >
               <Plus className="h-3.5 w-3.5" /> Create Account
             </button>
           </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => setAccountFilter('all')}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold border ${accountFilter === 'all' ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-500 border-slate-200'}`}
+          >All accounts ({accounts.length})</button>
+          <button
+            onClick={() => setAccountFilter('hr_admin')}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold border ${accountFilter === 'hr_admin' ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-500 border-slate-200'}`}
+          >HR Administrators ({hrAdminCount})</button>
         </div>
 
         {/* Create account panel */}
@@ -4359,7 +4401,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           ) : loadError ? (
             <p className="p-6 text-sm text-red-600">{loadError}</p>
           ) : filtered.length === 0 ? (
-            <p className="p-6 text-sm text-slate-400">No accounts yet. Click "Create Account" to add the first one.</p>
+            <p className="p-6 text-sm text-slate-400">{accountFilter === 'hr_admin' ? 'No HR Administrators yet. Click "New HR Administrator" to add the first one.' : 'No accounts yet. Click "Create Account" to add the first one.'}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -4656,7 +4698,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'audit', label: 'Audit Trail', icon: <History className="h-4 w-4" /> },
   ] as const;
 
-  const tabs = [
+  const allTabs = [
     { id: 'directory', label: 'Directory', icon: <Users className="h-4 w-4" /> },
     { id: 'passports', label: 'Passports', icon: <FileText className="h-4 w-4" /> },
     { id: 'attendance', label: 'Attendance', icon: <Clock className="h-4 w-4" /> },
@@ -4669,6 +4711,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'reports', label: 'Reports', icon: <BarChart2 className="h-4 w-4" /> },
     { id: 'accounts', label: 'Accounts', icon: <KeyRound className="h-4 w-4" /> },
   ] as const;
+  const tabs = isAdmin ? allTabs.filter(t => (HR_ADMIN_TABS as readonly string[]).includes(t.id)) : allTabs;
 
   const pendingLeaveCount = leaves.filter(l => l.status === 'Pending').length;
   const pendingPurchaseCount = purchaseRequests.filter(r => r.status === 'Pending').length;
@@ -4705,8 +4748,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             <Users className="h-7 w-7 text-violet-700" />
           </div>
           <div>
-            <h2 className="text-xl font-black text-slate-800">HR Management Portal</h2>
-            <p className="text-sm text-slate-500">Employee directory, attendance, payroll, leave management & HR reports</p>
+            <h2 className="text-xl font-black text-slate-800">{isAdmin ? 'HR Administration' : 'HR Executive Portal'}</h2>
+            <p className="text-sm text-slate-500">{isAdmin ? 'Employee directory, attendance, leave, warnings, accidents & medical records' : 'Employee directory, attendance, payroll, leave management, recruitment & HR reports'}</p>
           </div>
           <div className="ml-auto flex gap-2">
             <span className="bg-violet-50 text-violet-700 text-xs font-bold px-3 py-1.5 rounded-full border border-violet-200">
@@ -4725,7 +4768,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 {visaExpiringCount} Visa{visaExpiringCount === 1 ? '' : 's'} Expiring
               </button>
             )}
-            {passportExpiringCount > 0 && (
+            {!isAdmin && passportExpiringCount > 0 && (
               <button
                 onClick={() => setActiveTab('passports')}
                 className="bg-orange-50 text-orange-700 text-xs font-bold px-3 py-1.5 rounded-full border border-orange-200 animate-pulse hover:bg-orange-100 transition-colors"
@@ -4739,6 +4782,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 
       {/* Tabs */}
       <div className="space-y-2">
+      {!isAdmin && (
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 w-16">HR Suite</span>
         <div className="flex gap-1 bg-violet-50 p-1 rounded-xl w-fit flex-wrap">
@@ -4759,8 +4803,9 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           ))}
         </div>
       </div>
+      )}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 w-16">Records</span>
+        {!isAdmin && <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 w-16">Records</span>}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit flex-wrap">
         {tabs.map(tab => (
           <button
@@ -4789,31 +4834,31 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       <HRToastHost />
 
       {/* Tab Content */}
-      {activeTab === 'hrdash' && <HRDashboard employees={employees} employeePunches={employeePunches} leaves={leaves} warnings={warnings} accidents={accidents} onNavigate={(t) => setActiveTab(t as any)} />}
-      {activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={payroll} />}
-      {activeTab === 'docs' && <DocumentsVault employees={employees} user={currentUserName} />}
-      {activeTab === 'cases' && <DisciplineCases employees={employees} user={currentUserName} warnings={warnings}
+      {!isAdmin && activeTab === 'hrdash' && <HRDashboard employees={employees} employeePunches={employeePunches} leaves={leaves} warnings={warnings} accidents={accidents} onNavigate={(t) => setActiveTab(t as any)} />}
+      {!isAdmin && activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={payroll} />}
+      {!isAdmin && activeTab === 'docs' && <DocumentsVault employees={employees} user={currentUserName} />}
+      {!isAdmin && activeTab === 'cases' && <DisciplineCases employees={employees} user={currentUserName} warnings={warnings}
         onIssueWarning={(w) => saveWarnings([w as Warning, ...warnings])} />}
-      {activeTab === 'requests' && <RequestCenter employees={employees} user={currentUserName} onGoLetters={() => setActiveTab('letters')} />}
-      {activeTab === 'safety' && <SafetyTraining employees={employees} user={currentUserName} accidents={accidents}
+      {!isAdmin && activeTab === 'requests' && <RequestCenter employees={employees} user={currentUserName} onGoLetters={() => setActiveTab('letters')} />}
+      {!isAdmin && activeTab === 'safety' && <SafetyTraining employees={employees} user={currentUserName} accidents={accidents}
         onAccidentStatus={(id, status) => saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a))} />}
-      {activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
-      {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={payroll} />}
-      {activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}
-      {activeTab === 'relations' && <EmployeeRelations employees={employees} user={currentUserName} />}
-      {activeTab === 'settle' && <FinalSettlement employees={employees} user={currentUserName} />}
-      {activeTab === 'audit' && <AuditTrail />}
+      {!isAdmin && activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
+      {!isAdmin && activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={payroll} />}
+      {!isAdmin && activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}
+      {!isAdmin && activeTab === 'relations' && <EmployeeRelations employees={employees} user={currentUserName} />}
+      {!isAdmin && activeTab === 'settle' && <FinalSettlement employees={employees} user={currentUserName} />}
+      {!isAdmin && activeTab === 'audit' && <AuditTrail />}
       {activeTab === 'directory' && <DirectoryTab />}
-      {activeTab === 'passports' && <PassportsTab />}
+      {!isAdmin && activeTab === 'passports' && <PassportsTab />}
       {activeTab === 'attendance' && <AttendanceTab />}
-      {activeTab === 'payroll' && <PayrollTab />}
+      {!isAdmin && activeTab === 'payroll' && <PayrollTab />}
       {activeTab === 'leave' && <LeaveTab />}
       {activeTab === 'warnings' && <WarningsTab />}
       {activeTab === 'accidents' && <AccidentsTab />}
       {activeTab === 'medical' && <MedicalTab />}
-      {activeTab === 'purchases' && <PurchaseRequestsTab />}
-      {activeTab === 'reports' && <ReportsTab />}
-      {activeTab === 'accounts' && <AccountsTab />}
+      {!isAdmin && activeTab === 'purchases' && <PurchaseRequestsTab />}
+      {!isAdmin && activeTab === 'reports' && <ReportsTab />}
+      {!isAdmin && activeTab === 'accounts' && <AccountsTab />}
 
       {/* ── A4 Print / PDF Report Modal (Absent / Accident / Medical reports) ── */}
       {printReport && (

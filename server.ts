@@ -1169,7 +1169,7 @@ app.delete('/api/monthly-targets/:id', async (req, res) => {
 });
 
 // 9. Employees CRUD
-app.post('/api/employees', requireRole('management', 'hr_portal'), async (req, res) => {
+app.post('/api/employees', requireRole('management', 'hr_portal', 'hr_admin'), async (req, res) => {
   try {
     const data = req.body;
     await db.insert(employees).values(data).onConflictDoUpdate({
@@ -1183,7 +1183,7 @@ app.post('/api/employees', requireRole('management', 'hr_portal'), async (req, r
   }
 });
 
-app.delete('/api/employees/:id', requireRole('management', 'hr_portal'), async (req, res) => {
+app.delete('/api/employees/:id', requireRole('management', 'hr_portal', 'hr_admin'), async (req, res) => {
   try {
     const { id } = req.params;
     await db.delete(employees).where(eq(employees.id, id));
@@ -1547,7 +1547,7 @@ app.post('/api/employee-punches/bulk', async (req, res) => {
   }
 });
 
-app.post('/api/employees/bulk', requireRole('management', 'hr_portal'), async (req, res) => {
+app.post('/api/employees/bulk', requireRole('management', 'hr_portal', 'hr_admin'), async (req, res) => {
   try {
     const dataArray = req.body;
     if (!Array.isArray(dataArray)) {

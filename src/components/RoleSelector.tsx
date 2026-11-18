@@ -113,7 +113,8 @@ const NAV_ITEMS: { role: ViewRole; label: string; icon: React.ElementType; testI
   { role: 'stage_worker', label: 'Shop Floor', icon: HardHat },
   { role: 'section_dashboard', label: 'Section TVs', icon: Tv },
   { role: 'trolley_prod', label: 'Trolley Prod.', icon: Boxes },
-  { role: 'hr_portal', label: 'HR Portal', icon: UserCog },
+  { role: 'hr_portal', label: 'HR Executive', icon: UserCog },
+  { role: 'hr_admin', label: 'HR Administration', icon: ClipboardList },
   { role: 'store', label: 'Store Portal', icon: Warehouse, testId: 'role-store' },
   { role: 'section_supervisor', label: 'Section Supervisor', icon: HardHat, testId: 'role-section-supervisor' },
   { role: 'factory_supervisor', label: 'Factory Supervisor', icon: Factory, testId: 'role-factory-supervisor' },
@@ -129,7 +130,7 @@ const NAV_GROUPS: { title: string; roles: ViewRole[] }[] = [
   { title: 'Production', roles: ['planning_department', 'production_engineer', 'stage_worker', 'section_supervisor', 'factory_supervisor', 'trolley_prod'] },
   { title: 'Quality', roles: ['quality_inspector'] },
   { title: 'Store & Logistics', roles: ['store', 'warehouse', 'site_team'] },
-  { title: 'People', roles: ['hr_portal'] },
+  { title: 'People', roles: ['hr_portal', 'hr_admin'] },
   { title: 'Displays', roles: ['factory_entrance', 'section_dashboard'] },
 ];
 

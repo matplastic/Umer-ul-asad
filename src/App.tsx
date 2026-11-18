@@ -4474,6 +4474,25 @@ export default function App() {
           />
         )}
 
+        {currentRole === 'hr_admin' && (
+          <HRPortal
+            mode="admin"
+            employees={employees}
+            employeePunches={employeePunches}
+            onSaveEmployee={handleSaveEmployee}
+            onDeleteEmployee={handleDeleteEmployee}
+            companyList={companyList}
+            onSaveCompanies={handleSaveCompanies}
+            onAddEmployeePunchesBulk={handleSaveEmployeePunchesBulk}
+            onAddEmployeesBulk={handleSaveEmployeesBulk}
+            onDeleteEmployeePunchesByDate={handleDeleteEmployeePunchesByDate}
+            currentUserName={loggedInUser?.displayName}
+            onIdleTimeoutChange={(minutes: number) => {
+              localStorage.setItem('mat_idle_timeout_min', String(minutes));
+            }}
+          />
+        )}
+
         {currentRole === 'store' && (
           <StoreModule
             currentUserName={loggedInUser?.displayName || 'Manager'}

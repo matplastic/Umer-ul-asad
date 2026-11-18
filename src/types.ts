@@ -281,6 +281,7 @@ export type ViewRole =
   | 'section_dashboard'
   | 'trolley_prod'
   | 'hr_portal'
+  | 'hr_admin'
   | 'store'
   | 'section_supervisor'
   | 'factory_supervisor'

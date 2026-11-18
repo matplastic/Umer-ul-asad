@@ -469,7 +469,7 @@ export interface HRCollection<T extends { id: string }> {
   patch: (id: string, fn: (cur: T) => T) => Promise<void>;
 }
 
-export function useHRCollection<T extends { id: string }>(name: HRDocName): HRCollection<T> {
+export function useHRCollection<T extends { id: string }>(name: HRDocName, enabled = true): HRCollection<T> {
   const [items, setItems] = useState<T[]>([]);
   const [loaded, setLoaded] = useState(false);
   // Records saved on THIS screen but not yet confirmed by the server. They are
@@ -477,6 +477,7 @@ export function useHRCollection<T extends { id: string }>(name: HRDocName): HRCo
   const pending = useRef<Map<string, T | null>>(new Map());
 
   useEffect(() => {
+    if (!enabled) { setItems([]); return; }
     const unsub = subscribeHR<T>(name, list => {
       let merged = list;
       if (pending.current.size > 0) {
@@ -489,7 +490,7 @@ export function useHRCollection<T extends { id: string }>(name: HRDocName): HRCo
       setLoaded(true);
     });
     return () => unsub();
-  }, [name]);
+  }, [name, enabled]);
 
   const save = useCallback(async (rec: T) => {
     pending.current.set(rec.id, rec);
