@@ -4072,7 +4072,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [idleMinutes, setIdleMinutes] = useState<number>(savedMin);
     const [idleSaved, setIdleSaved] = useState(false);
     const handleSaveIdleTimeout = () => {
-      const mins = Math.max(1, Math.min(120, idleMinutes));
+      const mins = Math.max(1, Math.min(60, idleMinutes));
       localStorage.setItem('mat_idle_timeout_min', String(mins));
       onIdleTimeoutChange?.(mins);
       setIdleMinutes(mins);
@@ -4091,7 +4091,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             </div>
             <div>
               <h4 className="text-sm font-black text-amber-900">Auto-Logout Timer</h4>
-              <p className="text-xs text-amber-700">Users are signed out after this many minutes of inactivity. Shop-floor and section-supervisor accounts are always exempt.</p>
+              <p className="text-xs text-amber-700">Default sign-out time (max 60 min) for users who have not set their own with the timer button in the top bar. Shop-floor and section-supervisor accounts are always exempt.</p>
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -4099,7 +4099,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <input
                 type="number"
                 min={1}
-                max={120}
+                max={60}
                 value={idleMinutes}
                 onChange={e => { setIdleSaved(false); setIdleMinutes(Number(e.target.value)); }}
                 className="w-16 text-sm font-bold text-slate-800 outline-none bg-transparent"
@@ -4107,7 +4107,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <span className="text-xs text-slate-500 font-medium">minutes</span>
             </div>
             <div className="flex gap-2">
-              {[1, 3, 5, 10, 15, 30].map(m => (
+              {[1, 3, 5, 10, 15, 30, 60].map(m => (
                 <button key={m} onClick={() => { setIdleMinutes(m); setIdleSaved(false); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${idleMinutes === m ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-200 hover:border-amber-400'}`}>
                   {m}m
@@ -4121,7 +4121,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               {idleSaved ? '✓ Saved' : 'Save'}
             </button>
           </div>
-          {idleSaved && <p className="text-xs text-emerald-700 font-semibold mt-2">✓ New timeout ({idleMinutes} min) saved. Takes effect on next login.</p>}
+          {idleSaved && <p className="text-xs text-emerald-700 font-semibold mt-2">✓ New default ({idleMinutes} min) saved. Users who set their own time keep theirs.</p>}
         </div>
 
         {/* Freshly-issued credential banner */}

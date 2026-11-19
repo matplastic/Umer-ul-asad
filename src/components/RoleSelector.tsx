@@ -4,6 +4,7 @@ import { STAGES } from '../data/mockData';
 import { getAllowedRoles } from '../lib/authClient';
 import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight, Factory, Truck, PackageCheck } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
+import { IdleTimeoutSetting } from './IdleTimeoutSetting';
 
 interface RoleSelectorProps {
   currentRole: ViewRole;
@@ -43,7 +44,9 @@ export const TopBar: React.FC<{
   showMenuButton?: boolean;
   workerExit?: { teamName: string; onExit: () => void };
   onExitPortal?: () => void;
-}> = ({ onMenuClick, showMenuButton = true, workerExit, onExitPortal }) => (
+  /** Signed-in user's id. When set, the small auto-logout time picker is shown. */
+  idleUserId?: string | null;
+}> = ({ onMenuClick, showMenuButton = true, workerExit, onExitPortal, idleUserId }) => (
   <header className="sticky top-0 z-30 h-16 shrink-0 w-full bg-white border-b border-slate-200 grid grid-cols-[1fr_auto_1fr] items-center px-3 sm:px-5">
     {/* Left slot — hamburger on mobile, empty on desktop (keeps the logo truly centered) */}
     <div className="flex items-center justify-start">
@@ -78,6 +81,7 @@ export const TopBar: React.FC<{
 
     {/* Right slot — theme switch + Exit Portal (office users) or Exit (kiosk worker) */}
     <div className="flex items-center justify-end gap-2">
+      {idleUserId && <IdleTimeoutSetting userId={idleUserId} />}
       <ThemeToggle />
       {workerExit ? (
         <button
