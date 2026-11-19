@@ -26,6 +26,8 @@ import { StockLedgerModal } from './StockLedgerModal';
 import { MaterialDetailPanel } from './MaterialDetailPanel';
 import { QuickAdjustModal } from './QuickAdjustModal';
 import { InventoryLedgerPage } from './InventoryLedgerPage';
+import { SortHeader } from './SortHeader';
+import { MaterialPicker } from './MaterialPicker';
 import { SuppliersPage } from './SuppliersPage';
 import { normName } from '../lib/suppliers';
 import { uploadGrnFile, deleteGrnFile, validateGrnFile, GRN_ACCEPT, KIND_LABEL, type GrnDocKind } from '../lib/grnAttachments';
@@ -123,6 +125,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // Inventory tab search — matches name, ERP code, supplier, brand,
   // storage location, HS code, or category.
   const [inventorySearch, setInventorySearch] = useState('');
+  // Column sort for the Inventory table: which column + which option (null = original order).
+  const [invSort, setInvSort] = useState<{ key: string; mode: string } | null>(null);
+  // Small search box above the Incoming (GRN) table.
+  const [incomingSearch, setIncomingSearch] = useState('');
   // Which of the 3 inventory portals is showing: MEP / Civil / Other / All.
   const [invGroupTab, setInvGroupTab] = useState<'mep' | 'civil' | 'other' | 'all' | 'key'>('all');
   // Same MEP / Civil / Other split, applied to the Reports tab (Consumption
@@ -1090,9 +1096,33 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   };
 
   // Rows shown in the Inventory table (search + section + portal tab applied).
-  const visibleInventory = filteredMaterials
+  const sortInventory = (list: Material[]): Material[] => {
+    if (!invSort) return list;
+    const text = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    const dir = invSort.mode === 'za' || invSort.mode === 'low' || invSort.mode === 'ok_first' ? -1 : 1;
+    const out = list.slice();
+    switch (invSort.key) {
+      case 'erp': // blank ERP codes always sink to the bottom
+        out.sort((a, b) => {
+          const x = String((a as any).erpCode || ''), y = String((b as any).erpCode || '');
+          if (!x && !y) return 0; if (!x) return 1; if (!y) return -1;
+          return dir * text(x, y);
+        }); break;
+      case 'name': out.sort((a, b) => dir * text(a.name || '', b.name || '')); break;
+      case 'portal': out.sort((a, b) => dir * text(materialGroup(a), materialGroup(b)) || text(a.name || '', b.name || '')); break;
+      case 'stock': // 'high' = largest qty first, 'low' = smallest first
+        out.sort((a, b) => (invSort.mode === 'high' ? -1 : 1) * (num(a.currentStock) - num(b.currentStock))); break;
+      case 'status': {
+        const rank = { urgent: 0, reorder: 1, ok: 2 } as const;
+        out.sort((a, b) => dir * (rank[getStockStatus(a)] - rank[getStockStatus(b)]) || text(a.name || '', b.name || ''));
+        break;
+      }
+    }
+    return out;
+  };
+  const visibleInventory = sortInventory(filteredMaterials
     .filter(m => sectionFilter === '__blank__' ? !m.section : true)
-    .filter(m => invGroupTab === 'all' ? true : invGroupTab === 'key' ? isMaterialCritical(m) : materialGroup(m) === invGroupTab);
+    .filter(m => invGroupTab === 'all' ? true : invGroupTab === 'key' ? isMaterialCritical(m) : materialGroup(m) === invGroupTab));
   const openMaterial = (m: Material, tab: 'details' | 'stock' | 'units' = 'details') => {
     setDetailTab(tab);
     setDetailOpenCount(c => c + 1);
@@ -1366,11 +1396,11 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-100 text-slate-500 uppercase text-[10px]">
                   <th className="px-2 py-2 w-8" title="Key material"></th>
-                  <th className="text-left px-2 py-2">ERP Code</th>
-                  <th className="text-left px-2 py-2">Material</th>
-                  <th className="text-left px-2 py-2">Portal</th>
-                  <th className="text-right px-2 py-2">Current Stock</th>
-                  <th className="text-center px-2 py-2">Status</th>
+                  <th className="text-left px-1 py-1"><SortHeader label="ERP Code" testId="sort-erp" active={invSort?.key === 'erp' ? invSort.mode : null} onPick={m => setInvSort(m ? { key: 'erp', mode: m } : null)} options={[{ id: 'az', label: 'A → Z' }, { id: 'za', label: 'Z → A' }]} /></th>
+                  <th className="text-left px-1 py-1"><SortHeader label="Material" testId="sort-name" active={invSort?.key === 'name' ? invSort.mode : null} onPick={m => setInvSort(m ? { key: 'name', mode: m } : null)} options={[{ id: 'az', label: 'By name: A → Z' }, { id: 'za', label: 'By name: Z → A' }]} /></th>
+                  <th className="text-left px-1 py-1"><SortHeader label="Portal" testId="sort-portal" active={invSort?.key === 'portal' ? invSort.mode : null} onPick={m => setInvSort(m ? { key: 'portal', mode: m } : null)} options={[{ id: 'az', label: 'A → Z' }, { id: 'za', label: 'Z → A' }]} /></th>
+                  <th className="text-right px-1 py-1"><SortHeader label="Current Stock" align="right" testId="sort-stock" active={invSort?.key === 'stock' ? invSort.mode : null} onPick={m => setInvSort(m ? { key: 'stock', mode: m } : null)} options={[{ id: 'high', label: 'By qty: High → Low' }, { id: 'low', label: 'By qty: Low → High' }]} /></th>
+                  <th className="text-center px-1 py-1"><SortHeader label="Status" align="center" testId="sort-status" active={invSort?.key === 'status' ? invSort.mode : null} onPick={m => setInvSort(m ? { key: 'status', mode: m } : null)} options={[{ id: 'urgent_first', label: 'Urgent first' }, { id: 'ok_first', label: 'OK first' }]} /></th>
                   <th className="px-2 py-2 w-8 text-center" title="Adjust stock">Adjust</th>
                   <th className="px-2 py-2 w-8"></th>
                 </tr>
@@ -1582,10 +1612,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {tab === 'incoming' && (
         <div>
           <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
-            <select value={newIncoming.materialId} onChange={e => setNewIncoming((p: any) => ({ ...p, materialId: e.target.value }))} data-testid="new-incoming-material" className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 md:col-span-2">
-              <option value="">Material…</option>
-              {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit}) · stock: {m.currentStock}</option>)}
-            </select>
+            <MaterialPicker materials={materials} value={newIncoming.materialId} onChange={id => setNewIncoming((p: any) => ({ ...p, materialId: id }))} testId="new-incoming-material" className="md:col-span-2" />
             <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
             <input placeholder="Supplier" list="supplier-options" data-testid="new-incoming-supplier" value={newIncoming.supplier} onChange={e => setNewIncoming((p: any) => ({ ...p, supplier: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
             <input placeholder="Invoice #" value={newIncoming.invoiceNo} onChange={e => setNewIncoming((p: any) => ({ ...p, invoiceNo: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
@@ -1640,7 +1667,13 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <div className="px-4 py-2 border-b border-slate-200 text-xs font-bold uppercase text-slate-500">Recent GRN (Goods Received)</div>
+            <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between gap-3">
+              <span className="text-xs font-bold uppercase text-slate-500">Recent GRN (Goods Received)</span>
+              <div className="relative w-56 max-w-full">
+                <Search className="h-3 w-3 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input value={incomingSearch} onChange={e => setIncomingSearch(e.target.value)} placeholder="Search material, supplier, invoice…" data-testid="incoming-search" className="w-full bg-slate-100 border border-slate-300 rounded-lg pl-7 pr-2 py-1.5 text-[11px] text-slate-900 font-normal normal-case" />
+              </div>
+            </div>
             <table className="w-full min-w-[1000px] text-xs">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-50 text-slate-500 uppercase text-[10px] font-semibold">
@@ -1657,7 +1690,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                 </tr>
               </thead>
               <tbody>
-                {filteredIncoming.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(inc => (
+                {filteredIncoming.filter(inc => {
+                  const q = incomingSearch.trim().toLowerCase();
+                  return !q || `${inc.materialName} ${inc.supplier || ''} ${inc.invoiceNo || ''} ${inc.doNo || ''}`.toLowerCase().includes(q);
+                }).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(inc => (
                   <tr key={inc.id} className="border-t border-slate-200">
                     <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
                     <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
