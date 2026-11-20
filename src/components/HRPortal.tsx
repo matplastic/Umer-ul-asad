@@ -7,7 +7,7 @@ import {
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
   Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2,
-  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone
+  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone, Car
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
@@ -49,7 +49,9 @@ import { AuditTrail } from './hr/AuditTrail';
 import { Recruitment } from './hr/Recruitment';
 import { FinalSettlement } from './hr/FinalSettlement';
 import { EmployeeRelations } from './hr/EmployeeRelations';
+import { Fleet } from './hr/Fleet';
 import { HRToastHost } from './hr/hrUi';
+import { EmployeeSearchSelect } from './hr/EmployeeSearchSelect';
 import { HRSandboxProvider, DemoRecords } from './hr/HRDemo';
 import { useHRCollection, HRRequest, loanDueIn, migrateHRSuiteIfNeeded } from '../lib/hrStore';
 import {
@@ -209,8 +211,26 @@ interface HRPortalProps {
 // The only tabs the HR Administration portal shows.
 const HR_ADMIN_TABS = ['directory', 'attendance', 'leave', 'warnings', 'accidents', 'medical'] as const;
 // Everything else is shown to HR Administration as a DEMO (sample data, nothing saved).
-const HR_SUITE_TAB_IDS = ['hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
+const HR_SUITE_TAB_IDS = ['fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
 const HR_DEMO_RECORD_TABS = ['passports', 'payroll', 'purchases', 'reports', 'accounts'];
+const HR_RECORD_TAB_IDS = ['directory', 'passports', 'attendance', 'payroll', 'leave', 'warnings', 'accidents', 'medical', 'purchases', 'reports', 'accounts'];
+
+/**
+ * The record tabs (Directory, Attendance, …) are written as closures inside HRPortal, so they get a
+ * brand-new component identity on EVERY HRPortal render. Rendered as <DirectoryTab />, React would then
+ * throw the old tab away and rebuild it each time the live Firestore sync echoes a save — wiping open
+ * forms, filters and sub-views ("it goes back"). Rendering them through this stable host keeps the
+ * tab's own state alive across those refreshes while still always showing the latest data.
+ */
+const StableTab: React.FC<{ render: () => React.ReactElement | null }> = ({ render }) => render();
+
+// Remember the open tab (per portal) so even a full remount lands back on the same tab.
+const tabStorageKey = (mode: string) => `hr_active_tab_${mode}`;
+const readSavedTab = (mode: string): string => {
+  const valid = [...HR_RECORD_TAB_IDS, ...HR_SUITE_TAB_IDS];
+  try { const v = sessionStorage.getItem(tabStorageKey(mode)); if (v && valid.includes(v)) return v; } catch { /* storage blocked */ }
+  return mode === 'admin' ? 'directory' : 'hrdash';
+};
 
 // A staff member currently deployed to a site/factory job away from the
 // badge machine. While listed here, Attendance excludes them from the
@@ -900,10 +920,7 @@ const SiteDeploymentPanel = ({
       </p>
 
       <div className="flex flex-wrap gap-2 items-center">
-        <select value={pickId} onChange={e => setPickId(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-[180px] bg-white">
-          <option value="">Select employee…</option>
-          {available.map(e => <option key={e.id} value={e.id}>{e.name}{e.department ? ` — ${e.department}` : ''}</option>)}
-        </select>
+        <EmployeeSearchSelect employees={available} value={pickId} onChange={id => setPickId(id)} accent="violet" placeholder="Select employee…" className="flex-1 min-w-[180px]" />
         <input value={note} onChange={e => setNote(e.target.value)} placeholder="Site / note (optional)" className="border border-slate-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-[160px]" />
         <button onClick={add} disabled={!pickId} className="bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer">
           <Plus className="h-3.5 w-3.5" /> Add
@@ -979,7 +996,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   mode = 'executive',
 }) => {
   const isAdmin = mode === 'admin';
-  const [activeTab, setActiveTab] = useState<'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(mode === 'admin' ? 'directory' : 'hrdash');
+  const [activeTab, setActiveTab] = useState<'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
+  useEffect(() => { try { sessionStorage.setItem(tabStorageKey(mode), activeTab); } catch { /* ignore */ } }, [activeTab, mode]);
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
   const hrReqC = useHRCollection<HRRequest>('hrRequests', !isAdmin);
@@ -2529,14 +2547,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Employee *</label>
-                  <select
-                    value={form.employeeId || ''}
-                    onChange={e => setForm(p => ({ ...p, employeeId: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
-                  >
-                    <option value="">Select employee...</option>
-                    {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                  </select>
+                  <EmployeeSearchSelect employees={employees} value={form.employeeId || ''} onChange={id => setForm(p => ({ ...p, employeeId: id }))} accent="violet" placeholder="Select employee…" />
                 </div>
                 {suiteAdjust && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-900 space-y-1.5">
@@ -2725,14 +2736,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Employee *</label>
-                  <select
-                    value={form.employeeId || ''}
-                    onChange={e => setForm(p => ({ ...p, employeeId: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
-                  >
-                    <option value="">Select employee...</option>
-                    {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                  </select>
+                  <EmployeeSearchSelect employees={employees} value={form.employeeId || ''} onChange={id => setForm(p => ({ ...p, employeeId: id }))} accent="violet" placeholder="Select employee…" />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Leave Type</label>
@@ -2897,14 +2901,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Employee *</label>
-                  <select
-                    value={form.employeeId || ''}
-                    onChange={e => setForm(p => ({ ...p, employeeId: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white"
-                  >
-                    <option value="">Select employee...</option>
-                    {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                  </select>
+                  <EmployeeSearchSelect employees={employees} value={form.employeeId || ''} onChange={id => setForm(p => ({ ...p, employeeId: id }))} accent="rose" placeholder="Select employee…" />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Warning Type</label>
@@ -3178,11 +3175,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Employee *</label>
-                  <select value={form.employeeId || ''} onChange={e => setForm(p => ({ ...p, employeeId: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white">
-                    <option value="">Select...</option>
-                    {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                  </select>
+                  <EmployeeSearchSelect employees={employees} value={form.employeeId || ''} onChange={id => setForm(p => ({ ...p, employeeId: id }))} accent="rose" placeholder="Select employee…" />
                 </div>
                 <div className="col-span-2">
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Accident Description *</label>
@@ -3354,11 +3347,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-500 block mb-1">Employee *</label>
-                    <select value={form.employeeId || ''} onChange={e => setForm(p => ({ ...p, employeeId: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
-                      <option value="">Select...</option>
-                      {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                    </select>
+                    <EmployeeSearchSelect employees={employees} value={form.employeeId || ''} onChange={id => setForm(p => ({ ...p, employeeId: id }))} accent="teal" placeholder="Select employee…" />
                   </div>
                 </div>
                 <div>
@@ -4098,7 +4087,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [idleMinutes, setIdleMinutes] = useState<number>(savedMin);
     const [idleSaved, setIdleSaved] = useState(false);
     const handleSaveIdleTimeout = () => {
-      const mins = Math.max(1, Math.min(120, idleMinutes));
+      const mins = Math.max(1, Math.min(60, idleMinutes));
       localStorage.setItem('mat_idle_timeout_min', String(mins));
       onIdleTimeoutChange?.(mins);
       setIdleMinutes(mins);
@@ -4117,7 +4106,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             </div>
             <div>
               <h4 className="text-sm font-black text-amber-900">Auto-Logout Timer</h4>
-              <p className="text-xs text-amber-700">Users are signed out after this many minutes of inactivity. Shop-floor and section-supervisor accounts are always exempt.</p>
+              <p className="text-xs text-amber-700">Default sign-out time (max 60 min) for users who have not set their own with the timer button in the top bar. Shop-floor and section-supervisor accounts are always exempt.</p>
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -4125,7 +4114,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <input
                 type="number"
                 min={1}
-                max={120}
+                max={60}
                 value={idleMinutes}
                 onChange={e => { setIdleSaved(false); setIdleMinutes(Number(e.target.value)); }}
                 className="w-16 text-sm font-bold text-slate-800 outline-none bg-transparent"
@@ -4133,7 +4122,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <span className="text-xs text-slate-500 font-medium">minutes</span>
             </div>
             <div className="flex gap-2">
-              {[1, 3, 5, 10, 15, 30].map(m => (
+              {[1, 3, 5, 10, 15, 30, 60].map(m => (
                 <button key={m} onClick={() => { setIdleMinutes(m); setIdleSaved(false); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${idleMinutes === m ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-200 hover:border-amber-400'}`}>
                   {m}m
@@ -4147,7 +4136,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               {idleSaved ? '✓ Saved' : 'Save'}
             </button>
           </div>
-          {idleSaved && <p className="text-xs text-emerald-700 font-semibold mt-2">✓ New timeout ({idleMinutes} min) saved. Takes effect on next login.</p>}
+          {idleSaved && <p className="text-xs text-emerald-700 font-semibold mt-2">✓ New default ({idleMinutes} min) saved. Users who set their own time keep theirs.</p>}
         </div>
 
         {/* Freshly-issued credential banner */}
@@ -4373,14 +4362,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               </div>
               <div>
                 <label className="text-[11px] font-bold uppercase text-slate-500">Link to Employee (optional)</label>
-                <select
-                  value={newEmployeeId}
-                  onChange={(e) => setNewEmployeeId(e.target.value)}
-                  className="w-full mt-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
-                >
-                  <option value="">— None —</option>
-                  {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name} · {emp.department}</option>)}
-                </select>
+                <EmployeeSearchSelect employees={employees} value={newEmployeeId} onChange={id => setNewEmployeeId(id)} accent="violet" placeholder="Select employee…" clearLabel="— None —" />
               </div>
             </div>
 
@@ -4765,6 +4747,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'requests', label: 'Requests', icon: <Inbox className="h-4 w-4" /> },
     { id: 'safety', label: 'Safety & Training', icon: <HardHat className="h-4 w-4" /> },
     { id: 'reviews', label: 'Performance', icon: <Star className="h-4 w-4" /> },
+    { id: 'fleet', label: 'Fleet', icon: <Car className="h-4 w-4" /> },
     { id: 'recruit', label: 'Recruitment', icon: <UserPlus className="h-4 w-4" /> },
     { id: 'relations', label: 'Employee Relations', icon: <Megaphone className="h-4 w-4" /> },
     { id: 'settle', label: 'Final Settlement', icon: <Calculator className="h-4 w-4" /> },
@@ -4922,6 +4905,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               onAccidentStatus={(id, status) => { if (!demo) saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a)); }} />}
             {activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
             {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={demo ? [] : payroll} />}
+            {activeTab === 'fleet' && <Fleet employees={employees} user={currentUserName} />}
             {activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}
             {activeTab === 'relations' && <EmployeeRelations employees={employees} user={currentUserName} />}
             {activeTab === 'settle' && <FinalSettlement employees={employees} user={currentUserName} />}
@@ -4932,17 +4916,17 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         return null;
       })()}
       {isAdmin && (HR_DEMO_RECORD_TABS as string[]).includes(activeTab) && <DemoRecords kind={activeTab as any} />}
-      {activeTab === 'directory' && <DirectoryTab />}
-      {!isAdmin && activeTab === 'passports' && <PassportsTab />}
-      {activeTab === 'attendance' && <AttendanceTab />}
-      {!isAdmin && activeTab === 'payroll' && <PayrollTab />}
-      {activeTab === 'leave' && <LeaveTab />}
-      {activeTab === 'warnings' && <WarningsTab />}
-      {activeTab === 'accidents' && <AccidentsTab />}
-      {activeTab === 'medical' && <MedicalTab />}
-      {!isAdmin && activeTab === 'purchases' && <PurchaseRequestsTab />}
-      {!isAdmin && activeTab === 'reports' && <ReportsTab />}
-      {!isAdmin && activeTab === 'accounts' && <AccountsTab />}
+      {activeTab === 'directory' && <StableTab render={DirectoryTab} />}
+      {!isAdmin && activeTab === 'passports' && <StableTab render={PassportsTab} />}
+      {activeTab === 'attendance' && <StableTab render={AttendanceTab} />}
+      {!isAdmin && activeTab === 'payroll' && <StableTab render={PayrollTab} />}
+      {activeTab === 'leave' && <StableTab render={LeaveTab} />}
+      {activeTab === 'warnings' && <StableTab render={WarningsTab} />}
+      {activeTab === 'accidents' && <StableTab render={AccidentsTab} />}
+      {activeTab === 'medical' && <StableTab render={MedicalTab} />}
+      {!isAdmin && activeTab === 'purchases' && <StableTab render={PurchaseRequestsTab} />}
+      {!isAdmin && activeTab === 'reports' && <StableTab render={ReportsTab} />}
+      {!isAdmin && activeTab === 'accounts' && <StableTab render={AccountsTab} />}
 
       {/* ── A4 Print / PDF Report Modal (Absent / Accident / Medical reports) ── */}
       {printReport && (
