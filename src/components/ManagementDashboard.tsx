@@ -2635,7 +2635,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       </>
       )}
 
-      {activeTab === 'analytics' && (
+      {activeTab === 'analytics' && analyticsSubTab === 'overview' && (
       <>
       {/* KPI Stats cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2973,11 +2973,15 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       </>
       )}
 
-      {/* Management navigation: section switch (Overview / Operations / Admin)
-          + the tabs of the chosen section. See MgmtTabBar.tsx. */}
+      {/* Management navigation: module (Dashboard / Production / Workforce /
+          Logistics / Administration) → page → view. See MgmtTabBar.tsx. */}
       <MgmtTabBar
-        activeTab={activeTab}
-        onChange={(id) => setActiveTab(id as typeof activeTab)}
+        activeKey={activeTab === 'analytics' ? `analytics:${analyticsSubTab}` : activeTab}
+        onChange={(key) => {
+          const [tab, sub] = key.split(':');
+          setActiveTab(tab as typeof activeTab);
+          if (tab === 'analytics') setAnalyticsSubTab((sub || 'overview') as typeof analyticsSubTab);
+        }}
         onRefresh={onRefreshAll}
         isSyncing={isFullSyncing}
         lastSyncTime={lastSyncTime}
@@ -3000,32 +3004,8 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         {activeTab === 'analytics' && (
           <div className="space-y-6">
 
-            {/* Analytics sub-navigation — splits the five reports that used
-                to stack in one long scroll into focused, switchable views */}
-            <div className="flex flex-wrap gap-2 bg-slate-50 border border-slate-100 rounded-2xl p-1.5">
-              {([
-                { id: 'overview', label: 'Overview', icon: BarChart2 },
-                { id: 'kpi_oee', label: 'KPI & Section OEE', icon: TrendingUp },
-                { id: 'ledger', label: 'Activity Ledger', icon: Activity },
-                { id: 'workforce', label: 'Workforce', icon: Users },
-                { id: 'registry', label: 'Pool Registry', icon: Layers },
-              ] as const).map(sub => {
-                const Icon = sub.icon;
-                const isActive = analyticsSubTab === sub.id;
-                return (
-                  <button
-                    key={sub.id}
-                    onClick={() => setAnalyticsSubTab(sub.id)}
-                    className={`relative flex-1 min-w-[130px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all ${
-                      isActive ? 'bg-white text-slate-800 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-white/60'
-                    }`}
-                  >
-                    <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
-                    {sub.label}
-                  </button>
-                );
-              })}
-            </div>
+            {/* Analytics views (Production Summary, KPI & OEE, Monthly KPI, Activity Ledger,
+                Workloads & Awards) are opened from the Management navigation bar above. */}
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
