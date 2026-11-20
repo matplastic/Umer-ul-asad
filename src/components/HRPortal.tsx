@@ -212,6 +212,24 @@ const HR_ADMIN_TABS = ['directory', 'attendance', 'leave', 'warnings', 'accident
 // Everything else is shown to HR Administration as a DEMO (sample data, nothing saved).
 const HR_SUITE_TAB_IDS = ['fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
 const HR_DEMO_RECORD_TABS = ['passports', 'payroll', 'purchases', 'reports', 'accounts'];
+const HR_RECORD_TAB_IDS = ['directory', 'passports', 'attendance', 'payroll', 'leave', 'warnings', 'accidents', 'medical', 'purchases', 'reports', 'accounts'];
+
+/**
+ * The record tabs (Directory, Attendance, …) are written as closures inside HRPortal, so they get a
+ * brand-new component identity on EVERY HRPortal render. Rendered as <DirectoryTab />, React would then
+ * throw the old tab away and rebuild it each time the live Firestore sync echoes a save — wiping open
+ * forms, filters and sub-views ("it goes back"). Rendering them through this stable host keeps the
+ * tab's own state alive across those refreshes while still always showing the latest data.
+ */
+const StableTab: React.FC<{ render: () => React.ReactElement | null }> = ({ render }) => render();
+
+// Remember the open tab (per portal) so even a full remount lands back on the same tab.
+const tabStorageKey = (mode: string) => `hr_active_tab_${mode}`;
+const readSavedTab = (mode: string): string => {
+  const valid = [...HR_RECORD_TAB_IDS, ...HR_SUITE_TAB_IDS];
+  try { const v = sessionStorage.getItem(tabStorageKey(mode)); if (v && valid.includes(v)) return v; } catch { /* storage blocked */ }
+  return mode === 'admin' ? 'directory' : 'hrdash';
+};
 
 // A staff member currently deployed to a site/factory job away from the
 // badge machine. While listed here, Attendance excludes them from the
@@ -980,7 +998,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   mode = 'executive',
 }) => {
   const isAdmin = mode === 'admin';
-  const [activeTab, setActiveTab] = useState<'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(mode === 'admin' ? 'directory' : 'hrdash');
+  const [activeTab, setActiveTab] = useState<'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
+  useEffect(() => { try { sessionStorage.setItem(tabStorageKey(mode), activeTab); } catch { /* ignore */ } }, [activeTab, mode]);
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
   const hrReqC = useHRCollection<HRRequest>('hrRequests', !isAdmin);
@@ -4862,17 +4881,17 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         return null;
       })()}
       {isAdmin && (HR_DEMO_RECORD_TABS as string[]).includes(activeTab) && <DemoRecords kind={activeTab as any} />}
-      {activeTab === 'directory' && <DirectoryTab />}
-      {!isAdmin && activeTab === 'passports' && <PassportsTab />}
-      {activeTab === 'attendance' && <AttendanceTab />}
-      {!isAdmin && activeTab === 'payroll' && <PayrollTab />}
-      {activeTab === 'leave' && <LeaveTab />}
-      {activeTab === 'warnings' && <WarningsTab />}
-      {activeTab === 'accidents' && <AccidentsTab />}
-      {activeTab === 'medical' && <MedicalTab />}
-      {!isAdmin && activeTab === 'purchases' && <PurchaseRequestsTab />}
-      {!isAdmin && activeTab === 'reports' && <ReportsTab />}
-      {!isAdmin && activeTab === 'accounts' && <AccountsTab />}
+      {activeTab === 'directory' && <StableTab render={DirectoryTab} />}
+      {!isAdmin && activeTab === 'passports' && <StableTab render={PassportsTab} />}
+      {activeTab === 'attendance' && <StableTab render={AttendanceTab} />}
+      {!isAdmin && activeTab === 'payroll' && <StableTab render={PayrollTab} />}
+      {activeTab === 'leave' && <StableTab render={LeaveTab} />}
+      {activeTab === 'warnings' && <StableTab render={WarningsTab} />}
+      {activeTab === 'accidents' && <StableTab render={AccidentsTab} />}
+      {activeTab === 'medical' && <StableTab render={MedicalTab} />}
+      {!isAdmin && activeTab === 'purchases' && <StableTab render={PurchaseRequestsTab} />}
+      {!isAdmin && activeTab === 'reports' && <StableTab render={ReportsTab} />}
+      {!isAdmin && activeTab === 'accounts' && <StableTab render={AccountsTab} />}
 
       {/* ── A4 Print / PDF Report Modal (Absent / Accident / Medical reports) ── */}
       {printReport && (
