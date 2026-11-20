@@ -10,7 +10,6 @@ import { LoginScreen } from './components/LoginScreen';
 import { getStoredUser, logout as logoutUser, findAccountByQuickCode, getAllowedRoles, type AuthUser } from './lib/authClient';
 import { startPresenceHeartbeat, stopPresenceHeartbeat } from './lib/presence';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
-import { useIdleTimeoutMinutes } from './lib/idleTimeoutSetting';
 import { ProductionEngineer } from './components/ProductionEngineer';
 import { StageDashboard } from './components/StageDashboard';
 import { QualityInspector } from './components/QualityInspector';
@@ -434,12 +433,16 @@ export default function App() {
     stopPresenceHeartbeat();
   };
 
-  // Idle auto-logout: each user sets their own time (max 60 min) from the small
-  // timer button in the top bar. Users who have not chosen yet get the company
-  // default (HR portal setting, else 3 minutes).
+  // Idle auto-logout: defaults to 3 minutes. HR portal can override this
+  // by writing a number (in minutes) to localStorage key 'mat_idle_timeout_min'.
   // Shop Floor logins are exempt — shared stage tablets stay signed in all shift.
-  const [idleTimeoutMin] = useIdleTimeoutMinutes(loggedInUser?.id);
-  const IDLE_TIMEOUT_MS = idleTimeoutMin * 60 * 1000;
+  const IDLE_TIMEOUT_MS = (() => {
+    try {
+      const saved = localStorage.getItem('mat_idle_timeout_min');
+      const parsed = saved ? parseInt(saved, 10) : NaN;
+      return (!isNaN(parsed) && parsed > 0) ? parsed * 60 * 1000 : 3 * 60 * 1000;
+    } catch { return 3 * 60 * 1000; }
+  })();
   const IDLE_EXEMPT_ROLES: ViewRole[] = ['stage_worker', 'section_supervisor'];
   const [idleLogoutNotice, setIdleLogoutNotice] = useState(false);
   const idleTimeoutEnabled = !!loggedInUser && !IDLE_EXEMPT_ROLES.includes(loggedInUser.role);
@@ -658,6 +661,19 @@ export default function App() {
       }
     };
     handleRedirectResult();
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, []);
+
+  // ERP DATA — load from Firestore and live-subscribe ONLY once someone has
+  // signed in (Firestore's rules require the server-issued session), and
+  // again whenever a different person signs in.
+  useEffect(() => {
+    if (!loggedInUser) return;
 
     const loadCloudData = async () => {
       setFirebaseStatus('linking');
@@ -953,14 +969,11 @@ export default function App() {
     });
 
     return () => {
-      if (typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
       if (typeof liveUnsub === 'function') {
         liveUnsub();
       }
     };
-  }, []);
+  }, [loggedInUser?.id]);
 
   // SELF-HEAL for the "same pool number, same project, twice" bug: a plan
   // still marked PLANNED although a live pool with that exact project +
@@ -3992,7 +4005,6 @@ export default function App() {
         showMenuButton={!isCodeCheckedInWorker}
         workerExit={isCodeCheckedInWorker ? { teamName: teams.find(t => t.id === workerTeamId)?.name || 'Team', onExit: handleWorkerLogout } : undefined}
         onExitPortal={!isCodeCheckedInWorker ? handleLogout : undefined}
-        idleUserId={idleTimeoutEnabled && !isCodeCheckedInWorker ? loggedInUser?.id : null}
       />
 
       {/* Below the top bar: sidebar + page content sit side by side on lg+

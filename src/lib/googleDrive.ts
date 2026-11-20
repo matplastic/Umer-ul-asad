@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getAuth, 
   signInWithPopup, 
@@ -19,6 +19,12 @@ const getFirebaseConfig = () => ({
 // Initialize Firebase App
 export const app = initializeApp(getFirebaseConfig());
 export const auth = getAuth(app);
+
+// Google Drive sign-in uses its OWN Firebase app instance. Connecting or
+// disconnecting Drive therefore never replaces or signs out the ERP session
+// (the role-carrying token from auth-login that Firestore's rules check).
+const driveApp = getApps().some(a => a.name === 'drive') ? getApp('drive') : initializeApp(getFirebaseConfig(), 'drive');
+export const driveAuth = getAuth(driveApp);
 
 // ─────────────────────────────────────────────────────────────────────────
 // SHARED FIRESTORE CLIENT — single source of truth
@@ -185,7 +191,7 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
+  return onAuthStateChanged(driveAuth, async (user: User | null) => {
     if (user) {
       const validToken = isSigningIn ? cachedAccessToken : loadStoredToken();
       if (validToken) {
@@ -206,7 +212,7 @@ export const initAuth = (
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
+    const result = await signInWithPopup(driveAuth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Failed to get access token from Google Auth');
@@ -224,13 +230,13 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 // Alternative Sign-In with Redirect (very useful in iframes if popups are blocked/nested)
 export const googleSignInRedirect = async (): Promise<void> => {
   isSigningIn = true;
-  await signInWithRedirect(auth, provider);
+  await signInWithRedirect(driveAuth, provider);
 };
 
 // Check for redirection result
 export const checkRedirectResult = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
-    const result = await getRedirectResult(auth);
+    const result = await getRedirectResult(driveAuth);
     if (result) {
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
@@ -252,7 +258,7 @@ export const getAccessToken = async (): Promise<string | null> => {
 
 // Sign out
 export const googleSignOut = async () => {
-  await auth.signOut();
+  await driveAuth.signOut();
   clearStoredToken();
 };
 

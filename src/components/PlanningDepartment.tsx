@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { PlannedPool, Pool, PoolOrientation, ViewRole, ProjectSummary, MonthlyTarget, InventoryDeletionLog } from '../types';
 import { STAGES } from '../data/mockData';
-import { loginWithPassword } from '../lib/authClient';
+import { verifyCredentials } from '../lib/authClient';
 import { dbSaveInventoryDeletionLog } from '../lib/firebaseService';
 import { 
   Plus, 
@@ -1414,7 +1414,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       // Re-verify credentials at the moment of deletion — this does not rely
       // on whoever is already signed in on this kiosk, it checks the
       // username/password typed into this dialog right now.
-      const verifiedUser = await loginWithPassword(bulkDeleteUsername.trim(), bulkDeletePassword);
+      const verifiedUser = await verifyCredentials(bulkDeleteUsername.trim(), bulkDeletePassword);
 
       const idsToDelete = Array.from(selectedRegistryIds).filter(id =>
         deletableFilteredPools.some(p => p.id === id)
