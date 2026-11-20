@@ -47,7 +47,7 @@ export function buildDocRows(employees: Employee[], profiles: HRProfile[], docs:
 }
 
 // ─── File picker with live validation ───
-const FilePicker: React.FC<{ files: File[]; setFiles: (f: File[]) => void; max: number }> = ({ files, setFiles, max }) => {
+export const FilePicker: React.FC<{ files: File[]; setFiles: (f: File[]) => void; max: number }> = ({ files, setFiles, max }) => {
   const input = useRef<HTMLInputElement>(null);
   const add = (list: FileList | null) => {
     if (!list) return;

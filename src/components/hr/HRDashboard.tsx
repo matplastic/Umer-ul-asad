@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { Employee, EmployeePunch } from '../../types';
 import {
-  useHRCollection, HRProfile, HRDocument, HRCase, HRRequest, HRTraining, HRPPE, HRAccidentCase,
+  useHRCollection, HRProfile, HRDocument, HRCase, HRRequest, HRTraining, HRPPE, HRAccidentCase, HRVehicle, HRVehicleFine,
   LeaveLite, WarningLite, AccidentLite, MANDATORY_COURSES, todayStr, daysUntil, expiryState, fmtD,
 } from '../../lib/hrStore';
 import { chartTokens, chartAxisDefaults } from '../../lib/chartTokens';
@@ -31,6 +31,8 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
   const trainC = useHRCollection<HRTraining>('hrTraining');
   const ppeC = useHRCollection<HRPPE>('hrPPE');
   const accC = useHRCollection<HRAccidentCase>('hrAccidentCases');
+  const vehC = useHRCollection<HRVehicle>('hrVehicles');
+  const fineC = useHRCollection<HRVehicleFine>('hrVehicleFines');
 
   const d = useMemo(() => {
     const pm = new Map(profC.items.map(p => [p.id, p]));
@@ -88,6 +90,13 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
     if (overdueActions) alerts.push({ tone: 'rose', text: `${overdueActions} accident corrective action(s) overdue`, tab: 'safety' });
     if (missingTraining) alerts.push({ tone: 'amber', text: `${missingTraining} missing mandatory training certificate(s)`, tab: 'safety' });
     if (ppeDue) alerts.push({ tone: 'amber', text: `${ppeDue} PPE item(s) due for replacement`, tab: 'safety' });
+    const fleet = vehC.items.filter(v => v.status !== 'Sold');
+    const regExp = fleet.filter(v => ['expired', 'soon'].includes(expiryState(v.registrationExpiry, 30))).length;
+    const insExp = fleet.filter(v => ['expired', 'soon'].includes(expiryState(v.insuranceExpiry, 30))).length;
+    const unpaidFines = fineC.items.filter(f => f.status === 'Unpaid').length;
+    if (regExp) alerts.push({ tone: 'amber', text: `${regExp} vehicle registration(s) expired or expiring within 30 days`, tab: 'fleet' });
+    if (insExp) alerts.push({ tone: 'amber', text: `${insExp} vehicle insurance(s) expired or expiring within 30 days`, tab: 'fleet' });
+    if (unpaidFines) alerts.push({ tone: 'amber', text: `${unpaidFines} unpaid vehicle fine(s) / Salik`, tab: 'fleet' });
     active.forEach(e => {
       const p = pm.get(e.id);
       const pr = daysUntil(p?.probationEndDate); const ce = daysUntil(p?.contractEndDate);
@@ -114,7 +123,7 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
 
     return { celebrations, activeCount: active.length, presentToday, punchingCount: punching.length, trend, onLeave, pendingLeave, pendingReq, joined30, exited90,
       docExpired, docSoon, openCases, unsigned, warn30, daysSinceAcc, openAcc, deptData, alerts };
-  }, [employees, employeePunches, leaves, warnings, accidents, profC.items, docsC.items, casesC.items, reqC.items, trainC.items, ppeC.items, accC.items]);
+  }, [employees, employeePunches, leaves, warnings, accidents, profC.items, docsC.items, casesC.items, reqC.items, trainC.items, ppeC.items, accC.items, vehC.items, fineC.items]);
 
   const rate = d.punchingCount ? Math.round((d.presentToday / d.punchingCount) * 100) : 0;
   const toneCls = { rose: 'bg-rose-50 border-rose-200 text-rose-800', amber: 'bg-amber-50 border-amber-200 text-amber-800', sky: 'bg-sky-50 border-sky-200 text-sky-800' };

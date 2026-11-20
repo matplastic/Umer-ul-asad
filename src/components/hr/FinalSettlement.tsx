@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Printer, Save, Trash2, Calculator } from 'lucide-react';
 import { Employee } from '../../types';
 import {
-  useHRCollection, HRSettlement, HRProfile, HRRequest, calcGratuity, loanInfo, newId, nextRef, todayStr, fmtD, fmtAED, logAudit,
+  useHRCollection, HRSettlement, HRProfile, HRRequest, HRVehicle, HRVehicleFine, currentAssignment, calcGratuity, loanInfo, newId, nextRef, todayStr, fmtD, fmtAED, logAudit,
 } from '../../lib/hrStore';
 import { exportSettlementPdf } from '../../lib/hrPdf';
 import { Field, EmployeeSelect, inputCls, btnPrimary, btnGhost, SectionCard, Badge, Empty, runSave, useConfirm, hrToast } from './hrUi';
@@ -15,6 +15,8 @@ export const FinalSettlement: React.FC<Props> = ({ employees, user }) => {
   const setC = useHRCollection<HRSettlement>('hrSettlements');
   const profC = useHRCollection<HRProfile>('hrProfiles');
   const reqC = useHRCollection<HRRequest>('hrRequests');
+  const vehC = useHRCollection<HRVehicle>('hrVehicles');
+  const fineC = useHRCollection<HRVehicleFine>('hrVehicleFines');
   const { ask, node } = useConfirm();
 
   const [empId, setEmpId] = useState('');
@@ -25,14 +27,17 @@ export const FinalSettlement: React.FC<Props> = ({ employees, user }) => {
   // Pre-fill from the employee profile and any outstanding loans.
   const loanBalance = useMemo(() => reqC.items.filter(r => r.employeeId === empId && (r.type === 'Loan' || r.type === 'Salary Advance') && r.status === 'Approved')
     .reduce((s, r) => s + loanInfo(r).balance, 0), [reqC.items, empId]);
+  const unpaidFines = useMemo(() => fineC.items.filter(x => x.employeeId === empId && x.status === 'Unpaid').reduce((s, x) => s + x.amount, 0), [fineC.items, empId]);
+  const heldVehicles = useMemo(() => vehC.items.filter(v => currentAssignment(v)?.employeeId === empId), [vehC.items, empId]);
   useEffect(() => {
     if (!empId) return;
     setF(p => ({
       ...p, joining: prof?.joiningDate || '', lastDay: prof?.exitDate || todayStr(),
       basic: prof?.basicSalary ? String(prof.basicSalary) : '', total: prof?.basicSalary ? String(prof.basicSalary) : '',
       loan: String(Math.round(loanBalance * 100) / 100),
+      otherDed: String(Math.round(unpaidFines * 100) / 100),
     }));
-  }, [empId, prof?.joiningDate, prof?.exitDate, prof?.basicSalary, loanBalance]);
+  }, [empId, prof?.joiningDate, prof?.exitDate, prof?.basicSalary, loanBalance, unpaidFines]);
 
   const basic = num(f.basic);
   const g = calcGratuity(basic, f.joining, f.lastDay, num(f.unpaid));
@@ -89,6 +94,8 @@ export const FinalSettlement: React.FC<Props> = ({ employees, user }) => {
           {!emp ? <Empty text="Choose an employee." /> : (
             <div className="space-y-2 text-sm">
               <div className="flex justify-between text-slate-500"><span>Service</span><b className="text-slate-800">{Math.floor(g.years)} yr {Math.round((g.years % 1) * 12)} mo</b></div>
+              {heldVehicles.length > 0 && <p className="text-xs text-rose-700 bg-rose-50 rounded p-2 font-semibold">Company vehicle still assigned: {heldVehicles.map(v => v.plate).join(', ')}. Return it in Fleet before clearance.</p>}
+              {unpaidFines > 0 && <p className="text-xs text-amber-700 bg-amber-50 rounded p-2 font-semibold">Unpaid vehicle fines / Salik of {fmtAED(unpaidFines)} were added to "Other deductions".</p>}
               {!g.eligible && g.years > 0 && <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 font-semibold">Less than 1 year of service — no gratuity is due.</p>}
               {g.capped && <p className="text-xs text-amber-600 bg-amber-50 rounded p-2 font-semibold">Gratuity was limited to 2 years’ wage (the legal cap).</p>}
               <Row label="Gratuity" v={g.gratuity} /><Row label="Leave encashment" v={leaveAmount} /><Row label="Pending salary" v={pendingAmount} />

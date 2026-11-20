@@ -75,6 +75,10 @@ export const BACKUP_DOCS: BackupDocDef[] = [
   { id: 'hrSettlements', label: 'HR final settlements', group: 'hr' },
   { id: 'hrNotices', label: 'HR notice board', group: 'hr' },
   { id: 'hrGrievances', label: 'HR grievances & suggestions', group: 'hr' },
+  { id: 'hrVehicles', label: 'Fleet — vehicles & assignments', group: 'hr' },
+  { id: 'hrFuelLogs', label: 'Fleet — daily km & fuel log', group: 'hr' },
+  { id: 'hrVehicleService', label: 'Fleet — maintenance records', group: 'hr' },
+  { id: 'hrVehicleFines', label: 'Fleet — fines & Salik', group: 'hr' },
 ];
 
 export const BACKUP_DOC_IDS: string[] = BACKUP_DOCS.map(d => d.id);

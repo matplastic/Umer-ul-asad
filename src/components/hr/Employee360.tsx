@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Save, Printer, Plus, Trash2, UserCheck, UserX, Phone, Briefcase, CalendarDays, ShieldAlert } from 'lucide-react';
 import { Employee } from '../../types';
 import {
-  useHRCollection, HRProfile, HRDocument, HRLifecycle, HRCase, HRRequest, HRTraining, HRPPE, HRReview,
+  useHRCollection, HRProfile, HRDocument, HRLifecycle, HRCase, HRRequest, HRTraining, HRPPE, HRReview, HRVehicle, HRVehicleFine,
   LeaveLite, WarningLite, AccidentLite, MedicalLite, PayrollLite,
   ONBOARDING_TEMPLATE, EXIT_TEMPLATE, newId, fmtD, fmtAED, daysUntil, logAudit, todayStr,
 } from '../../lib/hrStore';
@@ -35,6 +35,8 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
   const trainC = useHRCollection<HRTraining>('hrTraining');
   const ppeC = useHRCollection<HRPPE>('hrPPE');
   const revC = useHRCollection<HRReview>('hrReviews');
+  const vehC = useHRCollection<HRVehicle>('hrVehicles');
+  const fineC = useHRCollection<HRVehicleFine>('hrVehicleFines');
 
   const [selId, setSelId] = useState<string | null>(initialEmployeeId || null);
   const [q, setQ] = useState('');
@@ -168,7 +170,7 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
 
           {tab === 'timeline' && (
             <Timeline emp={emp} prof={prof} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={payroll}
-              cases={casesC.items} requests={reqC.items} training={trainC.items} ppe={ppeC.items} reviews={revC.items} docs={docsC.items} lifecycle={lifeC.items} />
+              vehicles={vehC.items} fines={fineC.items} cases={casesC.items} requests={reqC.items} training={trainC.items} ppe={ppeC.items} reviews={revC.items} docs={docsC.items} lifecycle={lifeC.items} />
           )}
         </div>
       )}
@@ -331,8 +333,8 @@ interface Ev { at: string; kind: string; tone: 'slate' | 'violet' | 'emerald' | 
 const Timeline: React.FC<{
   emp: Employee; prof?: HRProfile; leaves: LeaveLite[]; warnings: WarningLite[]; accidents: AccidentLite[]; medicals: MedicalLite[];
   payroll: PayrollLite[]; cases: HRCase[]; requests: HRRequest[]; training: HRTraining[]; ppe: HRPPE[]; reviews: HRReview[];
-  docs: HRDocument[]; lifecycle: HRLifecycle[];
-}> = ({ emp, prof, leaves, warnings, accidents, medicals, cases, requests, training, ppe, reviews, lifecycle }) => {
+  docs: HRDocument[]; lifecycle: HRLifecycle[]; vehicles: HRVehicle[]; fines: HRVehicleFine[];
+}> = ({ emp, prof, leaves, warnings, accidents, medicals, cases, requests, training, ppe, reviews, lifecycle, vehicles, fines }) => {
   const [filter, setFilter] = useState('All');
   const events = useMemo(() => {
     const id = emp.id;
@@ -349,8 +351,13 @@ const Timeline: React.FC<{
     ppe.filter(p => p.employeeId === id).forEach(p => ev.push({ at: p.issueDate, kind: 'PPE', tone: 'slate', title: `${p.item} issued (×${p.qty})`, detail: p.returnedDate ? `Returned ${fmtD(p.returnedDate)}` : undefined }));
     reviews.filter(r => r.employeeId === id).forEach(r => ev.push({ at: r.createdAt, kind: 'Review', tone: 'violet', title: `Performance review ${r.period} · ${r.overall.toFixed(1)}/5`, detail: r.recommendation !== 'None' ? r.recommendation : undefined }));
     lifecycle.filter(l => l.employeeId === id).forEach(l => ev.push({ at: l.startedAt, kind: 'Employment', tone: 'slate', title: `${l.kind} checklist started`, detail: l.completedAt ? `Completed ${fmtD(l.completedAt)}` : undefined }));
+    vehicles.forEach(v => v.assignments.filter(a => a.employeeId === id).forEach(a => {
+      ev.push({ at: a.from, kind: 'Vehicle', tone: 'sky', title: `Vehicle ${v.plate} assigned`, detail: `${v.make} ${v.model}${a.startKm != null ? ` · ${a.startKm.toLocaleString()} km` : ''}` });
+      if (a.to) ev.push({ at: a.to, kind: 'Vehicle', tone: 'slate', title: `Vehicle ${v.plate} returned`, detail: a.endKm != null && a.startKm != null ? `${(a.endKm - a.startKm).toLocaleString()} km driven` : undefined });
+    }));
+    fines.filter(f => f.employeeId === id).forEach(f => ev.push({ at: f.date, kind: 'Vehicle', tone: f.status === 'Unpaid' ? 'rose' : 'amber', title: `${f.kind} · ${fmtAED(f.amount)} · ${f.status}`, detail: `${f.plate}${f.reference ? ` · ${f.reference}` : ''}` }));
     return ev.filter(e => e.at).sort((a, b) => b.at.localeCompare(a.at));
-  }, [emp.id, prof, leaves, warnings, accidents, medicals, cases, requests, training, ppe, reviews, lifecycle]);
+  }, [emp.id, prof, leaves, warnings, accidents, medicals, cases, requests, training, ppe, reviews, lifecycle, vehicles, fines]);
 
   const kinds = ['All', ...Array.from(new Set(events.map(e => e.kind)))];
   const shown = events.filter(e => filter === 'All' || e.kind === filter);

@@ -25,7 +25,8 @@ import { clientDb } from './googleDrive.ts';
 export type HRDocName =
   | 'hrProfiles' | 'hrDocuments' | 'hrLifecycle' | 'hrCases' | 'hrRequests'
   | 'hrTraining' | 'hrPPE' | 'hrAccidentCases' | 'hrReviews' | 'hrLetters' | 'hrAudit'
-  | 'hrVacancies' | 'hrCandidates' | 'hrSettlements' | 'hrNotices' | 'hrGrievances';
+  | 'hrVacancies' | 'hrCandidates' | 'hrSettlements' | 'hrNotices' | 'hrGrievances'
+  | 'hrVehicles' | 'hrFuelLogs' | 'hrVehicleService' | 'hrVehicleFines';
 
 /** Every list the HR Suite owns — also registered for backup/restore. */
 export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
@@ -45,6 +46,10 @@ export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
   { id: 'hrSettlements', label: 'HR final settlements' },
   { id: 'hrNotices', label: 'HR notice board' },
   { id: 'hrGrievances', label: 'HR grievances & suggestions' },
+  { id: 'hrVehicles', label: 'Fleet — vehicles & assignments' },
+  { id: 'hrFuelLogs', label: 'Fleet — daily km & fuel log' },
+  { id: 'hrVehicleService', label: 'Fleet — maintenance records' },
+  { id: 'hrVehicleFines', label: 'Fleet — fines & Salik' },
 ];
 
 // ─── Record types ───────────────────────────────────────────
@@ -338,6 +343,107 @@ export interface HRGrievance {
   createdAt: string;
 }
 
+// ─── Company vehicles (fleet) ───────────────────────────────
+export type VehicleStatus = 'Active' | 'In Maintenance' | 'Out of Service' | 'Sold';
+export interface VehicleAssignment {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  from: string;          // date handed over
+  to?: string;           // date returned (empty = still with the employee)
+  startKm?: number;
+  endKm?: number;
+  purpose?: string;
+  conditionOut?: string; // condition notes at handover
+  conditionIn?: string;  // condition notes at return
+}
+export interface HRVehicle {
+  id: string;
+  plate: string;
+  plateEmirate?: string;
+  make: string;
+  model: string;
+  year?: number;
+  color?: string;
+  vehicleType?: 'Car' | 'Pickup' | 'Van' | 'Truck' | 'Bus' | 'Other';
+  fuelType: 'Petrol' | 'Diesel' | 'Hybrid' | 'Electric';
+  engineNo?: string;
+  chassisNo?: string;
+  registrationExpiry?: string; // Mulkiya
+  insuranceExpiry?: string;
+  insuranceCompany?: string;
+  policyNo?: string;
+  purchaseDate?: string;
+  status: VehicleStatus;
+  assignments: VehicleAssignment[];
+  files?: HRFile[];      // Mulkiya / insurance scans (Storage, max 1 MB each)
+  notes?: string;
+  createdAt: string;
+}
+export interface HRFuelLog {
+  id: string;
+  vehicleId: string;
+  plate: string;
+  date: string;
+  employeeId?: string;   // driver that day
+  employeeName?: string;
+  startKm?: number;
+  endKm?: number;
+  km: number;            // km driven that day
+  liters?: number;
+  fuelCost?: number;
+  station?: string;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+export interface HRVehicleService {
+  id: string;
+  vehicleId: string;
+  plate: string;
+  date: string;
+  type: string;
+  odometer?: number;
+  cost?: number;
+  vendor?: string;
+  nextDueDate?: string;
+  nextDueKm?: number;
+  notes?: string;
+  createdAt: string;
+}
+export interface HRVehicleFine {
+  id: string;
+  vehicleId: string;
+  plate: string;
+  date: string;
+  kind: 'Traffic fine' | 'Salik' | 'Parking' | 'Other';
+  amount: number;
+  employeeId?: string;   // who was driving / responsible
+  employeeName?: string;
+  reference?: string;
+  status: 'Unpaid' | 'Paid' | 'Deducted from salary';
+  notes?: string;
+  createdAt: string;
+}
+export const SERVICE_TYPES = ['Oil change', 'General service', 'Tyres', 'Brakes', 'Battery', 'AC', 'Repair', 'Accident repair', 'Registration renewal', 'Other'];
+
+/** Who had the vehicle on a given date (from the assignment history). */
+export function driverOn(v: HRVehicle, date: string): VehicleAssignment | undefined {
+  return [...v.assignments]
+    .filter(a => a.from <= date && (!a.to || a.to >= date))
+    .sort((a, b) => b.from.localeCompare(a.from))[0];
+}
+export const currentAssignment = (v: HRVehicle) => v.assignments.find(a => !a.to);
+
+/** Highest odometer reading known for a vehicle (daily logs, services, hand-overs). */
+export function latestOdometer(v: HRVehicle, logs: HRFuelLog[], services: HRVehicleService[]): number {
+  let m = 0;
+  logs.forEach(l => { if (l.vehicleId === v.id) m = Math.max(m, l.endKm || 0); });
+  services.forEach(s => { if (s.vehicleId === v.id) m = Math.max(m, s.odometer || 0); });
+  v.assignments.forEach(a => { m = Math.max(m, a.startKm || 0, a.endKm || 0); });
+  return m;
+}
+
 /** UAE private-sector end-of-service gratuity (Federal Decree-Law 33/2021, Art. 51). */
 export function calcGratuity(basicMonthly: number, joining: string, lastDay: string, unpaidDays = 0) {
   const j = new Date(joining + 'T00:00:00').getTime();
@@ -618,6 +724,7 @@ export const EXIT_TEMPLATE = [
   'Notice period & last working day confirmed',
   'Handover to supervisor completed',
   'PPE & tools returned',
+  'Company vehicle & keys returned (if assigned)',
   'Company ID card returned',
   'Accommodation vacated',
   'Outstanding loans / advances cleared',

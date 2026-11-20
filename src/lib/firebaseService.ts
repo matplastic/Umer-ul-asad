@@ -137,6 +137,10 @@ const COLLECTION_BACKED: Record<string, boolean> = {
   hrSettlements: true,
   hrNotices: true,
   hrGrievances: true,
+  hrVehicles: true,
+  hrFuelLogs: true,
+  hrVehicleService: true,
+  hrVehicleFines: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
