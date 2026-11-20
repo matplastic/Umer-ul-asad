@@ -227,6 +227,36 @@ async function tryBackend<T>(path: string, init: RequestInit = {}): Promise<T | 
   }
 }
 
+// Calls the auth-admin Netlify function with the signed-in user's Firebase ID
+// token. Returns the JSON result, or null when the server path isn't available
+// (no server-side session, function missing/erroring, session rejected) so the
+// caller can fall back to the legacy browser path during rollout. Real "no"
+// answers from the server (wrong password, no permission, duplicate username…)
+// are thrown as errors so they reach the user.
+async function callAuthAdmin<T>(action: string, payload: Record<string, unknown> = {}): Promise<T | null> {
+  const current = auth.currentUser;
+  if (!current) return null; // legacy session with no server sign-in
+  let token: string;
+  try { token = await current.getIdToken(); } catch { return null; }
+  let res: Response;
+  try {
+    res = await fetch('/.netlify/functions/auth-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, ...payload }),
+    });
+  } catch { return null; }
+  if (!res.headers.get('content-type')?.includes('application/json')) return null;
+  const data = await res.json().catch(() => null);
+  if (res.ok && data) return data as T;
+  if (res.status === 401 || res.status >= 500) {
+    console.warn(`[authClient] auth-admin "${action}" unavailable (${res.status}), using legacy path:`, data?.error);
+    return null;
+  }
+  if (data?.error) throw new Error(data.error);
+  return null;
+}
+
 // ─── Public API (same signatures HRPortal.tsx already expects) ─────────────
 
 export async function loginWithPassword(username: string, password: string): Promise<AuthUser> {
@@ -320,6 +350,9 @@ export async function changeOwnPassword(currentPassword: string, newPassword: st
   });
   if (backendResult !== null) return;
 
+  const viaServer = await callAuthAdmin<{ ok: boolean }>('changePassword', { currentPassword, newPassword });
+  if (viaServer) return;
+
   const stored = getStoredUser();
   if (!stored) throw new Error('You must be signed in to change your password.');
   if (newPassword.length < 8) throw new Error('Password must be at least 8 characters long.');
@@ -342,6 +375,9 @@ export async function changeOwnPassword(currentPassword: string, newPassword: st
 export async function listUserAccounts(): Promise<AuthUser[]> {
   const backendResult = await tryBackend<AuthUser[]>('/api/users');
   if (backendResult) return Array.isArray(backendResult) ? backendResult : [];
+
+  const viaServer = await callAuthAdmin<{ users: AuthUser[] }>('list');
+  if (viaServer) return viaServer.users || [];
 
   const accounts = await readAllAccounts();
   return accounts.map(stripSecret);
@@ -366,6 +402,9 @@ export async function createUserAccount(input: {
     body: JSON.stringify(input),
   });
   if (backendResult) return { ...backendResult, isCustomPassword: !!backendResult.isCustomPassword };
+
+  const viaServer = await callAuthAdmin<{ user: AuthUser; tempPassword: string; isCustomPassword: boolean }>('create', input as Record<string, unknown>);
+  if (viaServer) return viaServer;
 
   const normalized = normalizeUsernameBrowser(input.username);
   if (!normalized) throw new Error('Username is required.');
@@ -421,6 +460,9 @@ export async function updateUserAccount(
   });
   if (backendResult) return backendResult;
 
+  const viaServer = await callAuthAdmin<{ user: AuthUser }>('update', { id, patch });
+  if (viaServer) return viaServer.user;
+
   let updated: StoredAuthUser | null = null;
   await updateAccounts(current => current.map(a => {
     if (a.id !== id) return a;
@@ -454,6 +496,9 @@ export async function resetUserPassword(id: string, password?: string | null): P
   });
   if (backendResult) return { ...backendResult, isCustomPassword: !!backendResult.isCustomPassword };
 
+  const viaServer = await callAuthAdmin<{ tempPassword: string; isCustomPassword: boolean }>('resetPassword', { id, password: password || undefined });
+  if (viaServer) return viaServer;
+
   const customPassword = (password || '').trim();
   const isCustomPassword = customPassword.length > 0;
   if (isCustomPassword) {
@@ -482,6 +527,8 @@ export async function resetUserPassword(id: string, password?: string | null): P
 export async function findAccountByQuickCode(code: string, role?: ViewRole): Promise<AuthUser | null> {
   const trimmed = code.trim();
   if (!trimmed) return null;
+  const viaServer = await callAuthAdmin<{ user: AuthUser | null }>('findByQuickCode', { code: trimmed, role });
+  if (viaServer) return viaServer.user ?? null;
   const accounts = await readAllAccounts();
   const match = accounts.find(a =>
     a.quickCode === trimmed && !!a.active && (!role || a.role === role)
@@ -492,6 +539,9 @@ export async function findAccountByQuickCode(code: string, role?: ViewRole): Pro
 export async function deactivateUserAccount(id: string): Promise<void> {
   const backendResult = await tryBackend<void>(`/api/users/${id}`, { method: 'DELETE' });
   if (backendResult !== null) return;
+
+  const viaServer = await callAuthAdmin<{ ok: boolean }>('deactivate', { id });
+  if (viaServer) return;
 
   await updateAccounts(current => current.map(a => a.id === id ? { ...a, active: 0, updatedAt: new Date().toISOString() } : a));
 }
