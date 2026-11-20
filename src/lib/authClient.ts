@@ -1,4 +1,4 @@
-import { signOut as firebaseSignOut, signInAnonymously } from 'firebase/auth';
+import { signOut as firebaseSignOut, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
 import { auth, clientDb } from './googleDrive';
 import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import { getApiUrl } from './firebaseService';
@@ -238,6 +238,30 @@ export async function loginWithPassword(username: string, password: string): Pro
   if (backendResult) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(backendResult.user));
     return backendResult.user;
+  }
+
+  // Preferred path: the Netlify function checks the password on the server and
+  // returns a Firebase sign-in token that carries the user's role. If the
+  // function isn't deployed/configured we fall through to the old browser check
+  // so nobody gets locked out while this is being rolled out.
+  try {
+    const res = await fetch('/.netlify/functions/auth-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.headers.get('content-type')?.includes('application/json')) {
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.user && data?.token) {
+        await signInWithCustomToken(auth, data.token);
+        localStorage.setItem(SESSION_KEY, JSON.stringify(data.user));
+        return data.user as AuthUser;
+      }
+      if (res.status === 401 || res.status === 403) throw new Error(data?.error || 'Invalid username or password.');
+    }
+  } catch (err: any) {
+    if (err?.message === 'Invalid username or password.' || /disabled/i.test(err?.message || '')) throw err;
+    console.warn('[authClient] Server sign-in unavailable, using legacy browser sign-in:', err);
   }
 
   const normalized = normalizeUsernameBrowser(username);
