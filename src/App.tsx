@@ -7,6 +7,7 @@ import { STAGES, getDualGroupForStage, getDualGroupForIndex, getInitialData, cre
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
 import { AutoPrintMaterialSlip } from './components/AutoPrintMaterialSlip';
 import { LoginScreen } from './components/LoginScreen';
+import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { getStoredUser, logout as logoutUser, findAccountByQuickCode, getAllowedRoles, type AuthUser } from './lib/authClient';
 import { startPresenceHeartbeat, stopPresenceHeartbeat } from './lib/presence';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
@@ -3988,6 +3989,17 @@ export default function App() {
 
   if (!loggedInUser) {
     return <LoginScreen onLoginSuccess={(user) => { setIdleLogoutNotice(false); handleLoginSuccess(user); }} idleLoggedOut={idleLogoutNotice} />;
+  }
+
+  // Temporary password (new account or Management reset) → must choose their own first.
+  if (loggedInUser.mustChangePassword) {
+    return (
+      <ForcePasswordChange
+        user={loggedInUser}
+        onDone={() => setLoggedInUser(u => (u ? { ...u, mustChangePassword: 0 } : u))}
+        onLogout={handleLogout}
+      />
+    );
   }
 
   // True while any pool/team is still in the pre-merge format (Mosaic and Grouting

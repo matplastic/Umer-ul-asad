@@ -204,3 +204,13 @@ export async function findAccountByQuickCode(code: string, role?: ViewRole): Pro
 export async function deactivateUserAccount(id: string): Promise<void> {
   await adminCall<{ ok: boolean }>('deactivate', { id });
 }
+
+/** Management only: gives EVERY active account a new temporary password (they
+ *  must change it at next login) and returns the one-time sheet to hand out.
+ *  Disabled accounts get an unknown password so their old hash is useless. */
+export async function resetAllPasswords(): Promise<{
+  sheet: { id: string; username: string; displayName: string; role: string; tempPassword: string }[];
+  disabledInvalidated: number;
+}> {
+  return adminCall('resetAll');
+}

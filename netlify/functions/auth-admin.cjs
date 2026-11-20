@@ -6,6 +6,7 @@
 // read from the STORED account, never trusted from the browser:
 //
 //   list / create / update / resetPassword / deactivate  → management, hr_portal, hr_admin
+//   resetAll (every password)                             → management only
 //   changePassword / findByQuickCode                      → any active signed-in account
 //
 // Extra guard: only Management-level accounts can grant, edit, reset or
@@ -51,6 +52,12 @@ function passwordMatches(password, hashHex, saltHex) {
     return c.length === s.length && crypto.timingSafeEqual(c, s);
   } catch { return false; }
 }
+// Bulk-reset passwords: 8 characters from an alphabet without look-alikes (no 0/O/1/I/L), e.g. K7M2-QX9R
+const BULK_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const bulkPassword = () => {
+  const part = () => Array.from({ length: 4 }, () => BULK_ALPHABET[crypto.randomInt(BULK_ALPHABET.length)]).join('');
+  return `${part()}-${part()}`;
+};
 const tempPassword = () => `${TEMP_WORDS[crypto.randomInt(TEMP_WORDS.length)]}-${crypto.randomInt(1000, 10000)}`;
 const strengthError = (p) => (!p || p.length < 8 ? 'Password must be at least 8 characters long.' : null);
 
@@ -199,6 +206,29 @@ function applyAction(action, body, caller, accounts) {
         accounts: replace(t.id, { ...t, active: 0, updatedAt: now }),
         result: { ok: true },
         audit: { action: 'deactivate', targetId: t.id, targetUsername: t.username },
+      };
+    }
+
+    case 'resetAll': {
+      // Management only — this touches every account, including other admins.
+      if (!isManagement(caller)) throw new HttpError(403, 'Only Management can reset every password.');
+      const sheet = [];
+      let disabledInvalidated = 0;
+      const next = accounts.map((a) => {
+        if (a.active) {
+          const pw = bulkPassword();
+          sheet.push({ id: a.id, username: a.username, displayName: a.displayName, role: a.role, tempPassword: pw });
+          return { ...a, ...hashPassword(pw), mustChangePassword: 1, updatedAt: now };
+        }
+        // Disabled accounts get an unknown random password so their old (exposed)
+        // hash is useless; an admin must reset them if they are ever re-enabled.
+        disabledInvalidated += 1;
+        return { ...a, ...hashPassword(crypto.randomBytes(24).toString('hex')), mustChangePassword: 1, updatedAt: now };
+      });
+      return {
+        accounts: next,
+        result: { sheet, disabledInvalidated },
+        audit: { action: 'resetAll', count: sheet.length, disabledInvalidated },
       };
     }
 
