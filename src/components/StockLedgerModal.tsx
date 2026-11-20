@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { X, Download, Search } from 'lucide-react';
+import { X, Download, Search, Trash2, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Material, MaterialRequest, IncomingMaterial, StockAdjustment } from '../types';
 import {
@@ -14,6 +14,8 @@ interface Props {
   requests: MaterialRequest[];
   incoming: IncomingMaterial[];
   adjustments: StockAdjustment[];
+  /** When given, every "Adjust" row gets a delete button. Returns an error message, or null when deleted. */
+  onDeleteAdjustment?: (adjustmentId: string, reverseStock: boolean) => Promise<string | null>;
   onClose: () => void;
 }
 
@@ -37,7 +39,7 @@ const fmtTime = (iso: string) => {
   return `${d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
 };
 
-export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming, adjustments, onClose }) => {
+export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming, adjustments, onDeleteAdjustment, onClose }) => {
   // 'ledger' = every movement of this material; 'receipts' = who delivered it and the paperwork.
   const [tab, setTab] = useState<'ledger' | 'receipts'>('ledger');
   const [period, setPeriod] = useState<PeriodKey>('all');
@@ -46,6 +48,28 @@ export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming
   const [view, setView] = useState<GroupBy>('transactions');
   const [typeFilter, setTypeFilter] = useState<'all' | 'IN' | 'OUT' | 'ADJ'>('all');
   const [search, setSearch] = useState('');
+
+  // Delete-a-wrong-adjustment flow
+  const [pendingDelete, setPendingDelete] = useState<StockMovement | null>(null);
+  const [reverseStock, setReverseStock] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const canDelete = !!onDeleteAdjustment;
+  const colCount = canDelete ? 9 : 8;
+
+  const askDelete = (m: StockMovement) => { setPendingDelete(m); setReverseStock(true); setDeleteError(null); };
+  const confirmDelete = async () => {
+    if (!pendingDelete || !onDeleteAdjustment) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const err = await onDeleteAdjustment(pendingDelete.id.replace(/^adj-/, ''), reverseStock);
+      if (err) setDeleteError(err);
+      else setPendingDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const { movements, openingBalance } = useMemo(
     () => buildMovements(material, requests, incoming, adjustments),
@@ -215,6 +239,7 @@ export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming
                   <th className="text-right py-2 pr-3">In</th>
                   <th className="text-right py-2 pr-3">Out</th>
                   <th className="text-right py-2">Balance</th>
+                  {canDelete && <th className="py-2 pl-3 w-8" title="Delete a wrong adjustment"></th>}
                 </tr>
               </thead>
               <tbody>
@@ -222,6 +247,7 @@ export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming
                   <tr className="border-t border-slate-200 text-slate-500">
                     <td className="py-2 pr-3" colSpan={7}>Opening balance (stock before the first recorded movement)</td>
                     <td className="py-2 text-right font-mono">{fmt(openingBalance)}</td>
+                    {canDelete && <td />}
                   </tr>
                 )}
                 {visibleRows.map((r) => (
@@ -241,10 +267,24 @@ export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming
                     <td className="py-2 pr-3 text-right font-mono text-emerald-700">{r.qty > 0 ? `+${fmt(r.qty)}` : ''}</td>
                     <td className="py-2 pr-3 text-right font-mono text-rose-700">{r.qty < 0 ? `−${fmt(-r.qty)}` : ''}</td>
                     <td className="py-2 text-right font-mono text-slate-800">{fmt(r.balance)}</td>
+                    {canDelete && (
+                      <td className="py-2 pl-3 text-right">
+                        {r.type === 'ADJ' && (
+                          <button
+                            onClick={() => askDelete(r)}
+                            data-testid={`ledger-delete-${r.id}`}
+                            title="Delete this wrong adjustment"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-700 hover:bg-rose-50 cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {visibleRows.length === 0 && (
-                  <tr><td colSpan={8} className="text-center text-slate-500 py-10">No stock movements for this selection.</td></tr>
+                  <tr><td colSpan={colCount} className="text-center text-slate-500 py-10">No stock movements for this selection.</td></tr>
                 )}
               </tbody>
             </table>
@@ -278,12 +318,48 @@ export const StockLedgerModal: React.FC<Props> = ({ material, requests, incoming
             </table>
           )}
           <p className="text-[10px] text-slate-400 mt-4">
+            {canDelete && <>Made a wrong adjustment? Use the bin icon on its “Adjust” row. Receipts and delivery orders can't be deleted here. </>}
             "Out" rows are confirmed deliveries, each with its Delivery Order (DO) number. Balances are worked back from today's stock. Stock changes made before manual adjustments were logged, or imported in bulk, are included in the opening balance.
           </p>
         </div>
         </>
         )}
       </div>
+
+      {/* ---------- confirm: delete a wrong adjustment ---------- */}
+      {pendingDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50" onClick={() => !deleting && setPendingDelete(null)} data-testid="ledger-delete-dialog">
+          <div className="bg-white border border-slate-300 rounded-2xl w-full max-w-md p-5 space-y-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-extrabold text-slate-900">Delete this adjustment?</h3>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-slate-700 space-y-0.5">
+              <div className="text-slate-500">{fmtTime(pendingDelete.at)}{pendingDelete.by ? ` · ${pendingDelete.by}` : ''}</div>
+              <div className="font-mono font-black text-amber-800">
+                {pendingDelete.qty > 0 ? '+' : '−'}{fmt(Math.abs(pendingDelete.qty))} {material.unit}
+              </div>
+              <div className="text-slate-600">{pendingDelete.details}</div>
+            </div>
+            <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+              <input type="checkbox" checked={reverseStock} onChange={(e) => setReverseStock(e.target.checked)} data-testid="ledger-delete-reverse" className="mt-0.5 accent-emerald-600" />
+              <span>
+                <strong>Also undo it in the stock quantity</strong> (recommended)
+                <span className="block text-[11px] text-slate-500 mt-0.5">
+                  {reverseStock
+                    ? <>Current stock {fmt(Number(material.currentStock || 0))} → <strong className="text-slate-800">{fmt(Number(material.currentStock || 0) - pendingDelete.qty)} {material.unit}</strong></>
+                    : <>Only the ledger record is removed. Stock stays at {fmt(Number(material.currentStock || 0))} {material.unit}.</>}
+                </span>
+              </span>
+            </label>
+            <p className="text-[11px] text-slate-500">The deletion is kept in an audit record with your name and the time.</p>
+            {deleteError && <div className="text-[11px] text-rose-700 font-semibold" data-testid="ledger-delete-error">{deleteError}</div>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setPendingDelete(null)} disabled={deleting} className="px-3 py-2 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer">Cancel</button>
+              <button onClick={confirmDelete} disabled={deleting} data-testid="ledger-delete-confirm" className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white cursor-pointer">
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

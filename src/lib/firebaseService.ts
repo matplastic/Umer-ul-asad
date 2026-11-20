@@ -2754,6 +2754,60 @@ export async function dbAdjustMaterialStock(id: string, delta: number, byName?: 
   return res.json();
 }
 
+// Removes ONE wrong "Adjust" row from a material's Stock Ledger.
+//   reverseStock = true  (default): also takes that adjustment back out of the material's
+//                        current stock, so stock ends up exactly as if the mistake was never made.
+//   reverseStock = false: removes the ledger record only; current stock is left as it is.
+// Only manual adjustments can be removed this way — receipts (IN) and delivery orders (OUT)
+// are real documents and are never deleted from the ledger.
+// Every deletion is kept in 'stockAdjustmentDeletions' (who, when, what) as an audit trail.
+export async function dbDeleteStockAdjustment(adjustmentId: string, byName?: string, reverseStock = true): Promise<{ success: boolean; error?: string }> {
+  if (apiBase()) return { success: false, error: 'Deleting ledger entries is not available on this server.' };
+  try {
+    const adjustments: any[] = await getFirestoreDocArray('stockAdjustments');
+    const adj = adjustments.find((a) => a.id === adjustmentId);
+    if (!adj) return { success: true }; // someone else already removed it
+    const delta = Number(adj.delta) || 0;
+    const materialsNow: any[] = await getFirestoreDocArray('materials');
+    const mat = materialsNow.find((m) => m.id === adj.materialId);
+
+    const updates: Record<string, (arr: any[]) => any[]> = {
+      stockAdjustments: (arr) => arr.filter((a) => a.id !== adjustmentId),
+    };
+    if (reverseStock && mat && delta !== 0) {
+      updates.materials = (arr) => arr.map((m) => {
+        if (m.id !== adj.materialId) return m;
+        const cur = Number(m.currentStock || 0);
+        if (cur - delta < -1e-9) {
+          throw new NotInStockError(
+            `Can't undo this adjustment: ${m.name} has ${fmtQty(cur)} ${m.unit} now, and taking back ${delta > 0 ? '+' : '−'}${fmtQty(Math.abs(delta))} would leave it below 0. Delete the newer wrong entries first, or untick "Also undo it in the stock quantity" to remove the record only.`,
+            [{ materialId: m.id, name: m.name, unit: m.unit, available: Math.max(0, cur), needed: delta }],
+          );
+        }
+        return { ...m, currentStock: cur - delta };
+      });
+    }
+    await updateFirestoreDocArrays(updates, { stockAdjustments: true });
+
+    try {
+      await updateFirestoreDocArray('stockAdjustmentDeletions', (arr) => {
+        arr.push({
+          id: newId('adjdel'), deletedAt: new Date().toISOString(), deletedByName: byName || null,
+          adjustmentId, materialId: adj.materialId, materialName: mat?.name || null, unit: mat?.unit || null,
+          delta, originalAt: adj.at, originalByName: adj.byName || null, originalNote: adj.note || null,
+          stockReversed: !!(reverseStock && mat && delta !== 0),
+        });
+        return arr.slice(-500);
+      }, true);
+    } catch (e) {
+      console.warn('[dbDeleteStockAdjustment] audit entry not saved', e);
+    }
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Could not delete this ledger entry.' };
+  }
+}
+
 // --- Bill of Materials ---
 export async function dbFetchBomItems(): Promise<BOMItem[]> {
   if (!apiBase()) return getFirestoreDocArray('bomItems');

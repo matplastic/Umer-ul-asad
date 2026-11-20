@@ -39,6 +39,7 @@ export const BACKUP_DOCS: BackupDocDef[] = [
   { id: 'consumptionLogs', label: 'Consumption logs', group: 'store' },
   { id: 'materialReturns', label: 'Material returns', group: 'store' },
   { id: 'stockAdjustments', label: 'Stock adjustments', group: 'store' },
+  { id: 'stockAdjustmentDeletions', label: 'Deleted stock adjustments (audit)', group: 'store' },
   { id: 'inventoryDeletionLogs', label: 'Inventory deletion log', group: 'store' },
   { id: 'companyAssets', label: 'Company assets', group: 'store' },
   { id: 'siteDeliveries', label: 'Site deliveries', group: 'store' },

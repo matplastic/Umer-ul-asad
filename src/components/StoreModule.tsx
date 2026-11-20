@@ -10,7 +10,7 @@ import { exportMultiTablePdf } from '../lib/exportUtils';
 import {
   dbFetchMaterials, dbSaveMaterial, dbDeleteMaterial, dbAdjustMaterialStock,
   dbFetchBomItems, dbSaveBomItem, dbDeleteBomItem,
-  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch, dbFetchStockAdjustments, shortageText, storageCapacityBytes, dbFetchSuppliers,
+  dbFetchMaterialRequests, dbResendMaterialRequestEmail, dbMarkMaterialRequestBatchPrinted, dbConfirmMaterialDeliveryBatch, dbFetchStockAdjustments, dbDeleteStockAdjustment, shortageText, storageCapacityBytes, dbFetchSuppliers,
   dbBulkImportMaterials, dbFetchIncomingMaterials, dbCreateIncomingMaterial, dbDeleteIncomingMaterial, dbUpdateIncomingMaterialDocs,
   dbFetchConsumptionAnalytics, dbFetchConsumptionLogs,
   dbFetchCompanyAssets, dbSaveCompanyAsset, dbDeleteCompanyAsset, dbUpdateMaterialFields, dbFetchProductionLogs,
@@ -549,6 +549,14 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
     } catch (e: any) {
       return e?.message || 'Could not adjust the stock.';
     }
+    await loadAll(true);
+    return null;
+  };
+
+  // Delete a wrong "Adjust" row from the Stock Ledger. Returns an error message, or null on success.
+  const deleteLedgerAdjustment = async (adjustmentId: string, reverseStock: boolean): Promise<string | null> => {
+    const res = await dbDeleteStockAdjustment(adjustmentId, currentUserName, reverseStock);
+    if (!res.success) return res.error || 'Could not delete this entry.';
     await loadAll(true);
     return null;
   };
@@ -2270,6 +2278,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           requests={requests}
           incoming={incoming}
           adjustments={stockAdjustments}
+          onDeleteAdjustment={deleteLedgerAdjustment}
           onClose={() => setLedgerMaterial(null)}
         />
       )}
