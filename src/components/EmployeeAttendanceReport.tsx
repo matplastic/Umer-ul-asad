@@ -1,3 +1,4 @@
+import { EmployeeSearchSelect } from './hr/EmployeeSearchSelect';
 import React, { useState, useMemo, useEffect } from 'react';
 import { UserCheck, UserX, CalendarClock, Printer, Download, HeartPulse, MapPin, CalendarOff } from 'lucide-react';
 import { exportToExcel, exportTablePdf } from '../lib/exportUtils';
@@ -246,17 +247,7 @@ export const EmployeeAttendanceReport: React.FC<EmployeeAttendanceReportProps> =
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1">Employee</label>
-          <select
-            value={employeeId}
-            onChange={e => setEmployeeId(e.target.value)}
-            data-testid="attendance-report-employee"
-            className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 min-w-[220px]"
-          >
-            <option value="">— Select employee —</option>
-            {employees.map(e => (
-              <option key={e.id} value={e.id}>{e.name} {e.department ? `(${e.department})` : ''}</option>
-            ))}
-          </select>
+          <EmployeeSearchSelect employees={employees} value={employeeId} onChange={setEmployeeId} testId="attendance-report-employee" placeholder="— Select employee —" className="min-w-[240px]" />
         </div>
 
         <div>

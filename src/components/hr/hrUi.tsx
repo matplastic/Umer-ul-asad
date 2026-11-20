@@ -3,6 +3,7 @@
 // light/dark theme overrides apply automatically.
 import React, { useCallback, useEffect, useState } from 'react';
 import { X, AlertTriangle, CheckCircle, Search } from 'lucide-react';
+import { EmployeeSearchSelect } from './EmployeeSearchSelect';
 
 export const inputCls =
   'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white';
@@ -170,12 +171,7 @@ export const SubTabs: React.FC<{ tabs: { id: string; label: string; badge?: numb
 export const EmployeeSelect: React.FC<{
   employees: { id: string; name: string; department?: string }[]; value: string; onChange: (id: string) => void; placeholder?: string;
 }> = ({ employees, value, onChange, placeholder }) => (
-  <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
-    <option value="">{placeholder || 'Select employee…'}</option>
-    {[...employees].sort((a, b) => a.name.localeCompare(b.name)).map(e => (
-      <option key={e.id} value={e.id}>{e.name}{e.department ? ` — ${e.department}` : ''}</option>
-    ))}
-  </select>
+  <EmployeeSearchSelect employees={employees} value={value} onChange={onChange} placeholder={placeholder || 'Select employee…'} clearLabel={placeholder?.toLowerCase().startsWith('all') ? placeholder : undefined} />
 );
 
 export const ExpiryBadge: React.FC<{ date?: string | null; warnDays?: number }> = ({ date, warnDays = 60 }) => {
