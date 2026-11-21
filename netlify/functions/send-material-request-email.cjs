@@ -23,6 +23,9 @@
 // an HTML email to the manager, so it must be escaped: otherwise a name like
 // "Pipe <Class B>" or "R&D" breaks the layout, and a crafted reason could put
 // its own links into the manager's approval email.
+const { usageToday, usageHtml, getAdminDb } = require('./lib/dailyRequestUsage.cjs');
+const { readArray } = require('./lib/shardedState.cjs');
+
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 exports.handler = async (event) => {
@@ -56,9 +59,20 @@ exports.handler = async (event) => {
     const quickRejectUrl = `${reviewUrl}&action=reject`;
     const from = process.env.STORE_EMAIL_FROM || 'MAT Plastic Store <onboarding@resend.dev>';
 
+    // "Already today" notice per line: how many times this same material was
+    // requested today (UAE time) and how much the manager already approved.
+    // Best-effort — if Firestore can't be read the e-mail still goes out, just
+    // without the notice (the approval page shows it too).
+    let allRequests = [];
+    try {
+      allRequests = await readArray(getAdminDb(), 'materialRequests');
+    } catch (e) {
+      console.warn("[send-material-request-email] Could not read today's requests:", e.message);
+    }
+
     const rows = items.map((it) => `
       <tr>
-        <td style="padding:6px 8px 6px 0; border-bottom:1px solid #e2e8f0;">${esc(it.materialName)}</td>
+        <td style="padding:6px 8px 6px 0; border-bottom:1px solid #e2e8f0;">${esc(it.materialName)}${usageHtml(usageToday(allRequests, { ...it, batchId: payload.batchId }), esc)}</td>
         <td style="padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${esc(it.qtyRequested)} ${esc(it.unit)}</td>
       </tr>`).join('');
 

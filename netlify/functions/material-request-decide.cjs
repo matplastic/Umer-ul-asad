@@ -39,6 +39,7 @@
 //   FIREBASE_CLIENT_EMAIL
 //   FIREBASE_PRIVATE_KEY   (paste the full key; keep the \n escapes as-is)
 
+const { usageToday, usageHtml } = require('./lib/dailyRequestUsage.cjs');
 const { initializeApp, getApps, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
@@ -75,7 +76,7 @@ function page(title, message, ok) {
 // defaulting to Approve). Already-decided lines are shown read-only.
 // Nothing is written to Firestore until the manager clicks the button,
 // which POSTs this same page.
-function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
+function decisionPage(pendingItems, decidedItems, preset, id, batchId, token, allRequests = []) {
   const presetAction = preset === 'reject' ? 'reject' : 'approve';
   const all = [...pendingItems, ...decidedItems];
   const first = all[0] || {};
@@ -92,6 +93,7 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
       <td style="padding:8px 8px 8px 0; border-bottom:1px solid #e2e8f0;">
         <div style="font-weight:600; color:#0f172a;">${esc(it.materialName)}</div>
         <div style="color:#64748b; font-size:12px;">Requested: ${esc(it.qtyRequested)} ${esc(it.unit)}</div>
+        ${usageHtml(usageToday(allRequests, it), esc)}
       </td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">
         <div style="margin-bottom:6px;">
@@ -230,7 +232,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'text/html' },
-        body: decisionPage(pendingItems, decidedItems, action, id, batchId, token),
+        body: decisionPage(pendingItems, decidedItems, action, id, batchId, token, arr),
       };
     }
 
