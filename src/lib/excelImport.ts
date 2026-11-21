@@ -188,3 +188,12 @@ export function downloadRows(fileName: string, rows: Record<string, unknown>[], 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), sheet);
   XLSX.writeFile(wb, fileName);
 }
+
+/** A sheet with the given header row and data rows (used for pre-filled import sheets). */
+export function downloadSheet(fileName: string, headers: string[], rows: unknown[][], sheet = 'Sheet1') {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  ws['!cols'] = headers.map(h => ({ wch: Math.max(14, h.length + 4) }));
+  XLSX.utils.book_append_sheet(wb, ws, sheet);
+  XLSX.writeFile(wb, fileName);
+}

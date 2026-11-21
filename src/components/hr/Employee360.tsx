@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Save, Printer, Plus, Trash2, UserCheck, UserX, Phone, Briefcase, CalendarDays, ShieldAlert } from 'lucide-react';
 import { Employee } from '../../types';
 import {
@@ -23,12 +23,14 @@ interface Props {
   medicals: MedicalLite[];
   payroll: PayrollLite[];
   initialEmployeeId?: string | null;
+  /** change this number to jump to `initialEmployeeId` while the screen is already open (Ctrl+K) */
+  focusNonce?: number;
   saveEmployees?: (list: Employee[]) => void | Promise<void>;
 }
 
 const statusTone = (s?: string) => s === 'Active' || !s ? 'emerald' : s === 'Resigned' ? 'amber' : 'rose';
 
-export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings, accidents, medicals, payroll, initialEmployeeId, saveEmployees }) => {
+export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings, accidents, medicals, payroll, initialEmployeeId, focusNonce, saveEmployees }) => {
   const profC = useHRCollection<HRProfile>('hrProfiles');
   const docsC = useHRCollection<HRDocument>('hrDocuments');
   const lifeC = useHRCollection<HRLifecycle>('hrLifecycle');
@@ -41,6 +43,7 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
   const fineC = useHRCollection<HRVehicleFine>('hrVehicleFines');
 
   const [selId, setSelId] = useState<string | null>(initialEmployeeId || null);
+  useEffect(() => { if (focusNonce && initialEmployeeId) { setSelId(initialEmployeeId); setTab('overview'); setStatusF('All'); setQ(''); } }, [focusNonce, initialEmployeeId]);
   const [q, setQ] = useState('');
   const [statusF, setStatusF] = useState<'Active' | 'Former' | 'All'>('Active');
   const [tab, setTab] = useState('overview');

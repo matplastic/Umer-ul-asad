@@ -7,7 +7,7 @@ import {
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
   Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2,
-  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone, Car, FileSpreadsheet
+  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone, Car, FileSpreadsheet, ClipboardCheck, Table2
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
@@ -51,6 +51,9 @@ import { FinalSettlement } from './hr/FinalSettlement';
 import { EmployeeRelations } from './hr/EmployeeRelations';
 import { Fleet } from './hr/Fleet';
 import { ExcelImportHub } from './hr/ExcelImportHub';
+import { DataHealth } from './hr/DataHealth';
+import { QuickEntryGrid } from './hr/QuickEntryGrid';
+import { CommandPalette } from './hr/CommandPalette';
 import { HRToastHost } from './hr/hrUi';
 import { EmployeeSearchSelect } from './hr/EmployeeSearchSelect';
 import { HRSandboxProvider, DemoRecords } from './hr/HRDemo';
@@ -212,7 +215,7 @@ interface HRPortalProps {
 // The only tabs the HR Administration portal shows.
 const HR_ADMIN_TABS = ['directory', 'attendance', 'leave', 'warnings', 'accidents', 'medical'] as const;
 // Everything else is shown to HR Administration as a DEMO (sample data, nothing saved).
-const HR_SUITE_TAB_IDS = ['import', 'fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
+const HR_SUITE_TAB_IDS = ['health', 'grid', 'import', 'fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
 const HR_DEMO_RECORD_TABS = ['passports', 'payroll', 'purchases', 'reports', 'accounts'];
 const HR_RECORD_TAB_IDS = ['directory', 'passports', 'attendance', 'payroll', 'leave', 'warnings', 'accidents', 'medical', 'purchases', 'reports', 'accounts'];
 
@@ -997,11 +1000,22 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   mode = 'executive',
 }) => {
   const isAdmin = mode === 'admin';
-  const [activeTab, setActiveTab] = useState<'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
+  const [activeTab, setActiveTab] = useState<'health' | 'grid' | 'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
   useEffect(() => { try { sessionStorage.setItem(tabStorageKey(mode), activeTab); } catch { /* ignore */ } }, [activeTab, mode]);
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
   const hrReqC = useHRCollection<HRRequest>('hrRequests', !isAdmin);
+
+  // Quick search (Ctrl+K): jump to any employee or screen.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [focusEmp, setFocusEmp] = useState<{ id: string | null; n: number }>({ id: null, n: 0 });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // One-time, automatic: copy anything saved in the old single-document HR lists
   // into one-document-per-record collections (see hrStore.ts). Safe to repeat.
@@ -4748,6 +4762,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'requests', label: 'Requests', icon: <Inbox className="h-4 w-4" /> },
     { id: 'safety', label: 'Safety & Training', icon: <HardHat className="h-4 w-4" /> },
     { id: 'reviews', label: 'Performance', icon: <Star className="h-4 w-4" /> },
+    { id: 'health', label: 'Data Health', icon: <ClipboardCheck className="h-4 w-4" /> },
+    { id: 'grid', label: 'Quick Entry', icon: <Table2 className="h-4 w-4" /> },
     { id: 'import', label: 'Excel Import', icon: <FileSpreadsheet className="h-4 w-4" /> },
     { id: 'fleet', label: 'Fleet', icon: <Car className="h-4 w-4" /> },
     { id: 'recruit', label: 'Recruitment', icon: <UserPlus className="h-4 w-4" /> },
@@ -4811,7 +4827,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             <h2 className="text-xl font-black text-slate-800">{isAdmin ? 'HR Administration' : 'HR Executive Portal'}</h2>
             <p className="text-sm text-slate-500">{isAdmin ? 'Employee directory, attendance, payroll, leave management, recruitment & HR reports' : 'Employee directory, attendance, payroll, leave management, recruitment & HR reports'}</p>
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex gap-2 items-center flex-wrap justify-end">
+            <button onClick={() => setPaletteOpen(true)} className="flex items-center gap-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 text-xs font-semibold px-3 py-1.5 rounded-full">
+              <Search className="h-3.5 w-3.5" />Search employee or screen<kbd className="text-[10px] font-bold border border-slate-200 rounded px-1">Ctrl K</kbd>
+            </button>
             <span className="bg-violet-50 text-violet-700 text-xs font-bold px-3 py-1.5 rounded-full border border-violet-200">
               {employees.length} Employees
             </span>
@@ -4890,6 +4909,15 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       </div>
 
       <HRToastHost />
+      {paletteOpen && (
+        <CommandPalette
+          employees={employees}
+          tabs={[...suiteTabs, ...tabs].map(t => ({ id: t.id, label: t.label }))}
+          onOpenEmployee={(id) => { setFocusEmp(f => ({ id, n: f.n + 1 })); setActiveTab('emp360'); }}
+          onGoTab={(id) => setActiveTab(id as any)}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
 
       {/* Tab Content */}
       {(() => {
@@ -4898,7 +4926,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         const suite = (
           <>
             {activeTab === 'hrdash' && <HRDashboard employees={employees} employeePunches={employeePunches} leaves={leaves} warnings={warnings} accidents={accidents} onNavigate={(t) => setActiveTab(t as any)} />}
-            {activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={demo ? [] : payroll} />}
+            {activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} initialEmployeeId={focusEmp.id} focusNonce={focusEmp.n} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={demo ? [] : payroll} />}
             {activeTab === 'docs' && <DocumentsVault employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
             {activeTab === 'cases' && <DisciplineCases employees={employees} user={currentUserName} warnings={demo ? [] : warnings}
               onIssueWarning={(w) => { if (!demo) saveWarnings([w as Warning, ...warnings]); }} />}
@@ -4907,6 +4935,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               onAccidentStatus={(id, status) => { if (!demo) saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a)); }} />}
             {activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
             {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={demo ? [] : payroll} />}
+            {activeTab === 'health' && <DataHealth employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} onNavigate={(t) => setActiveTab(t as any)} />}
+            {activeTab === 'grid' && <QuickEntryGrid employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
             {activeTab === 'import' && <ExcelImportHub employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
             {activeTab === 'fleet' && <Fleet employees={employees} user={currentUserName} />}
             {activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}
