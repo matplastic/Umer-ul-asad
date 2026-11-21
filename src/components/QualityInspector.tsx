@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useFavoriteNav } from '../lib/favorites';
 import { Pool, StageId, ActivityLog, IncomingMaterial, ChecklistTemplate, ChecklistResult } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex } from '../data/mockData';
 import { ShieldCheck, ShieldAlert, CheckCircle2, XCircle, Search, FileText, ClipboardList, AlertCircle, Compass, Ruler, Trash2, Filter, Camera, UploadCloud, Image as ImageIcon, RefreshCw, Clock, PauseCircle, PackageSearch, Mic, MicOff } from 'lucide-react';
@@ -81,6 +82,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   onReleaseHold,
 }) => {
   const [activeTab, setActiveTab] = useState<'queue' | 'incoming_qc' | 'daily_report' | 'hold_pool' | 'spc'>('queue');
+  useFavoriteNav('quality_inspector', activeTab, setActiveTab);
   const [holdSearch, setHoldSearch] = useState('');
   const [holdReasonDraft, setHoldReasonDraft] = useState<{ [poolId: string]: string }>({});
   const [confirmHoldAction, setConfirmHoldAction] = useState<{ poolId: string; poolNo: string; type: 'HOLD' | 'RELEASE' } | null>(null);

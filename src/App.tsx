@@ -5,6 +5,8 @@ import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, getDualGroupForStage, getDualGroupForIndex, getInitialData, createEmptyHistory, getMaxConcurrentClaims, allowsExtraClaimWhileAwaitingQC, isPoolAwaitingQcAtStage } from './data/mockData';
 import { RoleSelector, RoleContextPanel, TopBar } from './components/RoleSelector';
+import { FavoritesBar } from './components/FavoritesBar';
+import { requestFavoriteTab } from './lib/favorites';
 import { AutoPrintMaterialSlip } from './components/AutoPrintMaterialSlip';
 import { LoginScreen } from './components/LoginScreen';
 import { ForcePasswordChange } from './components/ForcePasswordChange';
@@ -4191,6 +4193,20 @@ export default function App() {
           />
         )}
         {!mergeGateActive && (<>
+        {/* Favourite buttons: one bar across every portal this account may open. */}
+        {loggedInUser && !stationLock.isLocked && !isCodeCheckedInWorker && (
+          <FavoritesBar
+            userId={loggedInUser.id}
+            allowedRoles={getAllowedRoles(loggedInUser)}
+            currentRole={currentRole}
+            onOpen={(role, tabId) => {
+              // Same guard as the sidebar: never open a portal this account isn't allowed into.
+              if (!getAllowedRoles(loggedInUser).includes(role)) return;
+              setCurrentRole(role);
+              requestFavoriteTab(role, tabId);
+            }}
+          />
+        )}
         <RoleContextPanel
           currentRole={currentRole}
           selectedStageId={selectedStageId}

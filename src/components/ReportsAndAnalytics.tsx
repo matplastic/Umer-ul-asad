@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useFavoriteNav } from '../lib/favorites';
 import { Pool, ActivityLog, ProjectSummary, MonthlyTarget, Employee, PlannedPool, Team, EmployeePunch } from '../types';
 import { QCDefect } from './QCDefectPanel';
 import { AllReportsTab } from './AllReportsTab';
@@ -35,6 +36,7 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
   pools, plannedPools, projectsSummary, monthlyTargets, employees, logs, teams, employeePunches = [], qcDefects = []
 }) => {
   const [tab, setTab] = useState<TabId>('analytics');
+  useFavoriteNav('reports_analytics', tab, setTab);
 
   return (
     <div className="space-y-6">

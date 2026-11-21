@@ -8,6 +8,7 @@
 //   list / create / update / resetPassword / deactivate  → management, hr_portal, hr_admin
 //   resetAll (every password)                             → management only
 //   changePassword / findByQuickCode                      → any active signed-in account
+//   getFavorites / setFavorites (own pinned buttons)      → any active signed-in account, own list only
 //
 // Extra guard: only Management-level accounts can grant, edit, reset or
 // deactivate Management access (stops an HR account promoting itself).
@@ -37,6 +38,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rolesOf = (a) => new Set([a.role, ...(Array.isArray(a.allowedRoles) ? a.allowedRoles : [])]);
 const isAdmin = (a) => ADMIN_ROLES.some((r) => rolesOf(a).has(r));
 const isManagement = (a) => rolesOf(a).has('management');
+// Pinned buttons look like "store:inventory" (portal:tab). Keep only well-formed, unique, max 30.
+const cleanFavorites = (raw) => unique(
+  (Array.isArray(raw) ? raw : []).filter((k) => typeof k === 'string' && /^[a-z_]{2,40}:[a-z0-9_]{1,60}$/.test(k)),
+).slice(0, 30);
 const publicUser = (a) => { const { passwordHash, passwordSalt, ...rest } = a; return rest; };
 
 // ── Passwords (same PBKDF2-SHA256 / 100k rounds / hex format the app already uses) ──
@@ -246,6 +251,18 @@ function applyAction(action, body, caller, accounts) {
       };
     }
 
+    // Each person's pinned buttons ("favourites"), stored on their own account so
+    // they follow the login to every device. Always the CALLER's list — an id in
+    // the request body is ignored, so nobody can read or change someone else's.
+    case 'getFavorites':
+      return { accounts: null, result: { favorites: Array.isArray(caller.favorites) ? caller.favorites : null }, audit: null };
+
+    case 'setFavorites': {
+      const favorites = cleanFavorites(body.favorites);
+      const next = { ...caller, favorites, favoritesUpdatedAt: now };
+      return { accounts: replace(caller.id, next), result: { favorites }, audit: null };
+    }
+
     case 'findByQuickCode': {
       const code = String(body.code || '').trim();
       const role = body.role ? String(body.role) : null;
@@ -318,5 +335,6 @@ exports.handler = async (event) => {
   }
 };
 
+exports.cleanFavorites = cleanFavorites; // exported for testing
 exports.applyAction = applyAction;     // exported for testing
 exports.verifyIdToken = verifyIdToken; // exported for testing

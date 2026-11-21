@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useFavoriteNav } from '../lib/favorites';
 import * as XLSX from 'xlsx';
 import { Employee, EmployeePunch, ViewRole, COMPANIES } from '../types';
 import {
@@ -1001,6 +1002,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 }) => {
   const isAdmin = mode === 'admin';
   const [activeTab, setActiveTab] = useState<'health' | 'grid' | 'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
+  useFavoriteNav(isAdmin ? 'hr_admin' : 'hr_portal', activeTab, setActiveTab);
   useEffect(() => { try { sessionStorage.setItem(tabStorageKey(mode), activeTab); } catch { /* ignore */ } }, [activeTab, mode]);
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.

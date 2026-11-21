@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useFavoriteNav } from '../lib/favorites';
 import * as XLSX from 'xlsx';
 import { PlannedPool, Pool, PoolOrientation, ViewRole, ProjectSummary, MonthlyTarget, InventoryDeletionLog } from '../types';
 import { STAGES } from '../data/mockData';
@@ -145,6 +146,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 }) => {
   // Navigation tabs within Planning Portal
   const [activeTab, setActiveTab] = useState<'dashboard' | 'registry' | 'all_projects_portal' | 'monthly_targets' | 'quick_launch' | 'direct_stage_portal' | 'roles' | 'pool_manager'>('dashboard');
+  useFavoriteNav('planning_department', activeTab, setActiveTab);
   const [poolManagerSearch, setPoolManagerSearch] = useState('');
 
   // New Project Form State

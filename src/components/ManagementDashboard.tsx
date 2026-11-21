@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { Pool, StageId, Team, ActivityLog, ProjectSummary, MonthlyTarget, Employee, ViewRole, TrolleyProduction, PlannedPool, PoolOrientation } from '../types';
 import { STAGES, DUAL_STAGE_IDS, isAtDualStageGate, getDualGroupForIndex, canonicalStageId } from '../data/mockData';
 import { useRejectionData } from '../lib/useRejectionData';
+import { useFavoriteNav } from '../lib/favorites';
 import { WarehouseRegister, WarehouseSummaryStrip } from './WarehouseRegister';
 import { dbSyncBioCloudPunches, dbGetPins, dbUpdatePin, getApiUrl, dbFetchHRSiteDeployed, dbFetchHRLeaves, dbFetchHRMedicals, subscribeToLiveState, dbFetchActivityLogsInRange, dbExportBackupDocs, dbRestoreBackupDocs } from '../lib/firebaseService';
 import { AutoBackupsPanel } from './AutoBackupsPanel';
@@ -410,6 +411,7 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   };
   const [defectHeatmapStageFilter, setDefectHeatmapStageFilter] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'analytics' | 'projects_portal' | 'pools' | 'pool_starts' | 'release_log' | 'daily_progress' | 'rejection_log' | 'teams' | 'team_performance' | 'team_search' | 'pool_editor' | 'audit_logs' | 'workspace_setup' | 'google_drive' | 'terminal_settings' | 'employee_portal' | 'online_users' | 'shop_floor' | 'stage_reports' | 'stage_timeline' | 'project_progress' | 'delivery' | 'site_deliveries' | 'warehouse' | 'scrap'>('analytics');
+  useFavoriteNav('management', activeTab, setActiveTab);
   const [deliverySubTab, setDeliverySubTab] = useState<'confirm' | 'planner' | 'report'>('confirm');
 
   // When a tab is opened, bring the tab bar to the top of the screen so the

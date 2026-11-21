@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useFavoriteNav } from '../lib/favorites';
 import { Pool, StageId, Team, ActivityLog, PlannedPool } from '../types';
 import { STAGES } from '../data/mockData';
 import { Eye, ClipboardList, Tv, RefreshCw, ListChecks, AlertTriangle } from 'lucide-react';
@@ -64,6 +65,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
   onSwitchUser,
 }) => {
   const [activeTab, setActiveTab] = useState<FactorySupervisorTab>('monitor');
+  useFavoriteNav('factory_supervisor', activeTab, setActiveTab);
 
   // Stage Floor Monitor — pick a section + team to view/act as, same pattern
   // as Management's Shop Floor Monitor tab.

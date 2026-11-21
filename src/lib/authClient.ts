@@ -159,6 +159,18 @@ export async function changeOwnPassword(currentPassword: string, newPassword: st
   await adminCall<{ ok: boolean }>('changePassword', { currentPassword, newPassword });
 }
 
+/** The signed-in user's pinned buttons from the server, or null if never saved. */
+export async function fetchMyFavorites(): Promise<string[] | null> {
+  const res = await adminCall<{ favorites: string[] | null }>('getFavorites');
+  return Array.isArray(res.favorites) ? res.favorites : null;
+}
+
+/** Saves the signed-in user's pinned buttons (their own list only). */
+export async function saveMyFavorites(favorites: string[]): Promise<string[]> {
+  const res = await adminCall<{ favorites: string[] }>('setFavorites', { favorites });
+  return res.favorites;
+}
+
 export async function listUserAccounts(): Promise<AuthUser[]> {
   const res = await adminCall<{ users: AuthUser[] }>('list');
   return res.users || [];

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useFavoriteNav } from '../lib/favorites';
 import {
   Boxes, Package, ClipboardCheck, Printer, Plus, Trash2, CheckCircle2, XCircle,
   RefreshCw, AlertTriangle, X, Clock, ListChecks, TrendingUp, Upload, Download,
@@ -64,6 +65,7 @@ const emptyAsset = { name: '', assetNumber: '', erpNo: '', issuedTo: '', value: 
 
 export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, projectNames, poolTypesByProject }) => {
   const [tab, setTab] = useState<Tab>('inventory');
+  useFavoriteNav('store', tab, setTab);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [bom, setBom] = useState<BOMItem[]>([]);
   const [requests, setRequests] = useState<MaterialRequest[]>([]);

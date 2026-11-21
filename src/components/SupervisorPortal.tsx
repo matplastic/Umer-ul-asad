@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useFavoriteNav } from '../lib/favorites';
 import {
   HardHat, PackagePlus, Send, CheckCircle2, XCircle, Clock, Factory, ClipboardList,
   RefreshCw, AlertTriangle, Filter, Plus, Trash2, TrendingUp, Boxes,
@@ -38,6 +39,7 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserName, projectNames, poolTypesByProject, onSwitchUser }) => {
   const [section, setSection] = useState<string>(SUPERVISOR_SECTIONS[0].id);
   const [tab, setTab] = useState<Tab>('consumption');
+  useFavoriteNav('section_supervisor', tab, setTab);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [bom, setBom] = useState<BOMItem[]>([]);
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
