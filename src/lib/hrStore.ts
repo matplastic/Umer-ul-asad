@@ -576,6 +576,22 @@ export async function removeHR(name: HRDocName, id: string): Promise<void> {
   await deleteDoc(doc(clientDb, name, id));
 }
 
+/** Save many records at once (Excel import). One batched write per 400 records. */
+export async function bulkUpsertHR<T extends { id: string }>(name: HRDocName, recs: T[]): Promise<void> {
+  if (recs.length === 0) return;
+  if (SANDBOX_ON) {
+    const cur = sbGet(name) as T[];
+    const ids = new Set(recs.map(r => r.id));
+    sbSet(name, [...recs, ...cur.filter(x => !ids.has(x.id))]);
+    return;
+  }
+  for (let i = 0; i < recs.length; i += 400) {
+    const batch = writeBatch(clientDb);
+    recs.slice(i, i + 400).forEach(r => batch.set(doc(clientDb, name, r.id), clean(r)));
+    await batch.commit();
+  }
+}
+
 /** Atomically apply a function to ONE record (by id) using the freshest copy. */
 export async function patchHR<T extends { id: string }>(name: HRDocName, id: string, fn: (cur: T) => T): Promise<void> {
   if (SANDBOX_ON) return;

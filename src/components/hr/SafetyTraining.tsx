@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronRight, ShieldCheck, HardHat, Siren } from 'lucide-react';
 import { Employee } from '../../types';
+import { ImportButton } from './ExcelImport';
 import {
   useHRCollection, HRTraining, HRPPE, HRAccidentCase, HRProfile, AccidentLite,
   TRAINING_COURSES, MANDATORY_COURSES, PPE_ITEMS, newId, todayStr, daysUntil, expiryState, fmtD, logAudit,
@@ -98,7 +99,7 @@ const TrainingPanel: React.FC<{ employees: Employee[]; user?: string }> = ({ emp
           <select className={inputCls + ' !w-auto'} value={courseF} onChange={e => setCourseF(e.target.value)}><option>All</option>{TRAINING_COURSES.map(c => <option key={c}>{c}</option>)}</select>
           <select className={inputCls + ' !w-auto'} value={stateF} onChange={e => setStateF(e.target.value as any)}><option value="all">All</option><option value="expired">Expired</option><option value="soon">Expiring soon</option><option value="ok">Valid</option></select>
         </div>
-        <button className={btnPrimary} onClick={() => setShowNew(true)}><Plus className="h-4 w-4" />Add training record</button>
+        <div className="flex gap-2"><ImportButton employees={employees} user={user} types={['training']} initialType="training" /><button className={btnPrimary} onClick={() => setShowNew(true)}><Plus className="h-4 w-4" />Add training record</button></div>
       </div>
 
       {shown.length === 0 ? <Empty text="No training records match." /> : (
@@ -205,7 +206,7 @@ const PPEPanel: React.FC<{ employees: Employee[]; user?: string }> = ({ employee
           <select className={inputCls + ' !w-auto'} value={itemF} onChange={e => setItemF(e.target.value)}><option>All</option>{PPE_ITEMS.map(i => <option key={i}>{i}</option>)}</select>
           <select className={inputCls + ' !w-auto'} value={view} onChange={e => setView(e.target.value as any)}><option value="issued">Currently issued</option><option value="due">Due for replacement</option><option value="returned">Returned</option></select>
         </div>
-        <button className={btnPrimary} onClick={() => setShowNew(true)}><Plus className="h-4 w-4" />Issue PPE</button>
+        <div className="flex gap-2"><ImportButton employees={employees} user={user} types={['ppe']} initialType="ppe" /><button className={btnPrimary} onClick={() => setShowNew(true)}><Plus className="h-4 w-4" />Issue PPE</button></div>
       </div>
       {shown.length === 0 ? <Empty text="No PPE records here." /> : (
         <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">

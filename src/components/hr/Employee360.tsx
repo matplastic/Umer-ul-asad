@@ -11,6 +11,7 @@ import {
   Field, inputCls, btnPrimary, btnGhost, Badge, ExpiryBadge, SectionCard, SearchBox, SubTabs, Empty,
   runSave, useConfirm, hrToast,
 } from './hrUi';
+import { ImportButton } from './ExcelImport';
 import { AddDocumentModal, DocFilesModal, DocRowActions, buildDocRows } from './DocumentsVault';
 
 interface Props {
@@ -22,11 +23,12 @@ interface Props {
   medicals: MedicalLite[];
   payroll: PayrollLite[];
   initialEmployeeId?: string | null;
+  saveEmployees?: (list: Employee[]) => void | Promise<void>;
 }
 
 const statusTone = (s?: string) => s === 'Active' || !s ? 'emerald' : s === 'Resigned' ? 'amber' : 'rose';
 
-export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings, accidents, medicals, payroll, initialEmployeeId }) => {
+export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings, accidents, medicals, payroll, initialEmployeeId, saveEmployees }) => {
   const profC = useHRCollection<HRProfile>('hrProfiles');
   const docsC = useHRCollection<HRDocument>('hrDocuments');
   const lifeC = useHRCollection<HRLifecycle>('hrLifecycle');
@@ -67,6 +69,7 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
       {/* ── Employee list ── */}
       <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 lg:max-h-[78vh] flex flex-col">
         <SearchBox value={q} onChange={setQ} placeholder="Name, dept or ID…" />
+        <ImportButton employees={employees} user={user} saveEmployees={saveEmployees} types={['profile', 'passport', 'documents']} initialType="profile" label="Import profiles from Excel" />
         <div className="flex gap-1">
           {(['Active', 'Former', 'All'] as const).map(s => (
             <button key={s} onClick={() => setStatusF(s)}

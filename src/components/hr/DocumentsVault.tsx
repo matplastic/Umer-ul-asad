@@ -6,6 +6,7 @@ import {
 } from '../../lib/hrStore';
 import { uploadHRFile, deleteHRFile, validateHRFile, fmtBytes, HR_FILE_ACCEPT, HR_MAX_FILES_PER_RECORD } from '../../lib/hrFiles';
 import { exportToExcel, exportTablePdf } from '../../lib/exportUtils';
+import { ImportButton } from './ExcelImport';
 import {
   Modal, Field, EmployeeSelect, inputCls, btnPrimary, btnGhost, StatCard, Badge, ExpiryBadge, Empty,
   SearchBox, runSave, useConfirm, hrToast,
@@ -215,9 +216,9 @@ export const DocRowActions: React.FC<{
   );
 };
 
-interface Props { employees: Employee[]; user?: string }
+interface Props { employees: Employee[]; user?: string; saveEmployees?: (list: Employee[]) => void | Promise<void> }
 
-export const DocumentsVault: React.FC<Props> = ({ employees, user }) => {
+export const DocumentsVault: React.FC<Props> = ({ employees, user, saveEmployees }) => {
   const docsC = useHRCollection<HRDocument>('hrDocuments');
   const profC = useHRCollection<HRProfile>('hrProfiles');
   const [q, setQ] = useState('');
@@ -285,6 +286,7 @@ export const DocumentsVault: React.FC<Props> = ({ employees, user }) => {
             columns: [{ header: 'Employee', dataKey: 'Employee' }, { header: 'Document', dataKey: 'Document' }, { header: 'Number', dataKey: 'Number' }, { header: 'Expiry', dataKey: 'Expiry' }, { header: 'Days left', dataKey: 'Days left' }],
             rows: exportRows(), filename: 'HR_Documents', orientation: 'portrait',
           }) : hrToast('Nothing to export', 'err')}><Download className="h-3.5 w-3.5" />PDF</button>
+          <ImportButton employees={employees} user={user} saveEmployees={saveEmployees} types={['passport', 'documents', 'profile']} initialType="passport" />
           <button className={btnPrimary} onClick={() => setAdd({})}><Plus className="h-4 w-4" />Add document</button>
         </div>
       </div>

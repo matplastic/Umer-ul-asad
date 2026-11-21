@@ -7,7 +7,7 @@ import {
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
   Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2,
-  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone, Car
+  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone, Car, FileSpreadsheet
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
@@ -50,6 +50,7 @@ import { Recruitment } from './hr/Recruitment';
 import { FinalSettlement } from './hr/FinalSettlement';
 import { EmployeeRelations } from './hr/EmployeeRelations';
 import { Fleet } from './hr/Fleet';
+import { ExcelImportHub } from './hr/ExcelImportHub';
 import { HRToastHost } from './hr/hrUi';
 import { EmployeeSearchSelect } from './hr/EmployeeSearchSelect';
 import { HRSandboxProvider, DemoRecords } from './hr/HRDemo';
@@ -211,7 +212,7 @@ interface HRPortalProps {
 // The only tabs the HR Administration portal shows.
 const HR_ADMIN_TABS = ['directory', 'attendance', 'leave', 'warnings', 'accidents', 'medical'] as const;
 // Everything else is shown to HR Administration as a DEMO (sample data, nothing saved).
-const HR_SUITE_TAB_IDS = ['fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
+const HR_SUITE_TAB_IDS = ['import', 'fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
 const HR_DEMO_RECORD_TABS = ['passports', 'payroll', 'purchases', 'reports', 'accounts'];
 const HR_RECORD_TAB_IDS = ['directory', 'passports', 'attendance', 'payroll', 'leave', 'warnings', 'accidents', 'medical', 'purchases', 'reports', 'accounts'];
 
@@ -996,7 +997,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   mode = 'executive',
 }) => {
   const isAdmin = mode === 'admin';
-  const [activeTab, setActiveTab] = useState<'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
+  const [activeTab, setActiveTab] = useState<'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
   useEffect(() => { try { sessionStorage.setItem(tabStorageKey(mode), activeTab); } catch { /* ignore */ } }, [activeTab, mode]);
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
@@ -4747,6 +4748,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'requests', label: 'Requests', icon: <Inbox className="h-4 w-4" /> },
     { id: 'safety', label: 'Safety & Training', icon: <HardHat className="h-4 w-4" /> },
     { id: 'reviews', label: 'Performance', icon: <Star className="h-4 w-4" /> },
+    { id: 'import', label: 'Excel Import', icon: <FileSpreadsheet className="h-4 w-4" /> },
     { id: 'fleet', label: 'Fleet', icon: <Car className="h-4 w-4" /> },
     { id: 'recruit', label: 'Recruitment', icon: <UserPlus className="h-4 w-4" /> },
     { id: 'relations', label: 'Employee Relations', icon: <Megaphone className="h-4 w-4" /> },
@@ -4896,8 +4898,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         const suite = (
           <>
             {activeTab === 'hrdash' && <HRDashboard employees={employees} employeePunches={employeePunches} leaves={leaves} warnings={warnings} accidents={accidents} onNavigate={(t) => setActiveTab(t as any)} />}
-            {activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={demo ? [] : payroll} />}
-            {activeTab === 'docs' && <DocumentsVault employees={employees} user={currentUserName} />}
+            {activeTab === 'emp360' && <Employee360 employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} leaves={leaves} warnings={warnings} accidents={accidents} medicals={medicals} payroll={demo ? [] : payroll} />}
+            {activeTab === 'docs' && <DocumentsVault employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
             {activeTab === 'cases' && <DisciplineCases employees={employees} user={currentUserName} warnings={demo ? [] : warnings}
               onIssueWarning={(w) => { if (!demo) saveWarnings([w as Warning, ...warnings]); }} />}
             {activeTab === 'requests' && <RequestCenter employees={employees} user={currentUserName} onGoLetters={() => setActiveTab('letters')} />}
@@ -4905,6 +4907,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               onAccidentStatus={(id, status) => { if (!demo) saveAccidents(accidents.map(a => a.id === id ? { ...a, status } : a)); }} />}
             {activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
             {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={demo ? [] : payroll} />}
+            {activeTab === 'import' && <ExcelImportHub employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
             {activeTab === 'fleet' && <Fleet employees={employees} user={currentUserName} />}
             {activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}
             {activeTab === 'relations' && <EmployeeRelations employees={employees} user={currentUserName} />}

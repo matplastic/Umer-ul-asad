@@ -12,6 +12,7 @@ import {
   runSave, useConfirm, hrToast,
 } from './hrUi';
 import { FilePicker } from './DocumentsVault';
+import { ImportButton } from './ExcelImport';
 
 export interface FleetProps {
   employees: Employee[];
@@ -50,7 +51,7 @@ export const VehiclesPanel: React.FC<FleetProps> = (p) => {
             <option>All</option><option>Active</option><option>In Maintenance</option><option>Out of Service</option><option>Sold</option>
           </select>
         </div>
-        <button className={btnPrimary} onClick={() => setEdit('new')}><Plus className="h-4 w-4" />Add vehicle</button>
+        <div className="flex gap-2"><ImportButton employees={employees} user={p.user} types={['vehicles', 'fuel']} initialType="vehicles" /><button className={btnPrimary} onClick={() => setEdit('new')}><Plus className="h-4 w-4" />Add vehicle</button></div>
       </div>
 
       {list.length === 0 ? <Empty text="No vehicles yet. Add the first company vehicle." /> : (

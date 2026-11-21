@@ -8,6 +8,7 @@ import {
   Modal, Field, EmployeeSelect, inputCls, btnPrimary, btnGhost, StatCard, Badge, Empty, runSave, useConfirm, hrToast,
 } from './hrUi';
 import { FleetProps } from './FleetVehicles';
+import { ImportButton } from './ExcelImport';
 
 const num = (s: string) => { const n = parseFloat(s); return isNaN(n) ? undefined : n; };
 const VehicleSelect: React.FC<{ vehicles: HRVehicle[]; value: string; onChange: (id: string) => void; all?: string }> = ({ vehicles, value, onChange, all }) => (
@@ -47,7 +48,7 @@ export const DailyLogPanel: React.FC<FleetProps> = ({ employees, user, vehC, log
           <input type="date" className={inputCls + ' !w-auto'} value={from} onChange={e => setFrom(e.target.value)} />
           <input type="date" className={inputCls + ' !w-auto'} value={to} onChange={e => setTo(e.target.value)} />
         </div>
-        <button className={btnPrimary} onClick={() => setForm('new')}><Plus className="h-4 w-4" />Add daily log</button>
+        <div className="flex gap-2"><ImportButton employees={employees} user={user} types={['fuel', 'vehicles']} initialType="fuel" /><button className={btnPrimary} onClick={() => setForm('new')}><Plus className="h-4 w-4" />Add daily log</button></div>
       </div>
 
       {shown.length === 0 ? <Empty text="No daily logs in this range." /> : (
