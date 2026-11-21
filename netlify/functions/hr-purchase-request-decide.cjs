@@ -23,6 +23,7 @@
 //   FIREBASE_CLIENT_EMAIL
 //   FIREBASE_PRIVATE_KEY
 
+const { purchaseUsage, readPurchaseLists, usageHtml } = require('./lib/dailyRequestUsage.cjs');
 const { initializeApp, getApps, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
@@ -58,7 +59,7 @@ function page(title, message, ok) {
 // Approve/Reject radio pair (pre-selected from `preset`, defaulting to
 // Approve). Already-decided lines are shown read-only. Nothing is written
 // until the manager clicks the button, which POSTs this same page.
-function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
+function decisionPage(pendingItems, decidedItems, preset, id, batchId, token, usageNote = () => '') {
   const presetAction = preset === 'reject' ? 'reject' : 'approve';
   const all = [...pendingItems, ...decidedItems];
   const first = all[0] || {};
@@ -69,6 +70,7 @@ function decisionPage(pendingItems, decidedItems, preset, id, batchId, token) {
       <td style="padding:8px 8px 8px 0; border-bottom:1px solid #e2e8f0;">
         <div style="font-weight:600; color:#0f172a;">${esc(it.itemName)}</div>
         <div style="color:#64748b; font-size:12px;">${esc(it.qty)} ${esc(it.unit)}${it.estimatedCost ? ` • AED ${esc(it.estimatedCost)}` : ''}</div>
+        ${usageNote(it)}
       </td>
       <td style="padding:8px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">
         <label style="margin-right:14px; color:#16a34a; font-weight:600; font-size:13px; cursor:pointer;">
@@ -185,10 +187,19 @@ exports.handler = async (event) => {
     if (event.httpMethod !== 'POST') {
       const pendingItems = pendingIndices.map((i) => arr[i]);
       const decidedItems = decidedAlreadyIndices.map((i) => arr[i]);
+      // "Already today" notice (UAE day) across Supervisor + HR purchase requests.
+      // Best-effort: if it can't be read, the page still works without it.
+      let usageNote = () => '';
+      try {
+        const lists = await readPurchaseLists(db);
+        usageNote = (it) => usageHtml(purchaseUsage(lists.supervisor, lists.hr, it), esc);
+      } catch (e) {
+        console.warn('[purchase-decide] could not read today\'s requests:', e.message);
+      }
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'text/html' },
-        body: decisionPage(pendingItems, decidedItems, action, id, batchId, token),
+        body: decisionPage(pendingItems, decidedItems, action, id, batchId, token, usageNote),
       };
     }
 

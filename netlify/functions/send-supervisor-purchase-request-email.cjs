@@ -18,6 +18,9 @@
 //   (falls back to HR_MANAGER_EMAIL, then STORE_MANAGER_EMAIL, if not set),
 //   APP_BASE_URL (optional)
 
+const { purchaseUsage, readPurchaseLists, usageHtml, getAdminDb } = require('./lib/dailyRequestUsage.cjs');
+const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
@@ -49,11 +52,21 @@ exports.handler = async (event) => {
     const quickRejectUrl = `${reviewUrl}&action=reject`;
     const from = process.env.SUPERVISOR_EMAIL_FROM || 'MAT Plastic Factory <onboarding@resend.dev>';
 
+    // "Already today" notice per line (UAE day, Supervisor + HR purchase requests
+    // together). Best-effort — the e-mail still goes out without it.
+    let lists = { supervisor: [], hr: [] };
+    try {
+      lists = await readPurchaseLists(getAdminDb());
+    } catch (e) {
+      console.warn('[purchase-email] could not read today\'s requests:', e.message);
+    }
+
     const rows = items.map((it) => `
       <tr>
         <td style="padding:6px 8px 6px 0; border-bottom:1px solid #e2e8f0;">
           <div style="font-weight:600;">${it.itemName || ''}</div>
           <div style="color:#94a3b8; font-size:11px;">${it.category || ''}${it.erpCode ? ` • ERP #${it.erpCode}` : ''}</div>
+          ${usageHtml(purchaseUsage(lists.supervisor, lists.hr, { ...it, batchId: payload.batchId }), escHtml)}
         </td>
         <td style="padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${it.qty ?? ''} ${it.unit || ''}</td>
         <td style="padding:6px 0; border-bottom:1px solid #e2e8f0; text-align:right; white-space:nowrap;">${it.estimatedCost ? 'AED ' + it.estimatedCost : '—'}</td>

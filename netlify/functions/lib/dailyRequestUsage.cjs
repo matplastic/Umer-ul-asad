@@ -21,6 +21,21 @@ const labelFmt = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: '2-digit'
 
 const APPROVED = new Set(['APPROVED', 'PRINTED', 'DELIVERED']);
 
+// Every request type is turned into the same small shape first, so one piece of
+// logic serves Store material requests AND the Supervisor / HR purchase
+// requests (office items such as pens, tools, stationery…).
+const normStatus = (s) => String(s == null ? '' : s).toUpperCase();
+const fromMaterial = (r) => ({
+  id: r.id, batchId: r.batchId || null, keyId: r.materialId || '', name: r.materialName, unit: r.unit,
+  qtyRequested: r.qtyRequested, qtyApproved: r.qtyApproved, status: normStatus(r.status),
+  by: r.requestedByName || '', source: '', createdAt: r.createdAt, decidedAt: r.decidedAt,
+});
+const fromPurchase = (r, source) => ({
+  id: r.id, batchId: r.batchId || null, keyId: r.erpCode || '', name: r.itemName, unit: r.unit,
+  qtyRequested: r.qty, qtyApproved: r.qtyApproved, status: normStatus(r.status),
+  by: r.requestedByName || '', source, createdAt: r.requestedAt || r.createdAt, decidedAt: r.decidedAt,
+});
+
 const toDate = (iso) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
@@ -31,18 +46,19 @@ const norm = (s) => String(s == null ? '' : s).trim().toLowerCase().replace(/\s+
 const approvedQtyOf = (r) => Number(r.qtyApproved != null ? r.qtyApproved : r.qtyRequested) || 0;
 const fmtQty = (n) => String(Math.round((Number(n) || 0) * 1000) / 1000);
 
-function sameMaterial(a, b) {
-  if (a.materialId && b.materialId) return a.materialId === b.materialId;
-  return norm(a.materialName) !== '' && norm(a.materialName) === norm(b.materialName);
+// Same item = same code (material id / ERP code) or the same name.
+function sameItem(a, b) {
+  if (a.keyId && b.keyId && a.keyId === b.keyId) return true;
+  return norm(a.name) !== '' && norm(a.name) === norm(b.name);
 }
 
-// All requests (array already read from Firestore) + the line being decided.
-function usageToday(all, item, now = new Date()) {
+// Core: `all` and `item` are already normalised.
+function usageFor(all, item, now = new Date()) {
   const today = uaeDay(now.toISOString());
   const others = (all || []).filter((r) =>
     r.id !== item.id &&
     !(item.batchId && r.batchId === item.batchId) &&
-    sameMaterial(r, item));
+    sameItem(r, item));
 
   const requestedToday = others.filter((r) => uaeDay(r.createdAt) === today);
   const approvedToday = others.filter((r) => APPROVED.has(r.status) && uaeDay(r.decidedAt || r.createdAt) === today);
@@ -56,7 +72,7 @@ function usageToday(all, item, now = new Date()) {
     lines.push({
       at: askedToday ? r.createdAt : (r.decidedAt || r.createdAt),
       earlierDay: !askedToday,
-      by: r.requestedByName || '',
+      by: `${r.by || ''}${r.source ? ` (${r.source})` : ''}`.trim(),
       qtyRequested: Number(r.qtyRequested) || 0,
       status: r.status,
       qtyApproved: APPROVED.has(r.status) ? approvedQtyOf(r) : null,
@@ -74,6 +90,21 @@ function usageToday(all, item, now = new Date()) {
     rejectedCount: requestedToday.filter((r) => r.status === 'REJECTED').length,
     lines,
   };
+}
+
+// Store material requests (one list).
+function usageToday(allRaw, itemRaw, now = new Date()) {
+  return usageFor((allRaw || []).map(fromMaterial), fromMaterial(itemRaw), now);
+}
+
+// Supervisor + HR purchase requests: an item (e.g. "pen") can come from either
+// portal, so both lists are checked together and each earlier line says which.
+function purchaseUsage(supervisorRows, hrRows, itemRaw, now = new Date()) {
+  const all = [
+    ...(supervisorRows || []).map((r) => fromPurchase(r, 'Supervisor')),
+    ...(hrRows || []).map((r) => fromPurchase(r, 'HR')),
+  ];
+  return usageFor(all, fromPurchase(itemRaw, ''), now);
 }
 
 const hasUsage = (u) => !!u && (u.requestCount > 0 || u.approvedCount > 0);
@@ -115,4 +146,14 @@ function getAdminDb() {
   return getFirestore();
 }
 
-module.exports = { usageToday, usageHtml, hasUsage, uaeDay, getAdminDb };
+// The two purchase-request lists live as plain documents in system_state.
+async function readPurchaseLists(db) {
+  const read = async (name) => {
+    const snap = await db.collection('system_state').doc(name).get();
+    return snap.exists && Array.isArray(snap.data().data) ? snap.data().data : [];
+  };
+  const [supervisor, hr] = await Promise.all([read('supervisorPurchaseRequests'), read('hrPurchaseRequests')]);
+  return { supervisor, hr };
+}
+
+module.exports = { usageToday, purchaseUsage, readPurchaseLists, usageHtml, hasUsage, uaeDay, getAdminDb };
