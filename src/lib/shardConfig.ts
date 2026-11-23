@@ -30,6 +30,12 @@ export const SHARD_COUNTS: Record<string, number> = {
   incomingMaterials: 8,
   materials: 4,
   stockAdjustments: 4,
+  // Procurement (new lists — they grow with every order, so they are split from day one)
+  purchaseOrders: 8,
+  procurementRfqs: 4,
+  supplierInvoices: 4,
+  supplierPayments: 4,
+  tradeFinances: 4,
 };
 export const SHARD_BYTES_PER_DOC = 1048576;
 

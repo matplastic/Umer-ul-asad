@@ -287,7 +287,8 @@ export type ViewRole =
   | 'factory_supervisor'
   | 'reports_analytics'
   | 'site_team'
-  | 'warehouse';
+  | 'warehouse'
+  | 'procurement';
 
 export interface ProjectSummary {
   id: string;
@@ -630,6 +631,11 @@ export interface IncomingMaterial {
   // Supplier's Delivery Order / delivery note number (NOT the ERP's own
   // outgoing DO that is raised when material is handed to the floor).
   doNo?: string | null;
+  // Purchase Order this receipt was booked against (Procurement portal). poLineId is
+  // the PO line the quantity counts toward; both are blank on receipts without a PO.
+  poId?: string | null;
+  poNo?: string | null;
+  poLineId?: string | null;
   // Scanned supplier DO / invoice files — see GrnAttachment.
   attachments?: GrnAttachment[] | null;
   notes?: string | null;
@@ -850,5 +856,229 @@ export interface Supplier {
   notes?: string | null;
   createdAt: string;
   createdByName?: string | null;
+  updatedAt?: string | null;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROCUREMENT (procure-to-pay)
+//   Requisition → Quotations (compare + PDFs) → PO → approval → STF (bank finance, optional) → goods receipt
+//   (Store, 'Incoming') → supplier invoice (3-way match) → payment → close
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type PoStatus = 'draft' | 'pending_approval' | 'approved' | 'closed' | 'cancelled';
+
+export interface PoLine {
+  id: string;
+  materialId: string;               // Store inventory item the goods are received into
+  itemName: string;                 // snapshot of the material name when the PO was made
+  erpCode?: string | null;
+  unit: string;
+  qty: number;                      // ordered
+  unitPrice: number;                // AED per unit, before VAT
+  // The approved Supervisor / HR purchase request this line fulfils (if any).
+  sourceRequestId?: string | null;
+  sourceKind?: 'supervisor' | 'hr' | null;
+  notes?: string | null;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  poNo: string;                     // MAT-PO-2026-0001
+  rfqId?: string | null;
+  rfqNo?: string | null;
+  supplierId?: string | null;
+  supplierName: string;             // snapshot — receipts and the Store link by name
+  supplierCode?: string | null;
+  supplierTaxNo?: string | null;
+  currency: string;
+  orderDate: string;
+  expectedDate?: string | null;
+  deliveryLocation?: string | null;
+  paymentTerms?: string | null;
+  notes?: string | null;
+  discount: number;                 // AED, off the subtotal
+  vatRate: number;                  // % (UAE standard 5)
+  lines: PoLine[];
+  status: PoStatus;
+  createdByName: string;
+  createdAt: string;
+  updatedAt?: string | null;
+  submittedAt?: string | null;
+  approvedByName?: string | null;
+  approvedAt?: string | null;
+  approvalNotes?: string | null;
+  rejectedNote?: string | null;     // why a manager sent it back to draft
+  cancelledByName?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
+  closedByName?: string | null;
+  closedAt?: string | null;
+  closedReason?: 'completed' | 'short_closed' | null;
+  closeNotes?: string | null;
+}
+
+export interface RfqLine {
+  id: string;
+  materialId: string;
+  itemName: string;
+  erpCode?: string | null;
+  unit: string;
+  qty: number;
+  sourceRequestId?: string | null;
+  sourceKind?: 'supervisor' | 'hr' | null;
+}
+
+// A file kept in Firebase Storage (quotation PDFs, bank / LC documents). Only this small record is saved
+// in Firestore — never the file itself.
+export interface ProcAttachment {
+  id: string;
+  kind: string;                    // e.g. 'quotation', 'lc_copy', 'bill_of_lading' …
+  name: string;
+  url: string;
+  path: string;                    // Storage object path (used for delete)
+  type: string;
+  size: number;
+  uploadedAt: string;
+  uploadedByName: string;
+}
+
+export interface RfqQuote {
+  id: string;
+  supplierId?: string | null;
+  supplierName: string;
+  unitPrices: Record<string, number | null>;   // by RfqLine.id
+  leadTimeDays?: number | null;
+  paymentTerms?: string | null;
+  validUntil?: string | null;
+  quoteRef?: string | null;        // the supplier's own quotation number
+  quoteDate?: string | null;
+  attachments?: ProcAttachment[];  // the supplier's quotation as PDF / photo
+  notes?: string | null;
+}
+
+// Quotation sheet (RFQ): what we need, who we asked, what each supplier quoted,
+// and who was chosen (with the reason). It feeds the PO.
+export interface Rfq {
+  id: string;
+  rfqNo: string;                    // MAT-QTN-2026-0001
+  title: string;
+  neededBy?: string | null;
+  notes?: string | null;
+  lines: RfqLine[];
+  quotes: RfqQuote[];
+  status: 'draft' | 'awarded' | 'po_created' | 'cancelled';
+  awardedQuoteId?: string | null;
+  awardNotes?: string | null;       // required when the winner is not the cheapest
+  awardedByName?: string | null;
+  awardedAt?: string | null;
+  poId?: string | null;
+  createdByName: string;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface SupplierInvoice {
+  id: string;
+  poId: string;
+  poNo: string;
+  supplierName: string;
+  invoiceNo: string;
+  invoiceDate: string;
+  dueDate: string;
+  amount: number;                   // total incl. VAT, as printed on the supplier's invoice
+  expectedAmount: number;           // what the received+accepted goods are worth at PO prices (incl. VAT)
+  variance: number;                 // amount − expectedAmount
+  matchStatus: 'matched' | 'mismatch' | 'overridden';
+  overrideNotes?: string | null;
+  notes?: string | null;
+  voided?: boolean;
+  voidedByName?: string | null;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  createdByName: string;
+  createdAt: string;
+}
+
+export type PaymentMethod = 'bank_transfer' | 'cheque' | 'cash' | 'card' | 'trade_finance';
+
+export interface SupplierPayment {
+  id: string;
+  poId: string;
+  poNo: string;
+  invoiceId?: string | null;
+  supplierName: string;
+  kind: 'invoice' | 'advance';
+  amount: number;
+  paidAt: string;                   // payment date
+  method: PaymentMethod;
+  reference?: string | null;        // transfer ref / cheque no.
+  notes?: string | null;
+  voided?: boolean;
+  voidedByName?: string | null;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  byName: string;
+  createdAt: string;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STF — STRUCTURED TRADE FINANCE
+// A bank finances a purchase: the bank pays the supplier (at sight or at maturity), the company
+// pays a cash margin up front and repays the bank at maturity with profit/interest and charges.
+//   draft → applied (sent to the bank) → approved (LC issued / facility sanctioned)
+//         → drawn (bank has paid the supplier; the repayment clock starts) → settled (repaid)
+// ─────────────────────────────────────────────────────────────────────────────
+export type TfType = 'usance_lc' | 'sight_lc' | 'trust_receipt' | 'import_loan' | 'doc_collection' | 'advance_loan' | 'murabaha' | 'other';
+export type TfStatus = 'draft' | 'applied' | 'approved' | 'drawn' | 'settled' | 'cancelled';
+
+export interface TfRepayment {
+  id: string;
+  amount: number;                  // AED paid to the bank
+  paidAt: string;
+  reference?: string | null;
+  notes?: string | null;
+  voided?: boolean;
+  voidedByName?: string | null;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  byName: string;
+  createdAt: string;
+}
+
+export interface TradeFinance {
+  id: string;
+  stfNo: string;                   // MAT-STF-2026-0001
+  poId: string;
+  poNo: string;
+  supplierName: string;
+  type: TfType;
+  bankName: string;
+  facilityRef?: string | null;     // LC / TR / loan reference given by the bank
+  currency: string;
+  fxRate: number;                  // 1 AED = 1; USD 3.6725 …
+  invoiceAmount: number;           // goods value being financed, in `currency`
+  marginPct: number;               // cash margin the company pays up front
+  tenorDays: number;
+  interestRate: number;            // % per year (profit rate for Islamic products)
+  commissionPct: number;           // LC / acceptance commission, % of the goods value
+  otherFees: number;               // AED — SWIFT, amendment, stamping …
+  expectedDrawDate?: string | null;
+  status: TfStatus;
+  notes?: string | null;
+  appliedAt?: string | null;
+  approvedAt?: string | null;
+  approvedRef?: string | null;     // bank approval reference
+  drawDate?: string | null;        // date the bank paid the supplier
+  maturityDate?: string | null;    // drawDate + tenor
+  supplierPaymentId?: string | null;
+  repayments: TfRepayment[];
+  attachments: ProcAttachment[];
+  cancelReason?: string | null;
+  cancelledByName?: string | null;
+  cancelledAt?: string | null;
+  createdByName: string;
+  createdAt: string;
   updatedAt?: string | null;
 }

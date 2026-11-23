@@ -37,7 +37,7 @@ export function validateGrnFile(file: File): string | null {
 // Phone photos are 3–8 MB. Downscale + re-encode as JPEG so uploads are quick
 // on factory Wi-Fi/mobile data. Falls back to the original if anything fails
 // or the "compressed" copy would be bigger.
-async function shrinkImage(file: File): Promise<Blob> {
+export async function shrinkImage(file: File): Promise<Blob> {
   if (!OK_IMAGE.test(file.type)) return file;
   try {
     const bitmap = await createImageBitmap(file);

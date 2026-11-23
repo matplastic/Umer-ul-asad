@@ -29,6 +29,9 @@ import { QuickAdjustModal } from './QuickAdjustModal';
 import { InventoryLedgerPage } from './InventoryLedgerPage';
 import { SortHeader } from './SortHeader';
 import { MaterialPicker } from './MaterialPicker';
+import { PoReceivePanel } from './PoReceivePanel';
+import { dbFetchPurchaseOrders } from '../lib/firebaseService';
+import type { PurchaseOrder } from '../types';
 import { SuppliersPage } from './SuppliersPage';
 import { normName } from '../lib/suppliers';
 import { uploadGrnFile, deleteGrnFile, validateGrnFile, GRN_ACCEPT, KIND_LABEL, type GrnDocKind } from '../lib/grnAttachments';
@@ -73,6 +76,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [consumptionLogs, setConsumptionLogs] = useState<ConsumptionLog[]>([]);
   const [stockAdjustments, setStockAdjustments] = useState<StockAdjustment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   // Material whose Stock Ledger window is open (click a material in Inventory).
   const [ledgerMaterial, setLedgerMaterial] = useState<Material | null>(null);
   // Material whose detail panel is open (click a row in Inventory) — holds every per-material action.
@@ -145,7 +149,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [m, b, r, inc, an, cons, adj, sups, assets] = await Promise.all([
+      const [m, b, r, inc, an, cons, adj, sups, assets, pos] = await Promise.all([
         dbFetchMaterials(),
         dbFetchBomItems(),
         dbFetchMaterialRequests(),
@@ -155,6 +159,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         dbFetchStockAdjustments(),
         dbFetchSuppliers(),
         dbFetchCompanyAssets(),
+        dbFetchPurchaseOrders().catch(() => [] as PurchaseOrder[]),
       ]);
       setMaterials(Array.isArray(m) ? m : []);
       setBom(Array.isArray(b) ? b : []);
@@ -162,6 +167,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       setIncoming(Array.isArray(inc) ? inc.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setConsumptionLogs(Array.isArray(cons) ? cons.map((x: any) => ({ ...x, qty: Number(x.qty) })) : []);
       setSuppliers(Array.isArray(sups) ? sups : []);
+      setPurchaseOrders(Array.isArray(pos) ? pos : []);
       setStockAdjustments(Array.isArray(adj) ? adj.map((x: any) => ({ ...x, delta: Number(x.delta) })) : []);
       setCompanyAssets(Array.isArray(assets) ? assets.map((x: any) => ({ ...x, value: x.value === null || x.value === undefined || x.value === '' ? null : Number(x.value) })) : []);
       setAnalytics(an);
@@ -1621,6 +1627,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
       {/* ---------- INCOMING TAB ---------- */}
       {tab === 'incoming' && (
         <div>
+          <PoReceivePanel pos={purchaseOrders} incoming={incoming} suppliers={suppliers} currentUserName={currentUserName} onReceived={() => loadAll(true)} />
           <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5 grid grid-cols-1 md:grid-cols-6 gap-2">
             <MaterialPicker materials={materials} value={newIncoming.materialId} onChange={id => setNewIncoming((p: any) => ({ ...p, materialId: id }))} testId="new-incoming-material" className="md:col-span-2" />
             <input type="number" step="any" placeholder="Qty" data-testid="new-incoming-qty" value={newIncoming.qty} onChange={e => setNewIncoming((p: any) => ({ ...p, qty: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
@@ -1708,7 +1715,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
                     <td className="px-4 py-2 text-slate-500 font-mono">{new Date(inc.receivedAt).toLocaleDateString()}</td>
                     <td className="px-4 py-2 text-slate-800 font-semibold">{inc.materialName}</td>
                     <td className="px-4 py-2 text-right text-emerald-700 font-mono">+{Number(inc.qty)} {inc.unit}{eqFor(inc.materialId, Number(inc.qty)) && <div className="text-[10px] text-emerald-700/70">= {eqFor(inc.materialId, Number(inc.qty))}</div>}</td>
-                    <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}</td>
+                    <td className="px-4 py-2 text-slate-500">{inc.supplier || '—'}{inc.poNo && <div className="text-[10px] font-mono font-bold text-primary-700" title="Received against this purchase order">{inc.poNo}</div>}</td>
                     <td className="px-4 py-2 text-slate-500">
                       <button onClick={() => editReceiptNumber(inc, 'invoiceNo')} title="Click to edit invoice number" className="font-mono hover:text-primary-700 hover:underline decoration-dotted underline-offset-2 cursor-pointer">{inc.invoiceNo || '—'}</button>
                     </td>

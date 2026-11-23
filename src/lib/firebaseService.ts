@@ -1,6 +1,9 @@
 import { auth, app, clientDb } from './googleDrive.ts';
 import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { applySupplierSave } from './suppliers';
+import { APPROVAL_THRESHOLD, nextDocNo, poTotals } from './procurement';
+import { addDays, tfAmounts, tfPosition } from './tradeFinance';
+import type { PurchaseOrder, PoLine, Rfq, SupplierInvoice, SupplierPayment, TradeFinance, TfRepayment, ProcAttachment } from '../types';
 import { shardCountFor, shardDocNamesFor, splitIntoShards, mergeLegacy } from './shardConfig';
 import { BACKUP_DOC_IDS, runRestore, chunkByBytes, RestoreMode, RestoreReportRow } from './backupSets';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, StockAdjustment, Supplier, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
@@ -141,9 +144,6 @@ const COLLECTION_BACKED: Record<string, boolean> = {
   hrFuelLogs: true,
   hrVehicleService: true,
   hrVehicleFines: true,
-  hrHolidays: true,
-  hrLeavePolicy: true,
-  hrLeaveAdjust: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3828,6 +3828,392 @@ export async function dbSaveSupplier(input: Partial<Supplier> & { name: string }
 export async function dbDeleteSupplier(id: string): Promise<void> {
   if (apiBase()) throw new SupplierError('Suppliers are only available on the Firebase deployment.');
   await updateFirestoreDocArray('suppliers', (arr) => arr.filter((s) => s.id !== id), true);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROCUREMENT — purchase orders, quotations (RFQs), STF trade finance, supplier invoices, payments.
+// Finance records are never hard-deleted: they are VOIDED with a reason, so the
+// audit trail stays complete. Numbers (MAT-PO-2026-0001…) are issued INSIDE the
+// write, so two people saving at the same moment can never get the same number.
+// ─────────────────────────────────────────────────────────────────────────────
+export class ProcurementError extends Error {
+  constructor(message: string) { super(message); this.name = 'ProcurementError'; }
+}
+const procurementOnly = () => {
+  if (apiBase()) throw new ProcurementError('Procurement is only available on the Firebase deployment.');
+};
+
+export async function dbFetchPurchaseOrders(): Promise<PurchaseOrder[]> { return getFirestoreDocArray('purchaseOrders'); }
+export async function dbFetchRfqs(): Promise<Rfq[]> { return getFirestoreDocArray('procurementRfqs'); }
+export async function dbFetchSupplierInvoices(): Promise<SupplierInvoice[]> { return getFirestoreDocArray('supplierInvoices'); }
+export async function dbFetchSupplierPayments(): Promise<SupplierPayment[]> { return getFirestoreDocArray('supplierPayments'); }
+
+function checkPoLines(lines: PoLine[] | undefined): string | null {
+  if (!lines || lines.length === 0) return 'Add at least one item to the PO.';
+  for (const l of lines) {
+    if (!l.materialId) return `"${l.itemName || 'An item'}" is not linked to a Store item.`;
+    if (!(Number(l.qty) > 0)) return `Enter a quantity for ${l.itemName}.`;
+    if (!(Number(l.unitPrice) >= 0) || l.unitPrice === (null as any)) return `Enter a price for ${l.itemName}.`;
+  }
+  return null;
+}
+
+const PO_EDITABLE = ['supplierId', 'supplierName', 'supplierCode', 'supplierTaxNo', 'currency', 'orderDate', 'expectedDate',
+  'deliveryLocation', 'paymentTerms', 'notes', 'discount', 'vatRate', 'lines', 'rfqId', 'rfqNo'] as const;
+
+// Create (no id) or edit (id) a DRAFT purchase order.
+export async function dbSavePurchaseOrder(input: Partial<PurchaseOrder> & { supplierName: string; lines: PoLine[] }, byName: string): Promise<PurchaseOrder> {
+  procurementOnly();
+  let saved: PurchaseOrder | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('purchaseOrders', (arr) => {
+    saved = undefined; error = undefined;   // may run again on a retried write
+    if (!input.supplierName?.trim()) { error = 'Choose a supplier.'; return arr; }
+    const bad = checkPoLines(input.lines);
+    if (bad) { error = bad; return arr; }
+    const now = new Date().toISOString();
+    if (input.id) {
+      const cur = arr.find((p: PurchaseOrder) => p.id === input.id);
+      if (!cur) { error = 'This PO no longer exists.'; return arr; }
+      if (cur.status !== 'draft') { error = 'Only a draft PO can be edited. Cancel it and raise a new one, or ask management to send it back.'; return arr; }
+      const patch: any = {};
+      for (const k of PO_EDITABLE) if ((input as any)[k] !== undefined) patch[k] = (input as any)[k];
+      saved = { ...cur, ...patch, updatedAt: now };
+      return arr.map((p: PurchaseOrder) => (p.id === input.id ? saved! : p));
+    }
+    const po: PurchaseOrder = {
+      id: newId('po'),
+      poNo: nextDocNo(arr.map((p: PurchaseOrder) => p.poNo), 'PO'),
+      rfqId: input.rfqId ?? null, rfqNo: input.rfqNo ?? null,
+      supplierId: input.supplierId ?? null, supplierName: input.supplierName.trim(),
+      supplierCode: input.supplierCode ?? null, supplierTaxNo: input.supplierTaxNo ?? null,
+      currency: input.currency || 'AED',
+      orderDate: input.orderDate || now, expectedDate: input.expectedDate ?? null,
+      deliveryLocation: input.deliveryLocation ?? null, paymentTerms: input.paymentTerms ?? null,
+      notes: input.notes ?? null, discount: Number(input.discount) || 0, vatRate: input.vatRate ?? 5,
+      lines: input.lines, status: 'draft', createdByName: byName, createdAt: now,
+    };
+    saved = po;
+    return [...arr, po];
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not save the PO.');
+  return saved;
+}
+
+export type PoAction = 'submit' | 'approve' | 'reject' | 'cancel' | 'close';
+
+// Moves a PO through its life. submit → (auto-approved when the total is within the approval limit)
+export async function dbPoAction(
+  poId: string, action: PoAction, byName: string,
+  opts: { notes?: string | null; closedReason?: 'completed' | 'short_closed' } = {},
+): Promise<PurchaseOrder> {
+  procurementOnly();
+  // Cancelling something already received or paid would orphan real records, so check first.
+  if (action === 'cancel') {
+    const [inc, pay] = await Promise.all([getFirestoreDocArray('incomingMaterials'), getFirestoreDocArray('supplierPayments')]);
+    if ((inc as any[]).some((i) => i.poId === poId)) throw new ProcurementError('Goods have already been received on this PO, so it can’t be cancelled. Use “Close short” instead.');
+    if ((pay as any[]).some((p) => p.poId === poId && !p.voided)) throw new ProcurementError('A payment is recorded on this PO. Void the payment first.');
+  }
+  let saved: PurchaseOrder | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('purchaseOrders', (arr) => {
+    saved = undefined; error = undefined;
+    const cur = arr.find((p: PurchaseOrder) => p.id === poId);
+    if (!cur) { error = 'This PO no longer exists.'; return arr; }
+    const now = new Date().toISOString();
+    let next: PurchaseOrder | null = null;
+    switch (action) {
+      case 'submit': {
+        if (cur.status !== 'draft') { error = 'Only a draft can be submitted.'; break; }
+        const bad = checkPoLines(cur.lines);
+        if (bad) { error = bad; break; }
+        const auto = poTotals(cur).total <= APPROVAL_THRESHOLD;
+        next = { ...cur, status: auto ? 'approved' : 'pending_approval', submittedAt: now, rejectedNote: null,
+          ...(auto ? { approvedByName: 'Auto — within approval limit', approvedAt: now } : {}) };
+        break;
+      }
+      case 'approve':
+        if (cur.status !== 'pending_approval') { error = 'This PO is not waiting for approval.'; break; }
+        next = { ...cur, status: 'approved', approvedByName: byName, approvedAt: now, approvalNotes: opts.notes || null };
+        break;
+      case 'reject':
+        if (cur.status !== 'pending_approval') { error = 'This PO is not waiting for approval.'; break; }
+        if (!opts.notes?.trim()) { error = 'Say why it is being sent back.'; break; }
+        next = { ...cur, status: 'draft', rejectedNote: `${byName}: ${opts.notes.trim()}` };
+        break;
+      case 'cancel':
+        if (cur.status === 'closed' || cur.status === 'cancelled') { error = 'This PO is already finished.'; break; }
+        if (!opts.notes?.trim()) { error = 'Give a reason for cancelling.'; break; }
+        next = { ...cur, status: 'cancelled', cancelledByName: byName, cancelledAt: now, cancelReason: opts.notes.trim() };
+        break;
+      case 'close':
+        if (cur.status !== 'approved') { error = 'Only an approved PO can be closed.'; break; }
+        if (opts.closedReason === 'short_closed' && !opts.notes?.trim()) { error = 'Say why the PO is being closed short.'; break; }
+        next = { ...cur, status: 'closed', closedByName: byName, closedAt: now, closedReason: opts.closedReason || 'completed', closeNotes: opts.notes?.trim() || null };
+        break;
+    }
+    if (!next || error) return arr;
+    saved = { ...next, updatedAt: now };
+    return arr.map((p: PurchaseOrder) => (p.id === poId ? saved! : p));
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not update the PO.');
+  return saved;
+}
+
+// Quotation sheet (RFQ) — create (no id) or update.
+export async function dbSaveRfq(input: Partial<Rfq> & { title: string }, byName: string): Promise<Rfq> {
+  procurementOnly();
+  let saved: Rfq | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('procurementRfqs', (arr) => {
+    saved = undefined; error = undefined;
+    if (!input.title?.trim()) { error = 'Give the quotation sheet a title.'; return arr; }
+    const now = new Date().toISOString();
+    if (input.id) {
+      const cur = arr.find((x: Rfq) => x.id === input.id);
+      if (!cur) { error = 'This quotation sheet no longer exists.'; return arr; }
+      saved = { ...cur, ...input, id: cur.id, rfqNo: cur.rfqNo, createdAt: cur.createdAt, createdByName: cur.createdByName, updatedAt: now } as Rfq;
+      return arr.map((x: Rfq) => (x.id === input.id ? saved! : x));
+    }
+    const rfq: Rfq = {
+      id: newId('rfq'), rfqNo: nextDocNo(arr.map((x: Rfq) => x.rfqNo), 'QTN'),
+      title: input.title.trim(), neededBy: input.neededBy ?? null, notes: input.notes ?? null,
+      lines: input.lines || [], quotes: input.quotes || [], status: 'draft', createdByName: byName, createdAt: now,
+    };
+    saved = rfq;
+    return [...arr, rfq];
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not save the quotation sheet.');
+  return saved;
+}
+
+// Supplier invoice against a PO. The 3-way match is worked out by the portal from the receipts and passed in.
+export async function dbAddSupplierInvoice(
+  input: Omit<SupplierInvoice, 'id' | 'createdAt' | 'createdByName'>, byName: string,
+): Promise<SupplierInvoice> {
+  procurementOnly();
+  let saved: SupplierInvoice | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('supplierInvoices', (arr) => {
+    saved = undefined; error = undefined;
+    const dup = arr.find((i: SupplierInvoice) => !i.voided && i.supplierName.trim().toLowerCase() === input.supplierName.trim().toLowerCase()
+      && i.invoiceNo.trim().toLowerCase() === input.invoiceNo.trim().toLowerCase());
+    if (dup) { error = `Invoice ${input.invoiceNo} from ${input.supplierName} is already recorded (on ${dup.poNo}).`; return arr; }
+    if (!(input.amount > 0)) { error = 'Enter the invoice amount.'; return arr; }
+    saved = { ...input, id: newId('sinv'), createdByName: byName, createdAt: new Date().toISOString() };
+    return [...arr, saved];
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not save the invoice.');
+  return saved;
+}
+
+export async function dbVoidSupplierInvoice(id: string, byName: string, reason: string): Promise<void> {
+  procurementOnly();
+  if (!reason.trim()) throw new ProcurementError('Give a reason for voiding the invoice.');
+  const pay: any[] = await getFirestoreDocArray('supplierPayments');
+  if (pay.some((p) => p.invoiceId === id && !p.voided)) throw new ProcurementError('Payments are recorded against this invoice. Void them first.');
+  await updateFirestoreDocArray('supplierInvoices', (arr) => arr.map((i: SupplierInvoice) =>
+    i.id === id ? { ...i, voided: true, voidedByName: byName, voidedAt: new Date().toISOString(), voidReason: reason.trim() } : i));
+}
+
+// Record a payment. `maxTotal` is the most this PO may be paid in total; it is re-checked here against
+// the freshest payments so two people can't overpay at the same time.
+export async function dbRecordPayment(
+  input: Omit<SupplierPayment, 'id' | 'createdAt' | 'byName'>, byName: string, maxTotal: number,
+): Promise<SupplierPayment> {
+  procurementOnly();
+  let saved: SupplierPayment | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('supplierPayments', (arr) => {
+    saved = undefined; error = undefined;
+    if (!(input.amount > 0)) { error = 'Enter the amount paid.'; return arr; }
+    const already = arr.filter((p: SupplierPayment) => p.poId === input.poId && !p.voided).reduce((t: number, p: SupplierPayment) => t + p.amount, 0);
+    if (already + input.amount > maxTotal + 0.005) {
+      error = `That would pay AED ${(already + input.amount).toFixed(2)} in total, more than the AED ${maxTotal.toFixed(2)} allowed on this PO (already paid ${already.toFixed(2)}).`;
+      return arr;
+    }
+    saved = { ...input, id: newId('spay'), byName, createdAt: new Date().toISOString() };
+    return [...arr, saved];
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not save the payment.');
+  return saved;
+}
+
+export async function dbVoidPayment(id: string, byName: string, reason: string): Promise<void> {
+  procurementOnly();
+  if (!reason.trim()) throw new ProcurementError('Give a reason for voiding the payment.');
+  await updateFirestoreDocArray('supplierPayments', (arr) => arr.map((p: SupplierPayment) =>
+    p.id === id ? { ...p, voided: true, voidedByName: byName, voidedAt: new Date().toISOString(), voidReason: reason.trim() } : p));
+}
+
+// ── STF: Structured Trade Finance ────────────────────────────────────────────
+export async function dbFetchTradeFinances(): Promise<TradeFinance[]> { return getFirestoreDocArray('tradeFinances'); }
+
+const TF_TERMS = ['type', 'bankName', 'facilityRef', 'currency', 'fxRate', 'invoiceAmount', 'marginPct', 'tenorDays', 'interestRate',
+  'commissionPct', 'otherFees', 'expectedDrawDate', 'notes'] as const;
+
+function checkTfTerms(t: Partial<TradeFinance>): string | null {
+  if (!t.bankName?.trim()) return 'Enter the bank.';
+  if (!(Number(t.invoiceAmount) > 0)) return 'Enter the amount being financed.';
+  if (!(Number(t.fxRate) > 0)) return 'Enter the exchange rate to AED.';
+  if (!(Number(t.tenorDays) > 0)) return 'Enter the tenor in days.';
+  if (!(Number(t.interestRate) >= 0)) return 'Enter the interest / profit rate (0 if none).';
+  const margin = Number(t.marginPct ?? 0);                 // empty = no cash margin
+  if (!(margin >= 0 && margin < 100)) return 'Cash margin must be between 0 and 99%.';
+  return null;
+}
+
+// Create (no id) or edit (id) an STF. Terms can be changed until the bank has paid the supplier.
+export async function dbSaveTradeFinance(input: Partial<TradeFinance> & { poId: string }, byName: string): Promise<TradeFinance> {
+  procurementOnly();
+  const bad = checkTfTerms(input);
+  if (bad) throw new ProcurementError(bad);
+  const pos: PurchaseOrder[] = await getFirestoreDocArray('purchaseOrders');
+  const po = pos.find((p) => p.id === input.poId);
+  if (!po) throw new ProcurementError('Choose the purchase order this finance is for.');
+  if (po.status !== 'approved') throw new ProcurementError(`${po.poNo} is not an issued PO, so it can't be financed.`);
+  let saved: TradeFinance | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('tradeFinances', (arr) => {
+    saved = undefined; error = undefined;
+    const now = new Date().toISOString();
+    const patch: any = {};
+    for (const k of TF_TERMS) if ((input as any)[k] !== undefined) patch[k] = (input as any)[k];
+    if (input.id) {
+      const cur = arr.find((x: TradeFinance) => x.id === input.id);
+      if (!cur) { error = 'This STF no longer exists.'; return arr; }
+      if (cur.status === 'drawn' || cur.status === 'settled' || cur.status === 'cancelled') { error = 'The terms can’t be changed once the bank has paid the supplier.'; return arr; }
+      saved = { ...cur, ...patch, updatedAt: now };
+      return arr.map((x: TradeFinance) => (x.id === input.id ? saved! : x));
+    }
+    const tf: TradeFinance = {
+      id: newId('tf'), stfNo: nextDocNo(arr.map((x: TradeFinance) => x.stfNo), 'STF'),
+      poId: po.id, poNo: po.poNo, supplierName: po.supplierName,
+      type: patch.type || 'usance_lc', bankName: String(patch.bankName).trim(), facilityRef: patch.facilityRef || null,
+      currency: patch.currency || 'AED', fxRate: Number(patch.fxRate), invoiceAmount: Number(patch.invoiceAmount),
+      marginPct: Number(patch.marginPct) || 0, tenorDays: Number(patch.tenorDays), interestRate: Number(patch.interestRate) || 0,
+      commissionPct: Number(patch.commissionPct) || 0, otherFees: Number(patch.otherFees) || 0,
+      expectedDrawDate: patch.expectedDrawDate || null, notes: patch.notes || null,
+      status: 'draft', repayments: [], attachments: [], createdByName: byName, createdAt: now,
+    };
+    saved = tf;
+    return [...arr, tf];
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not save the STF.');
+  return saved;
+}
+
+// Documents / notes can be added at any stage.
+export async function dbPatchTradeFinance(id: string, patch: { attachments?: ProcAttachment[]; notes?: string | null; facilityRef?: string | null }): Promise<void> {
+  procurementOnly();
+  await updateFirestoreDocArray('tradeFinances', (arr) => arr.map((x: TradeFinance) => (x.id === id ? { ...x, ...patch, updatedAt: new Date().toISOString() } : x)));
+}
+
+export type TfAction = 'apply' | 'approve' | 'cancel';
+export async function dbTradeFinanceAction(id: string, action: TfAction, byName: string, opts: { notes?: string | null; approvedRef?: string | null; facilityRef?: string | null; date?: string | null } = {}): Promise<TradeFinance> {
+  procurementOnly();
+  let saved: TradeFinance | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('tradeFinances', (arr) => {
+    saved = undefined; error = undefined;
+    const cur = arr.find((x: TradeFinance) => x.id === id);
+    if (!cur) { error = 'This STF no longer exists.'; return arr; }
+    const now = new Date().toISOString();
+    let next: TradeFinance | null = null;
+    if (action === 'apply') {
+      if (cur.status !== 'draft') error = 'Only a draft can be marked as applied.';
+      else next = { ...cur, status: 'applied', appliedAt: opts.date || now };
+    } else if (action === 'approve') {
+      if (cur.status !== 'applied') error = 'Only an application that is with the bank can be approved.';
+      else next = { ...cur, status: 'approved', approvedAt: opts.date || now, approvedRef: opts.approvedRef?.trim() || null, facilityRef: opts.facilityRef?.trim() || cur.facilityRef || null };
+    } else if (action === 'cancel') {
+      if (!['draft', 'applied', 'approved'].includes(cur.status)) error = 'Once the bank has paid the supplier it can’t be cancelled — settle it instead.';
+      else if (!opts.notes?.trim()) error = 'Give a reason for cancelling.';
+      else next = { ...cur, status: 'cancelled', cancelReason: opts.notes.trim(), cancelledByName: byName, cancelledAt: now };
+    }
+    if (!next || error) return arr;
+    saved = { ...next, updatedAt: now };
+    return arr.map((x: TradeFinance) => (x.id === id ? saved! : x));
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not update the STF.');
+  return saved;
+}
+
+// Drawdown = the bank pays the supplier. Starts the repayment clock (maturity = drawdown date + tenor) and,
+// in the SAME transaction, records that payment on the PO — so the PO and the STF can never disagree.
+export async function dbDrawTradeFinance(
+  id: string,
+  opts: { date: string; payment?: { invoiceId?: string | null; amount: number } | null },
+  byName: string,
+  maxPoPayable: number,
+): Promise<TradeFinance> {
+  procurementOnly();
+  if (!opts.date) throw new ProcurementError('Enter the date the bank paid the supplier.');
+  let saved: TradeFinance | undefined;
+  await updateFirestoreDocArrays({
+    tradeFinances: (arr) => {
+      const cur = arr.find((x: TradeFinance) => x.id === id);
+      if (!cur) throw new ProcurementError('This STF no longer exists.');
+      if (cur.status !== 'approved') throw new ProcurementError('Only an approved STF can be drawn.');
+      const payId = opts.payment ? newId('spay') : null;
+      saved = { ...cur, status: 'drawn', drawDate: opts.date, maturityDate: addDays(opts.date, cur.tenorDays), supplierPaymentId: payId, updatedAt: new Date().toISOString() };
+      return arr.map((x: TradeFinance) => (x.id === id ? saved! : x));
+    },
+    ...(opts.payment ? {
+      supplierPayments: (arr: any[]) => {
+        const tf = saved!;
+        const amt = Number(opts.payment!.amount) || 0;
+        if (!(amt > 0)) throw new ProcurementError('Enter the amount the bank paid the supplier.');
+        const already = arr.filter((p: SupplierPayment) => p.poId === tf.poId && !p.voided).reduce((t: number, p: SupplierPayment) => t + p.amount, 0);
+        if (already + amt > maxPoPayable + 0.005) {
+          throw new ProcurementError(`The bank’s payment of AED ${amt.toFixed(2)} would take payments on ${tf.poNo} to AED ${(already + amt).toFixed(2)}, above the AED ${maxPoPayable.toFixed(2)} allowed. Lower the amount or untick “record on the PO”.`);
+        }
+        const pay: SupplierPayment = {
+          id: tf.supplierPaymentId as string, poId: tf.poId, poNo: tf.poNo, supplierName: tf.supplierName,
+          invoiceId: opts.payment!.invoiceId || null, kind: opts.payment!.invoiceId ? 'invoice' : 'advance', amount: amt,
+          paidAt: opts.date, method: 'trade_finance', reference: `${tf.stfNo}${tf.facilityRef ? ` · ${tf.facilityRef}` : ''} · ${tf.bankName}`,
+          notes: 'Paid to the supplier by the bank under Structured Trade Finance', byName, createdAt: new Date().toISOString(),
+        };
+        return [...arr, pay];
+      },
+    } : {}),
+  } as any);
+  return saved!;
+}
+
+// Repayment to the bank. Settles the STF automatically when nothing is left to pay.
+export async function dbAddTfRepayment(id: string, input: { amount: number; paidAt: string; reference?: string | null; notes?: string | null }, byName: string): Promise<TradeFinance> {
+  procurementOnly();
+  let saved: TradeFinance | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('tradeFinances', (arr) => {
+    saved = undefined; error = undefined;
+    const cur = arr.find((x: TradeFinance) => x.id === id);
+    if (!cur) { error = 'This STF no longer exists.'; return arr; }
+    if (cur.status !== 'drawn') { error = 'Repayments can only be recorded after the bank has paid the supplier.'; return arr; }
+    if (!(input.amount > 0)) { error = 'Enter the amount paid to the bank.'; return arr; }
+    const pos = tfPosition(cur);
+    if (input.amount > pos.outstanding + 0.005) { error = `That is more than the AED ${pos.outstanding.toFixed(2)} still owed to the bank.`; return arr; }
+    const rep: TfRepayment = { id: newId('tfr'), amount: input.amount, paidAt: input.paidAt, reference: input.reference || null, notes: input.notes || null, byName, createdAt: new Date().toISOString() };
+    const next: TradeFinance = { ...cur, repayments: [...cur.repayments, rep], updatedAt: rep.createdAt };
+    if (tfPosition(next).outstanding <= 0.005) next.status = 'settled';
+    saved = next;
+    return arr.map((x: TradeFinance) => (x.id === id ? next : x));
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not save the repayment.');
+  return saved;
+}
+
+export async function dbVoidTfRepayment(id: string, repaymentId: string, byName: string, reason: string): Promise<void> {
+  procurementOnly();
+  if (!reason.trim()) throw new ProcurementError('Give a reason for voiding the repayment.');
+  await updateFirestoreDocArray('tradeFinances', (arr) => arr.map((x: TradeFinance) => {
+    if (x.id !== id) return x;
+    const repayments = x.repayments.map((r) => (r.id === repaymentId ? { ...r, voided: true, voidedByName: byName, voidedAt: new Date().toISOString(), voidReason: reason.trim() } : r));
+    const next = { ...x, repayments };
+    if (x.status === 'settled' && tfPosition(next).outstanding > 0.005) next.status = 'drawn';
+    return next;
+  }));
 }
 
 export async function dbFetchProductionLogs(): Promise<ProductionLog[]> {

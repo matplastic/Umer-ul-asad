@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ViewRole, StageId } from '../types';
 import { STAGES } from '../data/mockData';
 import { getAllowedRoles } from '../lib/authClient';
-import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight, Factory, Truck, PackageCheck } from 'lucide-react';
+import { Wrench, Shield, Monitor, BarChart3, HardHat, Tv, Cloud, LogOut, ClipboardList, Boxes, UserCog, FileBarChart, Warehouse, ShieldAlert, Menu, X, ChevronsLeft, ChevronsRight, Factory, Truck, PackageCheck, ShoppingCart } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { IdleTimeoutSetting } from './IdleTimeoutSetting';
 
@@ -125,6 +125,7 @@ const NAV_ITEMS: { role: ViewRole; label: string; icon: React.ElementType; testI
   { role: 'reports_analytics', label: 'Reports & Analytics', icon: FileBarChart, testId: 'role-reports-analytics' },
   { role: 'site_team', label: 'Site Team (Receiving)', icon: Truck, testId: 'role-site-team' },
   { role: 'warehouse', label: 'Warehouse', icon: PackageCheck, testId: 'role-warehouse' },
+  { role: 'procurement', label: 'Procurement', icon: ShoppingCart, testId: 'role-procurement' },
 ];
 
 // Sidebar grouping — every role in NAV_ITEMS appears in exactly one group.
@@ -133,7 +134,7 @@ const NAV_GROUPS: { title: string; roles: ViewRole[] }[] = [
   { title: 'Overview', roles: ['management', 'reports_analytics'] },
   { title: 'Production', roles: ['planning_department', 'production_engineer', 'stage_worker', 'section_supervisor', 'factory_supervisor', 'trolley_prod'] },
   { title: 'Quality', roles: ['quality_inspector'] },
-  { title: 'Store & Logistics', roles: ['store', 'warehouse', 'site_team'] },
+  { title: 'Store & Logistics', roles: ['procurement', 'store', 'warehouse', 'site_team'] },
   { title: 'People', roles: ['hr_portal', 'hr_admin'] },
   { title: 'Displays', roles: ['factory_entrance', 'section_dashboard'] },
 ];

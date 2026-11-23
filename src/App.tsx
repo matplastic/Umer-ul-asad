@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, COMPANIES, ChecklistResult } from './types';
 import StoreModule from './components/StoreModule';
+import ProcurementPortal from './components/ProcurementPortal';
 import { ScrollButtons } from './components/ScrollButtons';
 import SupervisorPortal from './components/SupervisorPortal';
 import { STAGES, getDualGroupForStage, getDualGroupForIndex, getInitialData, createEmptyHistory, getMaxConcurrentClaims, allowsExtraClaimWhileAwaitingQC, isPoolAwaitingQcAtStage } from './data/mockData';
@@ -4539,6 +4540,13 @@ export default function App() {
               if (!acc[p.projectName].includes(p.poolType)) acc[p.projectName].push(p.poolType);
               return acc;
             }, {})}
+          />
+        )}
+
+        {currentRole === 'procurement' && (
+          <ProcurementPortal
+            currentUserName={loggedInUser?.displayName || 'Procurement'}
+            canApprove={loggedInUser?.role === 'management'}
           />
         )}
 

@@ -17,6 +17,11 @@ const SHARD_COUNTS = {
   incomingMaterials: 8,
   materials: 4,
   stockAdjustments: 4,
+  purchaseOrders: 8,
+  procurementRfqs: 4,
+  supplierInvoices: 4,
+  supplierPayments: 4,
+  tradeFinances: 4,
 };
 
 function shardCountFor(name) {
