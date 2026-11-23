@@ -12,6 +12,7 @@ import {
   runSave, useConfirm, hrToast,
 } from './hrUi';
 import { ImportButton } from './ExcelImport';
+import { LeaveBalanceCard } from './LeaveBalance';
 import { AddDocumentModal, DocFilesModal, DocRowActions, buildDocRows } from './DocumentsVault';
 
 interface Props {
@@ -140,7 +141,7 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
           ]} />
 
           {tab === 'overview' && (
-            <OverviewForm key={emp.id} emp={emp} prof={prof} user={user} save={profC.save} />
+            <OverviewForm key={emp.id} emp={emp} prof={prof} user={user} save={profC.save} leaves={leaves} />
           )}
 
           {tab === 'docs' && (
@@ -187,7 +188,7 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
 };
 
 // ─── Overview / profile form ───
-const OverviewForm: React.FC<{ emp: Employee; prof?: HRProfile; user?: string; save: (p: HRProfile) => Promise<void> }> = ({ emp, prof, user, save }) => {
+const OverviewForm: React.FC<{ emp: Employee; prof?: HRProfile; user?: string; save: (p: HRProfile) => Promise<void>; leaves: LeaveLite[] }> = ({ emp, prof, user, save, leaves }) => {
   const [f, setF] = useState<HRProfile>(prof || { id: emp.id });
   const [busy, setBusy] = useState(false);
   const set = (k: keyof HRProfile, v: any) => setF(p => ({ ...p, [k]: v === '' ? undefined : v }));
@@ -215,6 +216,7 @@ const OverviewForm: React.FC<{ emp: Employee; prof?: HRProfile; user?: string; s
   const contractDays = daysUntil(f.contractEndDate);
   return (
     <div className="space-y-4">
+      <LeaveBalanceCard employeeId={emp.id} joiningDate={prof?.joiningDate} leaves={leaves} />
       <SectionCard title="Employment">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {txt('designation', 'Designation / job title')}

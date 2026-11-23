@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { Employee, EmployeePunch } from '../../types';
 import {
-  useHRCollection, HRProfile, HRDocument, HRCase, HRRequest, HRTraining, HRPPE, HRAccidentCase, HRVehicle, HRVehicleFine,
+  useHRCollection, HRProfile, HRDocument, HRCase, HRRequest, HRTraining, HRPPE, HRAccidentCase, HRHoliday, HRVehicle, HRVehicleFine,
   LeaveLite, WarningLite, AccidentLite, MANDATORY_COURSES, todayStr, daysUntil, expiryState, fmtD,
 } from '../../lib/hrStore';
 import { chartTokens, chartAxisDefaults } from '../../lib/chartTokens';
@@ -31,6 +31,7 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
   const trainC = useHRCollection<HRTraining>('hrTraining');
   const ppeC = useHRCollection<HRPPE>('hrPPE');
   const accC = useHRCollection<HRAccidentCase>('hrAccidentCases');
+  const holC = useHRCollection<HRHoliday>('hrHolidays');
   const vehC = useHRCollection<HRVehicle>('hrVehicles');
   const fineC = useHRCollection<HRVehicleFine>('hrVehicleFines');
 
@@ -186,6 +187,16 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
               ))}
             </div>
           )}
+        </SectionCard>
+        <SectionCard title="Upcoming holidays">
+          {(() => {
+            const t = todayStr();
+            const next = holC.items.filter(h => (h.endDate && h.endDate >= h.date ? h.endDate : h.date) >= t).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
+            if (!next.length) return <p className="text-sm text-slate-400 py-3 text-center">No holidays added yet — open Holiday Calendar.</p>;
+            return <div className="space-y-1.5">{next.map(h => { const d = daysUntil(h.date) ?? 0; return (
+              <div key={h.id} className="flex items-center justify-between text-sm"><span className="font-semibold text-slate-800 truncate">{h.name}</span>
+                <span className="text-[11px] text-slate-500 whitespace-nowrap">{fmtD(h.date)}{h.endDate && h.endDate > h.date ? ` – ${fmtD(h.endDate)}` : ''} · {d <= 0 ? 'now' : `in ${d}d`}</span></div>); })}</div>;
+          })()}
         </SectionCard>
         <SectionCard title="Birthdays & anniversaries (next 14 days)">
           {d.celebrations.length === 0 ? <p className="text-sm text-slate-400 py-3 text-center">Nothing coming up. Add date of birth and joining date in Employee 360.</p> : (

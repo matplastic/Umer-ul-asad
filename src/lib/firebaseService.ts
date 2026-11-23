@@ -141,6 +141,9 @@ const COLLECTION_BACKED: Record<string, boolean> = {
   hrFuelLogs: true,
   hrVehicleService: true,
   hrVehicleFines: true,
+  hrHolidays: true,
+  hrLeavePolicy: true,
+  hrLeaveAdjust: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

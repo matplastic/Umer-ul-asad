@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { FileSpreadsheet, Upload, Download, CheckCircle2, AlertTriangle, X } from 'lucide-react';
 import { Employee } from '../../types';
 import {
-  useHRCollection, HRProfile, HRDocument, HRTraining, HRPPE, HRVehicle, HRFuelLog, logAudit,
+  useHRCollection, HRProfile, HRDocument, HRTraining, HRPPE, HRVehicle, HRFuelLog, HRLeaveAdjust, logAudit,
 } from '../../lib/hrStore';
 import {
   readWorkbook, mapColumns, matchEmployee, cellText, downloadTemplate, downloadRows, Cell, MatchResult,
@@ -53,11 +53,12 @@ export const ExcelImportModal: React.FC<Props> = ({ employees, user, types = IMP
   const ppeC = useHRCollection<HRPPE>('hrPPE', typeId === 'ppe');
   const vehC = useHRCollection<HRVehicle>('hrVehicles', typeId === 'vehicles' || typeId === 'fuel');
   const logC = useHRCollection<HRFuelLog>('hrFuelLogs', typeId === 'fuel');
+  const adjC = useHRCollection<HRLeaveAdjust>('hrLeaveAdjust', typeId === 'leavebalance');
 
   const ctx: ImportCtx = useMemo(() => ({
     employees, user, overwrite, profiles: profC.items, docs: docsC.items, training: trainC.items, ppe: ppeC.items,
-    vehicles: vehC.items, logs: logC.items, saveEmployees: saveEmployees || (() => { throw new Error('Saving employees is not available here.'); }),
-  }), [employees, user, overwrite, profC.items, docsC.items, trainC.items, ppeC.items, vehC.items, logC.items, saveEmployees]);
+    vehicles: vehC.items, logs: logC.items, leaveAdjusts: adjC.items, saveEmployees: saveEmployees || (() => { throw new Error('Saving employees is not available here.'); }),
+  }), [employees, user, overwrite, profC.items, docsC.items, trainC.items, ppeC.items, vehC.items, logC.items, adjC.items, saveEmployees]);
 
   const reset = () => { setRaw(null); setFileName(''); setError(null); setPicked({}); setIncluded({}); setDone(null); setFilter('all'); };
 

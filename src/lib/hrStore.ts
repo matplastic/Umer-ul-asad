@@ -26,7 +26,8 @@ export type HRDocName =
   | 'hrProfiles' | 'hrDocuments' | 'hrLifecycle' | 'hrCases' | 'hrRequests'
   | 'hrTraining' | 'hrPPE' | 'hrAccidentCases' | 'hrReviews' | 'hrLetters' | 'hrAudit'
   | 'hrVacancies' | 'hrCandidates' | 'hrSettlements' | 'hrNotices' | 'hrGrievances'
-  | 'hrVehicles' | 'hrFuelLogs' | 'hrVehicleService' | 'hrVehicleFines';
+  | 'hrVehicles' | 'hrFuelLogs' | 'hrVehicleService' | 'hrVehicleFines'
+  | 'hrHolidays' | 'hrLeavePolicy' | 'hrLeaveAdjust';
 
 /** Every list the HR Suite owns — also registered for backup/restore. */
 export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
@@ -50,6 +51,9 @@ export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
   { id: 'hrFuelLogs', label: 'Fleet — daily km & fuel log' },
   { id: 'hrVehicleService', label: 'Fleet — maintenance records' },
   { id: 'hrVehicleFines', label: 'Fleet — fines & Salik' },
+  { id: 'hrHolidays', label: 'Company holiday calendar' },
+  { id: 'hrLeavePolicy', label: 'Leave policy' },
+  { id: 'hrLeaveAdjust', label: 'Leave balance adjustments' },
 ];
 
 // ─── Record types ───────────────────────────────────────────
@@ -341,6 +345,77 @@ export interface HRGrievance {
   resolution?: string;
   history: { at: string; by: string; action: string }[];
   createdAt: string;
+}
+
+// ─── Holidays, leave policy, leave balance adjustments ──────
+export interface HRHoliday {
+  id: string;
+  date: string;            // first day (yyyy-mm-dd)
+  endDate?: string;        // last day when it spans several days
+  name: string;
+  kind: 'Public' | 'Company' | 'Optional';
+  notes?: string;
+}
+export interface HRLeavePolicy {
+  id: string;              // always 'policy'
+  annualDays: number;      // paid annual leave per leave year
+  sickDays: number;        // sick leave allowance per year (information / warning)
+  emergencyDays: number;
+  leaveYearStartMonth: number;   // 1 = January … 12 = December
+  accrual: 'monthly' | 'upfront';
+  carryForwardMax: number; // days an employee may carry into the next year
+  excludeHolidays: boolean;// public / company holidays inside annual leave are not charged
+  updatedAt?: string;
+  updatedBy?: string;
+}
+export const DEFAULT_LEAVE_POLICY: HRLeavePolicy = {
+  id: 'policy', annualDays: 30, sickDays: 90, emergencyDays: 5, leaveYearStartMonth: 1, accrual: 'monthly', carryForwardMax: 0, excludeHolidays: true,
+};
+export interface HRLeaveAdjust {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  year: number;            // the leave year it applies to (the calendar year the leave year starts in)
+  kind: 'Carry forward' | 'Taken before ERP' | 'Adjustment';
+  days: number;            // Carry forward: + days added · Taken before ERP: + days already used · Adjustment: + adds / − removes
+  note?: string;
+  createdAt: string;
+  createdBy?: string;
+}
+
+// ─── Expiry reminder e-mails (settings live in ONE small document) ───
+export interface HRReminderSettings {
+  enabled: boolean;
+  recipients: string[];
+  daysBefore: number[];            // e.g. [60, 30, 14, 7, 0]
+  categories: Record<string, boolean>;
+  reRemindExpiredEveryDays: number;
+  // written by the server after each run
+  lastRunAt?: string;
+  lastRunSent?: number;
+  lastRunDue?: number;
+  lastRunNote?: string;
+}
+export const REMINDER_CATEGORIES: { id: string; label: string }[] = [
+  { id: 'passport', label: 'Passports' }, { id: 'visa', label: 'Visas' }, { id: 'eid', label: 'Emirates ID' }, { id: 'labour', label: 'Labour cards' },
+  { id: 'document', label: 'Other documents (insurance, licences…)' }, { id: 'training', label: 'Training certificates' }, { id: 'ppe', label: 'PPE replacement' },
+  { id: 'probation', label: 'Probation ending' }, { id: 'contract', label: 'Contracts ending' },
+  { id: 'vehicle', label: 'Vehicle registration & insurance' }, { id: 'service', label: 'Vehicle service due' },
+];
+export const REMINDER_DEFAULTS: HRReminderSettings = {
+  enabled: true, recipients: [], daysBefore: [60, 30, 14, 7, 0], reRemindExpiredEveryDays: 7,
+  categories: Object.fromEntries(REMINDER_CATEGORIES.map(c => [c.id, true])),
+};
+const reminderRef = () => doc(clientDb, 'system_state', 'hrReminderSettings');
+export function subscribeReminderSettings(cb: (s: HRReminderSettings) => void): Unsubscribe {
+  return onSnapshot(reminderRef(), snap => {
+    const d = (snap.exists() ? snap.data() : {}) as Partial<HRReminderSettings>;
+    cb({ ...REMINDER_DEFAULTS, ...d, categories: { ...REMINDER_DEFAULTS.categories, ...(d.categories || {}) }, daysBefore: Array.isArray(d.daysBefore) ? d.daysBefore : REMINDER_DEFAULTS.daysBefore, recipients: Array.isArray(d.recipients) ? d.recipients : [] });
+  }, err => console.warn('[hrStore] reminder settings listener failed:', err));
+}
+export async function saveReminderSettings(s: Pick<HRReminderSettings, 'enabled' | 'recipients' | 'daysBefore' | 'categories' | 'reRemindExpiredEveryDays'>): Promise<void> {
+  if (SANDBOX_ON) return;
+  await setDoc(reminderRef(), clean(s), { merge: true });   // merge: the server's last-run fields are kept
 }
 
 // ─── Company vehicles (fleet) ───────────────────────────────

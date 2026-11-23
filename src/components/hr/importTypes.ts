@@ -1,12 +1,12 @@
 // What each Excel import knows how to read, check and save.
 import type { Employee } from '../../types';
 import {
-  HRProfile, HRDocument, HRTraining, HRPPE, HRVehicle, HRFuelLog, DOC_TYPES, TRAINING_COURSES, PPE_ITEMS,
+  HRProfile, HRDocument, HRTraining, HRPPE, HRVehicle, HRFuelLog, HRLeaveAdjust, DOC_TYPES, TRAINING_COURSES, PPE_ITEMS,
   newId, bulkUpsertHR, currentAssignment,
 } from '../../lib/hrStore';
 import { ImportCol, MatchResult, matchEmployee, parseDate, parseNum, cellText } from '../../lib/excelImport';
 
-export type ImportTypeId = 'passport' | 'profile' | 'documents' | 'training' | 'ppe' | 'vehicles' | 'fuel';
+export type ImportTypeId = 'passport' | 'profile' | 'documents' | 'training' | 'ppe' | 'vehicles' | 'fuel' | 'leavebalance';
 
 export interface ImportCtx {
   employees: Employee[];
@@ -18,6 +18,7 @@ export interface ImportCtx {
   ppe: HRPPE[];
   vehicles: HRVehicle[];
   logs: HRFuelLog[];
+  leaveAdjusts: HRLeaveAdjust[];
   saveEmployees: (list: Employee[]) => void | Promise<void>;
 }
 
@@ -302,5 +303,38 @@ const fuel: ImportType = {
   async commit(_ctx, items) { await bulkUpsertHR('hrFuelLogs', items as HRFuelLog[]); return { added: items.length, updated: 0 }; },
 };
 
-export const IMPORT_TYPES: Record<ImportTypeId, ImportType> = { passport, profile, documents, training, ppe, vehicles, fuel };
-export const IMPORT_ORDER: ImportTypeId[] = ['passport', 'profile', 'documents', 'training', 'ppe', 'vehicles', 'fuel'];
+// ─────────── Opening leave balances ───────────
+const leavebalance: ImportType = {
+  id: 'leavebalance', label: 'Opening leave balances', blurb: 'Days carried forward, days already taken before the ERP, or corrections → Leave Balance', needsEmployee: true, supportsOverwrite: false,
+  templateFile: 'Leave_balance_import_template.xlsx',
+  cols: [BADGE, NAME, N('year', 'Leave Year', ['year', 'leaveyear'], String(new Date().getFullYear())), N('carry', 'Carry Forward Days', ['carryforward', 'carriedover', 'broughtforward', 'bf'], '5'),
+    N('taken', 'Taken Before ERP', ['takenbefore', 'daystaken', 'leavetaken', 'usedleave', 'annualtaken'], '12'), N('adj', 'Adjustment', ['correction', 'adjust'], ''), T('note', 'Note', ['remarks', 'comment'], 'Balance as at 31/10/2026')],
+  notes: ['One row per employee per leave year. Leave Year = the calendar year the leave year starts in (empty = this year).', '"Taken Before ERP" = annual leave days already used that are not recorded in the Leave tab.', 'Importing the same row again updates it instead of adding it twice.'],
+  build(ctx, v, emp) {
+    if (!emp) return bad('Employee not matched');
+    const year = parseNum(v.year), carry = parseNum(v.carry), taken = parseNum(v.taken), adj = parseNum(v.adj);
+    if ([year, carry, taken, adj].some(x => x === null)) return bad('Year and days must be numbers');
+    const y = year === '' ? new Date().getFullYear() : (year as number);
+    if (y < 2000 || y > 2100) return bad(`Leave year ${y} looks wrong`);
+    if ((carry as number) < 0 || (taken as number) < 0) return bad('Carry forward and taken days must be zero or positive');
+    const note = cellText(v.note) || undefined;
+    const mk = (kind: HRLeaveAdjust['kind'], suffix: string, days: number): HRLeaveAdjust => {
+      const id = `la_${emp.id}_${y}_${suffix}`;
+      const old = ctx.leaveAdjusts.find(a => a.id === id);
+      return { id, employeeId: emp.id, employeeName: emp.name, year: y, kind, days, note, createdAt: old?.createdAt || new Date().toISOString(), createdBy: old?.createdBy || ctx.user };
+    };
+    const recs: HRLeaveAdjust[] = [];
+    if (carry !== '' && (carry as number) !== 0) recs.push(mk('Carry forward', 'cf', carry as number));
+    if (taken !== '' && (taken as number) !== 0) recs.push(mk('Taken before ERP', 'tk', taken as number));
+    if (adj !== '' && (adj as number) !== 0) recs.push(mk('Adjustment', 'adj', adj as number));
+    if (!recs.length) return bad('No days on this row');
+    const unchanged = recs.every(r => { const o = ctx.leaveAdjusts.find(a => a.id === r.id); return o && o.days === r.days && (o.note || '') === (r.note || ''); });
+    if (unchanged) return { action: 'skip', message: 'Already recorded', summary: `${y}`, key: `${emp.id}|${y}` };
+    const exists = recs.some(r => ctx.leaveAdjusts.some(a => a.id === r.id));
+    return { action: exists ? 'update' : 'add', summary: `${y}: ${(carry as number) ? `carry ${carry} ` : ''}${(taken as number) ? `taken ${taken} ` : ''}${(adj as number) ? `adj ${adj}` : ''}`.trim(), key: `${emp.id}|${y}`, payload: recs };
+  },
+  async commit(ctx, items) { await bulkUpsertHR('hrLeaveAdjust', (items as HRLeaveAdjust[][]).flat()); return { added: items.length, updated: 0 }; },
+};
+
+export const IMPORT_TYPES: Record<ImportTypeId, ImportType> = { passport, profile, documents, training, ppe, vehicles, fuel, leavebalance };
+export const IMPORT_ORDER: ImportTypeId[] = ['passport', 'profile', 'documents', 'training', 'ppe', 'leavebalance', 'vehicles', 'fuel'];
