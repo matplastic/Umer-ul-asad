@@ -15,19 +15,23 @@ import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'fire
 import { app } from './googleDrive';
 import type { HRFile } from './hrStore';
 import { isHRSandbox } from './hrStore';
+import { shrinkPdfUnderCap } from './pdfShrink';
 
 export const HR_FILE_ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp';
 export const HR_MAX_FILE_BYTES = 1_000_000;   // 1 MB hard cap per file
 export const HR_MAX_FILES_PER_RECORD = 5;
+export const HR_MAX_PDF_INPUT_BYTES = 30 * 1_000_000;   // largest PDF we will try to compress
+export const needsPdfShrink = (f: File) => isPdf(f) && f.size > HR_MAX_FILE_BYTES;
 const OK_IMAGE = /^image\/(jpeg|png|webp)$/;
 const isPdf = (f: File) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
 const safeName = (n: string) => n.replace(/[^a-z0-9._-]+/gi, '_').slice(-80) || 'file';
 export const fmtBytes = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`;
 
 /** Returns an error message, or null when the file can be accepted. */
-export function validateHRFile(file: File): string | null {
+export function validateHRFile(file: File, shrinkPdfs = true): string | null {
   if (!isPdf(file) && !OK_IMAGE.test(file.type)) return `"${file.name}" is not supported. Use a PDF, JPG, PNG or WEBP file.`;
-  if (isPdf(file) && file.size > HR_MAX_FILE_BYTES) {
+  if (isPdf(file) && shrinkPdfs && file.size > HR_MAX_PDF_INPUT_BYTES) return `"${file.name}" is ${fmtBytes(file.size)} — too large even to compress (max 30 MB).`;
+  if (isPdf(file) && !shrinkPdfs && file.size > HR_MAX_FILE_BYTES) {
     return `"${file.name}" is ${fmtBytes(file.size)} — PDFs must be under 1 MB. Compress it first, or take a clear photo of the page instead.`;
   }
   if (!isPdf(file) && file.size > 40 * 1_000_000) return `"${file.name}" is too large to process.`;
@@ -69,8 +73,8 @@ function friendly(e: any): Error {
   return e instanceof Error ? e : new Error('Upload failed.');
 }
 
-export async function uploadHRFile(file: File, employeeId: string, recordId: string, uploadedBy?: string): Promise<HRFile> {
-  const bad = validateHRFile(file);
+export async function uploadHRFile(file: File, employeeId: string, recordId: string, uploadedBy?: string, shrinkPdfs = true): Promise<HRFile> {
+  const bad = validateHRFile(file, shrinkPdfs);
   if (bad) throw new Error(bad);
   if (isHRSandbox()) {
     // Demo screen: keep the file in the browser only — nothing is uploaded or stored.
@@ -79,7 +83,7 @@ export async function uploadHRFile(file: File, employeeId: string, recordId: str
   }
   if (!app.options.storageBucket) throw new Error('Firebase Storage is not set up (storage bucket is empty in the app settings).');
   try {
-    const body = isPdf(file) ? file : await shrinkImageUnderCap(file);
+    const body = isPdf(file) ? (needsPdfShrink(file) ? await shrinkPdfUnderCap(file, HR_MAX_FILE_BYTES) : file) : await shrinkImageUnderCap(file);
     if (body.size > HR_MAX_FILE_BYTES) throw new Error(`"${file.name}" is over 1 MB.`);
     const contentType = isPdf(file) ? 'application/pdf' : (body === file ? file.type : 'image/jpeg');
     const id = `f_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;

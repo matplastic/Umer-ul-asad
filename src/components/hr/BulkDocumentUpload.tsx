@@ -3,7 +3,7 @@ import { FolderUp, FilePlus2, CheckCircle2, AlertTriangle, Loader2 } from 'lucid
 import { Employee } from '../../types';
 import { HRDocument, HRFile, HRCollection, DOC_TYPES, newId, logAudit } from '../../lib/hrStore';
 import {
-  uploadHRFile, deleteHRFile, validateHRFile, fmtBytes, HR_FILE_ACCEPT, HR_MAX_FILES_PER_RECORD,
+  uploadHRFile, deleteHRFile, validateHRFile, needsPdfShrink, fmtBytes, HR_FILE_ACCEPT, HR_MAX_FILES_PER_RECORD,
 } from '../../lib/hrFiles';
 import { Modal, EmployeeSelect, inputCls, btnPrimary, btnGhost, hrToast } from './hrUi';
 
@@ -101,6 +101,7 @@ interface Props {
 export const BulkDocumentUpload: React.FC<Props> = ({ employees, docsC, user, onClose }) => {
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
+  const [shrink, setShrink] = useState(true);
   const folderInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -158,7 +159,7 @@ export const BulkDocumentUpload: React.FC<Props> = ({ employees, docsC, user, on
             // Skip a file that is already stored (same name + size) so re-running never duplicates.
             const dup = existing?.files?.some(f => f.name === r.file.name && Math.abs(f.size - r.file.size) < 2048);
             if (dup) { patch(r.key, { status: 'done' }); continue; }
-            uploaded.push(await uploadHRFile(r.file, employeeId, recId, user));
+            uploaded.push(await uploadHRFile(r.file, employeeId, recId, user, shrink));
           }
           if (uploaded.length) {
             const rec: HRDocument = existing
@@ -208,6 +209,11 @@ export const BulkDocumentUpload: React.FC<Props> = ({ employees, docsC, user, on
         and the file name decides the document type. You can correct anything below before uploading.
       </p>
 
+      <label className="flex items-center gap-2 text-xs text-slate-600 mb-3 cursor-pointer">
+        <input type="checkbox" checked={shrink} disabled={busy} onChange={e => setShrink(e.target.checked)} />
+        Compress PDFs over 1 MB automatically <span className="text-slate-400">(pages become images — text can’t be selected)</span>
+      </label>
+
       {rows.length > 0 && (
         <>
           <p className="text-xs font-semibold text-slate-600 mb-2">
@@ -225,7 +231,7 @@ export const BulkDocumentUpload: React.FC<Props> = ({ employees, docsC, user, on
                   <tr key={r.key} className={`border-t border-slate-100 ${r.skip ? 'opacity-50' : ''}`}>
                     <td className="p-2 max-w-[220px]">
                       <div className="truncate font-medium text-slate-700" title={r.file.name}>{r.file.name}</div>
-                      <div className="text-[10px] text-slate-400">{fmtBytes(r.file.size)}{r.folder && ` · ${r.folder}`}</div>
+                      <div className="text-[10px] text-slate-400">{fmtBytes(r.file.size)}{r.folder && ` · ${r.folder}`}{shrink && needsPdfShrink(r.file) && r.status === 'ready' && <span className="text-sky-600"> · will be compressed</span>}</div>
                       {r.error && <div className="text-[10px] text-red-600">{r.error}</div>}
                     </td>
                     <td className="p-2">

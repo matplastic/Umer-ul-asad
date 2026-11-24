@@ -22,6 +22,7 @@
     "express": "^4.21.2",
     "firebase": "^12.15.0",
     "firebase-admin": "^14.0.0",
+    "pdfjs-dist": "^4.10.38",
     "html5-qrcode": "^2.3.8",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",
