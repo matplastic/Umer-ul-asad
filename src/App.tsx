@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { Pool, StageId, Team, ActivityLog, ViewRole, PoolOrientation, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, COMPANIES, ChecklistResult } from './types';
 import StoreModule from './components/StoreModule';
 import ProcurementPortal from './components/ProcurementPortal';
@@ -281,6 +281,9 @@ export default function App() {
   // Closed by default so the current portal has the full screen; opening it
   // shows the RoleSelector as a slide-in drawer instead of a permanent sidebar.
   const [navOpen, setNavOpen] = useState(false);
+  // Bumped when the sidebar item of the portal that is ALREADY open is clicked
+  // again: the portal is rebuilt so it returns to its start page.
+  const [portalResetKey, setPortalResetKey] = useState(0);
   const [currentRole, setCurrentRole] = useState<ViewRole>(() => {
     // First: check if station is locked — that takes priority
     const lockRaw = localStorage.getItem('apex_station_lock');
@@ -4042,6 +4045,15 @@ export default function App() {
             // happen even from some other code path we haven't audited.
             const allowed = loggedInUser ? getAllowedRoles(loggedInUser) : [role];
             if (allowed.includes(role)) {
+              if (role === currentRole) {
+                // Same portal clicked again -> back to its start page.
+                // (The HR portal remembers its open tab in sessionStorage, so forget it.)
+                try {
+                  sessionStorage.removeItem('hr_active_tab_executive');
+                  sessionStorage.removeItem('hr_active_tab_admin');
+                } catch { /* storage blocked */ }
+                setPortalResetKey(k => k + 1);
+              }
               setCurrentRole(role);
             } else {
               console.warn(`[access] Blocked switch to "${role}" — not in this account's allowedRoles.`);
@@ -4217,6 +4229,7 @@ export default function App() {
           allTeams={teams}
           stationLock={isCodeCheckedInWorker ? { isLocked: true, stageId: selectedStageId, teamId: workerTeamId } : stationLock}
         />
+        <Fragment key={portalResetKey}>
         {currentRole === 'planning_department' && (
           <PlanningDepartment
             plannedPools={plannedPools}
@@ -4649,6 +4662,7 @@ export default function App() {
             qcDefects={qcDefects}
           />
         )}
+        </Fragment>
         </>)}
 
       </main>
