@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Download, FileText, ShieldAlert, Paperclip, ExternalLink, Upload, X, HardDrive } from 'lucide-react';
+import { FolderUp, Plus, Trash2, Download, FileText, ShieldAlert, Paperclip, ExternalLink, Upload, X, HardDrive } from 'lucide-react';
 import { Employee } from '../../types';
 import {
   useHRCollection, HRDocument, HRFile, HRProfile, HRCollection, DOC_TYPES, newId, expiryState, daysUntil, fmtD, logAudit,
@@ -7,6 +7,7 @@ import {
 import { uploadHRFile, deleteHRFile, validateHRFile, fmtBytes, HR_FILE_ACCEPT, HR_MAX_FILES_PER_RECORD } from '../../lib/hrFiles';
 import { exportToExcel, exportTablePdf } from '../../lib/exportUtils';
 import { ImportButton } from './ExcelImport';
+import { BulkDocumentUpload } from './BulkDocumentUpload';
 import {
   Modal, Field, EmployeeSelect, inputCls, btnPrimary, btnGhost, StatCard, Badge, ExpiryBadge, Empty,
   SearchBox, runSave, useConfirm, hrToast,
@@ -226,6 +227,7 @@ export const DocumentsVault: React.FC<Props> = ({ employees, user, saveEmployees
   const [stateF, setStateF] = useState<'all' | 'expired' | 'soon' | 'ok'>('all');
   const [add, setAdd] = useState<null | { type?: string; number?: string; expiry?: string | null; empId?: string }>(null);
   const [filesDoc, setFilesDoc] = useState<HRDocument | null>(null);
+  const [bulk, setBulk] = useState(false);
 
   const rows = useMemo(() => buildDocRows(employees, profC.items, docsC.items), [employees, profC.items, docsC.items]);
   const types = useMemo(() => ['All', ...Array.from(new Set(rows.map(r => r.docType))).sort()], [rows]);
@@ -288,6 +290,7 @@ export const DocumentsVault: React.FC<Props> = ({ employees, user, saveEmployees
           }) : hrToast('Nothing to export', 'err')}><Download className="h-3.5 w-3.5" />PDF</button>
           <ImportButton employees={employees} user={user} saveEmployees={saveEmployees} types={['passport', 'documents', 'profile']} initialType="passport" />
           <button className={btnPrimary} onClick={() => setAdd({})}><Plus className="h-4 w-4" />Add document</button>
+          <button className={btnGhost} onClick={() => setBulk(true)}><FolderUp className="h-4 w-4" />Bulk upload</button>
         </div>
       </div>
 
@@ -317,6 +320,7 @@ export const DocumentsVault: React.FC<Props> = ({ employees, user, saveEmployees
           </table>
         </div>
       )}
+      {bulk && <BulkDocumentUpload employees={employees} docsC={docsC} user={user} onClose={() => setBulk(false)} />}
       {add && <AddDocumentModal employees={employees} user={user} presetEmployeeId={add.empId} presetType={add.type} presetNumber={add.number} presetExpiry={add.expiry} onClose={() => setAdd(null)} save={docsC.save} />}
       {filesDoc && <DocFilesModal doc={filesDoc} user={user} docsC={docsC} onClose={() => setFilesDoc(null)} />}
     </div>
