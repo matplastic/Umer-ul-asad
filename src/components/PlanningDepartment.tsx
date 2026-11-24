@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useFavoriteNav } from '../lib/favorites';
+import { useTabReset } from '../hooks/useTabReset';
 import * as XLSX from 'xlsx';
 import { PlannedPool, Pool, PoolOrientation, ViewRole, ProjectSummary, MonthlyTarget, InventoryDeletionLog } from '../types';
 import { STAGES } from '../data/mockData';
@@ -146,6 +147,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
 }) => {
   // Navigation tabs within Planning Portal
   const [activeTab, setActiveTab] = useState<'dashboard' | 'registry' | 'all_projects_portal' | 'monthly_targets' | 'quick_launch' | 'direct_stage_portal' | 'roles' | 'pool_manager'>('dashboard');
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(activeTab, setActiveTab);
   useFavoriteNav('planning_department', activeTab, setActiveTab);
   const [poolManagerSearch, setPoolManagerSearch] = useState('');
 
@@ -1494,7 +1496,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
         {/* Action Quick Links tabs */}
         <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 self-start md:self-center">
           <button
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => selectTab('dashboard')}
             className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               activeTab === 'dashboard'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1504,7 +1506,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             Dashboard Analytics
           </button>
           <button
-            onClick={() => setActiveTab('all_projects_portal')}
+            onClick={() => selectTab('all_projects_portal')}
             className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               activeTab === 'all_projects_portal'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1515,7 +1517,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             All Projects Portal
           </button>
           <button
-            onClick={() => setActiveTab('monthly_targets')}
+            onClick={() => selectTab('monthly_targets')}
             className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               activeTab === 'monthly_targets'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1526,7 +1528,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             KPI Targets Scheduler
           </button>
           <button
-            onClick={() => setActiveTab('registry')}
+            onClick={() => selectTab('registry')}
             className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               activeTab === 'registry'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1536,7 +1538,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             Inventory Registry ({combinedRegistryPools.length})
           </button>
           <button
-            onClick={() => setActiveTab('quick_launch')}
+            onClick={() => selectTab('quick_launch')}
             className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               activeTab === 'quick_launch'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1546,7 +1548,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             + Create / Batch Spawner
           </button>
           <button
-            onClick={() => setActiveTab('direct_stage_portal')}
+            onClick={() => selectTab('direct_stage_portal')}
             className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'direct_stage_portal'
                 ? 'bg-indigo-650 text-white shadow-xs bg-indigo-600'
@@ -1557,7 +1559,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             🕹️ Direct Stage & Status Updater
           </button>
           <button
-            onClick={() => setActiveTab('roles')}
+            onClick={() => selectTab('roles')}
             className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'roles'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1568,7 +1570,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
             👷 Roles ({inspectors.length + engineers.length})
           </button>
           <button
-            onClick={() => setActiveTab('pool_manager')}
+            onClick={() => selectTab('pool_manager')}
             className={`px-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'pool_manager'
                 ? 'bg-rose-600 text-white shadow-xs'
@@ -1582,6 +1584,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
       </div>
 
       {/* RENDER ACTIVE TAB */}
+      <React.Fragment key={tabResetKey}>
 
       {/* ====== TAB 1: DASHBOARD ====== */}
       {activeTab === 'dashboard' && (
@@ -4548,6 +4551,7 @@ export const PlanningDepartment: React.FC<PlanningDepartmentProps> = ({
           </div>
         </div>
       )}
+      </React.Fragment>
 
     </div>
   );

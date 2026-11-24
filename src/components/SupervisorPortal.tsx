@@ -18,6 +18,7 @@ import {
 import { exportTablePdf } from '../lib/exportUtils';
 import { SearchableSelect, SearchableOption } from './SearchableSelect';
 import { matchesAllTokens } from '../lib/searchUtils';
+import { useTabReset } from '../hooks/useTabReset';
 
 const uid = () => `sup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 const fmtDate = (s: string) => { try { return new Date(s).toLocaleDateString('en-GB'); } catch { return s; } };
@@ -40,6 +41,9 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
   const [section, setSection] = useState<string>(SUPERVISOR_SECTIONS[0].id);
   const [tab, setTab] = useState<Tab>('consumption');
   useFavoriteNav('section_supervisor', tab, setTab);
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab);
+  // Clicking the working section that is already selected returns to its first tab.
+  const { select: selectSection, resetKey: sectionResetKey } = useTabReset(section, setSection, () => setTab('consumption'));
   const [materials, setMaterials] = useState<Material[]>([]);
   const [bom, setBom] = useState<BOMItem[]>([]);
   const [requests, setRequests] = useState<MaterialRequest[]>([]);
@@ -584,7 +588,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           {SUPERVISOR_SECTIONS.map(sec => (
             <button
               key={sec.id as string}
-              onClick={() => setSection(sec.id as string)}
+              onClick={() => selectSection(sec.id as string)}
               data-testid={`section-tab-${sec.id}`}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
                 section === sec.id
@@ -600,26 +604,27 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
 
       {/* Sub-tabs */}
       <div className="flex flex-wrap gap-2 mb-5">
-        <button onClick={() => setTab('consumption')} data-testid="tab-consumption" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'consumption' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('consumption')} data-testid="tab-consumption" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'consumption' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Boxes className="h-4 w-4" /> Consumption
         </button>
-        <button onClick={() => setTab('production')} data-testid="tab-production" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'production' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('production')} data-testid="tab-production" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'production' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Factory className="h-4 w-4" /> Log Production
         </button>
-        <button onClick={() => setTab('request')} data-testid="tab-request" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'request' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('request')} data-testid="tab-request" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'request' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <PackagePlus className="h-4 w-4" /> Request Material
         </button>
-        <button onClick={() => setTab('purchases')} data-testid="tab-purchases" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'purchases' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('purchases')} data-testid="tab-purchases" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'purchases' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ShoppingCart className="h-4 w-4" /> Purchases
           {purchaseRequests.filter(r => r.status === 'Pending').length > 0 && (
             <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">{purchaseRequests.filter(r => r.status === 'Pending').length}</span>
           )}
         </button>
-        <button onClick={() => setTab('history')} data-testid="tab-history" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'history' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('history')} data-testid="tab-history" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'history' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ClipboardList className="h-4 w-4" /> Today vs Plan
         </button>
       </div>
 
+      <React.Fragment key={`${sectionResetKey}-${tabResetKey}`}>
       {/* CONSUMPTION TAB */}
       {tab === 'consumption' && (
         <div>
@@ -1253,6 +1258,7 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
           </div>
         </div>
       )}
+      </React.Fragment>
     </div>
   );
 };

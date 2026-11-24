@@ -10,6 +10,7 @@ import {
   Modal, Field, EmployeeSelect, inputCls, btnPrimary, btnGhost, StatCard, Badge, ExpiryBadge, Empty, SearchBox,
   SubTabs, SectionCard, runSave, useConfirm, hrToast,
 } from './hrUi';
+import { useTabReset } from '../../hooks/useTabReset';
 
 interface Props {
   employees: Employee[];
@@ -20,14 +21,17 @@ interface Props {
 
 export const SafetyTraining: React.FC<Props> = ({ employees, user, accidents, onAccidentStatus }) => {
   const [tab, setTab] = useState('training');
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab);
   return (
     <div className="space-y-4">
-      <SubTabs active={tab} onChange={setTab} tabs={[
+      <SubTabs active={tab} onChange={selectTab} tabs={[
         { id: 'training', label: 'Training & certificates' }, { id: 'ppe', label: 'PPE issue log' }, { id: 'followup', label: 'Accident follow-up' },
       ]} />
+      <React.Fragment key={tabResetKey}>
       {tab === 'training' && <TrainingPanel employees={employees} user={user} />}
       {tab === 'ppe' && <PPEPanel employees={employees} user={user} />}
       {tab === 'followup' && <FollowUpPanel employees={employees} user={user} accidents={accidents} onAccidentStatus={onAccidentStatus} />}
+      </React.Fragment>
     </div>
   );
 };

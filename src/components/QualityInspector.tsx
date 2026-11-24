@@ -9,6 +9,7 @@ import { dbFetchIncomingMaterials, dbDecideIncomingQc, dbFetchChecklistTemplates
 import { ChecklistPanel } from './ChecklistPanel';
 import { SPCDashboard } from './SPCDashboard';
 import { useVoiceCommand } from '../lib/useVoiceCommand';
+import { useTabReset } from '../hooks/useTabReset';
 
 interface UndoClaimRequest {
   id: string;
@@ -119,6 +120,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   const [filterMode, setFilterMode] = useState<'pending' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [reviewStageId, setReviewStageId] = useState<StageId | null>(null);
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(activeTab, setActiveTab, () => { setActivePoolId(null); setReviewStageId(null); });
   // Confirmation popup for Skip For Now / Will Carry on Site (and for reversing
   // one), so a stray tap can never change a stage on its own.
   const [pendingDispatchAction, setPendingDispatchAction] = useState<{
@@ -600,7 +602,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div key={tabResetKey} className="space-y-6">
 
       {/* ── Confirm Skip / Carry on Site / Reverse ───────────────────────────── */}
       {pendingDispatchAction && (
@@ -727,7 +729,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
             <button
               type="button"
-              onClick={() => setActiveTab('queue')}
+              onClick={() => selectTab('queue')}
               className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
                 activeTab === 'queue' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
               }`}
@@ -736,7 +738,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('incoming_qc')}
+              onClick={() => selectTab('incoming_qc')}
               className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
                 activeTab === 'incoming_qc' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
               }`}
@@ -750,7 +752,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('daily_report')}
+              onClick={() => selectTab('daily_report')}
               className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
                 activeTab === 'daily_report' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
               }`}
@@ -759,7 +761,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('hold_pool')}
+              onClick={() => selectTab('hold_pool')}
               className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
                 activeTab === 'hold_pool' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
               }`}
@@ -773,7 +775,7 @@ export const QualityInspector: React.FC<QualityInspectorProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('spc')}
+              onClick={() => selectTab('spc')}
               className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors cursor-pointer ${
                 activeTab === 'spc' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
               }`}

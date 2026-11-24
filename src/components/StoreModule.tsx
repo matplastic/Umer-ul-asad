@@ -35,6 +35,7 @@ import type { PurchaseOrder } from '../types';
 import { SuppliersPage } from './SuppliersPage';
 import { normName } from '../lib/suppliers';
 import { uploadGrnFile, deleteGrnFile, validateGrnFile, GRN_ACCEPT, KIND_LABEL, type GrnDocKind } from '../lib/grnAttachments';
+import { useTabReset } from '../hooks/useTabReset';
 
 type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'ledger' | 'suppliers' | 'key' | 'assets' | 'reorder';
 
@@ -137,6 +138,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   const [incomingSearch, setIncomingSearch] = useState('');
   // Which of the 3 inventory portals is showing: MEP / Civil / Other / All.
   const [invGroupTab, setInvGroupTab] = useState<'mep' | 'civil' | 'other' | 'all' | 'key'>('all');
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab, () => setInvGroupTab('all'));
   // Same MEP / Civil / Other split, applied to the Reports tab (Consumption
   // Log + Stock Ledger) so Store can look at each portal's consumption
   // separately too.
@@ -1261,52 +1263,53 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-2 mb-6">
-        <button onClick={() => setTab('key')} data-testid="tab-key" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'key' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('key')} data-testid="tab-key" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'key' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Star className="h-4 w-4" /> Key Materials
         </button>
-        <button onClick={() => setTab('inventory')} data-testid="tab-inventory" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'inventory' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('inventory')} data-testid="tab-inventory" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'inventory' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Package className="h-4 w-4" /> Inventory
         </button>
-        <button onClick={() => setTab('reorder')} data-testid="tab-reorder" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reorder' ? 'bg-primary-600 text-white shadow-md' : reorderBadge.total > 0 ? 'bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('reorder')} data-testid="tab-reorder" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reorder' ? 'bg-primary-600 text-white shadow-md' : reorderBadge.total > 0 ? 'bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ShoppingCart className="h-4 w-4" /> Reorder
           {reorderBadge.total > 0 && (
             <span data-testid="reorder-tab-badge" className={`ml-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black flex items-center justify-center ${reorderBadge.urgent > 0 ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800'}`}>{reorderBadge.total}</span>
           )}
         </button>
-        <button onClick={() => setTab('assets')} data-testid="tab-assets" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'assets' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('assets')} data-testid="tab-assets" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'assets' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Wrench className="h-4 w-4" /> Company Assets
         </button>
-        <button onClick={() => setTab('incoming')} data-testid="tab-incoming" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'incoming' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('incoming')} data-testid="tab-incoming" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'incoming' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Truck className="h-4 w-4" /> Incoming
         </button>
-        <button onClick={() => setTab('quality')} data-testid="tab-quality" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'quality' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('quality')} data-testid="tab-quality" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'quality' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ShieldCheck className="h-4 w-4" /> Quality Status
           {pendingQcCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-full h-4 min-w-[16px] px-1 flex items-center justify-center">{pendingQcCount}</span>
           )}
         </button>
-        <button onClick={() => setTab('traceability')} data-testid="tab-traceability" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'traceability' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('traceability')} data-testid="tab-traceability" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'traceability' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Search className="h-4 w-4" /> Material Traceability
         </button>
-        <button onClick={() => setTab('bom')} data-testid="tab-bom" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'bom' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('bom')} data-testid="tab-bom" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'bom' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ListChecks className="h-4 w-4" /> Bill of Materials
         </button>
-        <button onClick={() => setTab('requests')} data-testid="tab-requests" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'requests' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('requests')} data-testid="tab-requests" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'requests' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ClipboardCheck className="h-4 w-4" /> Requests
           {pendingApprovalCount > 0 && <span className="ml-1 bg-amber-500 text-slate-950 rounded-full px-1.5 text-[10px]">{pendingApprovalCount}</span>}
           {pendingPrintCount > 0 && <span className="ml-1 bg-emerald-500 text-slate-950 rounded-full px-1.5 text-[10px]">{pendingPrintCount} print</span>}
         </button>
-        <button onClick={() => setTab('reports')} data-testid="tab-reports" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reports' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('reports')} data-testid="tab-reports" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'reports' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <BarChart3 className="h-4 w-4" /> Consumption Reports
         </button>
-        <button onClick={() => setTab('ledger')} data-testid="tab-ledger" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'ledger' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('ledger')} data-testid="tab-ledger" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'ledger' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <BookOpen className="h-4 w-4" /> Inventory Ledger
         </button>
-        <button onClick={() => setTab('suppliers')} data-testid="tab-suppliers" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'suppliers' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+        <button onClick={() => selectTab('suppliers')} data-testid="tab-suppliers" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all ${tab === 'suppliers' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <Building2 className="h-4 w-4" /> Suppliers
         </button>
       </div>
 
+      <React.Fragment key={tabResetKey}>
       {/* ---------- INVENTORY TAB ----------
           Row 1: portal tabs (left) + Excel / PDF export (far right)
           Row 2: search + section filter + Import menu + Add Material
@@ -2250,6 +2253,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
           onOpenMaterial={(m) => setLedgerMaterial(m)}
         />
       )}
+      </React.Fragment>
 
       {/* ---------- MATERIAL DETAIL PANEL (click a row in Inventory) ---------- */}
       {detailMaterial && (

@@ -6,6 +6,7 @@ import {
 import { dbFetchSiteDeliveries, dbSaveSiteDeliveries } from '../lib/firebaseService';
 import { SiteDelivery, SiteDeliveryItem } from '../types';
 import { exportToExcel, exportTablePdf } from '../lib/exportUtils';
+import { useTabReset } from '../hooks/useTabReset';
 
 const uid = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -60,6 +61,7 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<'dispatch' | 'receive' | 'reports'>(mode === 'site_team' ? 'receive' : 'dispatch');
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab);
   const [printDelivery, setPrintDelivery] = useState<SiteDelivery | null>(null);
   const [receiveTarget, setReceiveTarget] = useState<SiteDelivery | null>(null);
   const [addingNewSite, setAddingNewSite] = useState(false);
@@ -392,20 +394,21 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b border-slate-200 print:hidden">
         {mode === 'management' && (
-          <button onClick={() => setTab('dispatch')} className={`px-4 py-2 text-xs font-bold border-b-2 cursor-pointer ${tab === 'dispatch' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+          <button onClick={() => selectTab('dispatch')} className={`px-4 py-2 text-xs font-bold border-b-2 cursor-pointer ${tab === 'dispatch' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
             Send to Site
           </button>
         )}
         {mode === 'site_team' && (
-        <button onClick={() => setTab('receive')} className={`px-4 py-2 text-xs font-bold border-b-2 cursor-pointer ${tab === 'receive' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+        <button onClick={() => selectTab('receive')} className={`px-4 py-2 text-xs font-bold border-b-2 cursor-pointer ${tab === 'receive' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
           Receive at Site {pendingReceipt.length > 0 && <span className="ml-1 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-amber-500 text-white text-[10px]">{pendingReceipt.length}</span>}
         </button>
         )}
-        <button onClick={() => setTab('reports')} className={`px-4 py-2 text-xs font-bold border-b-2 cursor-pointer ${tab === 'reports' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+        <button onClick={() => selectTab('reports')} className={`px-4 py-2 text-xs font-bold border-b-2 cursor-pointer ${tab === 'reports' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
           Reports
         </button>
       </div>
 
+      <React.Fragment key={tabResetKey}>
       {/* ── DISPATCH TAB ────────────────────────────────────────────────── */}
       {tab === 'dispatch' && mode === 'management' && (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 print:hidden">
@@ -723,6 +726,8 @@ export const SiteDeliveryTracker: React.FC<SiteDeliveryTrackerProps> = ({ mode, 
           </div>
         </div>
       )}
+
+      </React.Fragment>
 
       {/* Receive confirmation modal */}
       {receiveTarget && (

@@ -21,6 +21,7 @@ import { TradeFinancePanel } from './TradeFinancePanel';
 import { TF_STATUS_META, tfPosition, tfTypeLabel } from '../lib/tradeFinance';
 import { SuppliersPage } from './SuppliersPage';
 import { ProgressBar, Stat, StageBadge, btn, inputCls } from './ProcurementUi';
+import { useTabReset } from '../hooks/useTabReset';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROCUREMENT PORTAL — the purchasing desk
@@ -47,6 +48,7 @@ interface Props { currentUserName: string; canApprove: boolean }
 
 const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => {
   const [tab, setTab] = useState<Tab>('dashboard');
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -194,7 +196,7 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
         {TABS.map(t => {
           const badge = t.id === 'requisitions' ? requisitions.length : t.id === 'po' ? byStage('awaiting_approval').length : t.id === 'payments' ? overdueRows.length : 0;
           return (
-            <button key={t.id} onClick={() => setTab(t.id)} data-testid={`proc-tab-${t.id}`}
+            <button key={t.id} onClick={() => selectTab(t.id)} data-testid={`proc-tab-${t.id}`}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer border transition-all ${tab === t.id ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'}`}>
               <t.icon className="h-3.5 w-3.5" /> {t.label}
               {badge > 0 && <span className={`ml-1 px-1.5 rounded-full text-[10px] font-black ${tab === t.id ? 'bg-white/25 text-white' : t.id === 'payments' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-800'}`}>{badge}</span>}
@@ -203,6 +205,7 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
         })}
       </div>
 
+      <React.Fragment key={tabResetKey}>
       {/* ============ DASHBOARD ============ */}
       {tab === 'dashboard' && (
         <div className="space-y-4">
@@ -337,6 +340,8 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
       {tab === 'suppliers' && (
         <SuppliersPage suppliers={suppliers} incoming={incoming} materials={materials} currentUserName={currentUserName} onChanged={load} onOpenMaterial={() => { /* materials live in the Store */ }} />
       )}
+
+      </React.Fragment>
 
       {/* ---- overlays ---- */}
       {selectedRow && (

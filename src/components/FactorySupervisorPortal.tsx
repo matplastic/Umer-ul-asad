@@ -9,6 +9,7 @@ import { SectionDashboardTV } from './SectionDashboardTV';
 import { PoolRegisterView } from './PoolRegisterView';
 import { RejectionLogView } from './RejectionLogView';
 import type { QCDefect } from './QCDefectPanel';
+import { useTabReset } from '../hooks/useTabReset';
 
 // Factory Supervisor Portal
 // ──────────────────────────────────────────────────────────────────────────
@@ -66,6 +67,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
 }) => {
   const [activeTab, setActiveTab] = useState<FactorySupervisorTab>('monitor');
   useFavoriteNav('factory_supervisor', activeTab, setActiveTab);
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(activeTab, setActiveTab);
 
   // Stage Floor Monitor — pick a section + team to view/act as, same pattern
   // as Management's Shop Floor Monitor tab.
@@ -123,7 +125,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => selectTab(tab.id)}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 isActive ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'
               }`}
@@ -135,6 +137,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
         })}
       </div>
 
+      <React.Fragment key={tabResetKey}>
       {activeTab === 'monitor' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-wrap items-center gap-4">
@@ -214,6 +217,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
       {activeTab === 'rejection_log' && (
         <RejectionLogView pools={pools} teams={teams} logs={logs} />
       )}
+      </React.Fragment>
     </div>
   );
 };

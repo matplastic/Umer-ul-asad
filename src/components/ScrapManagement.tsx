@@ -36,6 +36,7 @@ import {
   HandCoins,
 } from 'lucide-react';
 import { clientDb as db } from '../lib/googleDrive';
+import { useTabReset } from '../hooks/useTabReset';
 
 /* ───────────────────────── Types ───────────────────────── */
 
@@ -172,6 +173,7 @@ function downloadCSV(filename: string, rows: (string | number)[][]) {
 
 export default function ScrapManagement({ currentUserName = '', canManage = true }: Props) {
   const [tab, setTab] = useState<Tab>('overview');
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab);
   const [materials, setMaterials] = useState<ScrapMaterial[]>([]);
   const [entries, setEntries] = useState<ScrapEntry[]>([]);
   const [sales, setSales] = useState<ScrapSale[]>([]);
@@ -316,7 +318,7 @@ export default function ScrapManagement({ currentUserName = '', canManage = true
 
       <nav className="sm-tabs">
         {tabs.map((t) => (
-          <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
+          <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => selectTab(t.id)}>
             {t.icon}
             <span>{t.label}</span>
           </button>
@@ -341,7 +343,7 @@ export default function ScrapManagement({ currentUserName = '', canManage = true
           )}
         </div>
       ) : (
-        <>
+        <React.Fragment key={tabResetKey}>
           {(tab === 'overview' || tab === 'history' || tab === 'sales') && (
             <PeriodBar
               preset={preset}
@@ -402,7 +404,7 @@ export default function ScrapManagement({ currentUserName = '', canManage = true
           {tab === 'materials' && canManage && (
             <Materials materials={sortedMaterials} ok={ok} err={err} />
           )}
-        </>
+        </React.Fragment>
       )}
     </div>
   );

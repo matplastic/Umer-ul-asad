@@ -427,6 +427,27 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     return () => window.cancelAnimationFrame(id);
   }, [activeTab]);
 
+  // Clicking the tab that is already open takes you back to its start page:
+  // sub-buttons return to their default view and the panel is remounted so
+  // any sub-views kept inside child components reset as well.
+  const [tabResetKey, setTabResetKey] = useState(0);
+  const handleTabChange = (id: string) => {
+    if (id === activeTab) {
+      setAnalyticsSubTab('overview');
+      setDeliverySubTab('confirm');
+      setEmployeePortalSubTab('roster');
+      setActiveNominationSubTab('section_teams');
+      setAttendanceActionTab('upload');
+      setStatDrillDown(null);
+      setTabResetKey(k => k + 1);
+      window.requestAnimationFrame(() => {
+        document.getElementById('mgmt-tabs-top')?.scrollIntoView({ block: 'start' });
+      });
+      return;
+    }
+    setActiveTab(id as typeof activeTab);
+  };
+
   // KPI stat-card drill-down modal: which bucket ("Active in fabrication",
   // "Despatched and clear", "Total rework holds", "Assigned teams rate") is
   // currently being inspected, mirroring the Planning Department's
@@ -2979,14 +3000,14 @@ export const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           + the tabs of the chosen section. See MgmtTabBar.tsx. */}
       <MgmtTabBar
         activeTab={activeTab}
-        onChange={(id) => setActiveTab(id as typeof activeTab)}
+        onChange={handleTabChange}
         onRefresh={onRefreshAll}
         isSyncing={isFullSyncing}
         lastSyncTime={lastSyncTime}
       />
 
-      {/* Panels viewport */}
-      <div className="grid grid-cols-1 gap-6">
+      {/* Panels viewport (key changes when the open tab is clicked again, restarting it) */}
+      <div key={tabResetKey} className="grid grid-cols-1 gap-6">
 
         {/* Tab: Active Sessions / Who's Online */}
         {activeTab === 'online_users' && (

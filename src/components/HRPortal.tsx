@@ -73,6 +73,7 @@ import {
   dbFetchHRPurchaseRequests, dbSaveHRPurchaseRequests, dbSendHRPurchaseRequestEmail,
   subscribeToLiveState,
 } from '../lib/firebaseService';
+import { useTabReset } from '../hooks/useTabReset';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1003,6 +1004,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   const isAdmin = mode === 'admin';
   const [activeTab, setActiveTab] = useState<'health' | 'grid' | 'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
   useFavoriteNav(isAdmin ? 'hr_admin' : 'hr_portal', activeTab, setActiveTab);
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(activeTab, setActiveTab);
   useEffect(() => { try { sessionStorage.setItem(tabStorageKey(mode), activeTab); } catch { /* ignore */ } }, [activeTab, mode]);
 
   // HR Suite: requests are read here so Payroll can pick up approved overtime and loan installments.
@@ -4870,7 +4872,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           {suiteTabs.map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => selectTab(tab.id)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
                 activeTab === tab.id ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
@@ -4890,7 +4892,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => selectTab(tab.id)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
               activeTab === tab.id
                 ? 'bg-white text-violet-700 shadow-sm'
@@ -4922,7 +4924,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
         />
       )}
 
-      {/* Tab Content */}
+      {/* Tab Content (keyed: clicking the open tab again restarts it) */}
+      <React.Fragment key={tabResetKey}>
       {(() => {
         // HR Suite screens. In HR Administration these run inside the in-memory demo sandbox.
         const demo = isAdmin;
@@ -4963,6 +4966,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       {!isAdmin && activeTab === 'purchases' && <StableTab render={PurchaseRequestsTab} />}
       {!isAdmin && activeTab === 'reports' && <StableTab render={ReportsTab} />}
       {!isAdmin && activeTab === 'accounts' && <StableTab render={AccountsTab} />}
+      </React.Fragment>
 
       {/* ── A4 Print / PDF Report Modal (Absent / Accident / Medical reports) ── */}
       {printReport && (

@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { exportToExcel, exportTablePdf, exportPoolHistoryPdf, exportPoolBirthCertificatePdf } from '../lib/exportUtils';
 import { dbFetchChecklistTemplates } from '../lib/firebaseService';
+import { useTabReset } from '../hooks/useTabReset';
 
 interface ReportsAndAnalyticsProps {
   pools: Pool[];
@@ -37,6 +38,7 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
 }) => {
   const [tab, setTab] = useState<TabId>('analytics');
   useFavoriteNav('reports_analytics', tab, setTab);
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab);
 
   return (
     <div className="space-y-6">
@@ -63,7 +65,7 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
           ].map(t => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => selectTab(t.id)}
               data-testid={`reports-tab-${t.id}`}
               className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                 tab === t.id
@@ -78,6 +80,7 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
         </div>
       </div>
 
+      <React.Fragment key={tabResetKey}>
       {tab === 'all' && (
         <AllReportsTab pools={pools} logs={logs} employees={employees} employeePunches={employeePunches} />
       )}
@@ -109,6 +112,7 @@ export const ReportsAndAnalytics: React.FC<ReportsAndAnalyticsProps> = ({
           teams={teams}
         />
       )}
+      </React.Fragment>
     </div>
   );
 };

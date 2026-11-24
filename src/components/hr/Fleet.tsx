@@ -6,6 +6,7 @@ import {
   currentAssignment, latestOdometer, expiryState, daysUntil, todayStr, fmtAED,
 } from '../../lib/hrStore';
 import { StatCard, SubTabs, SectionCard } from './hrUi';
+import { useTabReset } from '../../hooks/useTabReset';
 import { VehiclesPanel, FleetProps } from './FleetVehicles';
 import { DailyLogPanel, MaintenancePanel, FinesPanel } from './FleetLogs';
 import { FleetReports } from './FleetReports';
@@ -19,6 +20,7 @@ export const Fleet: React.FC<Props> = ({ employees, user }) => {
   const fineC = useHRCollection<HRVehicleFine>('hrVehicleFines');
   const lettersC = useHRCollection<HRLetterLog>('hrLetters');
   const [tab, setTab] = useState('overview');
+  const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab);
   const shared: FleetProps = { employees, user, vehC, logC, svcC, lettersC };
 
   const o = useMemo(() => {
@@ -57,11 +59,12 @@ export const Fleet: React.FC<Props> = ({ employees, user }) => {
 
   return (
     <div className="space-y-4">
-      <SubTabs active={tab} onChange={setTab} tabs={[
+      <SubTabs active={tab} onChange={selectTab} tabs={[
         { id: 'overview', label: 'Overview' }, { id: 'vehicles', label: 'Vehicles' }, { id: 'log', label: 'Daily log (km & fuel)' },
         { id: 'service', label: 'Maintenance' }, { id: 'fines', label: 'Fines & Salik' }, { id: 'reports', label: 'Reports' },
       ]} />
 
+      <React.Fragment key={tabResetKey}>
       {tab === 'overview' && (<>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard label="Vehicles" value={o.total} tone="violet" icon={<Car className="h-4 w-4" />} onClick={() => setTab('vehicles')} />
@@ -86,6 +89,7 @@ export const Fleet: React.FC<Props> = ({ employees, user }) => {
       {tab === 'service' && <MaintenancePanel {...shared} />}
       {tab === 'fines' && <FinesPanel {...shared} fineC={fineC} />}
       {tab === 'reports' && <FleetReports employees={employees} vehicles={vehC.items} logs={logC.items} services={svcC.items} fines={fineC.items} />}
+      </React.Fragment>
     </div>
   );
 };
