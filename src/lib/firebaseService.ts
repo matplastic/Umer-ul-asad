@@ -3,7 +3,8 @@ import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'fi
 import { applySupplierSave } from './suppliers';
 import { APPROVAL_THRESHOLD, nextDocNo, poTotals } from './procurement';
 import { addDays, tfAmounts, tfPosition } from './tradeFinance';
-import type { PurchaseOrder, PoLine, Rfq, SupplierInvoice, SupplierPayment, TradeFinance, TfRepayment, ProcAttachment } from '../types';
+import { QUEUE_BOARD, QUEUE_FINISHED, defaultProcurementSettings, sameName, stfPermissions } from './stf';
+import type { PurchaseOrder, PoLine, Rfq, SupplierInvoice, SupplierPayment, TradeFinance, TfRepayment, ProcAttachment, Stf, StfLine, StfStatus, ProcurementSettings } from '../types';
 import { shardCountFor, shardDocNamesFor, splitIntoShards, mergeLegacy } from './shardConfig';
 import { BACKUP_DOC_IDS, runRestore, chunkByBytes, RestoreMode, RestoreReportRow } from './backupSets';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, StockAdjustment, Supplier, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
@@ -3838,7 +3839,7 @@ export async function dbDeleteSupplier(id: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PROCUREMENT — purchase orders, quotations (RFQs), STF trade finance, supplier invoices, payments.
+// PROCUREMENT — purchase orders, quotations (RFQs), STF purchase forms, trade finance, supplier invoices, payments.
 // Finance records are never hard-deleted: they are VOIDED with a reason, so the
 // audit trail stays complete. Numbers (MAT-PO-2026-0001…) are issued INSIDE the
 // write, so two people saving at the same moment can never get the same number.
@@ -3865,12 +3866,24 @@ function checkPoLines(lines: PoLine[] | undefined): string | null {
   return null;
 }
 
-const PO_EDITABLE = ['supplierId', 'supplierName', 'supplierCode', 'supplierTaxNo', 'currency', 'orderDate', 'expectedDate',
-  'deliveryLocation', 'paymentTerms', 'notes', 'discount', 'vatRate', 'lines', 'rfqId', 'rfqNo'] as const;
+const PO_EDITABLE = ['supplierId', 'supplierName', 'supplierCode', 'supplierTaxNo', 'currency', 'fxRate', 'orderDate', 'expectedDate',
+  'deliveryLocation', 'paymentTerms', 'notes', 'discount', 'vatRate', 'lines', 'rfqId', 'rfqNo', 'stfId', 'stfNo', 'projectType', 'projectName'] as const;
 
 // Create (no id) or edit (id) a DRAFT purchase order.
 export async function dbSavePurchaseOrder(input: Partial<PurchaseOrder> & { supplierName: string; lines: PoLine[] }, byName: string): Promise<PurchaseOrder> {
   procurementOnly();
+  // Every new PO is issued from an APPROVED STF — no STF, no PO. One STF feeds one PO.
+  if (!input.id && !input.stfId) throw new ProcurementError('A PO can only be issued from an approved STF. Create the STF and get it approved first.');
+  if (!input.id && input.stfId) {
+    const stf = ((await getFirestoreDocArray('procurementStfs')) as Stf[]).find((x) => x.id === input.stfId);
+    if (!stf) throw new ProcurementError('The STF for this PO no longer exists.');
+    if (stf.status !== 'approved') throw new ProcurementError(`${stf.stfNo} is not approved yet (it is ${stf.status}), so a PO can’t be issued from it.`);
+    const pos0: PurchaseOrder[] = await getFirestoreDocArray('purchaseOrders');
+    const dup = pos0.find((p) => p.stfId === stf.id && p.status !== 'cancelled');
+    if (dup) throw new ProcurementError(`${stf.stfNo} already has ${dup.poNo}.`);
+  }
+  const settings = await dbFetchProcurementSettings();
+  const customNo = (input as any).poNo?.trim?.() as string | undefined;
   let saved: PurchaseOrder | undefined;
   let error: string | undefined;
   await updateFirestoreDocArray('purchaseOrders', (arr) => {
@@ -3888,10 +3901,12 @@ export async function dbSavePurchaseOrder(input: Partial<PurchaseOrder> & { supp
       saved = { ...cur, ...patch, updatedAt: now };
       return arr.map((p: PurchaseOrder) => (p.id === input.id ? saved! : p));
     }
+    if (customNo && arr.some((p: PurchaseOrder) => p.poNo.trim().toLowerCase() === customNo.toLowerCase())) { error = `PO number ${customNo} is already used.`; return arr; }
     const po: PurchaseOrder = {
       id: newId('po'),
-      poNo: nextDocNo(arr.map((p: PurchaseOrder) => p.poNo), 'PO'),
+      poNo: customNo || nextDocNo(arr.map((p: PurchaseOrder) => p.poNo), 'PO', new Date(), { seq: settings.lastPoSeq, year: settings.seqYear }),
       rfqId: input.rfqId ?? null, rfqNo: input.rfqNo ?? null,
+      stfId: input.stfId ?? null, stfNo: input.stfNo ?? null, projectType: input.projectType ?? null, projectName: input.projectName ?? null, fxRate: input.fxRate ?? 1,
       supplierId: input.supplierId ?? null, supplierName: input.supplierName.trim(),
       supplierCode: input.supplierCode ?? null, supplierTaxNo: input.supplierTaxNo ?? null,
       currency: input.currency || 'AED',
@@ -3921,6 +3936,18 @@ export async function dbPoAction(
     if ((inc as any[]).some((i) => i.poId === poId)) throw new ProcurementError('Goods have already been received on this PO, so it can’t be cancelled. Use “Close short” instead.');
     if ((pay as any[]).some((p) => p.poId === poId && !p.voided)) throw new ProcurementError('A payment is recorded on this PO. Void the payment first.');
   }
+  // A PO issued from an approved STF is already approved — the STF was the approval.
+  let stfApproval: string | null = null;
+  if (action === 'submit') {
+    const po0 = ((await getFirestoreDocArray('purchaseOrders')) as PurchaseOrder[]).find((p) => p.id === poId);
+    if (po0?.stfId) {
+      const stf = ((await getFirestoreDocArray('procurementStfs')) as Stf[]).find((x) => x.id === po0.stfId);
+      if (stf && stf.status === 'approved') {
+        const last = [...stf.history].reverse().find((h) => h.action === 'approved' || h.action === 'board_approved');
+        stfApproval = `${stf.stfNo}${last ? ` — approved by ${last.byName}` : ''}`;
+      }
+    }
+  }
   let saved: PurchaseOrder | undefined;
   let error: string | undefined;
   await updateFirestoreDocArray('purchaseOrders', (arr) => {
@@ -3934,9 +3961,9 @@ export async function dbPoAction(
         if (cur.status !== 'draft') { error = 'Only a draft can be submitted.'; break; }
         const bad = checkPoLines(cur.lines);
         if (bad) { error = bad; break; }
-        const auto = poTotals(cur).total <= APPROVAL_THRESHOLD;
+        const auto = !!stfApproval || poTotals(cur).total * (Number(cur.fxRate) || 1) <= APPROVAL_THRESHOLD;
         next = { ...cur, status: auto ? 'approved' : 'pending_approval', submittedAt: now, rejectedNote: null,
-          ...(auto ? { approvedByName: 'Auto — within approval limit', approvedAt: now } : {}) };
+          ...(auto ? { approvedByName: stfApproval ? `STF ${stfApproval}` : 'Auto — within approval limit', approvedAt: now } : {}) };
         break;
       }
       case 'approve':
@@ -4034,16 +4061,32 @@ export async function dbRecordPayment(
   await updateFirestoreDocArray('supplierPayments', (arr) => {
     saved = undefined; error = undefined;
     if (!(input.amount > 0)) { error = 'Enter the amount paid.'; return arr; }
-    const already = arr.filter((p: SupplierPayment) => p.poId === input.poId && !p.voided).reduce((t: number, p: SupplierPayment) => t + p.amount, 0);
+    if (input.method === 'pdc' && !input.chequeDate) { error = 'Enter the cheque date of the post-dated cheque.'; return arr; }
+    const already = arr.filter((p: SupplierPayment) => p.poId === input.poId && !p.voided && p.clearStatus !== 'bounced').reduce((t: number, p: SupplierPayment) => t + p.amount, 0);
     if (already + input.amount > maxTotal + 0.005) {
       error = `That would pay AED ${(already + input.amount).toFixed(2)} in total, more than the AED ${maxTotal.toFixed(2)} allowed on this PO (already paid ${already.toFixed(2)}).`;
       return arr;
     }
-    saved = { ...input, id: newId('spay'), byName, createdAt: new Date().toISOString() };
+    saved = { ...input, id: newId('spay'), byName, createdAt: new Date().toISOString(), clearStatus: input.method === 'pdc' ? 'issued' : null };
     return [...arr, saved];
   });
   if (error || !saved) throw new ProcurementError(error || 'Could not save the payment.');
   return saved;
+}
+
+// A post-dated cheque is only PAID once the bank clears it. A bounced cheque stops counting at all.
+export async function dbSetPaymentClearing(id: string, status: 'cleared' | 'bounced', byName: string, date?: string): Promise<void> {
+  procurementOnly();
+  let error: string | undefined;
+  await updateFirestoreDocArray('supplierPayments', (arr) => {
+    error = undefined;
+    const cur = arr.find((p: SupplierPayment) => p.id === id);
+    if (!cur) { error = 'This payment no longer exists.'; return arr; }
+    if (cur.method !== 'pdc' || cur.clearStatus !== 'issued') { error = 'Only an issued post-dated cheque can be marked cleared or bounced.'; return arr; }
+    return arr.map((p: SupplierPayment) => (p.id === id ? { ...p, clearStatus: status, clearedAt: status === 'cleared' ? (date || new Date().toISOString().slice(0, 10)) : null,
+      notes: status === 'bounced' ? `${p.notes ? p.notes + ' · ' : ''}Bounced — marked by ${byName}` : p.notes } : p));
+  });
+  if (error) throw new ProcurementError(error);
 }
 
 export async function dbVoidPayment(id: string, byName: string, reason: string): Promise<void> {
@@ -4053,8 +4096,168 @@ export async function dbVoidPayment(id: string, byName: string, reason: string):
     p.id === id ? { ...p, voided: true, voidedByName: byName, voidedAt: new Date().toISOString(), voidReason: reason.trim() } : p));
 }
 
-// ── STF: Structured Trade Finance ────────────────────────────────────────────
-export async function dbFetchTradeFinances(): Promise<TradeFinance[]> { return getFirestoreDocArray('tradeFinances'); }
+// ── Procurement settings (approvers, budget tier, numbering) ──────────────────
+export async function dbFetchProcurementSettings(): Promise<ProcurementSettings> {
+  if (apiBase()) return defaultProcurementSettings();
+  const arr: ProcurementSettings[] = await getFirestoreDocArray('procurementSettings');
+  return arr[0] ? { ...defaultProcurementSettings(), ...arr[0] } : defaultProcurementSettings();
+}
+export async function dbSaveProcurementSettings(next: ProcurementSettings): Promise<void> {
+  procurementOnly();
+  const names = next.approvers.map((a) => a.name.trim()).filter(Boolean);
+  if (names.length === 0) throw new ProcurementError('Add at least one approver.');
+  if (!(next.tierEur > 0) || !(next.eurToAed > 0)) throw new ProcurementError('The budget tier and the EUR rate must be above zero.');
+  const clean: ProcurementSettings = { ...next, id: 'settings', approvers: next.approvers.filter((a) => a.name.trim()).map((a) => ({ name: a.name.trim(), finalForAbove: !!a.finalForAbove })) };
+  await updateFirestoreDocArray('procurementSettings', () => [clean]);
+}
+
+// ── STF — purchase approval form ─────────────────────────────────────────────
+// Only real STF forms (they carry a history). An earlier release used the same collection name for something else.
+export async function dbFetchStfs(): Promise<Stf[]> {
+  const arr: any[] = await getFirestoreDocArray('procurementStfs');
+  return arr.filter((x) => x && Array.isArray(x.history) && x.projectType !== undefined);
+}
+
+function checkStfLines(lines: StfLine[] | undefined): string | null {
+  if (!lines || lines.length === 0) return 'Add at least one item.';
+  for (const l of lines) {
+    if (!l.materialId) return `"${l.itemName || 'An item'}" is not linked to a Store item.`;
+    if (!(Number(l.qty) > 0)) return `Enter a quantity for ${l.itemName}.`;
+    if (l.unitPrice == null || !(Number(l.unitPrice) >= 0)) return `Enter a price for ${l.itemName}.`;
+  }
+  return null;
+}
+
+const STF_EDITABLE = ['date', 'description', 'supplierId', 'supplierName', 'projectType', 'projectName', 'currency', 'fxRate', 'vatRate',
+  'paymentTerms', 'lines', 'rfqId', 'rfqNo', 'attachments', 'notes'] as const;
+
+// Create (no id) or edit (id, while still PENDING) an STF.
+export async function dbSaveStf(input: Partial<Stf> & { description: string; supplierName: string; lines: StfLine[] }, byName: string): Promise<Stf> {
+  procurementOnly();
+  if (!input.description?.trim()) throw new ProcurementError('Describe what is being bought.');
+  if (!input.supplierName?.trim()) throw new ProcurementError('Choose the supplier.');
+  const bad = checkStfLines(input.lines);
+  if (bad) throw new ProcurementError(bad);
+  const settings = await dbFetchProcurementSettings();
+  const customNo = input.stfNo?.trim();
+  // The STF number is always typed by the user (it comes from the company's own numbering) — never generated.
+  if (!input.id && !customNo) throw new ProcurementError('Type the STF number.');
+  if (customNo && /\s/.test(customNo)) throw new ProcurementError('The STF number can’t contain spaces.');
+  let saved: Stf | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('procurementStfs', (arr) => {
+    saved = undefined; error = undefined;
+    const now = new Date().toISOString();
+    const patch: any = {};
+    for (const k of STF_EDITABLE) if ((input as any)[k] !== undefined) patch[k] = (input as any)[k];
+    if (input.id) {
+      const cur = arr.find((x: Stf) => x.id === input.id);
+      if (!cur) { error = 'This STF no longer exists.'; return arr; }
+      if (cur.status !== 'pending') { error = 'Only a pending STF can be edited.'; return arr; }
+      saved = { ...cur, ...patch, updatedAt: now };
+      return arr.map((x: Stf) => (x.id === input.id ? saved! : x));
+    }
+    if (customNo && arr.some((x: Stf) => x.stfNo.trim().toLowerCase() === customNo.toLowerCase())) { error = `STF number ${customNo} is already used.`; return arr; }
+    const queue = input.queue && settings.approvers.some((a) => sameName(a.name, input.queue)) ? input.queue : settings.approvers[0].name;
+    const stf: Stf = {
+      id: newId('stf'),
+      stfNo: customNo || nextDocNo(arr.map((x: Stf) => x.stfNo), 'STF', new Date(), { seq: settings.lastStfSeq, year: settings.seqYear }),
+      date: patch.date || now.slice(0, 10), description: String(patch.description).trim(),
+      supplierId: patch.supplierId ?? null, supplierName: String(patch.supplierName).trim(),
+      projectType: patch.projectType || 'SALES', projectName: patch.projectName || '',
+      currency: patch.currency || 'AED', fxRate: Number(patch.fxRate) || 1, vatRate: patch.vatRate ?? 5, paymentTerms: patch.paymentTerms ?? null,
+      lines: patch.lines, status: 'pending', queue, statusDate: now.slice(0, 10),
+      rfqId: patch.rfqId ?? null, rfqNo: patch.rfqNo ?? null, attachments: patch.attachments || [], poId: null, poNo: null,
+      history: [{ at: now, byName, action: 'created', toQueue: queue }], notes: patch.notes ?? null, createdByName: byName, createdAt: now,
+    };
+    saved = stf;
+    return [...arr, stf];
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not save the STF.');
+  return saved;
+}
+
+// Attachments / notes can change at any stage (late approvals, extra quotations).
+export async function dbPatchStf(id: string, patch: { attachments?: ProcAttachment[]; notes?: string | null }): Promise<void> {
+  procurementOnly();
+  await updateFirestoreDocArray('procurementStfs', (arr) => arr.map((x: Stf) => (x.id === id ? { ...x, ...patch, updatedAt: new Date().toISOString() } : x)));
+}
+
+export type StfAction = 'forward' | 'approve' | 'to_board' | 'board_approve' | 'reject' | 'cancel' | 'reopen';
+
+// Moves an STF through the approval queue. `manager` = a management account (may act for anyone).
+export async function dbStfAction(id: string, action: StfAction, byName: string, manager: boolean, opts: { toQueue?: string | null; notes?: string | null } = {}): Promise<Stf> {
+  procurementOnly();
+  const settings = await dbFetchProcurementSettings();
+  let saved: Stf | undefined;
+  let error: string | undefined;
+  await updateFirestoreDocArray('procurementStfs', (arr) => {
+    saved = undefined; error = undefined;
+    const cur = arr.find((x: Stf) => x.id === id);
+    if (!cur) { error = 'This STF no longer exists.'; return arr; }
+    const perm = stfPermissions(cur, settings, { name: byName, manager });
+    const now = new Date().toISOString();
+    const today = now.slice(0, 10);
+    const note = opts.notes?.trim() || null;
+    const move = (status: StfStatus, queue: string, h: Stf['history'][number]['action'], extra: Partial<Stf> = {}): Stf =>
+      ({ ...cur, status, queue, statusDate: today, updatedAt: now, history: [...cur.history, { at: now, byName, action: h, toQueue: queue, notes: note }], ...extra });
+    let next: Stf | null = null;
+    switch (action) {
+      case 'forward':
+        if (!perm.canForward) { error = 'You can’t forward this STF.'; break; }
+        if (!opts.toQueue || !settings.approvers.some((a) => sameName(a.name, opts.toQueue))) { error = 'Choose who to send it to.'; break; }
+        next = move('pending', settings.approvers.find((a) => sameName(a.name, opts.toQueue))!.name, 'forwarded');
+        break;
+      case 'approve':
+        if (!perm.canApprove) { error = perm.approveBlockedReason || 'You can’t approve this STF.'; break; }
+        next = move('approved', QUEUE_FINISHED, 'approved');
+        break;
+      case 'to_board':
+        if (!perm.canToBoard) { error = 'You can’t send this STF to the board.'; break; }
+        next = move('board', QUEUE_BOARD, 'to_board');
+        break;
+      case 'board_approve':
+        if (!perm.canBoardDecide) { error = 'Only management can record the board’s decision.'; break; }
+        next = move('approved', QUEUE_FINISHED, 'board_approved');
+        break;
+      case 'reject':
+        if (!perm.canReject) { error = 'You can’t reject this STF.'; break; }
+        if (!note) { error = 'Say why it is rejected.'; break; }
+        next = move('rejected', QUEUE_FINISHED, 'rejected');
+        break;
+      case 'cancel':
+        if (!perm.canCancel) { error = cur.poId ? `A PO (${cur.poNo}) was already issued from this STF — cancel the PO first.` : 'You can’t cancel this STF.'; break; }
+        if (!note) { error = 'Give a reason for cancelling.'; break; }
+        next = move('cancelled', QUEUE_FINISHED, 'cancelled');
+        break;
+      case 'reopen': {
+        if (!perm.canReopen) { error = 'Only management can reopen an STF.'; break; }
+        const q = opts.toQueue && settings.approvers.some((a) => sameName(a.name, opts.toQueue)) ? opts.toQueue : settings.approvers[0].name;
+        next = move('pending', q, 'reopened');
+        break;
+      }
+    }
+    if (!next || error) return arr;
+    saved = next;
+    return arr.map((x: Stf) => (x.id === id ? next! : x));
+  });
+  if (error || !saved) throw new ProcurementError(error || 'Could not update the STF.');
+  return saved;
+}
+
+// The PO that was issued from this STF
+export async function dbLinkStfPo(stfId: string, po: { id: string; poNo: string }, byName: string): Promise<void> {
+  procurementOnly();
+  await updateFirestoreDocArray('procurementStfs', (arr) => arr.map((x: Stf) => (x.id === stfId
+    ? { ...x, poId: po.id, poNo: po.poNo, updatedAt: new Date().toISOString(), history: [...x.history, { at: new Date().toISOString(), byName, action: 'po_issued' as const, notes: po.poNo }] } : x)));
+}
+
+// ── Structured Trade Finance (bank facilities) ────────────────────────────────────────────
+// Facilities saved by the first release called their number `stfNo`; it is `tfNo` now. Read both.
+export async function dbFetchTradeFinances(): Promise<TradeFinance[]> {
+  const arr: any[] = await getFirestoreDocArray('tradeFinances');
+  return arr.map((x) => ({ ...x, tfNo: x.tfNo ?? x.stfNo ?? '' }));
+}
 
 const TF_TERMS = ['type', 'bankName', 'facilityRef', 'currency', 'fxRate', 'invoiceAmount', 'marginPct', 'tenorDays', 'interestRate',
   'commissionPct', 'otherFees', 'expectedDrawDate', 'notes'] as const;
@@ -4070,7 +4273,7 @@ function checkTfTerms(t: Partial<TradeFinance>): string | null {
   return null;
 }
 
-// Create (no id) or edit (id) an STF. Terms can be changed until the bank has paid the supplier.
+// Create (no id) or edit (id) a trade finance facility. Terms can be changed until the bank has paid the supplier.
 export async function dbSaveTradeFinance(input: Partial<TradeFinance> & { poId: string }, byName: string): Promise<TradeFinance> {
   procurementOnly();
   const bad = checkTfTerms(input);
@@ -4088,13 +4291,13 @@ export async function dbSaveTradeFinance(input: Partial<TradeFinance> & { poId: 
     for (const k of TF_TERMS) if ((input as any)[k] !== undefined) patch[k] = (input as any)[k];
     if (input.id) {
       const cur = arr.find((x: TradeFinance) => x.id === input.id);
-      if (!cur) { error = 'This STF no longer exists.'; return arr; }
+      if (!cur) { error = 'This trade-finance record no longer exists.'; return arr; }
       if (cur.status === 'drawn' || cur.status === 'settled' || cur.status === 'cancelled') { error = 'The terms can’t be changed once the bank has paid the supplier.'; return arr; }
       saved = { ...cur, ...patch, updatedAt: now };
       return arr.map((x: TradeFinance) => (x.id === input.id ? saved! : x));
     }
     const tf: TradeFinance = {
-      id: newId('tf'), stfNo: nextDocNo(arr.map((x: TradeFinance) => x.stfNo), 'STF'),
+      id: newId('tf'), tfNo: nextDocNo(arr.map((x: TradeFinance) => x.tfNo), 'TF'),
       poId: po.id, poNo: po.poNo, supplierName: po.supplierName,
       type: patch.type || 'usance_lc', bankName: String(patch.bankName).trim(), facilityRef: patch.facilityRef || null,
       currency: patch.currency || 'AED', fxRate: Number(patch.fxRate), invoiceAmount: Number(patch.invoiceAmount),
@@ -4106,7 +4309,7 @@ export async function dbSaveTradeFinance(input: Partial<TradeFinance> & { poId: 
     saved = tf;
     return [...arr, tf];
   });
-  if (error || !saved) throw new ProcurementError(error || 'Could not save the STF.');
+  if (error || !saved) throw new ProcurementError(error || 'Could not save the trade finance record.');
   return saved;
 }
 
@@ -4124,7 +4327,7 @@ export async function dbTradeFinanceAction(id: string, action: TfAction, byName:
   await updateFirestoreDocArray('tradeFinances', (arr) => {
     saved = undefined; error = undefined;
     const cur = arr.find((x: TradeFinance) => x.id === id);
-    if (!cur) { error = 'This STF no longer exists.'; return arr; }
+    if (!cur) { error = 'This trade-finance record no longer exists.'; return arr; }
     const now = new Date().toISOString();
     let next: TradeFinance | null = null;
     if (action === 'apply') {
@@ -4142,12 +4345,12 @@ export async function dbTradeFinanceAction(id: string, action: TfAction, byName:
     saved = { ...next, updatedAt: now };
     return arr.map((x: TradeFinance) => (x.id === id ? saved! : x));
   });
-  if (error || !saved) throw new ProcurementError(error || 'Could not update the STF.');
+  if (error || !saved) throw new ProcurementError(error || 'Could not update the trade finance record.');
   return saved;
 }
 
 // Drawdown = the bank pays the supplier. Starts the repayment clock (maturity = drawdown date + tenor) and,
-// in the SAME transaction, records that payment on the PO — so the PO and the STF can never disagree.
+// in the SAME transaction, records that payment on the PO — so the PO and the facility can never disagree.
 export async function dbDrawTradeFinance(
   id: string,
   opts: { date: string; payment?: { invoiceId?: string | null; amount: number } | null },
@@ -4160,8 +4363,8 @@ export async function dbDrawTradeFinance(
   await updateFirestoreDocArrays({
     tradeFinances: (arr) => {
       const cur = arr.find((x: TradeFinance) => x.id === id);
-      if (!cur) throw new ProcurementError('This STF no longer exists.');
-      if (cur.status !== 'approved') throw new ProcurementError('Only an approved STF can be drawn.');
+      if (!cur) throw new ProcurementError('This trade-finance record no longer exists.');
+      if (cur.status !== 'approved') throw new ProcurementError('Only an approved facility can be drawn.');
       const payId = opts.payment ? newId('spay') : null;
       saved = { ...cur, status: 'drawn', drawDate: opts.date, maturityDate: addDays(opts.date, cur.tenorDays), supplierPaymentId: payId, updatedAt: new Date().toISOString() };
       return arr.map((x: TradeFinance) => (x.id === id ? saved! : x));
@@ -4178,7 +4381,7 @@ export async function dbDrawTradeFinance(
         const pay: SupplierPayment = {
           id: tf.supplierPaymentId as string, poId: tf.poId, poNo: tf.poNo, supplierName: tf.supplierName,
           invoiceId: opts.payment!.invoiceId || null, kind: opts.payment!.invoiceId ? 'invoice' : 'advance', amount: amt,
-          paidAt: opts.date, method: 'trade_finance', reference: `${tf.stfNo}${tf.facilityRef ? ` · ${tf.facilityRef}` : ''} · ${tf.bankName}`,
+          paidAt: opts.date, method: 'trade_finance', reference: `${tf.tfNo}${tf.facilityRef ? ` · ${tf.facilityRef}` : ''} · ${tf.bankName}`,
           notes: 'Paid to the supplier by the bank under Structured Trade Finance', byName, createdAt: new Date().toISOString(),
         };
         return [...arr, pay];
@@ -4188,7 +4391,7 @@ export async function dbDrawTradeFinance(
   return saved!;
 }
 
-// Repayment to the bank. Settles the STF automatically when nothing is left to pay.
+// Repayment to the bank. Settles the facility automatically when nothing is left to pay.
 export async function dbAddTfRepayment(id: string, input: { amount: number; paidAt: string; reference?: string | null; notes?: string | null }, byName: string): Promise<TradeFinance> {
   procurementOnly();
   let saved: TradeFinance | undefined;
@@ -4196,7 +4399,7 @@ export async function dbAddTfRepayment(id: string, input: { amount: number; paid
   await updateFirestoreDocArray('tradeFinances', (arr) => {
     saved = undefined; error = undefined;
     const cur = arr.find((x: TradeFinance) => x.id === id);
-    if (!cur) { error = 'This STF no longer exists.'; return arr; }
+    if (!cur) { error = 'This trade-finance record no longer exists.'; return arr; }
     if (cur.status !== 'drawn') { error = 'Repayments can only be recorded after the bank has paid the supplier.'; return arr; }
     if (!(input.amount > 0)) { error = 'Enter the amount paid to the bank.'; return arr; }
     const pos = tfPosition(cur);
