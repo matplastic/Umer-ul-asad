@@ -6,10 +6,10 @@ import type { IncomingMaterial, PaymentMethod, PurchaseOrder, Rfq, Supplier, Sup
 import { TF_STATUS_META, tfPosition, tfTypeLabel } from '../lib/tradeFinance';
 import { Field, Modal, ProgressBar, StageBadge, QC_LABEL, btn, inputCls, todayStr } from './ProcurementUi';
 import {
-  dbAddSupplierInvoice, dbPoAction, dbRecordPayment, dbVoidPayment, dbVoidSupplierInvoice,
+  dbAddSupplierInvoice, dbPoAction, dbRecordPayment, dbSetPaymentClearing, dbVoidPayment, dbVoidSupplierInvoice,
 } from '../lib/firebaseService';
 import {
-  APPROVAL_THRESHOLD, canAutoClose, dateFmt, dueDateFor, expectedInvoiceAmount, invoiceMatch, money, poFinance, poProgress, poStage,
+  APPROVAL_THRESHOLD, canAutoClose, dateFmt, dueDateFor, parseTerms, expectedInvoiceAmount, invoiceMatch, money, poFinance, poProgress, poStage,
   poTotals, qtyFmt, daysUntil, type PoStage,
 } from '../lib/procurement';
 import { exportPurchaseOrderPdf } from '../lib/procurementPdf';
@@ -53,10 +53,10 @@ const NEXT_STEP: Record<PoStage, string> = {
 };
 
 const METHODS: { v: PaymentMethod; label: string }[] = [
-  { v: 'bank_transfer', label: 'Bank transfer' }, { v: 'cheque', label: 'Cheque' }, { v: 'cash', label: 'Cash' }, { v: 'card', label: 'Card' },
-  { v: 'trade_finance', label: 'Paid by bank (STF)' },
+  { v: 'bank_transfer', label: 'Bank transfer' }, { v: 'cheque', label: 'Cheque' }, { v: 'pdc', label: 'Post-dated cheque (PDC)' }, { v: 'cash', label: 'Cash' }, { v: 'card', label: 'Card' },
+  { v: 'trade_finance', label: 'Paid by bank (trade finance)' },
 ];
-// trade_finance payments are created by an STF drawdown, never typed in by hand
+// trade_finance payments are created by a trade-finance drawdown, never typed in by hand
 const PICKABLE_METHODS = METHODS.filter(m => m.v !== 'trade_finance');
 
 export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoices, payments, rfqs, tradeFinances, currentUserName, canApprove, onNewTf, onOpenTf, onClose, onChanged, onEdit }) => {
@@ -87,11 +87,12 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
   const action = (a: 'submit' | 'approve' | 'close', ok: string, opts: any = {}) =>
     run(() => dbPoAction(po.id, a, currentUserName, opts), ok);
 
+  const cur = po.currency && po.currency !== 'AED' ? ` (${po.currency})` : '';
   const summary = [
-    { label: 'PO total', value: money(totals.total), sub: `incl. VAT ${money(totals.vat)}` },
+    { label: `PO total${cur}`, value: money(totals.total), sub: `incl. VAT ${money(totals.vat)}` },
     { label: 'Received', value: `${Math.round(progress.pct)}%`, sub: `${progress.linesComplete} of ${progress.lines.length} items complete` },
     { label: 'Invoiced', value: money(fin.invoiced), sub: allInvoices.length ? `${allInvoices.filter(i => !i.voided).length} invoice(s)` : 'none yet' },
-    { label: 'Paid', value: money(fin.paid), sub: fin.advance ? `incl. advance ${money(fin.advance)}` : ' ' },
+    { label: 'Paid', value: money(fin.paid), sub: fin.pdcIssued ? `+ PDC ${money(fin.pdcIssued)} issued` : fin.advance ? `incl. advance ${money(fin.advance)}` : ' ' },
     { label: 'Outstanding', value: money(fin.outstanding), sub: 'invoiced − paid', warn: fin.outstanding > 0 },
   ];
 
@@ -102,11 +103,12 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
         <div className="px-5 pt-4 pb-3 border-b border-slate-200">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[10px] uppercase font-bold text-slate-500 font-mono">{po.poNo}{po.rfqNo ? ` · from ${po.rfqNo}` : ''}</div>
+              <div className="text-[10px] uppercase font-bold text-slate-500 font-mono">{po.poNo}{po.stfNo ? ` · ${po.stfNo}` : ''}{po.rfqNo ? ` · ${po.rfqNo}` : ''}</div>
               <h2 className="text-base font-black text-slate-900 break-words">{po.supplierName}</h2>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <StageBadge stage={stage} />
                 <span>Ordered {dateFmt(po.orderDate)}</span>
+                {po.projectName && <span className="font-bold text-slate-700">· {po.projectType ? `${po.projectType} · ` : ''}{po.projectName}</span>}
                 {po.expectedDate && <span className={late ? 'text-rose-700 font-bold' : ''}>· due {dateFmt(po.expectedDate)}{late ? ' (late)' : ''}</span>}
               </div>
             </div>
@@ -163,6 +165,21 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
           </div>
 
           {/* receiving */}
+          {/* payment plan from the terms */}
+          {po.paymentTerms && (() => {
+            const tm = parseTerms(po.paymentTerms);
+            const adv = Math.round(totals.total * tm.advancePct) / 100;
+            const bal = Math.round((totals.total - adv) * 100) / 100;
+            const advPaid = fin.advance + fin.pdcIssued >= adv - 0.01 && adv > 0;
+            return (
+              <section className="rounded-xl border border-slate-200 p-3 text-xs space-y-1" data-testid="po-payment-plan">
+                <div className="text-[10px] uppercase font-bold text-slate-500">Payment plan — {po.paymentTerms.replace(/\s*\n\s*/g, ' · ')}</div>
+                {tm.advancePct > 0 && <div><strong>Advance {tm.advancePct}%</strong> = {po.currency} {money(adv)} — <span className={advPaid ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>{advPaid ? 'arranged / paid' : 'due when the PO is issued'}</span></div>}
+                {bal > 0.005 && <div><strong>Balance</strong> {po.currency} {money(bal)} — {tm.creditDays != null && tm.creditDays > 0 ? `${tm.creditDays} days after the invoice` : 'on delivery'}{tm.viaPdc ? ', by post-dated cheque (PDC)' : ''}</div>}
+              </section>
+            );
+          })()}
+
           <section>
             <h3 className="text-xs font-extrabold text-slate-900 mb-2 flex items-center gap-1.5"><PackageCheck className="h-4 w-4 text-violet-600" /> Receiving — ordered vs delivered</h3>
             <div className="rounded-xl border border-slate-200 overflow-x-auto">
@@ -264,10 +281,16 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
                       <tr key={p.id} className={`border-t border-slate-200 ${p.voided ? 'opacity-50 line-through' : ''}`}>
                         <td className="px-2 py-2 whitespace-nowrap">{dateFmt(p.paidAt)}</td>
                         <td className="px-2 py-2">{p.kind === 'advance' ? 'Advance' : 'Invoice payment'}</td>
-                        <td className="px-2 py-2">{METHODS.find(m => m.v === p.method)?.label}{p.reference ? ` · ${p.reference}` : ''}</td>
+                        <td className="px-2 py-2">{METHODS.find(m => m.v === p.method)?.label}{p.reference ? ` · ${p.reference}` : ''}
+                          {p.method === 'pdc' && <div className="text-[10px] mt-0.5">cheque date {dateFmt(p.chequeDate)} · <span className={p.clearStatus === 'cleared' ? 'text-emerald-700 font-bold' : p.clearStatus === 'bounced' ? 'text-rose-700 font-bold' : 'text-amber-700 font-bold'}>{(p.clearStatus || 'issued').toUpperCase()}</span></div>}</td>
                         <td className="px-2 py-2 text-right font-mono">{money(p.amount)}</td>
                         <td className="px-2 py-2">{p.byName}</td>
-                        <td className="px-1">{!p.voided && <button onClick={() => setDialog({ kind: 'reason', action: 'void_payment', targetId: p.id, label: `Void payment of AED ${money(p.amount)}` })} className="text-slate-400 hover:text-rose-600 cursor-pointer" title="Void"><BanIcon className="h-3.5 w-3.5" /></button>}</td>
+                        <td className="px-1 whitespace-nowrap">
+                          {!p.voided && p.method === 'pdc' && p.clearStatus === 'issued' && <>
+                            <button onClick={() => run(() => dbSetPaymentClearing(p.id, 'cleared', currentUserName), 'Cheque marked as cleared.')} className="text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer mr-1" data-testid={`pdc-clear-${p.id}`}>Cleared</button>
+                            <button onClick={() => run(() => dbSetPaymentClearing(p.id, 'bounced', currentUserName), 'Cheque marked as bounced.')} className="text-[10px] font-bold text-rose-700 hover:underline cursor-pointer mr-1">Bounced</button>
+                          </>}
+                          {!p.voided && <button onClick={() => setDialog({ kind: 'reason', action: 'void_payment', targetId: p.id, label: `Void payment of ${po.currency || 'AED'} ${money(p.amount)}` })} className="text-slate-400 hover:text-rose-600 cursor-pointer" title="Void"><BanIcon className="h-3.5 w-3.5" /></button>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -291,22 +314,22 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
             );
           })()}
 
-          {/* bank financing (STF) */}
+          {/* bank financing */}
           <section>
-            <h3 className="text-xs font-extrabold text-slate-900 mb-2 flex items-center gap-1.5">Bank finance (STF)</h3>
+            <h3 className="text-xs font-extrabold text-slate-900 mb-2 flex items-center gap-1.5">Bank finance (trade finance)</h3>
             {(() => {
               const mine = tradeFinances.filter(t => t.poId === po.id && t.status !== 'cancelled');
               return (
                 <div className="space-y-1.5">
-                  {mine.length === 0 && <div className="text-xs text-slate-500">Not financed. Use an STF when a bank (LC, trust receipt, import loan…) pays the supplier and you repay the bank later.</div>}
+                  {mine.length === 0 && <div className="text-xs text-slate-500">Not financed. Use trade finance when a bank (LC, trust receipt, import loan…) pays the supplier and you repay the bank later.</div>}
                   {mine.map(t => { const p = tfPosition(t); return (
                     <button key={t.id} onClick={() => onOpenTf(t.id)} className="w-full text-left rounded-xl border border-slate-200 hover:border-primary-400 px-3 py-2 text-xs cursor-pointer flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span className="font-mono font-bold">{t.stfNo}</span><span>{t.bankName} · {tfTypeLabel(t.type)}</span>
+                      <span className="font-mono font-bold">{t.tfNo}</span><span>{t.bankName} · {tfTypeLabel(t.type)}</span>
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${TF_STATUS_META[t.status].cls}`}>{TF_STATUS_META[t.status].label}</span>
                       <span className="ml-auto font-mono">owed {money(p.outstanding)}{p.maturity && t.status === 'drawn' ? ` · due ${dateFmt(p.maturity)}` : ''}</span>
                     </button>
                   ); })}
-                  {po.status === 'approved' && <button onClick={() => onNewTf(po)} className={btn.soft} data-testid="po-new-stf">+ Finance this PO with an STF</button>}
+                  {po.status === 'approved' && <button onClick={() => onNewTf(po)} className={btn.soft} data-testid="po-new-stf">+ Finance this PO with trade finance</button>}
                 </div>
               );
             })()}
@@ -358,7 +381,7 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
             const ok = await run(async () => {
               await dbRecordPayment({
                 poId: po.id, poNo: po.poNo, supplierName: po.supplierName, invoiceId: v.invoiceId || null, kind: v.invoiceId ? 'invoice' : 'advance',
-                amount: v.amount, paidAt: v.paidAt, method: v.method, reference: v.reference.trim() || null, notes: v.notes.trim() || null,
+                amount: v.amount, paidAt: v.paidAt, method: v.method, chequeDate: v.method === 'pdc' ? v.chequeDate : null, reference: v.reference.trim() || null, notes: v.notes.trim() || null,
               }, currentUserName, fin.payCap);
               // fully received + fully invoiced + fully paid → finish the PO automatically
               if (canAutoClose(po, progress, { invoiced: fin.invoiced, paid: fin.paid + v.amount })) {
@@ -459,13 +482,14 @@ const InvoiceDialog: React.FC<{
 
 const PaymentDialog: React.FC<{
   po: PurchaseOrder; fin: ReturnType<typeof poFinance>; progressComplete: boolean; busy: boolean; error: string | null; onClose: () => void;
-  onSave: (v: { invoiceId: string; amount: number; paidAt: string; method: PaymentMethod; reference: string; notes: string }) => void;
+  onSave: (v: { invoiceId: string; amount: number; paidAt: string; method: PaymentMethod; chequeDate: string; reference: string; notes: string }) => void;
 }> = ({ po, fin, progressComplete, busy, error, onClose, onSave }) => {
   const openInvoices = fin.invoices;
   const [invoiceId, setInvoiceId] = useState(openInvoices.length ? openInvoices[openInvoices.length - 1].id : '');
   const [amount, setAmount] = useState(fin.outstanding > 0 ? String(fin.outstanding) : '');
   const [paidAt, setPaidAt] = useState(todayStr());
-  const [method, setMethod] = useState<PaymentMethod>('bank_transfer');
+  const [method, setMethod] = useState<PaymentMethod>(parseTerms(po.paymentTerms).viaPdc ? 'pdc' : 'bank_transfer');
+  const [chequeDate, setChequeDate] = useState(dueDateFor(todayStr(), po.paymentTerms));
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const amt = Number(amount) || 0;
@@ -476,7 +500,7 @@ const PaymentDialog: React.FC<{
   return (
     <Modal title="Record payment" subtitle={`${po.poNo} · ${po.supplierName}`} onClose={onClose} width="max-w-lg" z="z-[70]" footer={<>
       <button onClick={onClose} className={btn.soft}>Cancel</button>
-      <button onClick={() => onSave({ invoiceId, amount: amt, paidAt, method, reference, notes })} disabled={busy || !(amt > 0) || amt > limit + 0.005} className={btn.green} data-testid="payment-save">
+      <button onClick={() => onSave({ invoiceId, amount: amt, paidAt, method, chequeDate, reference, notes })} disabled={busy || !(amt > 0) || amt > limit + 0.005 || (method === 'pdc' && !chequeDate)} className={btn.green} data-testid="payment-save">
         {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save payment
       </button>
     </>}>
@@ -499,7 +523,9 @@ const PaymentDialog: React.FC<{
           </Field>
           <Field label="Payment date"><input type="date" value={paidAt} onChange={e => setPaidAt(e.target.value)} className={inputCls} /></Field>
           <Field label="Method"><select value={method} onChange={e => setMethod(e.target.value as PaymentMethod)} className={inputCls}>{PICKABLE_METHODS.map(m => <option key={m.v} value={m.v}>{m.label}</option>)}</select></Field>
-          <Field label={method === 'cheque' ? 'Cheque no.' : 'Reference'}><input value={reference} onChange={e => setReference(e.target.value)} className={inputCls} /></Field>
+          {method === 'pdc' && <Field label="Cheque date (when it can be cashed) *"><input type="date" value={chequeDate} onChange={e => setChequeDate(e.target.value)} className={inputCls} data-testid="payment-cheque-date" /></Field>}
+          <Field label={method === 'cheque' || method === 'pdc' ? 'Cheque no.' : 'Reference'}><input value={reference} onChange={e => setReference(e.target.value)} className={inputCls} /></Field>
+          {method === 'pdc' && <div className="col-span-2 text-[11px] text-slate-500">A post-dated cheque counts as <strong>arranged</strong>, not paid. Mark it as cleared once the bank has cashed it.</div>}
           <Field label="Notes" className="col-span-2"><input value={notes} onChange={e => setNotes(e.target.value)} className={inputCls} /></Field>
         </div>
         <ErrorLine error={error} />

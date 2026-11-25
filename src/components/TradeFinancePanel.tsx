@@ -12,7 +12,7 @@ import {
 import { TF_DOC_KINDS, TF_STATUS_META, addDays, tfPosition, tfTypeLabel } from '../lib/tradeFinance';
 import { dateFmt, money, poFinance } from '../lib/procurement';
 
-// One STF in one place: what the bank is financing, what it costs, the maturity countdown, drawdown
+// One trade finance facility in one place: what the bank is financing, what it costs, the maturity countdown, drawdown
 // (the bank pays the supplier), repayments to the bank, and the bank / LC documents.
 
 interface Props {
@@ -37,7 +37,7 @@ const GUIDE: Record<TradeFinance['status'], string> = {
   approved: 'Approved. When the bank pays the supplier, record the drawdown — that starts the repayment clock.',
   drawn: 'The bank has paid the supplier. Repay the bank by the maturity date.',
   settled: 'Fully repaid. Nothing more to do.',
-  cancelled: 'This STF was cancelled.',
+  cancelled: 'This facility was cancelled.',
 };
 
 export const TradeFinancePanel: React.FC<Props> = ({ tf, po, invoices, payments, currentUserName, onClose, onChanged, onEdit, onOpenPo }) => {
@@ -77,7 +77,7 @@ export const TradeFinancePanel: React.FC<Props> = ({ tf, po, invoices, payments,
         <div className="px-5 pt-4 pb-3 border-b border-slate-200">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-[10px] uppercase font-bold text-slate-500 font-mono">{tf.stfNo}{tf.facilityRef ? ` · ${tf.facilityRef}` : ''}</div>
+              <div className="text-[10px] uppercase font-bold text-slate-500 font-mono">{tf.tfNo}{tf.facilityRef ? ` · ${tf.facilityRef}` : ''}</div>
               <h2 className="text-base font-black text-slate-900 break-words flex items-center gap-2"><Landmark className="h-4 w-4 text-primary-600 shrink-0" />{tf.bankName}</h2>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${st.cls}`}>{st.label}</span>
@@ -121,7 +121,7 @@ export const TradeFinancePanel: React.FC<Props> = ({ tf, po, invoices, payments,
                 <button onClick={() => { setError(null); setDialog({ kind: 'draw' }); }} className={btn.primary} data-testid="tf-draw"><Banknote className="h-3.5 w-3.5" /> Record drawdown</button>
               </>}
               {tf.status === 'drawn' && <button onClick={() => { setError(null); setDialog({ kind: 'repay' }); }} className={btn.green} data-testid="tf-repay"><Wallet className="h-3.5 w-3.5" /> Record repayment to bank</button>}
-              {['draft', 'applied', 'approved'].includes(tf.status) && <button onClick={() => setDialog({ kind: 'reason', action: 'cancel', label: 'Cancel this STF' })} className={btn.danger}><Ban className="h-3.5 w-3.5" /> Cancel</button>}
+              {['draft', 'applied', 'approved'].includes(tf.status) && <button onClick={() => setDialog({ kind: 'reason', action: 'cancel', label: 'Cancel this facility' })} className={btn.danger}><Ban className="h-3.5 w-3.5" /> Cancel</button>}
             </div>
           </div>
 
@@ -218,7 +218,7 @@ const ApproveDialog: React.FC<{ tf: TradeFinance; busy: boolean; error: string |
   const [facilityRef, setFacilityRef] = useState(tf.facilityRef || '');
   const [date, setDate] = useState(todayStr());
   return (
-    <Modal title="Bank approval" subtitle={`${tf.stfNo} · ${tf.bankName}`} onClose={onClose} width="max-w-md" z="z-[70]" footer={<>
+    <Modal title="Bank approval" subtitle={`${tf.tfNo} · ${tf.bankName}`} onClose={onClose} width="max-w-md" z="z-[70]" footer={<>
       <button onClick={onClose} className={btn.soft}>Cancel</button>
       <button onClick={() => onSave({ approvedRef, facilityRef, date })} disabled={busy} className={btn.green} data-testid="tf-approve-save">{busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save</button>
     </>}>
@@ -246,7 +246,7 @@ const DrawDialog: React.FC<{
   const [amount, setAmount] = useState(String(Math.min(a.invoiceAed, room || a.invoiceAed)));
   const amt = Number(amount) || 0;
   return (
-    <Modal title="Record drawdown — the bank paid the supplier" subtitle={`${tf.stfNo} · ${tf.supplierName}`} onClose={onClose} width="max-w-lg" z="z-[70]" footer={<>
+    <Modal title="Record drawdown — the bank paid the supplier" subtitle={`${tf.tfNo} · ${tf.supplierName}`} onClose={onClose} width="max-w-lg" z="z-[70]" footer={<>
       <button onClick={onClose} className={btn.soft}>Cancel</button>
       <button onClick={() => onSave({ date, record, amount: amt, invoiceId })} disabled={busy || !date || (record && (!(amt > 0) || amt > room + 0.005))} className={btn.primary} data-testid="tf-draw-save">{busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save drawdown</button>
     </>}>
@@ -288,7 +288,7 @@ const RepayDialog: React.FC<{ tf: TradeFinance; outstanding: number; busy: boole
   const [notes, setNotes] = useState('');
   const amt = Number(amount) || 0;
   return (
-    <Modal title="Repayment to the bank" subtitle={`${tf.stfNo} · ${tf.bankName} · still owed AED ${money(outstanding)}`} onClose={onClose} width="max-w-md" z="z-[70]" footer={<>
+    <Modal title="Repayment to the bank" subtitle={`${tf.tfNo} · ${tf.bankName} · still owed AED ${money(outstanding)}`} onClose={onClose} width="max-w-md" z="z-[70]" footer={<>
       <button onClick={onClose} className={btn.soft}>Cancel</button>
       <button onClick={() => onSave({ amount: amt, paidAt, reference, notes })} disabled={busy || !(amt > 0) || amt > outstanding + 0.005} className={btn.green} data-testid="tf-repay-save">{busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save repayment</button>
     </>}>

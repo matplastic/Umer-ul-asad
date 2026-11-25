@@ -94,7 +94,7 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={poNo} onChange={e => { setPoNo(e.target.value); setQtys({}); setError(null); setDone(null); }}
-          list="po-receivable-list" placeholder="MAT-PO-2026-0001" data-testid="receive-po-no"
+          list="po-receivable-list" placeholder="PO.P20261100025" data-testid="receive-po-no"
           className="bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 w-64"
         />
         <datalist id="po-receivable-list">

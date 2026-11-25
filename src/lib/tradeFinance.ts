@@ -1,4 +1,4 @@
-// Structured Trade Finance (STF) rules — what a bank-financed purchase costs, what is owed, when it matures.
+// Structured Trade Finance rules — what a bank-financed purchase costs, what is owed, when it matures.
 import type { TfRepayment, TfStatus, TfType, TradeFinance } from '../types';
 import { round2 } from './procurement';
 
@@ -28,7 +28,7 @@ export const tfDocLabel = (k: string) => TF_DOC_KINDS.find(x => x.id === k)?.lab
 
 export const CURRENCIES: { code: string; defaultRate: number | null }[] = [
   { code: 'AED', defaultRate: 1 }, { code: 'USD', defaultRate: 3.6725 }, { code: 'EUR', defaultRate: null },
-  { code: 'GBP', defaultRate: null }, { code: 'CNY', defaultRate: null }, { code: 'INR', defaultRate: null },
+  { code: 'GBP', defaultRate: null }, { code: 'TRY', defaultRate: null }, { code: 'CNY', defaultRate: null }, { code: 'INR', defaultRate: null },
 ];
 
 export const TF_BANKS = [

@@ -2,7 +2,7 @@
 // "receive against PO" panel, so both always agree on what is ordered, received,
 // still owed and payable.
 import type {
-  IncomingMaterial, PoLine, PurchaseOrder, Rfq, RfqQuote, SupplierInvoice, SupplierPayment,
+  IncomingMaterial, PoLine, ProcurementSettings, PurchaseOrder, Rfq, RfqQuote, Stf, SupplierInvoice, SupplierPayment,
 } from '../types';
 
 // ── house rules (change here) ────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export function poProgress(po: PurchaseOrder, incoming: IncomingMaterial[]): PoP
     complete: lines.length > 0 && lines.every(l => l.remaining <= EPS),
     firstReceiptAt: times[0] || null,
     lastReceiptAt: times[times.length - 1] || null,
-    receipts: [...mine].sort((a, b) => (a.receivedAt || a.createdAt).localeCompare(b.receivedAt || b.createdAt)),
+    receipts: [...mine].sort((a, b) => (a.receivedAt || a.createdAt || '').localeCompare(b.receivedAt || b.createdAt || '')),
     acceptedSubtotal: round2(lines.reduce((t, l) => t + l.accepted * (Number(l.line.unitPrice) || 0), 0)),
   };
 }
@@ -106,22 +106,27 @@ export interface PoFinance {
   invoices: SupplierInvoice[];
   payments: SupplierPayment[];
   invoiced: number;       // live (non-void) invoices, incl. VAT
-  paid: number;           // live payments
-  advance: number;        // payments made before an invoice
+  paid: number;           // money that has really left: cleared cheques, transfers, cash, bank-paid
+  pdcIssued: number;      // post-dated cheques handed over but not cleared yet — arranged, not paid
+  advance: number;        // paid before an invoice
   outstanding: number;    // invoiced − paid (never below 0)
+  unarranged: number;     // invoiced − paid − PDCs: what still has to be arranged
   poTotal: number;
   payCap: number;         // the most we may pay in total on this PO
 }
+const isOpenPdc = (p: SupplierPayment) => p.method === 'pdc' && p.clearStatus !== 'cleared';
 export function poFinance(po: PurchaseOrder, invoices: SupplierInvoice[], payments: SupplierPayment[]): PoFinance {
   const inv = invoices.filter(i => i.poId === po.id && !i.voided);
-  const pay = payments.filter(p => p.poId === po.id && !p.voided);
+  const pay = payments.filter(p => p.poId === po.id && !p.voided && p.clearStatus !== 'bounced');
   const invoiced = round2(inv.reduce((t, i) => t + i.amount, 0));
-  const paid = round2(pay.reduce((t, p) => t + p.amount, 0));
+  const paid = round2(pay.filter(p => !isOpenPdc(p)).reduce((t, p) => t + p.amount, 0));
+  const pdcIssued = round2(pay.filter(isOpenPdc).reduce((t, p) => t + p.amount, 0));
   const poTotal = poTotals(po).total;
   return {
-    invoices: inv, payments: pay, invoiced, paid,
-    advance: round2(pay.filter(p => p.kind === 'advance').reduce((t, p) => t + p.amount, 0)),
+    invoices: inv, payments: pay, invoiced, paid, pdcIssued,
+    advance: round2(pay.filter(p => p.kind === 'advance' && !isOpenPdc(p)).reduce((t, p) => t + p.amount, 0)),
     outstanding: Math.max(0, round2(invoiced - paid)),
+    unarranged: Math.max(0, round2(invoiced - paid - pdcIssued)),
     poTotal,
     payCap: Math.max(poTotal, invoiced),
   };
@@ -133,14 +138,24 @@ export function invoiceMatch(amount: number, expected: number): { status: 'match
   return { status: Math.abs(variance) <= tol ? 'matched' : 'mismatch', variance };
 }
 
-// "Net 30" → 30, "Cash on delivery" / "Advance" → 0, unknown → null
+// Payment terms are free text, the way the company writes them: "PDC - 30 Days", "Net 30", "Cash on delivery",
+// "50% Advance Payment / Remaining PDC - 30 Days".
+export function parseTerms(terms?: string | null): { advancePct: number; creditDays: number | null; viaPdc: boolean } {
+  const t = terms || '';
+  const adv = /(\d+(?:\.\d+)?)\s*%\s*advance/i.exec(t);
+  const pdc = /pdc[^\d]*(\d+)\s*days?/i.exec(t);
+  const net = /net\s*(\d+)/i.exec(t);
+  const creditDays = pdc ? Number(pdc[1]) : net ? Number(net[1]) : /cash|cod/i.test(t) ? 0 : null;
+  const fullAdvance = /^\s*(100\s*%\s*)?advance/i.test(t) && !adv;
+  return { advancePct: adv ? Number(adv[1]) : fullAdvance ? 100 : 0, creditDays, viaPdc: /pdc/i.test(t) };
+}
+// days between invoice and due date; null when the terms don't say
 export function termsDays(terms?: string | null): number | null {
   if (!terms) return null;
-  const m = terms.match(/(\d+)/);
-  if (m && /net|days?/i.test(terms)) return Number(m[1]);
-  if (/cash|cod|advance|prepay/i.test(terms)) return 0;
-  if (/pdc/i.test(terms)) return 30;
-  return null;
+  const p = parseTerms(terms);
+  if (p.creditDays != null) return p.creditDays;
+  if (p.advancePct >= 100) return 0;
+  return /pdc/i.test(terms) ? 30 : null;
 }
 export function dueDateFor(invoiceDate: string, terms?: string | null): string {
   const d = new Date(invoiceDate + 'T00:00:00');
@@ -196,9 +211,24 @@ export const isReceivable = (po: PurchaseOrder) => po.status === 'approved';
 export const isOpenPo = (po: PurchaseOrder) => po.status === 'approved' || po.status === 'pending_approval';
 
 // ── document numbers ─────────────────────────────────────────────────────────
-// MAT-PO-2026-0001 — the next free number for that year (called INSIDE the write).
-export function nextDocNo(existing: string[], kind: 'PO' | 'QTN' | 'STF', now = new Date()): string {
+//   STF   STF.P2026110022      STF.P + year + month + 4-digit running number
+//   PO    PO.P20261100022      PO.P  + year + month + 5-digit running number
+//   QTN   MAT-QTN-2026-0001    quotation sheets          TF  MAT-TF-2026-0001  trade finance
+// The running number does not reset every month (it matches the company sheet: STF …0021, …0022 …) —
+// it restarts each January. `floor` lets Settings say "we are already at number N this year", so the
+// numbers carry on from the Excel sheet instead of starting again at 1. Called INSIDE the write.
+export function nextDocNo(existing: string[], kind: 'PO' | 'STF' | 'QTN' | 'TF', now = new Date(), floor?: { seq: number; year: number }): string {
   const year = now.getFullYear();
+  if (kind === 'STF' || kind === 'PO') {
+    const re = kind === 'STF' ? /^STF\.P(\d{4})(\d{2})(\d{4})$/ : /^PO\.P(\d{4})(\d{2})(\d{5})$/;
+    let max = floor && floor.year === year ? floor.seq : 0;
+    for (const n of existing) {
+      const m = re.exec(n || '');
+      if (m && Number(m[1]) === year) max = Math.max(max, Number(m[3]));
+    }
+    const seq = String(max + 1).padStart(kind === 'STF' ? 4 : 5, '0');
+    return `${kind === 'STF' ? 'STF.P' : 'PO.P'}${year}${String(now.getMonth() + 1).padStart(2, '0')}${seq}`;
+  }
   const prefix = `MAT-${kind}-${year}-`;
   let max = 0;
   for (const n of existing) {
@@ -228,12 +258,17 @@ export function cheapestQuoteId(rfq: Pick<Rfq, 'lines' | 'quotes'>): string | nu
 
 // Approved Supervisor / HR purchase requests that no PO line covers yet
 export function openRequisitions(
-  supervisor: any[], hr: any[], pos: PurchaseOrder[],
+  supervisor: any[], hr: any[], pos: PurchaseOrder[], stfs: Stf[] = [],
 ): { key: string; kind: 'supervisor' | 'hr'; id: string; itemName: string; erpCode?: string | null; unit: string; qty: number; requestedByName: string; requestedAt: string; purpose?: string | null; estimatedCost?: number | null }[] {
   const covered = new Set<string>();
   for (const po of pos) {
     if (po.status === 'cancelled') continue;
     for (const l of po.lines) if (l.sourceRequestId) covered.add(l.sourceRequestId);
+  }
+  // a live STF (not rejected / cancelled) already covers its requests too
+  for (const f of stfs) {
+    if (f.status === 'cancelled' || f.status === 'rejected') continue;
+    for (const l of f.lines) if (l.sourceRequestId) covered.add(l.sourceRequestId);
   }
   const take = (rows: any[], kind: 'supervisor' | 'hr') => rows
     .filter(r => r.status === 'Approved' && !covered.has(r.id))

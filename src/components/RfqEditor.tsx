@@ -9,7 +9,7 @@ import { deleteProcFile } from '../lib/procurementFiles';
 import { cheapestQuoteId, dateFmt, money, qtyFmt, quoteTotal } from '../lib/procurement';
 
 // Quotation sheet (RFQ): what we need → which suppliers were asked → what each one quoted (with their
-// quotation PDF attached) → who wins and why. Not to be confused with STF (Structured Trade Finance).
+// quotation PDF attached) → who wins and why. The STF (purchase approval form) is a separate step.
 // The winner's prices feed straight into the PO.
 
 let seq = 0;

@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, Save, Send, Loader2, AlertTriangle } from 'lucide-react';
-import type { Material, PoLine, PurchaseOrder, Rfq, Supplier } from '../types';
+import type { Material, PoLine, PurchaseOrder, Rfq, Stf, Supplier } from '../types';
+import { CURRENCIES } from '../lib/tradeFinance';
+import { PROJECT_TYPES } from '../lib/stf';
 import { MaterialPicker } from './MaterialPicker';
 import { Field, Modal, btn, inputCls, todayStr } from './ProcurementUi';
 import { dbPoAction, dbSavePurchaseOrder } from '../lib/firebaseService';
@@ -30,6 +32,9 @@ export interface PoSeed {
   expectedDate?: string | null;
   notes?: string | null;
   rfq?: Rfq | null;
+  stf?: Stf | null;                     // the APPROVED STF this PO is issued from
+  currency?: string; fxRate?: number; vatRate?: number;
+  projectType?: string; projectName?: string;
   lines: { materialId?: string; itemName?: string; qty: number; unitPrice?: number | null; sourceRequestId?: string | null; sourceKind?: 'supervisor' | 'hr' | null }[];
 }
 
@@ -50,7 +55,12 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
   const [expectedDate, setExpectedDate] = useState((initial?.expectedDate || seed?.expectedDate || '').slice(0, 10));
   const [location, setLocation] = useState(initial?.deliveryLocation || DEFAULT_LOCATION);
   const [terms, setTerms] = useState(initial?.paymentTerms || seed?.paymentTerms || '');
-  const [vatRate, setVatRate] = useState(String(initial?.vatRate ?? VAT_RATE));
+  const [vatRate, setVatRate] = useState(String(initial?.vatRate ?? seed?.vatRate ?? VAT_RATE));
+  const [currency, setCurrency] = useState(initial?.currency || seed?.currency || 'AED');
+  const [fxRate, setFxRate] = useState(String(initial?.fxRate ?? seed?.fxRate ?? 1));
+  const [projectType, setProjectType] = useState(initial?.projectType || seed?.projectType || '');
+  const [projectName, setProjectName] = useState(initial?.projectName || seed?.projectName || '');
+  const [customNo, setCustomNo] = useState('');
   const [discount, setDiscount] = useState(String(initial?.discount || ''));
   const [notes, setNotes] = useState(initial?.notes || seed?.notes || '');
   const [lines, setLines] = useState<DraftLine[]>(() => {
@@ -92,7 +102,8 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
     };
   });
   const totals = poTotals({ lines: built, discount: Number(discount) || 0, vatRate: Number(vatRate) || 0 });
-  const needsApproval = totals.total > APPROVAL_THRESHOLD;
+  const fromApprovedStf = !!seed?.stf && seed.stf.status === 'approved';          // the STF was the approval
+  const needsApproval = !fromApprovedStf && totals.total * (Number(fxRate) || 1) > APPROVAL_THRESHOLD;
 
   const setLine = (key: string, patch: Partial<DraftLine>) => setLines(ls => ls.map(l => (l.key === key ? { ...l, ...patch } : l)));
 
@@ -106,7 +117,8 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
       let po = await dbSavePurchaseOrder({
         id: initial?.id,
         supplierId: supplier?.id || null, supplierName: supplierName.trim(), supplierCode: supplier?.code || null, supplierTaxNo: supplier?.taxNo || null,
-        currency: supplier?.currency || 'AED', orderDate, expectedDate: expectedDate || null, deliveryLocation: location.trim() || null,
+        poNo: initial ? undefined : customNo.trim() || undefined, currency, fxRate: Number(fxRate) || 1, projectType: projectType.trim() || null, projectName: projectName.trim() || null,
+        stfId: seed?.stf?.id ?? initial?.stfId ?? null, stfNo: seed?.stf?.stfNo ?? initial?.stfNo ?? null, orderDate, expectedDate: expectedDate || null, deliveryLocation: location.trim() || null,
         paymentTerms: terms.trim() || null, notes: notes.trim() || null, discount: Number(discount) || 0, vatRate: Number(vatRate) || 0,
         lines: built, rfqId: seed?.rfq?.id ?? initial?.rfqId ?? null, rfqNo: seed?.rfq?.rfqNo ?? initial?.rfqNo ?? null,
       }, currentUserName);
@@ -122,7 +134,7 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
   return (
     <Modal
       title={initial ? `Edit ${initial.poNo}` : 'New purchase order'}
-      subtitle={seed?.rfq ? `From sourcing form ${seed.rfq.rfqNo}` : undefined}
+      subtitle={seed?.stf ? `From ${seed.stf.stfNo} — approved, so this PO is issued without a second approval` : seed?.rfq ? `From quotation sheet ${seed.rfq.rfqNo}` : undefined}
       onClose={onClose} width="max-w-5xl"
       footer={<>
         <button onClick={onClose} className={btn.soft}>Cancel</button>
@@ -157,6 +169,11 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
           </Field>
           <Field label="Deliver to" className="md:col-span-2"><input value={location} onChange={e => setLocation(e.target.value)} className={inputCls} /></Field>
           <Field label="VAT %"><input type="number" min={0} value={vatRate} onChange={e => setVatRate(e.target.value)} className={`${inputCls} font-mono`} /></Field>
+          <Field label="Currency"><select value={currency} onChange={e => { setCurrency(e.target.value); const d = CURRENCIES.find(c => c.code === e.target.value)?.defaultRate; setFxRate(d != null ? String(d) : ''); }} className={inputCls} data-testid="po-currency">{CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}</select></Field>
+          <Field label={`Rate (1 ${currency} = ? AED)`}><input type="number" min={0} step="any" value={fxRate} onChange={e => setFxRate(e.target.value)} disabled={currency === 'AED'} className={`${inputCls} font-mono`} /></Field>
+          <Field label="Project type"><input value={projectType} onChange={e => setProjectType(e.target.value.toUpperCase())} list="po-ptypes" className={inputCls} /><datalist id="po-ptypes">{PROJECT_TYPES.map(p => <option key={p} value={p} />)}</datalist></Field>
+          <Field label="Project name"><input value={projectName} onChange={e => setProjectName(e.target.value.toUpperCase())} className={inputCls} data-testid="po-project" /></Field>
+          {!initial && <Field label="PO number (leave empty for the next one)" className="md:col-span-2"><input value={customNo} onChange={e => setCustomNo(e.target.value)} placeholder="auto — e.g. PO.P20261100025" className={`${inputCls} font-mono`} /></Field>}
         </div>
 
         {/* lines */}
@@ -168,7 +185,7 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
                 <th className="text-left px-2 py-2">Item (Store inventory)</th>
                 <th className="text-right px-2 py-2 w-24">Qty</th>
                 <th className="text-left px-2 py-2 w-14">Unit</th>
-                <th className="text-right px-2 py-2 w-28">Unit price (AED)</th>
+                <th className="text-right px-2 py-2 w-28">Unit price ({currency})</th>
                 <th className="text-right px-2 py-2 w-28">Amount</th>
                 <th className="w-8" />
               </tr>
@@ -219,9 +236,9 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
               <input type="number" min={0} value={discount} onChange={e => setDiscount(e.target.value)} className="w-24 bg-slate-100 border border-slate-300 rounded px-2 py-1 text-right font-mono text-xs" />
             </div>
             <div className="flex justify-between"><span className="text-slate-500">VAT {Number(vatRate) || 0}%</span><span className="font-mono">{money(totals.vat)}</span></div>
-            <div className="flex justify-between border-t border-slate-200 pt-1.5 text-sm font-black"><span>Total (AED)</span><span className="font-mono">{money(totals.total)}</span></div>
+            <div className="flex justify-between border-t border-slate-200 pt-1.5 text-sm font-black"><span>Total ({currency})</span><span className="font-mono">{money(totals.total)}</span></div>
             <div className={`text-[11px] ${needsApproval ? 'text-amber-700' : 'text-slate-500'}`}>
-              {needsApproval ? `Above AED ${APPROVAL_THRESHOLD.toLocaleString()} — needs management approval.` : `Within AED ${APPROVAL_THRESHOLD.toLocaleString()} — issued as soon as you submit.`}
+              {fromApprovedStf ? 'Approved through the STF — issued as soon as you submit.' : needsApproval ? `Above AED ${APPROVAL_THRESHOLD.toLocaleString()} — needs management approval.` : `Within AED ${APPROVAL_THRESHOLD.toLocaleString()} — issued as soon as you submit.`}
             </div>
           </div>
         </div>

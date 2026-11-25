@@ -862,7 +862,7 @@ export interface Supplier {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROCUREMENT (procure-to-pay)
-//   Requisition → Quotations (compare + PDFs) → PO → approval → STF (bank finance, optional) → goods receipt
+//   Requisition → Quotations (compare + PDFs) → PO → approval → goods receipt
 //   (Store, 'Incoming') → supplier invoice (3-way match) → payment → close
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -887,6 +887,12 @@ export interface PurchaseOrder {
   poNo: string;                     // MAT-PO-2026-0001
   rfqId?: string | null;
   rfqNo?: string | null;
+  // The STF (purchase approval form) this PO was issued from, and the project it is bought for.
+  stfId?: string | null;
+  stfNo?: string | null;
+  projectType?: string | null;      // SALES, STOCK …
+  projectName?: string | null;
+  fxRate?: number | null;           // AED per 1 unit of `currency` (1 for AED)
   supplierId?: string | null;
   supplierName: string;             // snapshot — receipts and the Store link by name
   supplierCode?: string | null;
@@ -941,6 +947,7 @@ export interface ProcAttachment {
   size: number;
   uploadedAt: string;
   uploadedByName: string;
+  shared?: boolean;                // copied from another record — removing it must not delete the stored file
 }
 
 export interface RfqQuote {
@@ -1000,7 +1007,7 @@ export interface SupplierInvoice {
   createdAt: string;
 }
 
-export type PaymentMethod = 'bank_transfer' | 'cheque' | 'cash' | 'card' | 'trade_finance';
+export type PaymentMethod = 'bank_transfer' | 'cheque' | 'pdc' | 'cash' | 'card' | 'trade_finance';
 
 export interface SupplierPayment {
   id: string;
@@ -1013,6 +1020,11 @@ export interface SupplierPayment {
   paidAt: string;                   // payment date
   method: PaymentMethod;
   reference?: string | null;        // transfer ref / cheque no.
+  // Post-dated cheque (PDC): handed over now, cashed on chequeDate. It counts as ARRANGED while 'issued',
+  // and as PAID only once it is marked cleared. A bounced cheque no longer counts at all.
+  chequeDate?: string | null;
+  clearStatus?: 'issued' | 'cleared' | 'bounced' | null;
+  clearedAt?: string | null;
   notes?: string | null;
   voided?: boolean;
   voidedByName?: string | null;
@@ -1024,7 +1036,7 @@ export interface SupplierPayment {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STF — STRUCTURED TRADE FINANCE
+// STRUCTURED TRADE FINANCE (bank-financed purchases)
 // A bank finances a purchase: the bank pays the supplier (at sight or at maturity), the company
 // pays a cash margin up front and repays the bank at maturity with profit/interest and charges.
 //   draft → applied (sent to the bank) → approved (LC issued / facility sanctioned)
@@ -1049,7 +1061,7 @@ export interface TfRepayment {
 
 export interface TradeFinance {
   id: string;
-  stfNo: string;                   // MAT-STF-2026-0001
+  tfNo: string;                   // MAT-TF-2026-0001
   poId: string;
   poNo: string;
   supplierName: string;
@@ -1081,4 +1093,77 @@ export interface TradeFinance {
   createdByName: string;
   createdAt: string;
   updatedAt?: string | null;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STF — the purchase approval form (mirrors the company's STF-PO-PAYMENT sheet)
+//   one numbered form per purchase: what, from whom, for which project, how much, who must approve it.
+//   Status: PENDING → APPROVED (or BOARD for the board's decision) · REJECTED · CANCELLED.
+//   An APPROVED STF is what the PO is issued from.
+// ─────────────────────────────────────────────────────────────────────────────
+export type StfStatus = 'pending' | 'approved' | 'board' | 'rejected' | 'cancelled';
+
+export interface StfLine {
+  id: string;
+  materialId: string;
+  itemName: string;
+  erpCode?: string | null;
+  unit: string;
+  qty: number;
+  unitPrice: number;
+  sourceRequestId?: string | null;
+  sourceKind?: 'supervisor' | 'hr' | null;
+}
+
+export interface StfHistoryEntry {
+  at: string;
+  byName: string;
+  action: 'created' | 'forwarded' | 'approved' | 'to_board' | 'board_approved' | 'rejected' | 'cancelled' | 'reopened' | 'po_issued';
+  toQueue?: string | null;
+  notes?: string | null;
+}
+
+export interface Stf {
+  id: string;
+  stfNo: string;                    // STF.P2026110022
+  date: string;
+  description: string;
+  supplierId?: string | null;
+  supplierName: string;
+  projectType: string;              // SALES …
+  projectName: string;              // TIGER, GOLF VIEWS …
+  currency: string;
+  fxRate: number;                   // AED per 1 unit of `currency`
+  vatRate: number;                  // 5 in the UAE, 20 for some Turkish suppliers …
+  paymentTerms?: string | null;     // "PDC - 30 Days", "50% Advance Payment / Remaining PDC - 30 Days"
+  lines: StfLine[];
+  status: StfStatus;
+  queue: string;                    // who it is waiting for now, or FINISHED
+  statusDate: string;               // last status date
+  rfqId?: string | null;
+  rfqNo?: string | null;
+  attachments: ProcAttachment[];    // supplier quotation(s), approvals
+  poId?: string | null;
+  poNo?: string | null;
+  history: StfHistoryEntry[];
+  notes?: string | null;
+  createdByName: string;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface StfApprover {
+  name: string;
+  finalForAbove: boolean;           // may give the FINAL approval to an STF above the budget tier
+}
+
+export interface ProcurementSettings {
+  id: string;                       // always 'settings'
+  approvers: StfApprover[];         // the names that appear in the approval queue
+  tierEur: number;                  // budget tier — 5000 EUR in the company sheet
+  eurToAed: number;                 // to compare an STF with the tier
+  seqYear: number;                  // numbering continues from these, for this calendar year
+  lastStfSeq: number;
+  lastPoSeq: number;
 }

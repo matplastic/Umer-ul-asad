@@ -36,6 +36,7 @@ export const SHARD_COUNTS: Record<string, number> = {
   supplierInvoices: 4,
   supplierPayments: 4,
   tradeFinances: 4,
+  procurementStfs: 4,
 };
 export const SHARD_BYTES_PER_DOC = 1048576;
 

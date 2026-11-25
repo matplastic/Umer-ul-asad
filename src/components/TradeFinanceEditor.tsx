@@ -6,12 +6,12 @@ import { dbSaveTradeFinance, dbTradeFinanceAction } from '../lib/firebaseService
 import { CURRENCIES, TF_BANKS, TF_TYPES, addDays, tfAmounts } from '../lib/tradeFinance';
 import { dateFmt, money, poTotals } from '../lib/procurement';
 
-// STF — Structured Trade Finance. A bank finances a purchase order: it pays the supplier, you pay a cash
+// Structured Trade Finance. A bank finances a purchase order: it pays the supplier, you pay a cash
 // margin up front and repay the bank (with profit/interest and charges) at maturity.
 
 interface Props {
   pos: PurchaseOrder[];                 // issued POs
-  tfs: TradeFinance[];                  // existing STFs (bank suggestions + double-financing warning)
+  tfs: TradeFinance[];                  // existing facilities (bank suggestions + double-financing warning)
   initial?: TradeFinance | null;
   forPoId?: string | null;
   currentUserName: string;
@@ -76,7 +76,7 @@ export const TradeFinanceEditor: React.FC<Props> = ({ pos, tfs, initial, forPoId
       if (apply && tf.status === 'draft') tf = await dbTradeFinanceAction(tf.id, 'apply', currentUserName);
       onSaved(tf);
     } catch (e: any) {
-      setError(e?.message || 'Could not save the STF.');
+      setError(e?.message || 'Could not save the facility.');
     } finally {
       setBusy(null);
     }
@@ -84,7 +84,7 @@ export const TradeFinanceEditor: React.FC<Props> = ({ pos, tfs, initial, forPoId
 
   return (
     <Modal
-      title={initial ? `Edit ${initial.stfNo}` : 'New STF — Structured Trade Finance'}
+      title={initial ? `Edit ${initial.tfNo}` : 'New trade finance facility'}
       subtitle="The bank pays the supplier; you repay the bank at maturity"
       onClose={onClose} width="max-w-5xl"
       footer={<>
@@ -102,7 +102,7 @@ export const TradeFinanceEditor: React.FC<Props> = ({ pos, tfs, initial, forPoId
                 {pos.map(p => <option key={p.id} value={p.id}>{p.poNo} — {p.supplierName} — AED {money(poTotals(p).total)}</option>)}
               </select>
               {pos.length === 0 && <div className="text-[11px] text-amber-700 mt-1">There is no issued PO yet. Issue a PO first, then finance it.</div>}
-              {alreadyFinanced > 0 && <div className="text-[11px] text-amber-700 mt-1">This PO already has AED {money(alreadyFinanced)} under another STF.</div>}
+              {alreadyFinanced > 0 && <div className="text-[11px] text-amber-700 mt-1">This PO already has AED {money(alreadyFinanced)} under another facility.</div>}
             </Field>
             <Field label="Facility type *" className="md:col-span-2">
               <select value={type} onChange={e => setType(e.target.value as TfType)} className={inputCls} data-testid="tf-type">

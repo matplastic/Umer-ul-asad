@@ -44,7 +44,7 @@ export const AttachmentList: React.FC<Props> = ({ attachments, onChange, ownerKe
 
   const remove = async (a: ProcAttachment) => {
     if (!window.confirm(`Remove “${a.name}”?`)) return;
-    if (onRemove) onRemove(a); else await deleteProcFile(a);
+    if (onRemove) onRemove(a); else if (!a.shared) await deleteProcFile(a);   // a copy of another record's file keeps the stored file
     onChange(attachments.filter(x => x.id !== a.id));
   };
 
