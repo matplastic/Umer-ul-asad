@@ -27,7 +27,8 @@ export type HRDocName =
   | 'hrTraining' | 'hrPPE' | 'hrAccidentCases' | 'hrReviews' | 'hrLetters' | 'hrAudit'
   | 'hrVacancies' | 'hrCandidates' | 'hrSettlements' | 'hrNotices' | 'hrGrievances'
   | 'hrVehicles' | 'hrFuelLogs' | 'hrVehicleService' | 'hrVehicleFines'
-  | 'hrHolidays' | 'hrLeavePolicy' | 'hrLeaveAdjust';
+  | 'hrHolidays' | 'hrLeavePolicy' | 'hrLeaveAdjust'
+  | 'hrPayrollSettings' | 'hrExpenses' | 'hrPettyCash' | 'hrExpenseBudgets';
 
 /** Every list the HR Suite owns — also registered for backup/restore. */
 export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
@@ -54,6 +55,10 @@ export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
   { id: 'hrHolidays', label: 'Company holiday calendar' },
   { id: 'hrLeavePolicy', label: 'Leave policy' },
   { id: 'hrLeaveAdjust', label: 'Leave balance adjustments' },
+  { id: 'hrPayrollSettings', label: 'Payroll / WPS employer settings' },
+  { id: 'hrExpenses', label: 'Office & pantry expenses' },
+  { id: 'hrPettyCash', label: 'Petty cash ledger' },
+  { id: 'hrExpenseBudgets', label: 'Expense budgets' },
 ];
 
 // ─── Record types ───────────────────────────────────────────
@@ -78,6 +83,12 @@ export interface HRProfile {
   emergencyName?: string;
   emergencyRelation?: string;
   emergencyPhone?: string;
+  // Salary payment / WPS
+  paymentMode?: 'WPS Bank' | 'Cash';
+  personCode?: string;        // 14-digit MOHRE labour card / person number used in the WPS file
+  bankName?: string;
+  bankRoutingCode?: string;   // 9-digit routing code of the employee's bank / exchange house
+  iban?: string;
   reportingTo?: string;
   status?: 'Active' | 'Resigned' | 'Terminated' | 'Absconded';
   exitDate?: string;
@@ -418,6 +429,64 @@ export async function saveReminderSettings(s: Pick<HRReminderSettings, 'enabled'
   await setDoc(reminderRef(), clean(s), { merge: true });   // merge: the server's last-run fields are kept
 }
 
+// ─── Payroll / WPS employer settings (one record) ───────────
+export interface HRPayrollSettings {
+  id: string;                    // always 'settings'
+  companyName: string;
+  establishmentId?: string;      // MOHRE employer unique ID (13 digits)
+  employerRoutingCode?: string;  // 9-digit routing code of the company's bank
+  bankName?: string;
+  payerIban?: string;
+  address?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+export const DEFAULT_PAYROLL_SETTINGS: HRPayrollSettings = { id: 'settings', companyName: 'MAT Plastic Industries LLC' };
+
+// ─── Office & pantry expenses ───────────────────────────────
+export const EXPENSE_CATEGORIES = [
+  'Pantry – Tea, coffee & milk', 'Pantry – Water', 'Pantry – Snacks & refreshments', 'Pantry – Cups, tissue & supplies',
+  'Cleaning & hygiene', 'Stationery', 'Printing & photocopying', 'Office supplies & equipment', 'IT, internet & phone',
+  'Courier & postage', 'Transport & taxi', 'Guest hospitality', 'Office maintenance & repairs', 'Other',
+];
+export const EXPENSE_METHODS = ['Petty cash', 'Company card', 'Bank transfer', 'Paid by employee (to reimburse)'] as const;
+export interface HRExpense {
+  id: string;
+  date: string;
+  category: string;
+  description: string;
+  vendor?: string;
+  amount: number;          // before VAT
+  vat: number;
+  total: number;           // amount + vat
+  method: typeof EXPENSE_METHODS[number];
+  paidById?: string;
+  paidByName?: string;
+  reimbursed?: boolean;    // only for 'Paid by employee (to reimburse)'
+  receiptNo?: string;
+  files?: HRFile[];        // receipt photo / PDF (Storage, max 1 MB each)
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+export interface HRPettyCash {
+  id: string;
+  date: string;
+  kind: 'Opening float' | 'Top-up' | 'Return to cash';
+  amount: number;
+  note?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+export interface HRExpenseBudgets {
+  id: string;              // always 'budgets'
+  monthly: Record<string, number>;   // category → monthly budget (AED)
+  minPettyCash: number;    // warn when the balance falls below this
+  vatRate: number;         // percent, normally 5
+  updatedAt?: string;
+}
+export const DEFAULT_EXPENSE_BUDGETS: HRExpenseBudgets = { id: 'budgets', monthly: {}, minPettyCash: 200, vatRate: 5 };
+
 // ─── Company vehicles (fleet) ───────────────────────────────
 export type VehicleStatus = 'Active' | 'In Maintenance' | 'Out of Service' | 'Sold';
 export interface VehicleAssignment {
@@ -545,7 +614,10 @@ export interface LeaveLite { id: string; employeeId: string; leaveType: string; 
 export interface WarningLite { id: string; employeeId: string; type: string; reason: string; issuedAt: string; issuedBy: string }
 export interface AccidentLite { id: string; date: string; employeeId: string; employeeName: string; department: string; description: string; actionTaken: string; status: 'Open' | 'Under Investigation' | 'Closed' }
 export interface MedicalLite { id: string; date: string; employeeId: string; disease: string }
-export interface PayrollLite { id: string; employeeId: string; month: string; baseSalary: number; allowances: number; netSalary: number; status: string }
+export interface PayrollLite {
+  id: string; employeeId: string; month: string; baseSalary: number; allowances: number; netSalary: number; status: string;
+  employeeName?: string; normalOtHours?: number; sundayOtHours?: number; deductions?: number; paidAt?: string;
+}
 
 // ─── Small helpers ──────────────────────────────────────────
 export const newId = (p = 'hr') => `${p}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;

@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { FileSpreadsheet, Upload, Download, CheckCircle2, AlertTriangle, X } from 'lucide-react';
 import { Employee } from '../../types';
 import {
-  useHRCollection, HRProfile, HRDocument, HRTraining, HRPPE, HRVehicle, HRFuelLog, HRLeaveAdjust, logAudit,
+  useHRCollection, HRProfile, HRDocument, HRTraining, HRPPE, HRVehicle, HRFuelLog, HRLeaveAdjust, HRExpense, logAudit,
 } from '../../lib/hrStore';
 import {
   readWorkbook, mapColumns, matchEmployee, cellText, downloadTemplate, downloadRows, Cell, MatchResult,
@@ -54,11 +54,12 @@ export const ExcelImportModal: React.FC<Props> = ({ employees, user, types = IMP
   const vehC = useHRCollection<HRVehicle>('hrVehicles', typeId === 'vehicles' || typeId === 'fuel');
   const logC = useHRCollection<HRFuelLog>('hrFuelLogs', typeId === 'fuel');
   const adjC = useHRCollection<HRLeaveAdjust>('hrLeaveAdjust', typeId === 'leavebalance');
+  const expC = useHRCollection<HRExpense>('hrExpenses', typeId === 'expenses');
 
   const ctx: ImportCtx = useMemo(() => ({
     employees, user, overwrite, profiles: profC.items, docs: docsC.items, training: trainC.items, ppe: ppeC.items,
-    vehicles: vehC.items, logs: logC.items, leaveAdjusts: adjC.items, saveEmployees: saveEmployees || (() => { throw new Error('Saving employees is not available here.'); }),
-  }), [employees, user, overwrite, profC.items, docsC.items, trainC.items, ppeC.items, vehC.items, logC.items, adjC.items, saveEmployees]);
+    vehicles: vehC.items, logs: logC.items, leaveAdjusts: adjC.items, expenses: expC.items, saveEmployees: saveEmployees || (() => { throw new Error('Saving employees is not available here.'); }),
+  }), [employees, user, overwrite, profC.items, docsC.items, trainC.items, ppeC.items, vehC.items, logC.items, adjC.items, expC.items, saveEmployees]);
 
   const reset = () => { setRaw(null); setFileName(''); setError(null); setPicked({}); setIncluded({}); setDone(null); setFilter('all'); };
 
@@ -120,7 +121,7 @@ export const ExcelImportModal: React.FC<Props> = ({ employees, user, types = IMP
   }), [rows]);
 
   const shown = rows.filter(x => filter === 'all' || (filter === 'ready' && x.ready) || (filter === 'problems' && x.res.action === 'error') || (filter === 'nochange' && x.res.action === 'skip'));
-  const showWho = type.needsEmployee || type.id === 'fuel';
+  const showWho = type.needsEmployee || type.id === 'fuel' || type.id === 'expenses';
 
   const run = async () => {
     const take = rows.filter(x => x.tick && x.res.payload);

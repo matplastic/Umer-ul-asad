@@ -18,7 +18,7 @@ interface Props {
 // Excel column key → field key, so a pre-filled sheet carries what is already saved.
 const COLMAP: Record<'passport' | 'profile', Record<string, string>> = {
   passport: { no: 'passportNumber', country: 'passportCountry', issue: 'passportIssueDate', expiry: 'passportExpiryDate', visa: 'visaExpiryDate' },
-  profile: { designation: 'designation', type: 'employmentType', joining: 'joiningDate', dob: 'dob', gender: 'gender', salary: 'basicSalary', eid: 'emiratesId', eidExp: 'emiratesIdExpiry', lc: 'labourCardNo', lcExp: 'labourCardExpiry', emName: 'emergencyName', emRel: 'emergencyRelation', emPhone: 'emergencyPhone', address: 'uaeAddress' },
+  profile: { designation: 'designation', type: 'employmentType', joining: 'joiningDate', dob: 'dob', gender: 'gender', salary: 'basicSalary', eid: 'emiratesId', eidExp: 'emiratesIdExpiry', lc: 'labourCardNo', lcExp: 'labourCardExpiry', emName: 'emergencyName', emRel: 'emergencyRelation', emPhone: 'emergencyPhone', address: 'uaeAddress', pmode: 'paymentMode', pcode: 'personCode', bank: 'bankName', routing: 'bankRoutingCode', iban: 'iban' },
 };
 
 export const DataHealth: React.FC<Props> = ({ employees, user, saveEmployees, onNavigate }) => {
@@ -35,13 +35,15 @@ export const DataHealth: React.FC<Props> = ({ employees, user, saveEmployees, on
 
   const rows = useMemo(() => active.map(e => {
     const prof = pmap.get(e.id);
-    const missing = health.filter(f => !isFilled(f, e, prof));
-    return { e, prof, missing, pct: Math.round(((health.length - missing.length) / health.length) * 100) };
+    // people paid in cash need no bank details
+    const applicable = health.filter(f => !(f.group === 'bank' && prof?.paymentMode === 'Cash'));
+    const missing = applicable.filter(f => !isFilled(f, e, prof));
+    return { e, prof, missing, n: applicable.length, pct: Math.round(((applicable.length - missing.length) / applicable.length) * 100) };
   }), [active, pmap, health]);
 
   const totals = useMemo(() => {
     const miss = rows.reduce((s, r) => s + r.missing.length, 0);
-    const cells = rows.length * health.length;
+    const cells = rows.reduce((s, r) => s + r.n, 0);
     return { complete: rows.filter(r => r.missing.length === 0).length, incomplete: rows.filter(r => r.missing.length > 0).length, miss, pct: cells ? Math.round(((cells - miss) / cells) * 100) : 100 };
   }, [rows, health]);
 

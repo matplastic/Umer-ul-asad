@@ -8,7 +8,7 @@ import {
   Filter, X, Save, FileText, ShieldAlert, Stethoscope,
   KeyRound, Copy, RefreshCw, UserCog, EyeOff, Eye,
   Printer, Download, UserX, UploadCloud, MapPin, ShoppingCart, Receipt, Paperclip, CalendarRange, Building2,
-  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone, Car, FileSpreadsheet, ClipboardCheck, Table2
+  LayoutDashboard, UserSquare2, FolderOpen, Gavel, Inbox, HardHat, Star, Mail, History, UserPlus, Calculator, Megaphone, Car, FileSpreadsheet, ClipboardCheck, Table2, CalendarCheck, CalendarDays, BellRing, Banknote, Wallet
 } from 'lucide-react';
 import { exportTablePdf } from '../lib/exportUtils';
 import { dbGetEmployeePunchesInRange } from '../lib/firebaseService';
@@ -52,6 +52,11 @@ import { FinalSettlement } from './hr/FinalSettlement';
 import { EmployeeRelations } from './hr/EmployeeRelations';
 import { Fleet } from './hr/Fleet';
 import { ExcelImportHub } from './hr/ExcelImportHub';
+import { LeaveBalance, LeaveBalanceHint } from './hr/LeaveBalance';
+import { HolidayCalendar } from './hr/HolidayCalendar';
+import { ExpiryReminders } from './hr/ExpiryReminders';
+import { PayrollCompliance } from './hr/PayrollCompliance';
+import { Expenses } from './hr/Expenses';
 import { DataHealth } from './hr/DataHealth';
 import { QuickEntryGrid } from './hr/QuickEntryGrid';
 import { CommandPalette } from './hr/CommandPalette';
@@ -217,7 +222,7 @@ interface HRPortalProps {
 // The only tabs the HR Administration portal shows.
 const HR_ADMIN_TABS = ['directory', 'attendance', 'leave', 'warnings', 'accidents', 'medical'] as const;
 // Everything else is shown to HR Administration as a DEMO (sample data, nothing saved).
-const HR_SUITE_TAB_IDS = ['health', 'grid', 'import', 'fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
+const HR_SUITE_TAB_IDS = ['wps', 'expenses', 'balance', 'holidays', 'reminders', 'health', 'grid', 'import', 'fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
 const HR_DEMO_RECORD_TABS = ['passports', 'payroll', 'purchases', 'reports', 'accounts'];
 const HR_RECORD_TAB_IDS = ['directory', 'passports', 'attendance', 'payroll', 'leave', 'warnings', 'accidents', 'medical', 'purchases', 'reports', 'accounts'];
 
@@ -1002,7 +1007,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   mode = 'executive',
 }) => {
   const isAdmin = mode === 'admin';
-  const [activeTab, setActiveTab] = useState<'health' | 'grid' | 'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
+  const [activeTab, setActiveTab] = useState<'wps' | 'expenses' | 'balance' | 'holidays' | 'reminders' | 'health' | 'grid' | 'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
   useFavoriteNav(isAdmin ? 'hr_admin' : 'hr_portal', activeTab, setActiveTab);
   const { select: selectTab, resetKey: tabResetKey } = useTabReset(activeTab, setActiveTab);
   useEffect(() => { try { sessionStorage.setItem(tabStorageKey(mode), activeTab); } catch { /* ignore */ } }, [activeTab, mode]);
@@ -2784,6 +2789,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                     Duration: {daysBetween(form.fromDate, form.toDate)} day(s)
                   </div>
                 )}
+                <LeaveBalanceHint employeeId={form.employeeId} leaveType={form.leaveType} fromDate={form.fromDate} toDate={form.toDate} leaves={leaves} />
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1">Reason</label>
                   <textarea rows={2} value={form.reason || ''} onChange={e => setForm(p => ({ ...p, reason: e.target.value }))}
@@ -4769,6 +4775,11 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'reviews', label: 'Performance', icon: <Star className="h-4 w-4" /> },
     { id: 'health', label: 'Data Health', icon: <ClipboardCheck className="h-4 w-4" /> },
     { id: 'grid', label: 'Quick Entry', icon: <Table2 className="h-4 w-4" /> },
+    { id: 'wps', label: 'Payslips & WPS', icon: <Banknote className="h-4 w-4" /> },
+    { id: 'expenses', label: 'Office Expenses', icon: <Wallet className="h-4 w-4" /> },
+    { id: 'balance', label: 'Leave Balance', icon: <CalendarCheck className="h-4 w-4" /> },
+    { id: 'holidays', label: 'Holiday Calendar', icon: <CalendarDays className="h-4 w-4" /> },
+    { id: 'reminders', label: 'Expiry Reminders', icon: <BellRing className="h-4 w-4" /> },
     { id: 'import', label: 'Excel Import', icon: <FileSpreadsheet className="h-4 w-4" /> },
     { id: 'fleet', label: 'Fleet', icon: <Car className="h-4 w-4" /> },
     { id: 'recruit', label: 'Recruitment', icon: <UserPlus className="h-4 w-4" /> },
@@ -4943,6 +4954,11 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={demo ? [] : payroll} />}
             {activeTab === 'health' && <DataHealth employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} onNavigate={(t) => setActiveTab(t as any)} />}
             {activeTab === 'grid' && <QuickEntryGrid employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
+            {activeTab === 'wps' && <PayrollCompliance employees={employees} payroll={demo ? [] : payroll} leaves={leaves} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} onNavigate={(t) => setActiveTab(t as any)} />}
+            {activeTab === 'expenses' && <Expenses employees={employees} user={currentUserName} />}
+            {activeTab === 'balance' && <LeaveBalance employees={employees} leaves={leaves} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
+            {activeTab === 'holidays' && <HolidayCalendar employees={employees} leaves={leaves} user={currentUserName} />}
+            {activeTab === 'reminders' && <ExpiryReminders user={currentUserName} demo={demo} />}
             {activeTab === 'import' && <ExcelImportHub employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
             {activeTab === 'fleet' && <Fleet employees={employees} user={currentUserName} />}
             {activeTab === 'recruit' && <Recruitment employees={employees} user={currentUserName} />}

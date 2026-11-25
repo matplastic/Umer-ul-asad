@@ -43,9 +43,7 @@ export const BACKUP_DOCS: BackupDocDef[] = [
   { id: 'procurementRfqs', label: 'Procurement quotations', group: 'store' },
   { id: 'supplierInvoices', label: 'Supplier invoices', group: 'store' },
   { id: 'supplierPayments', label: 'Supplier payments', group: 'store' },
-  { id: 'procurementStfs', label: 'STF purchase approval forms', group: 'store' },
-  { id: 'procurementSettings', label: 'Procurement settings', group: 'store' },
-  { id: 'tradeFinances', label: 'Structured trade finance (bank facilities)', group: 'store' },
+  { id: 'tradeFinances', label: 'Structured trade finance (STF)', group: 'store' },
   { id: 'stockAdjustmentDeletions', label: 'Deleted stock adjustments (audit)', group: 'store' },
   { id: 'inventoryDeletionLogs', label: 'Inventory deletion log', group: 'store' },
   { id: 'companyAssets', label: 'Company assets', group: 'store' },
@@ -87,6 +85,14 @@ export const BACKUP_DOCS: BackupDocDef[] = [
   { id: 'hrFuelLogs', label: 'Fleet — daily km & fuel log', group: 'hr' },
   { id: 'hrVehicleService', label: 'Fleet — maintenance records', group: 'hr' },
   { id: 'hrVehicleFines', label: 'Fleet — fines & Salik', group: 'hr' },
+  { id: 'hrHolidays', label: 'Company holiday calendar', group: 'hr' },
+  { id: 'hrLeavePolicy', label: 'Leave policy', group: 'hr' },
+  { id: 'hrLeaveAdjust', label: 'Leave balance adjustments', group: 'hr' },
+  { id: 'hrReminderSettings', label: 'Expiry reminder settings', group: 'hr' },
+  { id: 'hrPayrollSettings', label: 'Payroll / WPS employer settings', group: 'hr' },
+  { id: 'hrExpenses', label: 'Office & pantry expenses', group: 'hr' },
+  { id: 'hrPettyCash', label: 'Petty cash ledger', group: 'hr' },
+  { id: 'hrExpenseBudgets', label: 'Expense budgets', group: 'hr' },
 ];
 
 export const BACKUP_DOC_IDS: string[] = BACKUP_DOCS.map(d => d.id);

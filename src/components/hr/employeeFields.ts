@@ -5,7 +5,7 @@ import type { HRProfile } from '../../lib/hrStore';
 import type { ImportTypeId } from './importTypes';
 
 export type FieldKind = 'text' | 'date' | 'number' | 'select';
-export type FieldGroup = 'passport' | 'profile' | 'ids' | 'contact';
+export type FieldGroup = 'passport' | 'profile' | 'ids' | 'contact' | 'bank';
 
 export interface FieldDef {
   key: string;
@@ -24,7 +24,7 @@ export interface FieldDef {
 
 export const GROUPS: { id: FieldGroup; label: string }[] = [
   { id: 'passport', label: 'Passport & visa' }, { id: 'profile', label: 'Job & personal' },
-  { id: 'ids', label: 'Emirates ID & labour card' }, { id: 'contact', label: 'Contact & emergency' },
+  { id: 'ids', label: 'Emirates ID & labour card' }, { id: 'contact', label: 'Contact & emergency' }, { id: 'bank', label: 'Bank & WPS' },
 ];
 
 export const FIELDS: FieldDef[] = [
@@ -45,6 +45,12 @@ export const FIELDS: FieldDef[] = [
   { key: 'emiratesIdExpiry', label: 'EID Expiry', source: 'prof', kind: 'date', group: 'ids', health: true, importType: 'profile', width: 120 },
   { key: 'labourCardNo', label: 'Labour Card No', source: 'prof', kind: 'text', group: 'ids', health: true, importType: 'profile', width: 130 },
   { key: 'labourCardExpiry', label: 'Labour Card Expiry', source: 'prof', kind: 'date', group: 'ids', health: true, importType: 'profile', width: 130 },
+
+  { key: 'paymentMode', label: 'Salary Paid By', source: 'prof', kind: 'select', options: ['WPS Bank', 'Cash'], group: 'bank', importType: 'profile', width: 120 },
+  { key: 'personCode', label: 'Person Code (14 digits)', source: 'prof', kind: 'text', group: 'bank', health: true, importType: 'profile', width: 170 },
+  { key: 'bankName', label: 'Bank Name', source: 'prof', kind: 'text', group: 'bank', importType: 'profile', width: 150 },
+  { key: 'bankRoutingCode', label: 'Bank Routing Code (9)', source: 'prof', kind: 'text', group: 'bank', health: true, importType: 'profile', width: 150 },
+  { key: 'iban', label: 'IBAN', source: 'prof', kind: 'text', group: 'bank', health: true, importType: 'profile', width: 220, upper: true },
 
   { key: 'phone', label: 'Phone', source: 'emp', kind: 'text', group: 'contact', health: true, width: 130 },
   { key: 'emergencyName', label: 'Emergency Contact', source: 'prof', kind: 'text', group: 'contact', importType: 'profile', width: 150 },

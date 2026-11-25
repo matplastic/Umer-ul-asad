@@ -1,12 +1,12 @@
 // What each Excel import knows how to read, check and save.
 import type { Employee } from '../../types';
 import {
-  HRProfile, HRDocument, HRTraining, HRPPE, HRVehicle, HRFuelLog, HRLeaveAdjust, DOC_TYPES, TRAINING_COURSES, PPE_ITEMS,
+  HRProfile, HRDocument, HRTraining, HRPPE, HRVehicle, HRFuelLog, HRLeaveAdjust, HRExpense, EXPENSE_CATEGORIES, EXPENSE_METHODS, DOC_TYPES, TRAINING_COURSES, PPE_ITEMS,
   newId, bulkUpsertHR, currentAssignment,
 } from '../../lib/hrStore';
 import { ImportCol, MatchResult, matchEmployee, parseDate, parseNum, cellText } from '../../lib/excelImport';
 
-export type ImportTypeId = 'passport' | 'profile' | 'documents' | 'training' | 'ppe' | 'vehicles' | 'fuel' | 'leavebalance';
+export type ImportTypeId = 'passport' | 'profile' | 'documents' | 'training' | 'ppe' | 'vehicles' | 'fuel' | 'leavebalance' | 'expenses';
 
 export interface ImportCtx {
   employees: Employee[];
@@ -19,6 +19,7 @@ export interface ImportCtx {
   vehicles: HRVehicle[];
   logs: HRFuelLog[];
   leaveAdjusts: HRLeaveAdjust[];
+  expenses: HRExpense[];
   saveEmployees: (list: Employee[]) => void | Promise<void>;
 }
 
@@ -118,8 +119,10 @@ const profile: ImportType = {
     T('eid', 'Emirates ID', ['emiratesid', 'eidno', 'emiratesidnumber'], '784-1990-1234567-1'), D('eidExp', 'Emirates ID Expiry', ['eidexpiry', 'emiratesidexpiry'], '10/09/2027'),
     T('lc', 'Labour Card No', ['labourcard', 'labourcardno', 'laborcard', 'workpermitno'], '12345678'), D('lcExp', 'Labour Card Expiry', ['labourcardexpiry', 'laborcardexpiry', 'workpermitexpiry'], '10/09/2027'),
     T('emName', 'Emergency Contact Name', ['emergencyname', 'emergencycontact'], 'Hassan Khan'), T('emRel', 'Emergency Relation', ['emergencyrelation', 'relation'], 'Brother'), T('emPhone', 'Emergency Phone', ['emergencyphone', 'emergencynumber'], '0501234567'),
-    T('address', 'UAE Address', ['address', 'accommodation', 'uaeaddress'], 'Sajaa Labour Camp, Sharjah')],
-  notes: ['One row per employee. Leave a cell empty to skip that detail.', 'Gender: Male / Female (or M / F).'],
+    T('address', 'UAE Address', ['address', 'accommodation', 'uaeaddress'], 'Sajaa Labour Camp, Sharjah'),
+    T('pmode', 'Salary Paid By', ['paymentmode', 'paidby', 'salarymode'], 'WPS Bank'), T('pcode', 'Person Code', ['personcode', 'molpersoncode', 'employeeuniqueid', 'laboursid', 'molid'], '20022012882907'),
+    T('bank', 'Bank Name', ['bankname', 'bank'], 'Emirates NBD'), T('routing', 'Bank Routing Code', ['routingcode', 'bankroutingcode', 'agentroutingcode', 'routing'], '302620122'), T('iban', 'IBAN', ['ibannumber', 'accountnumber', 'accountno', 'bankaccount'], 'AE070331234567890123456')],
+  notes: ['One row per employee. Leave a cell empty to skip that detail.', 'Bank details (Person Code, Routing Code, IBAN) are used for the WPS salary file. IBAN is checked when imported.', 'Gender: Male / Female (or M / F).'],
   build(ctx, v, emp) {
     if (!emp) return bad('Employee not matched');
     const dates: Record<string, string | null> = { joining: dateOf(v.joining), dob: dateOf(v.dob), eidExp: dateOf(v.eidExp), lcExp: dateOf(v.lcExp) };
@@ -138,6 +141,14 @@ const profile: ImportType = {
     set('designation', cellText(v.designation) || undefined); set('employmentType', type); set('joiningDate', dates.joining || undefined); set('dob', dates.dob || undefined);
     set('gender', gender); set('maritalStatus', marital); set('bloodGroup', cellText(v.blood).toUpperCase() || undefined); set('basicSalary', sal === '' ? undefined : sal);
     set('emiratesId', cellText(v.eid) || undefined); set('emiratesIdExpiry', dates.eidExp || undefined); set('labourCardNo', cellText(v.lc) || undefined); set('labourCardExpiry', dates.lcExp || undefined);
+    const pm = canon(cellText(v.pmode)); const pmode = pm.startsWith('cash') ? 'Cash' : pm.startsWith('wps') || pm.startsWith('bank') ? 'WPS Bank' : undefined;
+    if (cellText(v.pmode) && !pmode) return bad('Salary Paid By must be WPS Bank or Cash');
+    const ibanRaw = cellText(v.iban).replace(/\s+/g, '').toUpperCase();
+    if (ibanRaw && !/^AE\d{21}$/.test(ibanRaw)) return bad('IBAN must be 23 characters: AE + 21 digits');
+    const pcode = cellText(v.pcode).replace(/\s+/g, ''), routing = cellText(v.routing).replace(/\s+/g, '');
+    if (pcode && !/^\d{14}$/.test(pcode)) return bad('Person Code must be 14 digits');
+    if (routing && !/^\d{9}$/.test(routing)) return bad('Bank Routing Code must be 9 digits');
+    set('paymentMode', pmode); set('personCode', pcode || undefined); set('bankRoutingCode', routing || undefined); set('iban', ibanRaw || undefined); set('bankName', cellText(v.bank) || undefined);
     set('emergencyName', cellText(v.emName) || undefined); set('emergencyRelation', cellText(v.emRel) || undefined); set('emergencyPhone', cellText(v.emPhone) || undefined); set('uaeAddress', cellText(v.address) || undefined);
     if (JSON.stringify(base) === JSON.stringify(old)) return { action: 'skip', message: 'Nothing new (already filled)', summary: 'No change', key: emp.id };
     base.updatedAt = new Date().toISOString(); base.updatedBy = ctx.user;
@@ -336,5 +347,55 @@ const leavebalance: ImportType = {
   async commit(ctx, items) { await bulkUpsertHR('hrLeaveAdjust', (items as HRLeaveAdjust[][]).flat()); return { added: items.length, updated: 0 }; },
 };
 
-export const IMPORT_TYPES: Record<ImportTypeId, ImportType> = { passport, profile, documents, training, ppe, vehicles, fuel, leavebalance };
-export const IMPORT_ORDER: ImportTypeId[] = ['passport', 'profile', 'documents', 'training', 'ppe', 'leavebalance', 'vehicles', 'fuel'];
+// ─────────── Office & pantry expenses ───────────
+const CAT_SYN: [RegExp, string][] = [
+  [/tea|coffee|milk|sugar/, 'Pantry – Tea, coffee & milk'], [/water/, 'Pantry – Water'], [/snack|biscuit|refresh|juice|fruit/, 'Pantry – Snacks & refreshments'],
+  [/pantry|cup|tissue|napkin|disposable/, 'Pantry – Cups, tissue & supplies'], [/clean|hygiene|soap|detergent|sanit/, 'Cleaning & hygiene'], [/stationer|pen|paper|file|folder/, 'Stationery'],
+  [/print|photocop|toner|ink/, 'Printing & photocopying'], [/internet|phone|mobile|sim|wifi|\bit\b|software/, 'IT, internet & phone'], [/courier|postage|post\b|shipping/, 'Courier & postage'],
+  [/taxi|transport|uber|careem|fuel|parking/, 'Transport & taxi'], [/guest|hospitality|visitor|lunch|dinner/, 'Guest hospitality'], [/maint|repair|plumb|electric|aircon|\bac\b/, 'Office maintenance & repairs'],
+  [/office|supply|equipment|furniture/, 'Office supplies & equipment'],
+];
+const mapCategory = (raw: string): string => {
+  const t = raw.trim().toLowerCase();
+  if (!t) return 'Other';
+  const exact = EXPENSE_CATEGORIES.find(c => canon(c) === canon(raw)); if (exact) return exact;
+  for (const [re, cat] of CAT_SYN) if (re.test(t)) return cat;
+  return 'Other';
+};
+const mapMethod = (raw: string): typeof EXPENSE_METHODS[number] => {
+  const t = raw.toLowerCase();
+  if (/employee|pocket|reimb|own/.test(t)) return 'Paid by employee (to reimburse)';
+  if (/card/.test(t)) return 'Company card';
+  if (/bank|transfer|cheque|check/.test(t)) return 'Bank transfer';
+  return 'Petty cash';
+};
+const expenses: ImportType = {
+  id: 'expenses', label: 'Office & pantry expenses', blurb: 'Date, category, description, vendor, amount, VAT and who paid → Office Expenses', needsEmployee: false, supportsOverwrite: false,
+  templateFile: 'Expenses_import_template.xlsx',
+  cols: [D('date', 'Date', ['expensedate', 'billdate', 'day'], '15/11/2026', true), T('category', 'Category', ['type', 'expensetype', 'head'], 'Pantry - Tea & coffee'), T('desc', 'Description', ['details', 'item', 'items', 'particulars', 'narration'], 'Tea bags, milk, sugar', true),
+    T('vendor', 'Vendor', ['shop', 'supplier', 'store', 'paidto'], 'Lulu Hypermarket'), N('amount', 'Amount', ['amountbeforevat', 'net', 'subtotal', 'amountaed', 'cost'], '47.62', true), N('vat', 'VAT', ['vatamount', 'tax'], '2.38'),
+    T('method', 'Payment Method', ['paymentmethod', 'paidvia', 'mode', 'paymode'], 'Petty cash'), BADGE, NAME, T('receipt', 'Receipt No', ['receiptno', 'invoiceno', 'billno', 'voucher'], 'INV-2291')],
+  notes: ['One row per bill. Amount is before VAT; VAT is optional (blank = no VAT).', 'Payment Method: Petty cash, Company card, Bank transfer, or "Paid by employee" (then fill Badge No or Employee Name so they can be reimbursed).', 'Category is matched by words (tea, water, stationery, taxi…); anything unknown goes to "Other". Rows already recorded are skipped.'],
+  build(ctx, v, _emp, match) {
+    const date = dateOf(v.date);
+    if (date === null || date === '') return bad(date === '' ? 'Date is missing' : dateErr('Date', v.date));
+    const desc = cellText(v.desc);
+    if (!desc) return bad('Description is missing');
+    const amount = parseNum(v.amount), vat = parseNum(v.vat);
+    if (amount === null || amount === '' || (amount as number) <= 0) return bad('Amount must be a positive number');
+    if (vat === null || (vat !== '' && (vat as number) < 0)) return bad('VAT must be zero or a positive number');
+    const method = cellText(v.method) ? mapMethod(cellText(v.method)) : 'Petty cash';
+    const payer = match.emp && ['badge', 'name', 'name-partial'].includes(match.status) ? match.emp : undefined;
+    if (method.startsWith('Paid by employee') && !payer) return bad('“Paid by employee” needs a matched employee (Badge No or Name)');
+    const a = Math.round((amount as number) * 100) / 100, vt = vat === '' ? 0 : Math.round((vat as number) * 100) / 100, total = Math.round((a + vt) * 100) / 100;
+    const vendor = cellText(v.vendor);
+    const key = `${date}|${total}|${canon(vendor)}|${canon(desc)}`;
+    if (ctx.expenses.some(e => e.date === date && Math.round(e.total * 100) === Math.round(total * 100) && canon(e.vendor || '') === canon(vendor) && canon(e.description) === canon(desc))) return { action: 'skip', message: 'Already recorded', summary: `${date} · ${desc}`, key };
+    const rec: HRExpense = { id: newId('ex'), date, category: mapCategory(cellText(v.category) || desc), description: desc, vendor: vendor || undefined, amount: a, vat: vt, total, method, paidById: payer?.id, paidByName: payer?.name, reimbursed: method.startsWith('Paid by employee') ? false : undefined, receiptNo: cellText(v.receipt) || undefined, createdBy: ctx.user, createdAt: new Date().toISOString() };
+    return { action: 'add', summary: `${date} · ${rec.category} · ${desc} · AED ${total.toFixed(2)}`, key, payload: rec };
+  },
+  async commit(ctx, items) { await bulkUpsertHR('hrExpenses', items as HRExpense[]); return { added: items.length, updated: 0 }; },
+};
+
+export const IMPORT_TYPES: Record<ImportTypeId, ImportType> = { passport, profile, documents, training, ppe, vehicles, fuel, leavebalance, expenses };
+export const IMPORT_ORDER: ImportTypeId[] = ['passport', 'profile', 'documents', 'training', 'ppe', 'leavebalance', 'expenses', 'vehicles', 'fuel'];
