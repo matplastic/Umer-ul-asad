@@ -1,20 +1,8 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
-import './lib/safeStorage';
-import App from './App.tsx';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { PwaPrompts } from './components/PwaPrompts';
-import { registerServiceWorker } from './lib/registerServiceWorker';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
 import './index.css';
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-    <PwaPrompts />
-  </StrictMode>,
+ReactDOM.createRoot(document.getElementById('root')!).appendChild(
+  React.createElement(React.StrictMode, null, React.createElement(App))
 );
-
-// Installable phone app: cache the app shell (never live data) — see public/sw.js
-registerServiceWorker();
