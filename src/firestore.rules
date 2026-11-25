@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check role from custom token claims
+    function hasRole(role) {
+      return request.auth.token.role == role;
+    }
+    
+    function isManagement() {
+      return hasRole('management') || hasRole('hr_portal');
+    }
+
+    // Users collection: Only management can read/create/modify accounts
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if isManagement();
+    }
+
+    // Materials: Management and Store can write, anyone signed in can read
+    match /materials/{materialId} {
+      allow read: if request.auth != null;
+      allow write: if isManagement() || hasRole('store');
+    }
+
+    // Material Requests: Supervisors can create, Management/Store can update
+    match /material_requests/{requestId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if isManagement() || hasRole('store');
+    }
+
+    // Default deny for anything not explicitly matched (This keeps hackers out!)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
