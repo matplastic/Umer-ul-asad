@@ -169,7 +169,7 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
       seed: {
         stf, supplierName: stf.supplierName, paymentTerms: stf.paymentTerms || null, currency: stf.currency, fxRate: stf.fxRate, vatRate: stf.vatRate,
         projectType: stf.projectType, projectName: stf.projectName, notes: stf.description,
-        lines: stf.lines.map(l => ({ materialId: l.materialId, itemName: l.itemName, qty: l.qty, unitPrice: l.unitPrice, sourceRequestId: l.sourceRequestId, sourceKind: l.sourceKind })),
+        lines: stf.lines.map(l => ({ materialId: l.materialId, itemName: l.itemName, qty: l.qty, unitPrice: l.unitPrice, vatRate: l.vatRate ?? stf.vatRate, sourceRequestId: l.sourceRequestId, sourceKind: l.sourceKind })),
       },
     });
   };
@@ -874,7 +874,7 @@ const RegisterTab: React.FC<{ rows: ReturnType<typeof buildRegister>; onOpenStf:
                         <thead><tr className="text-slate-500 uppercase text-[10px]"><th className="text-left pr-3">Code</th><th className="text-left pr-3">Description</th><th className="text-right pr-3">Qty</th><th className="text-left pr-3">Unit</th><th className="text-right pr-3">Unit price</th><th className="text-right pr-3">Total</th><th className="text-right pr-3">Received</th><th className="text-right">Balance</th></tr></thead>
                         <tbody>{r.items.map((it, i) => <tr key={i} className="border-t border-slate-200"><td className="pr-3 font-mono text-[10px]">{it.code}</td><td className="pr-3 font-semibold">{it.description}</td><td className="pr-3 text-right font-mono">{qtyFmt(it.qty)}</td><td className="pr-3">{it.unit}</td><td className="pr-3 text-right font-mono">{money(it.unitPrice)}</td><td className="pr-3 text-right font-mono">{money(it.total)}</td><td className="pr-3 text-right font-mono text-emerald-700">{qtyFmt(it.received)}</td><td className={`text-right font-mono ${it.balance > 0 ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>{qtyFmt(it.balance)}</td></tr>)}</tbody>
                         <tfoot><tr className="border-t border-slate-300"><td colSpan={5} className="text-right pr-3 font-bold text-slate-500">TOTAL</td><td className="text-right pr-3 font-mono">{money(r.subtotal)}</td></tr>
-                          <tr><td colSpan={5} className="text-right pr-3 font-bold text-slate-500">VAT {r.vatRate}%</td><td className="text-right pr-3 font-mono">{money(r.vat)}</td></tr>
+                          <tr><td colSpan={5} className="text-right pr-3 font-bold text-slate-500">VAT {r.vatText}</td><td className="text-right pr-3 font-mono">{money(r.vat)}</td></tr>
                           <tr><td colSpan={5} className="text-right pr-3 font-black">G. TOTAL{r.currency !== 'AED' ? ` (${r.currency})` : ''}</td><td className="text-right pr-3 font-mono font-black">{money(r.total)}</td></tr></tfoot>
                       </table>
                     </td></tr>

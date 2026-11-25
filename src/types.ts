@@ -876,6 +876,7 @@ export interface PoLine {
   unit: string;
   qty: number;                      // ordered
   unitPrice: number;                // AED per unit, before VAT
+  vatRate?: number | null;          // VAT % on this line (5 normally); empty = use the PO's own rate
   // The approved Supervisor / HR purchase request this line fulfils (if any).
   sourceRequestId?: string | null;
   sourceKind?: 'supervisor' | 'hr' | null;
@@ -1112,6 +1113,7 @@ export interface StfLine {
   unit: string;
   qty: number;
   unitPrice: number;
+  vatRate?: number | null;          // VAT % on this line (5 normally, editable per item)
   sourceRequestId?: string | null;
   sourceKind?: 'supervisor' | 'hr' | null;
 }

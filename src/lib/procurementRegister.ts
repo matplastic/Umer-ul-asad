@@ -1,7 +1,7 @@
 // The "STF – PO – PAYMENT" register: one row per STF, with the PO, delivery and payment that followed —
 // the same columns as the company's Excel sheet, filled in from the live records.
 import type { IncomingMaterial, ProcurementSettings, PurchaseOrder, Stf, SupplierInvoice, SupplierPayment } from '../types';
-import { poFinance, poProgress, poTotals, dateFmt, qtyFmt, type PoFinance, type PoProgress } from './procurement';
+import { vatLabel, poFinance, poProgress, poTotals, dateFmt, qtyFmt, type PoFinance, type PoProgress } from './procurement';
 import { STF_STATUS_META, budgetTier, stfTotals } from './stf';
 
 export type DeliveryStatus = 'WAITING' | 'PARTIAL RECEIVED' | 'RECEIVED';
@@ -50,6 +50,7 @@ export interface RegisterRow {
   paymentDetails: string;
   currency: string;
   vatRate: number;
+  vatText: string;                  // '5%' or 'mixed' when the items carry different VAT
   items: RegisterItem[];
   subtotal: number; vat: number; total: number;
 }
@@ -90,7 +91,7 @@ export function buildRegister(
     const base = {
       date: stf.date, stf, po, stfNo: stf.stfNo, description: stf.description, poNo: po?.poNo || stf.poNo || '', supplier: stf.supplierName,
       projectType: stf.projectType, projectName: stf.projectName, stfStatus: STF_STATUS_META[stf.status].label.toUpperCase(), lastStatusDate: stf.statusDate,
-      budget: tier.label, queue: stf.queue, paymentTerms: po?.paymentTerms || stf.paymentTerms || '', currency: stf.currency, vatRate: stf.vatRate,
+      budget: tier.label, queue: stf.queue, paymentTerms: po?.paymentTerms || stf.paymentTerms || '', currency: stf.currency, vatRate: stf.vatRate, vatText: vatLabel(stf.lines, stf.vatRate),
     };
     if (po) {
       const x = fromPo(po, stf);
@@ -111,7 +112,7 @@ export function buildRegister(
       date: po.orderDate, stf: null, po, stfNo: '', description: po.notes || po.lines.map(l => l.itemName).join(', ').slice(0, 80), poNo: po.poNo, supplier: po.supplierName,
       projectType: po.projectType || '', projectName: po.projectName || '', stfStatus: '', lastStatusDate: po.approvedAt || po.createdAt, budget: '', queue: '',
       paymentTerms: po.paymentTerms || '', delivery: deliveryInfo(x.progress), payStatus: payStatus(po, x.fin), payDate: x.pays.length ? x.pays[x.pays.length - 1].paidAt : null,
-      paidAmount: x.fin.paid + x.fin.pdcIssued, paymentDetails: payText(x.pays), currency: po.currency, vatRate: po.vatRate, items: x.items, subtotal: x.t.subtotal, vat: x.t.vat, total: x.t.total,
+      paidAmount: x.fin.paid + x.fin.pdcIssued, paymentDetails: payText(x.pays), currency: po.currency, vatRate: po.vatRate, vatText: vatLabel(po.lines, po.vatRate), items: x.items, subtotal: x.t.subtotal, vat: x.t.vat, total: x.t.total,
     });
   }
   return rows.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.stfNo || a.poNo).localeCompare(b.stfNo || b.poNo)).map((r, i) => ({ ...r, no: i + 1 }));

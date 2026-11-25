@@ -5,7 +5,7 @@ import {
   COMPANY_NAME, PDF_COLORS, PDF_LAYOUT, loadLogo, drawLetterhead, drawFooter, themedTable, currentPage,
 } from './pdfTheme';
 import type { PurchaseOrder, Supplier } from '../types';
-import { STAGE_META, dateFmt, lineTotal, money, poTotals, qtyFmt, type PoStage } from './procurement';
+import { STAGE_META, dateFmt, lineTotal, money, poTotals, qtyFmt, vatLabel, type PoStage } from './procurement';
 
 export async function exportPurchaseOrderPdf(po: PurchaseOrder, supplier: Supplier | null, stage?: PoStage) {
   const logo = await loadLogo();
@@ -93,7 +93,7 @@ export async function exportPurchaseOrderPdf(po: PurchaseOrder, supplier: Suppli
   doc.setDrawColor(...C.line); doc.setLineWidth(0.6);
   tRow('Subtotal', money(t.subtotal), false, y);
   if (t.discount > 0) tRow('Discount', `− ${money(t.discount)}`, false, y += 14);
-  tRow(`VAT ${po.vatRate}%`, money(t.vat), false, y += 14);
+  tRow(`VAT ${vatLabel(po.lines, po.vatRate)}`, money(t.vat), false, y += 14);
   doc.line(tx, y + 6, tx + tw, y + 6);
   doc.setFillColor(...C.tealSoft); doc.rect(tx, y + 8, tw, 22, 'F');
   tRow(`TOTAL (${po.currency})`, money(t.total), true, y += 23);

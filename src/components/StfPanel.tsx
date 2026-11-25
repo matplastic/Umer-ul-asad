@@ -6,7 +6,7 @@ import { AttachmentList } from './AttachmentList';
 import { ErrorLine, ReasonDialog } from './PoDetailPanel';
 import { dbPatchStf, dbStfAction } from '../lib/firebaseService';
 import { STF_STATUS_META, budgetTier, sameName, stfPermissions, stfTotals } from '../lib/stf';
-import { dateFmt, lineTotal, money, qtyFmt } from '../lib/procurement';
+import { dateFmt, lineRate, lineTotal, money, qtyFmt, vatLabel } from '../lib/procurement';
 
 // One STF: where it is in the approval queue, what is being bought, the supplier's quotation, the PO that
 // followed, and who did what. Everyone sees it; only the right person can move it.
@@ -77,7 +77,7 @@ export const StfPanel: React.FC<Props> = ({ stf, settings, currentUserName, mana
             {[
               ['Company', stf.supplierName, stf.paymentTerms || 'no terms'],
               ['Project', `${stf.projectType}${stf.projectName ? ` · ${stf.projectName}` : ''}`, `date ${dateFmt(stf.date)}`],
-              [`G. TOTAL (${stf.currency})`, money(t.total), stf.currency !== 'AED' ? `≈ AED ${money(t.totalAed)}` : `incl. VAT ${stf.vatRate}%`],
+              [`G. TOTAL (${stf.currency})`, money(t.total), stf.currency !== 'AED' ? `≈ AED ${money(t.totalAed)}` : `incl. VAT ${money(t.vat)}`],
               ['≈ EUR', money(tier.eur), `tier ${tier.label}`],
             ].map(([l, v, sub]) => (
               <div key={l} className="rounded-xl border border-slate-200 p-2.5"><div className="text-[10px] uppercase font-bold text-slate-500">{l}</div><div className="text-sm font-black text-slate-900 break-words">{v}</div><div className="text-[10px] text-slate-500 truncate">{sub}</div></div>
@@ -112,20 +112,20 @@ export const StfPanel: React.FC<Props> = ({ stf, settings, currentUserName, mana
             <h3 className="text-xs font-extrabold text-slate-900 mb-2">Items</h3>
             <div className="rounded-xl border border-slate-200 overflow-x-auto">
               <table className="w-full min-w-[560px] text-xs">
-                <thead><tr className="bg-slate-100 text-slate-500 uppercase text-[10px]"><th className="text-left px-2 py-2">Code</th><th className="text-left px-2 py-2">Description</th><th className="text-right px-2 py-2">Qty</th><th className="text-left px-2 py-2">Unit</th><th className="text-right px-2 py-2">Unit price</th><th className="text-right px-2 py-2">Total</th></tr></thead>
+                <thead><tr className="bg-slate-100 text-slate-500 uppercase text-[10px]"><th className="text-left px-2 py-2">Code</th><th className="text-left px-2 py-2">Description</th><th className="text-right px-2 py-2">Qty</th><th className="text-left px-2 py-2">Unit</th><th className="text-right px-2 py-2">Unit price</th><th className="text-right px-2 py-2">VAT %</th><th className="text-right px-2 py-2">Total</th></tr></thead>
                 <tbody>
                   {stf.lines.map(l => (
                     <tr key={l.id} className="border-t border-slate-200">
                       <td className="px-2 py-2 font-mono text-[10px] text-slate-500">{l.erpCode || '—'}</td><td className="px-2 py-2 font-semibold text-slate-800">{l.itemName}</td>
                       <td className="px-2 py-2 text-right font-mono">{qtyFmt(l.qty)}</td><td className="px-2 py-2">{l.unit}</td>
-                      <td className="px-2 py-2 text-right font-mono">{money(l.unitPrice)}</td><td className="px-2 py-2 text-right font-mono">{money(lineTotal(l))}</td>
+                      <td className="px-2 py-2 text-right font-mono">{money(l.unitPrice)}</td><td className="px-2 py-2 text-right font-mono">{lineRate(l, stf.vatRate)}%</td><td className="px-2 py-2 text-right font-mono">{money(lineTotal(l))}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="text-xs">
-                  <tr className="border-t border-slate-300"><td colSpan={5} className="px-2 py-1 text-right font-bold text-slate-500">TOTAL</td><td className="px-2 py-1 text-right font-mono">{money(t.subtotal)}</td></tr>
-                  <tr><td colSpan={5} className="px-2 py-1 text-right font-bold text-slate-500">VAT {stf.vatRate}%</td><td className="px-2 py-1 text-right font-mono">{money(t.vat)}</td></tr>
-                  <tr className="bg-slate-50"><td colSpan={5} className="px-2 py-1.5 text-right font-black">G. TOTAL ({stf.currency})</td><td className="px-2 py-1.5 text-right font-mono font-black">{money(t.total)}</td></tr>
+                  <tr className="border-t border-slate-300"><td colSpan={6} className="px-2 py-1 text-right font-bold text-slate-500">TOTAL</td><td className="px-2 py-1 text-right font-mono">{money(t.subtotal)}</td></tr>
+                  <tr><td colSpan={6} className="px-2 py-1 text-right font-bold text-slate-500">VAT ({vatLabel(stf.lines, stf.vatRate)})</td><td className="px-2 py-1 text-right font-mono">{money(t.vat)}</td></tr>
+                  <tr className="bg-slate-50"><td colSpan={6} className="px-2 py-1.5 text-right font-black">G. TOTAL ({stf.currency})</td><td className="px-2 py-1.5 text-right font-mono font-black">{money(t.total)}</td></tr>
                 </tfoot>
               </table>
             </div>

@@ -6,7 +6,7 @@ import { PROJECT_TYPES } from '../lib/stf';
 import { MaterialPicker } from './MaterialPicker';
 import { Field, Modal, btn, inputCls, todayStr } from './ProcurementUi';
 import { dbPoAction, dbSavePurchaseOrder } from '../lib/firebaseService';
-import { APPROVAL_THRESHOLD, VAT_RATE, lineTotal, money, poTotals } from '../lib/procurement';
+import { APPROVAL_THRESHOLD, VAT_RATE, lineTotal, money, poTotals, vatLabel } from '../lib/procurement';
 
 // Create or edit a DRAFT purchase order. Every line is tied to a Store item, so what the Store
 // later receives against the PO lands in the right inventory item.
@@ -19,6 +19,7 @@ interface DraftLine {
   materialId: string;
   qty: string;
   unitPrice: string;
+  vat: string;
   sourceRequestId?: string | null;
   sourceKind?: 'supervisor' | 'hr' | null;
   hint?: string;          // name from the original request when no Store item matched yet
@@ -35,7 +36,7 @@ export interface PoSeed {
   stf?: Stf | null;                     // the APPROVED STF this PO is issued from
   currency?: string; fxRate?: number; vatRate?: number;
   projectType?: string; projectName?: string;
-  lines: { materialId?: string; itemName?: string; qty: number; unitPrice?: number | null; sourceRequestId?: string | null; sourceKind?: 'supervisor' | 'hr' | null }[];
+  lines: { materialId?: string; itemName?: string; qty: number; unitPrice?: number | null; vatRate?: number | null; sourceRequestId?: string | null; sourceKind?: 'supervisor' | 'hr' | null }[];
 }
 
 interface Props {
@@ -64,12 +65,12 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
   const [discount, setDiscount] = useState(String(initial?.discount || ''));
   const [notes, setNotes] = useState(initial?.notes || seed?.notes || '');
   const [lines, setLines] = useState<DraftLine[]>(() => {
-    if (initial) return initial.lines.map(l => ({ key: l.id, materialId: l.materialId, qty: String(l.qty), unitPrice: String(l.unitPrice), sourceRequestId: l.sourceRequestId, sourceKind: l.sourceKind }));
+    if (initial) return initial.lines.map(l => ({ key: l.id, materialId: l.materialId, qty: String(l.qty), unitPrice: String(l.unitPrice), vat: String(l.vatRate ?? initial.vatRate ?? VAT_RATE), sourceRequestId: l.sourceRequestId, sourceKind: l.sourceKind }));
     if (seed) return seed.lines.map(l => ({
-      key: newKey(), materialId: l.materialId || '', qty: String(l.qty), unitPrice: l.unitPrice != null ? String(l.unitPrice) : '',
+      key: newKey(), materialId: l.materialId || '', qty: String(l.qty), unitPrice: l.unitPrice != null ? String(l.unitPrice) : '', vat: String(l.vatRate ?? seed.vatRate ?? VAT_RATE),
       sourceRequestId: l.sourceRequestId, sourceKind: l.sourceKind, hint: l.materialId ? undefined : l.itemName,
     }));
-    return [{ key: newKey(), materialId: '', qty: '', unitPrice: '' }];
+    return [{ key: newKey(), materialId: '', qty: '', unitPrice: '', vat: String(VAT_RATE) }];
   });
   const [busy, setBusy] = useState<'draft' | 'submit' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +98,7 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
     const m = materials.find(x => x.id === l.materialId);
     return {
       id: l.key, materialId: l.materialId, itemName: m?.name || l.hint || '', erpCode: (m as any)?.erpCode || null,
-      unit: m?.unit || '', qty: Number(l.qty) || 0, unitPrice: Number(l.unitPrice) || 0,
+      unit: m?.unit || '', qty: Number(l.qty) || 0, unitPrice: Number(l.unitPrice) || 0, vatRate: l.vat === '' ? 0 : Number(l.vat) || 0,
       sourceRequestId: l.sourceRequestId || null, sourceKind: l.sourceKind || null,
     };
   });
@@ -119,7 +120,7 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
         supplierId: supplier?.id || null, supplierName: supplierName.trim(), supplierCode: supplier?.code || null, supplierTaxNo: supplier?.taxNo || null,
         poNo: initial ? undefined : customNo.trim() || undefined, currency, fxRate: Number(fxRate) || 1, projectType: projectType.trim() || null, projectName: projectName.trim() || null,
         stfId: seed?.stf?.id ?? initial?.stfId ?? null, stfNo: seed?.stf?.stfNo ?? initial?.stfNo ?? null, orderDate, expectedDate: expectedDate || null, deliveryLocation: location.trim() || null,
-        paymentTerms: terms.trim() || null, notes: notes.trim() || null, discount: Number(discount) || 0, vatRate: Number(vatRate) || 0,
+        paymentTerms: terms.trim() || null, notes: notes.trim() || null, discount: Number(discount) || 0, vatRate: Number(built[0]?.vatRate ?? vatRate) || 0,
         lines: built, rfqId: seed?.rfq?.id ?? initial?.rfqId ?? null, rfqNo: seed?.rfq?.rfqNo ?? initial?.rfqNo ?? null,
       }, currentUserName);
       if (submit) po = await dbPoAction(po.id, 'submit', currentUserName);
@@ -168,7 +169,6 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
             <datalist id="po-terms">{PAYMENT_TERMS.map(t => <option key={t} value={t} />)}</datalist>
           </Field>
           <Field label="Deliver to" className="md:col-span-2"><input value={location} onChange={e => setLocation(e.target.value)} className={inputCls} /></Field>
-          <Field label="VAT %"><input type="number" min={0} value={vatRate} onChange={e => setVatRate(e.target.value)} className={`${inputCls} font-mono`} /></Field>
           <Field label="Currency"><select value={currency} onChange={e => { setCurrency(e.target.value); const d = CURRENCIES.find(c => c.code === e.target.value)?.defaultRate; setFxRate(d != null ? String(d) : ''); }} className={inputCls} data-testid="po-currency">{CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}</select></Field>
           <Field label={`Rate (1 ${currency} = ? AED)`}><input type="number" min={0} step="any" value={fxRate} onChange={e => setFxRate(e.target.value)} disabled={currency === 'AED'} className={`${inputCls} font-mono`} /></Field>
           <Field label="Project type"><input value={projectType} onChange={e => setProjectType(e.target.value.toUpperCase())} list="po-ptypes" className={inputCls} /><datalist id="po-ptypes">{PROJECT_TYPES.map(p => <option key={p} value={p} />)}</datalist></Field>
@@ -186,6 +186,7 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
                 <th className="text-right px-2 py-2 w-24">Qty</th>
                 <th className="text-left px-2 py-2 w-14">Unit</th>
                 <th className="text-right px-2 py-2 w-28">Unit price ({currency})</th>
+                <th className="text-right px-2 py-2 w-20">VAT %</th>
                 <th className="text-right px-2 py-2 w-28">Amount</th>
                 <th className="w-8" />
               </tr>
@@ -212,6 +213,7 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
                         </div>
                       )}
                     </td>
+                    <td className="px-2 py-2"><input type="number" min={0} step="any" value={l.vat} onChange={e => setLine(l.key, { vat: e.target.value })} className={`${inputCls} text-right font-mono`} /></td>
                     <td className="px-2 py-2 text-right font-mono pt-3 text-slate-800">{money(lineTotal({ qty: Number(l.qty) || 0, unitPrice: Number(l.unitPrice) || 0 }))}</td>
                     <td className="px-1 py-2 pt-2.5">
                       {lines.length > 1 && <button onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))} className="text-slate-400 hover:text-rose-600 cursor-pointer" title="Remove line"><Trash2 className="h-3.5 w-3.5" /></button>}
@@ -222,7 +224,7 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
             </tbody>
           </table>
           <div className="px-2 py-2 border-t border-slate-200">
-            <button onClick={() => setLines(ls => [...ls, { key: newKey(), materialId: '', qty: '', unitPrice: '' }])} className={btn.soft} data-testid="po-add-line"><Plus className="h-3.5 w-3.5" /> Add item</button>
+            <button onClick={() => setLines(ls => [...ls, { key: newKey(), materialId: '', qty: '', unitPrice: '', vat: String(VAT_RATE) }])} className={btn.soft} data-testid="po-add-line"><Plus className="h-3.5 w-3.5" /> Add item</button>
           </div>
         </div>
 
@@ -235,7 +237,7 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
             <div className="flex justify-between items-center"><span className="text-slate-500">Discount</span>
               <input type="number" min={0} value={discount} onChange={e => setDiscount(e.target.value)} className="w-24 bg-slate-100 border border-slate-300 rounded px-2 py-1 text-right font-mono text-xs" />
             </div>
-            <div className="flex justify-between"><span className="text-slate-500">VAT {Number(vatRate) || 0}%</span><span className="font-mono">{money(totals.vat)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">VAT ({vatLabel(built, Number(vatRate) || 0)})</span><span className="font-mono">{money(totals.vat)}</span></div>
             <div className="flex justify-between border-t border-slate-200 pt-1.5 text-sm font-black"><span>Total ({currency})</span><span className="font-mono">{money(totals.total)}</span></div>
             <div className={`text-[11px] ${needsApproval ? 'text-amber-700' : 'text-slate-500'}`}>
               {fromApprovedStf ? 'Approved through the STF — issued as soon as you submit.' : needsApproval ? `Above AED ${APPROVAL_THRESHOLD.toLocaleString()} — needs management approval.` : `Within AED ${APPROVAL_THRESHOLD.toLocaleString()} — issued as soon as you submit.`}

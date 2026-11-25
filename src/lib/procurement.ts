@@ -22,11 +22,22 @@ export const dayKey = (iso?: string | null) => (iso || '').slice(0, 10);
 // ── totals ───────────────────────────────────────────────────────────────────
 export const lineTotal = (l: Pick<PoLine, 'qty' | 'unitPrice'>) => round2((Number(l.qty) || 0) * (Number(l.unitPrice) || 0));
 
+// VAT is kept per line (each item has its own %). Older records have no line rate and fall back to the document's rate.
+export const lineRate = (l: { vatRate?: number | null }, fallback: number) =>
+  l.vatRate != null && String(l.vatRate) !== '' && !isNaN(Number(l.vatRate)) ? Number(l.vatRate) : Number(fallback) || 0;
+
+// "5%" when every line has the same rate, "mixed" when they differ
+export function vatLabel(lines: { vatRate?: number | null }[], fallback: number) {
+  const rates = Array.from(new Set(lines.map(l => lineRate(l, fallback))));
+  return rates.length === 1 ? `${rates[0]}%` : rates.length === 0 ? `${Number(fallback) || 0}%` : 'mixed';
+}
+
 export function poTotals(po: Pick<PurchaseOrder, 'lines' | 'discount' | 'vatRate'>) {
   const subtotal = round2(po.lines.reduce((t, l) => t + lineTotal(l), 0));
   const discount = Math.min(round2(po.discount || 0), subtotal);
   const taxable = round2(subtotal - discount);
-  const vat = round2((taxable * (Number(po.vatRate) || 0)) / 100);
+  const keep = subtotal > 0 ? 1 - discount / subtotal : 1;          // the discount is shared across lines pro-rata
+  const vat = round2(po.lines.reduce((t, l) => t + lineTotal(l) * keep * lineRate(l as any, po.vatRate) / 100, 0));
   return { subtotal, discount, taxable, vat, total: round2(taxable + vat) };
 }
 
@@ -90,9 +101,8 @@ export function poProgress(po: PurchaseOrder, incoming: IncomingMaterial[]): PoP
 // What the supplier may invoice for what we accepted so far (PO prices, discount shared pro-rata, VAT on top).
 export function expectedInvoiceAmount(po: PurchaseOrder, progress: PoProgress): number {
   const t = poTotals(po);
-  const ratio = t.subtotal > 0 ? progress.acceptedSubtotal / t.subtotal : 0;
-  const net = progress.acceptedSubtotal - t.discount * ratio;
-  return round2(net * (1 + (Number(po.vatRate) || 0) / 100));
+  const keep = t.subtotal > 0 ? 1 - t.discount / t.subtotal : 1;
+  return round2(progress.lines.reduce((sum, l) => sum + l.accepted * (Number(l.line.unitPrice) || 0) * keep * (1 + lineRate(l.line as any, po.vatRate) / 100), 0));
 }
 
 // How much more of the PO a receipt may still bring in (ordered + tolerance − accepted/received so far)

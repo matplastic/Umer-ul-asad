@@ -108,7 +108,7 @@ export async function buildRegisterWorkbook(rows: RegisterRow[], settings: Procu
     };
     const totalRow = r;
     tot('TOTAL', `SUM(J${first}:J${last})`, row.subtotal);
-    tot(`VAT ${row.vatRate}%`, `J${totalRow}*${row.vatRate}/100`, row.vat);
+    tot(`VAT ${row.vatText}`, String(row.vat), row.vat);   // VAT is per item, so the figure is the sum of each line's VAT
     tot(`G. TOTAL${cur}`, `SUM(J${totalRow}:J${totalRow + 1})`, row.total, true);
   }
 
