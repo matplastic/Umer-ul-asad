@@ -31,7 +31,7 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   // Offer / Appointment letter details
-  const [cand, setCand] = useState({ name: '', nationality: '', passport: '' });
+  const [cand, setCand] = useState({ name: '', nationality: '', passport: '', gender: '' });
   const [t, setT] = useState({
     position: '', department: '', reportingTo: '', workLocation: 'Umm Al Quwain, UAE', contractType: 'Limited (fixed-term)',
     joiningDate: '', probationMonths: '6', basic: '', housing: '', transport: '', other: '',
@@ -67,10 +67,11 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
   const person = useMemo(() => emp ? {
     name: emp.name, department: emp.department, gender: prof?.gender, designation: prof?.designation || emp.role || undefined,
     passportNumber: emp.passportNumber, nationality: emp.passportCountry, joiningDate: prof?.joiningDate, exitDate: prof?.exitDate,
-  } : (kind === 'Offer Letter' && cand.name.trim() ? {
+  } : (isContract && cand.name.trim() ? {
     name: cand.name.trim(), nationality: cand.nationality.trim() || undefined, passportNumber: cand.passport.trim() || undefined,
+    gender: (cand.gender || undefined) as 'Male' | 'Female' | undefined,
     department: t.department.trim() || undefined, designation: t.position.trim() || undefined,
-  } : null), [emp, prof, kind, cand, t.department, t.position]);
+  } : null), [emp, prof, isContract, cand, t.department, t.position]);
 
   const terms: EmploymentTerms | undefined = isContract ? {
     position: t.position.trim(), department: t.department.trim() || undefined, reportingTo: t.reportingTo.trim() || undefined,
@@ -92,7 +93,7 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
 
 
   const generate = async () => {
-    if (!person || !composed) { hrToast(kind === 'Offer Letter' ? 'Choose an employee or enter the candidate name' : 'Choose an employee first', 'err'); return; }
+    if (!person || !composed) { hrToast(isContract ? 'Type the name, or choose an employee' : 'Choose an employee first', 'err'); return; }
     if (isContract) {
       if (!t.position.trim()) { hrToast('Enter the position / job title', 'err'); return; }
       if (!(num(t.basic) > 0)) { hrToast('Enter the basic salary', 'err'); return; }
@@ -135,12 +136,13 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label={kind === 'Offer Letter' ? 'Employee (optional — or type a new candidate below)' : 'Employee *'}><EmployeeSelect employees={employees} value={empId} onChange={setEmpId} /></Field>
+            <Field label={isContract ? 'Employee (optional — or just type the name below)' : 'Employee *'}><EmployeeSelect employees={employees} value={empId} onChange={setEmpId} /></Field>
             <Field label="Letter date"><input type="date" className={inputCls} value={f.date} onChange={e => setF(p => ({ ...p, date: e.target.value }))} /></Field>
             <Field label="Addressed to (optional)"><input className={inputCls} value={f.addressedTo} onChange={e => setF(p => ({ ...p, addressedTo: e.target.value }))} placeholder="To Whom It May Concern" /></Field>
             {isContract && (<>
-              {kind === 'Offer Letter' && !empId && (<>
-                <Field label="Candidate name *"><input className={inputCls} value={cand.name} onChange={e => setCand(p => ({ ...p, name: e.target.value }))} /></Field>
+              {!empId && (<>
+                <Field label={kind === 'Offer Letter' ? 'Candidate name *' : 'Employee name *'}><input className={inputCls} value={cand.name} onChange={e => setCand(p => ({ ...p, name: e.target.value }))} placeholder="Type the full name" /></Field>
+                <Field label="Mr. / Ms. (optional)"><select className={inputCls} value={cand.gender} onChange={e => setCand(p => ({ ...p, gender: e.target.value }))}><option value="">— none —</option><option value="Male">Mr.</option><option value="Female">Ms.</option></select></Field>
                 <Field label="Nationality"><input className={inputCls} value={cand.nationality} onChange={e => setCand(p => ({ ...p, nationality: e.target.value }))} /></Field>
                 <Field label="Passport number"><input className={inputCls} value={cand.passport} onChange={e => setCand(p => ({ ...p, passport: e.target.value }))} /></Field>
               </>)}
@@ -184,7 +186,7 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
         </SectionCard>
 
         <SectionCard title="Preview" right={<button className={btnPrimary} disabled={busy || !composed} onClick={generate}><Printer className="h-4 w-4" />Generate PDF</button>}>
-          {!composed ? <Empty text={kind === 'Offer Letter' ? 'Choose an employee or enter the candidate name to see the letter.' : 'Choose an employee to see the letter.'} /> : (
+          {!composed ? <Empty text={isContract ? 'Type the name (or choose an employee) to see the letter.' : 'Choose an employee to see the letter.'} /> : (
             <div className="bg-white border border-slate-200 rounded-lg p-6 text-sm text-slate-700 leading-relaxed space-y-3 max-w-2xl mx-auto shadow-sm">
               <div className="flex justify-between text-xs font-bold"><span>Ref: (assigned on generate)</span><span>Date: {fmtD(f.date)}</span></div>
               <div className="font-bold">{composed.addressedTo}</div>
