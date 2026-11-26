@@ -3,7 +3,7 @@ import { useFavoriteNav } from '../lib/favorites';
 import {
   HardHat, PackagePlus, Send, CheckCircle2, XCircle, Clock, Factory, ClipboardList,
   RefreshCw, AlertTriangle, Filter, Plus, Trash2, TrendingUp, Boxes,
-  ShoppingCart, Receipt, Paperclip, Printer, X, Save, DollarSign, Download,
+  ShoppingCart, Receipt, Paperclip, Printer, X, Save, DollarSign, Download, Recycle,
 } from 'lucide-react';
 import {
   dbFetchMaterials, dbFetchBomItems, dbSubmitMaterialRequestBatch, dbFetchMaterialRequests,
@@ -19,6 +19,7 @@ import { exportTablePdf } from '../lib/exportUtils';
 import { SearchableSelect, SearchableOption } from './SearchableSelect';
 import { matchesAllTokens } from '../lib/searchUtils';
 import { useTabReset } from '../hooks/useTabReset';
+import ScrapManagement from './ScrapManagement';
 
 const uid = () => `sup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 const fmtDate = (s: string) => { try { return new Date(s).toLocaleDateString('en-GB'); } catch { return s; } };
@@ -33,7 +34,7 @@ interface SupervisorPortalProps {
   onSwitchUser?: () => void;
 }
 
-type Tab = 'consumption' | 'production' | 'request' | 'purchases' | 'history';
+type Tab = 'consumption' | 'production' | 'request' | 'purchases' | 'history' | 'scrap';
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -621,6 +622,9 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
         </button>
         <button onClick={() => selectTab('history')} data-testid="tab-history" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'history' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
           <ClipboardList className="h-4 w-4" /> Today vs Plan
+        </button>
+        <button onClick={() => selectTab('scrap')} data-testid="tab-scrap" className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer ${tab === 'scrap' ? 'bg-primary-600 text-white shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+          <Recycle className="h-4 w-4" /> Scrap
         </button>
       </div>
 
@@ -1219,6 +1223,12 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       )}
 
       {/* HISTORY / TODAY COMPARISON TAB */}
+      {/* SCRAP TAB — same module as Management; supervisors can enter/view
+          scrap and sales but cannot edit materials/cost or delete records. */}
+      {tab === 'scrap' && (
+        <ScrapManagement currentUserName={currentUserName} canManage={false} />
+      )}
+
       {tab === 'history' && (
         <div>
           <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-[70vh]">

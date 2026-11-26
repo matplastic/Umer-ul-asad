@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useFavoriteNav } from '../lib/favorites';
 import { Pool, StageId, Team, ActivityLog, PlannedPool } from '../types';
 import { STAGES } from '../data/mockData';
-import { Eye, ClipboardList, Tv, RefreshCw, ListChecks, AlertTriangle } from 'lucide-react';
+import { Eye, ClipboardList, Tv, RefreshCw, ListChecks, AlertTriangle, Recycle } from 'lucide-react';
 import { StageDashboard } from './StageDashboard';
 import { SupervisorPortal } from './SupervisorPortal';
 import { SectionDashboardTV } from './SectionDashboardTV';
@@ -10,6 +10,7 @@ import { PoolRegisterView } from './PoolRegisterView';
 import { RejectionLogView } from './RejectionLogView';
 import type { QCDefect } from './QCDefectPanel';
 import { useTabReset } from '../hooks/useTabReset';
+import ScrapManagement from './ScrapManagement';
 
 // Factory Supervisor Portal
 // ──────────────────────────────────────────────────────────────────────────
@@ -44,7 +45,7 @@ interface FactorySupervisorPortalProps {
   onSwitchUser?: () => void;
 }
 
-type FactorySupervisorTab = 'monitor' | 'supervisor' | 'tv' | 'pool_register' | 'rejection_log';
+type FactorySupervisorTab = 'monitor' | 'supervisor' | 'tv' | 'pool_register' | 'rejection_log' | 'scrap';
 
 export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = ({
   currentUserName,
@@ -96,6 +97,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
     { id: 'tv', label: 'Section TV', icon: Tv },
     { id: 'pool_register', label: 'Pool Register', icon: ListChecks },
     { id: 'rejection_log', label: 'Rejection Log', icon: AlertTriangle },
+    { id: 'scrap', label: 'Scrap', icon: Recycle },
   ];
 
   return (
@@ -216,6 +218,10 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
 
       {activeTab === 'rejection_log' && (
         <RejectionLogView pools={pools} teams={teams} logs={logs} />
+      )}
+
+      {activeTab === 'scrap' && (
+        <ScrapManagement currentUserName={currentUserName} canManage={false} />
       )}
       </React.Fragment>
     </div>

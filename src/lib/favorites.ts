@@ -75,7 +75,7 @@ export const FAV_REGISTRY: Partial<Record<ViewRole, FavPortalDef>> = {
     tabs: [
       { id: 'consumption', label: 'Consumption' }, { id: 'production', label: 'Log Production' },
       { id: 'request', label: 'Request Material' }, { id: 'purchases', label: 'Purchases' },
-      { id: 'history', label: 'Today vs Plan' },
+      { id: 'history', label: 'Today vs Plan' }, { id: 'scrap', label: 'Scrap' },
     ],
   },
   factory_supervisor: {
@@ -83,7 +83,7 @@ export const FAV_REGISTRY: Partial<Record<ViewRole, FavPortalDef>> = {
     tabs: [
       { id: 'monitor', label: 'Stage Floor Monitor' }, { id: 'supervisor', label: 'Section Supervisor Portal' },
       { id: 'tv', label: 'Section TV' }, { id: 'pool_register', label: 'Pool Register' },
-      { id: 'rejection_log', label: 'Rejection Log' },
+      { id: 'rejection_log', label: 'Rejection Log' }, { id: 'scrap', label: 'Scrap' },
     ],
   },
   reports_analytics: {
