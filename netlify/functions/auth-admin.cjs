@@ -10,8 +10,11 @@
 //   changePassword / findByQuickCode                      → any active signed-in account
 //   getFavorites / setFavorites (own pinned buttons)      → any active signed-in account, own list only
 //
-// Extra guard: only Management-level accounts can grant, edit, reset or
-// deactivate Management access (stops an HR account promoting itself).
+// Management accounts: HR Executive / HR Administration accounts may now create, edit,
+// reset and deactivate Management accounts, and grant Management access, because
+// HR_CAN_MANAGE_MANAGEMENT below is true. Set it to false to go back to the old rule
+// (only Management-level accounts can touch Management access — this also stops an
+// HR account promoting itself). "Reset every password" stays Management only either way.
 //
 // The ID token is verified with Node's crypto (no firebase-admin/auth, which
 // fails to load on this runtime — see auth-login.cjs).
@@ -28,6 +31,7 @@ const json = (statusCode, body) => ({
 });
 
 const ADMIN_ROLES = ['management', 'hr_portal', 'hr_admin'];
+const HR_CAN_MANAGE_MANAGEMENT = true;
 const TEMP_WORDS = ['Falcon', 'Harbor', 'Quartz', 'Summit', 'Ember', 'Cedar', 'Marlin', 'Onyx',
   'Ridge', 'Delta', 'Aspen', 'Cobalt', 'Willow', 'Granite', 'Meridian', 'Pioneer'];
 
@@ -104,13 +108,15 @@ function applyAction(action, body, caller, accounts) {
   const now = new Date().toISOString();
   const find = (id) => accounts.find((a) => a.id === id);
   const needAdmin = () => { if (!isAdmin(caller)) throw new HttpError(403, 'You do not have permission to manage accounts.'); };
+  // May this caller grant / change Management access? Management always; HR when the switch above is on.
+  const canHandleManagement = () => isManagement(caller) || (HR_CAN_MANAGE_MANAGEMENT && isAdmin(caller));
   const guardGrant = (role, allowed) => {
-    if ([role, ...(allowed || [])].includes('management') && !isManagement(caller)) {
+    if ([role, ...(allowed || [])].includes('management') && !canHandleManagement()) {
       throw new HttpError(403, 'Only Management can give an account Management access.');
     }
   };
   const guardTarget = (t) => {
-    if (isManagement(t) && !isManagement(caller)) throw new HttpError(403, 'Only Management can change a Management account.');
+    if (isManagement(t) && !canHandleManagement()) throw new HttpError(403, 'Only Management can change a Management account.');
   };
   const target = () => {
     const t = find(body.id);
