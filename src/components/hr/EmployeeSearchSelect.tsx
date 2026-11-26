@@ -20,13 +20,19 @@ interface Props {
   /** focus-ring colour to match the surrounding form */
   accent?: 'violet' | 'rose' | 'teal';
   className?: string;
+  /** Let the person type a name that is not in the employee list (e.g. a new hire for an offer letter).
+   *  Typing shows a "Use “…”" row; picking it calls onFreeText(name). */
+  onFreeText?: (name: string) => void;
+  /** The typed name currently in use (shown in the closed box when no employee is selected). */
+  freeText?: string;
 }
 
 const RING = { violet: 'focus-within:ring-violet-500', rose: 'focus-within:ring-rose-500', teal: 'focus-within:ring-teal-500' };
 const MAX_SHOWN = 60;
+const FREE_ID = '__free__';
 
 export const EmployeeSearchSelect: React.FC<Props> = ({
-  employees, value, onChange, placeholder = 'Select employee…', clearLabel, disabled, testId, accent = 'violet', className = '',
+  employees, value, onChange, placeholder = 'Select employee…', clearLabel, disabled, testId, accent = 'violet', className = '', onFreeText, freeText = '',
 }) => {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -56,6 +62,7 @@ export const EmployeeSearchSelect: React.FC<Props> = ({
   const rows: { id: string; label: string; sub?: string }[] = [
     ...(clearLabel ? [{ id: '', label: clearLabel }] : []),
     ...shown.map(e => ({ id: e.id, label: e.name, sub: e.department })),
+    ...(onFreeText && q.trim() ? [{ id: FREE_ID, label: `Use “${q.trim()}” (not in the employee list)`, sub: 'type a new name' }] : []),
   ];
 
   const place = () => {
@@ -91,7 +98,10 @@ export const EmployeeSearchSelect: React.FC<Props> = ({
   }, [hi, open]);
 
   const close = () => { setOpen(false); setQ(''); };
-  const pick = (id: string) => { onChange(id); close(); };
+  const pick = (id: string) => {
+    if (id === FREE_ID) { onFreeText?.(q.trim()); onChange(''); close(); return; }
+    onChange(id); close();
+  };
   const openList = () => { if (!disabled) { setOpen(true); setTimeout(() => input.current?.focus(), 0); } };
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -118,10 +128,14 @@ export const EmployeeSearchSelect: React.FC<Props> = ({
           />
         ) : (
           <button type="button" disabled={disabled} data-testid={testId} onFocus={openList} className="flex-1 min-w-0 text-left truncate bg-transparent outline-none">
-            {selected ? <span className="text-slate-800">{selected.name}{selected.department ? <span className="text-slate-400"> · {selected.department}</span> : null}</span> : <span className="text-slate-400">{placeholder}</span>}
+            {selected ? <span className="text-slate-800">{selected.name}{selected.department ? <span className="text-slate-400"> · {selected.department}</span> : null}</span>
+              : freeText ? <span className="text-slate-800">{freeText}<span className="text-slate-400"> · typed name</span></span>
+              : <span className="text-slate-400">{placeholder}</span>}
           </button>
         )}
-        {selected && !disabled && !open && clearLabel !== undefined
+        {!selected && freeText && !disabled && !open
+          ? <span role="button" aria-label="Clear" className="text-slate-300 hover:text-slate-600" onClick={ev => { ev.stopPropagation(); onFreeText?.(''); }}><X className="h-3.5 w-3.5" /></span>
+          : selected && !disabled && !open && clearLabel !== undefined
           ? <span role="button" aria-label="Clear" className="text-slate-300 hover:text-slate-600" onClick={ev => { ev.stopPropagation(); onChange(''); }}><X className="h-3.5 w-3.5" /></span>
           : <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />}
       </div>
@@ -132,7 +146,7 @@ export const EmployeeSearchSelect: React.FC<Props> = ({
           style={{ position: 'fixed', left: rect.left, width: rect.width, zIndex: 90, ...(rect.up ? { bottom: window.innerHeight - (box.current?.getBoundingClientRect().top ?? 0) + 4 } : { top: rect.top }) }}
           className="bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto py-1"
         >
-          {rows.length === 0 && <div className="px-3 py-3 text-sm text-slate-400">No employee matches “{q}”.</div>}
+          {rows.length === 0 && <div className="px-3 py-3 text-sm text-slate-400">{onFreeText ? 'Type a name to use it directly.' : <>No employee matches “{q}”.</>}</div>}
           {rows.map((r, i) => (
             <button
               type="button" key={r.id || '__clear'} data-row={i}

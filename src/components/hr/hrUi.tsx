@@ -170,8 +170,9 @@ export const SubTabs: React.FC<{ tabs: { id: string; label: string; badge?: numb
 
 export const EmployeeSelect: React.FC<{
   employees: { id: string; name: string; department?: string }[]; value: string; onChange: (id: string) => void; placeholder?: string;
-}> = ({ employees, value, onChange, placeholder }) => (
-  <EmployeeSearchSelect employees={employees} value={value} onChange={onChange} placeholder={placeholder || 'Select employee…'} clearLabel={placeholder?.toLowerCase().startsWith('all') ? placeholder : undefined} />
+  onFreeText?: (name: string) => void; freeText?: string;
+}> = ({ employees, value, onChange, placeholder, onFreeText, freeText }) => (
+  <EmployeeSearchSelect employees={employees} value={value} onChange={onChange} placeholder={placeholder || 'Select employee…'} clearLabel={placeholder?.toLowerCase().startsWith('all') ? placeholder : undefined} onFreeText={onFreeText} freeText={freeText} />
 );
 
 export const ExpiryBadge: React.FC<{ date?: string | null; warnDays?: number }> = ({ date, warnDays = 60 }) => {

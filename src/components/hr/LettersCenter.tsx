@@ -136,7 +136,8 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label={isContract ? 'Employee (optional — or just type the name below)' : 'Employee *'}><EmployeeSelect employees={employees} value={empId} onChange={setEmpId} /></Field>
+            <Field label={isContract ? 'Employee (optional — or just type the name below)' : 'Employee *'}><EmployeeSelect employees={employees} value={empId} onChange={setEmpId} placeholder={isContract ? 'Select employee, or type a name…' : undefined}
+              onFreeText={isContract ? (n => setCand(p => ({ ...p, name: n }))) : undefined} freeText={isContract && !empId ? cand.name : ''} /></Field>
             <Field label="Letter date"><input type="date" className={inputCls} value={f.date} onChange={e => setF(p => ({ ...p, date: e.target.value }))} /></Field>
             <Field label="Addressed to (optional)"><input className={inputCls} value={f.addressedTo} onChange={e => setF(p => ({ ...p, addressedTo: e.target.value }))} placeholder="To Whom It May Concern" /></Field>
             {isContract && (<>
