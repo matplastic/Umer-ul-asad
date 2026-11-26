@@ -1,6 +1,6 @@
 import { auth, app, clientDb } from './googleDrive.ts';
 import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { applySupplierSave } from './suppliers';
+import { applySupplierSave, applySupplierBulk, type BulkSupplierItem } from './suppliers';
 import { APPROVAL_THRESHOLD, nextDocNo, poTotals } from './procurement';
 import { addDays, tfAmounts, tfPosition } from './tradeFinance';
 import { QUEUE_BOARD, QUEUE_FINISHED, defaultProcurementSettings, sameName, stfPermissions } from './stf';
@@ -3836,6 +3836,22 @@ export async function dbSaveSupplier(input: Partial<Supplier> & { name: string }
 export async function dbDeleteSupplier(id: string): Promise<void> {
   if (apiBase()) throw new SupplierError('Suppliers are only available on the Firebase deployment.');
   await updateFirestoreDocArray('suppliers', (arr) => arr.filter((s) => s.id !== id), true);
+}
+
+// Excel upload: create / update many suppliers in ONE write. Codes (SUP-0001…) are
+// issued inside the write, in file order, so they stay unique and gap-free.
+export async function dbBulkSaveSuppliers(
+  items: BulkSupplierItem[], byName: string,
+): Promise<{ created: number; updated: number; failed: { name: string; error: string }[] }> {
+  if (apiBase()) throw new SupplierError('Suppliers are only available on the Firebase deployment.');
+  let out = { created: 0, updated: 0, failed: [] as { name: string; error: string }[] };
+  await updateFirestoreDocArray('suppliers', (arr) => {
+    // May run more than once if the write is retried — always start clean.
+    const r = applySupplierBulk(arr, items, byName, () => newId('sup'), new Date().toISOString());
+    out = { created: r.created.length, updated: r.updated.length, failed: r.failed };
+    return r.arr;
+  }, true);
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

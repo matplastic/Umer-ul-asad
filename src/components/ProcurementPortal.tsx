@@ -97,6 +97,12 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
   }, []);
 
   useEffect(() => { load(); const t = window.setInterval(load, 60000); return () => window.clearInterval(t); }, [load]);
+  // Suppliers are shared with the Store: refresh just that list often, so a supplier added or uploaded
+  // there appears here within seconds (the full reload above stays at once a minute).
+  useEffect(() => {
+    const t = window.setInterval(() => { dbFetchSuppliers().then(setSuppliers).catch(() => { /* next tick retries */ }); }, 15000);
+    return () => window.clearInterval(t);
+  }, []);
 
   const rows: Row[] = useMemo(() => pos.map(po => {
     const progress = poProgress(po, incoming);

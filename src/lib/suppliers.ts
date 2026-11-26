@@ -164,3 +164,39 @@ export function applySupplierSave(
   next.push(saved);
   return { arr: next, saved };
 }
+
+// ── Bulk save (Excel upload) ─────────────────────────────────────────────────
+// Applies many supplier rows in ONE pass over the list, using the same rules as
+// a single save (unique names, next SUP-code). A row either updates the
+// supplier it points at (matchId, or the same name) or creates a new one.
+// Only the fields present on `input` are written, so blank Excel cells never
+// erase what is already on file.
+export interface BulkSupplierItem {
+  matchId?: string;
+  input: Partial<Supplier> & { name: string };
+}
+
+export function applySupplierBulk(
+  arr: Supplier[],
+  items: BulkSupplierItem[],
+  byName: string,
+  makeId: () => string,
+  nowIso: string,
+): { arr: Supplier[]; created: Supplier[]; updated: Supplier[]; failed: { name: string; error: string }[] } {
+  let cur = arr;
+  const created: Supplier[] = [];
+  const updated: Supplier[] = [];
+  const failed: { name: string; error: string }[] = [];
+  for (const item of items) {
+    // Look the target up again inside the write: the list may have changed since the file was read.
+    const target = (item.matchId ? cur.find((s) => s.id === item.matchId) : undefined)
+      || cur.find((s) => normName(s.name) === normName(item.input.name));
+    const result = target
+      ? applySupplierSave(cur, { ...item.input, id: target.id, name: target.name }, byName, makeId, nowIso)
+      : applySupplierSave(cur, item.input, byName, makeId, nowIso);
+    if (result.error || !result.saved) { failed.push({ name: item.input.name, error: result.error || 'Could not save.' }); continue; }
+    cur = result.arr;
+    (target ? updated : created).push(result.saved);
+  }
+  return { arr: cur, created, updated, failed };
+}

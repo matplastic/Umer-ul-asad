@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Download, Search, X, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, Download, Upload, Search, X, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Supplier, SupplierStatus, IncomingMaterial, Material } from '../types';
 import { buildSupplierStats, acceptanceTone, type SupplierStats } from '../lib/suppliers';
 import { dbSaveSupplier, dbDeleteSupplier, SupplierError } from '../lib/firebaseService';
+import { SupplierImportDialog } from './SupplierImportDialog';
 
 interface Props {
   suppliers: Supplier[];
@@ -59,6 +60,7 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'overview' | 'materials' | 'receipts'>('overview');
   const [importing, setImporting] = useState(false);
+  const [showExcelImport, setShowExcelImport] = useState(false);
 
   const { stats, unregistered } = useMemo(
     () => buildSupplierStats(suppliers, incoming, materials),
@@ -182,6 +184,9 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
           <div className="text-[11px] text-slate-500">Your approved vendor list — contacts, payment terms, and how each supplier's deliveries perform at quality inspection.</div>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setShowExcelImport(true)} data-testid="suppliers-import" className="flex items-center gap-1.5 px-3 py-2 bg-sky-700 hover:bg-sky-600 text-white rounded-lg text-xs font-bold cursor-pointer">
+            <Upload className="h-3.5 w-3.5" /> Upload Excel
+          </button>
           <button onClick={exportList} data-testid="suppliers-export" className="flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer">
             <Download className="h-3.5 w-3.5" /> Excel
           </button>
@@ -501,6 +506,11 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
             </div>
           </div>
         </div>
+      )}
+
+      {/* ---------- EXCEL UPLOAD ---------- */}
+      {showExcelImport && (
+        <SupplierImportDialog suppliers={suppliers} currentUserName={currentUserName} onClose={() => setShowExcelImport(false)} onDone={onChanged} />
       )}
     </div>
   );
