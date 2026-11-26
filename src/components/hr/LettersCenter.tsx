@@ -4,7 +4,7 @@ import { Employee } from '../../types';
 import {
   useHRCollection, HRLetterLog, HRProfile, PayrollLite, newId, nextRef, todayStr, fmtD, logAudit,
 } from '../../lib/hrStore';
-import { composeLetter, exportLetterPdf, LetterKind } from '../../lib/hrPdf';
+import { composeLetter, exportLetterPdf, LetterKind, EmploymentTerms } from '../../lib/hrPdf';
 import {
   Field, EmployeeSelect, inputCls, btnPrimary, SectionCard, Empty, Badge, SearchBox, runSave, hrToast,
 } from './hrUi';
@@ -12,6 +12,8 @@ import {
 interface Props { employees: Employee[]; user?: string; payroll: PayrollLite[] }
 
 const KINDS: { id: LetterKind; hint: string }[] = [
+  { id: 'Offer Letter', hint: 'Job offer with salary & terms — for a new hire or candidate' },
+  { id: 'Appointment Letter', hint: 'Confirms appointment, salary & terms for a joining employee' },
   { id: 'Experience Certificate', hint: 'For employees who have left, or a service letter' },
   { id: 'Salary Certificate', hint: 'For banks, visas, rent contracts' },
   { id: 'NOC', hint: 'No-objection for licence, travel, etc.' },
@@ -28,6 +30,16 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
   const [f, setF] = useState({ addressedTo: '', basic: '', allowances: '', purpose: '', reason: '', warningType: 'Written', incidentDate: todayStr(), subject: '', body: '', signatory: '', signatoryTitle: 'HR Manager', date: todayStr() });
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
+  // Offer / Appointment letter details
+  const [cand, setCand] = useState({ name: '', nationality: '', passport: '' });
+  const [t, setT] = useState({
+    position: '', department: '', reportingTo: '', workLocation: 'Umm Al Quwain, UAE', contractType: 'Limited (fixed-term)',
+    joiningDate: '', probationMonths: '6', basic: '', housing: '', transport: '', other: '',
+    workHours: '8 hours a day, 48 hours a week, with one weekly day off', annualLeave: '30', noticeDays: '30',
+    validUntil: '', benefits: '', offerDate: '',
+  });
+  const isContract = kind === 'Offer Letter' || kind === 'Appointment Letter';
+  const num = (v: string) => parseFloat(v) || 0;
 
   const emp = employees.find(e => e.id === empId);
   const prof = profC.items.find(p => p.id === empId);
@@ -39,34 +51,66 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
     setF(p => ({ ...p, basic: String(prof?.basicSalary ?? last?.baseSalary ?? ''), allowances: String(last?.allowances ?? '') }));
   }, [empId, prof?.basicSalary, payroll]);
 
+  // Pre-fill the offer / appointment terms from the employee's HR profile.
+  useEffect(() => {
+    if (!empId || !emp) return;
+    setT(p => ({
+      ...p,
+      position: prof?.designation || emp.role || p.position,
+      department: emp.department || p.department,
+      reportingTo: prof?.reportingTo || p.reportingTo,
+      joiningDate: prof?.joiningDate || p.joiningDate,
+      basic: prof?.basicSalary ? String(prof.basicSalary) : p.basic,
+    }));
+  }, [empId, emp?.department, emp?.role, prof?.designation, prof?.reportingTo, prof?.joiningDate, prof?.basicSalary]);
+
   const person = useMemo(() => emp ? {
     name: emp.name, department: emp.department, gender: prof?.gender, designation: prof?.designation || emp.role || undefined,
     passportNumber: emp.passportNumber, nationality: emp.passportCountry, joiningDate: prof?.joiningDate, exitDate: prof?.exitDate,
-  } : null, [emp, prof]);
+  } : (kind === 'Offer Letter' && cand.name.trim() ? {
+    name: cand.name.trim(), nationality: cand.nationality.trim() || undefined, passportNumber: cand.passport.trim() || undefined,
+    department: t.department.trim() || undefined, designation: t.position.trim() || undefined,
+  } : null), [emp, prof, kind, cand, t.department, t.position]);
+
+  const terms: EmploymentTerms | undefined = isContract ? {
+    position: t.position.trim(), department: t.department.trim() || undefined, reportingTo: t.reportingTo.trim() || undefined,
+    workLocation: t.workLocation.trim() || undefined, contractType: t.contractType || undefined, joiningDate: t.joiningDate || undefined,
+    probationMonths: num(t.probationMonths), basic: num(t.basic), housing: num(t.housing), transport: num(t.transport), other: num(t.other),
+    workHours: t.workHours.trim() || undefined, annualLeave: num(t.annualLeave) || undefined, noticeDays: num(t.noticeDays) || undefined,
+    validUntil: t.validUntil || undefined, benefits: t.benefits.trim() || undefined, offerDate: t.offerDate || undefined,
+  } : undefined;
 
   const composed = useMemo(() => person ? composeLetter({
     kind, person, addressedTo: f.addressedTo.trim() || undefined, basicSalary: parseFloat(f.basic) || 0, allowances: parseFloat(f.allowances) || 0,
     purpose: f.purpose.trim() || undefined, reason: f.reason.trim() || undefined, warningType: f.warningType, incidentDate: f.incidentDate,
-    subject: f.subject.trim() || undefined, body: f.body,
-  }) : null, [kind, person, f]);
+    subject: f.subject.trim() || undefined, body: f.body, terms,
+  }) : null, [kind, person, f, terms]);
 
   const missing: string[] = [];
   if (person && (kind === 'Experience Certificate') && !person.joiningDate) missing.push('joining date (Employee 360 → Overview)');
   if (person && (kind === 'Experience Certificate' || kind === 'Salary Certificate') && !person.designation) missing.push('designation (Employee 360 → Overview)');
 
+
   const generate = async () => {
-    if (!person || !composed) { hrToast('Choose an employee first', 'err'); return; }
+    if (!person || !composed) { hrToast(kind === 'Offer Letter' ? 'Choose an employee or enter the candidate name' : 'Choose an employee first', 'err'); return; }
+    if (isContract) {
+      if (!t.position.trim()) { hrToast('Enter the position / job title', 'err'); return; }
+      if (!(num(t.basic) > 0)) { hrToast('Enter the basic salary', 'err'); return; }
+      if (!t.joiningDate) { hrToast('Enter the joining date', 'err'); return; }
+    }
     if (kind === 'Custom Letter' && (!f.subject.trim() || !f.body.trim())) { hrToast('Enter a subject and the letter text', 'err'); return; }
     if (kind === 'Salary Certificate' && !(parseFloat(f.basic) > 0)) { hrToast('Enter the basic salary', 'err'); return; }
     setBusy(true);
     try {
-      const refNo = nextRef('MAT/HR', logC.items.map(l => l.refNo));
+      const refPrefix = kind === 'Offer Letter' ? 'MAT/HR/OFR' : kind === 'Appointment Letter' ? 'MAT/HR/APT' : 'MAT/HR';
+      const refNo = nextRef(refPrefix, logC.items.map(l => l.refNo));
       await exportLetterPdf({
         refNo, date: f.date, addressedTo: composed.addressedTo, subject: composed.subject, paragraphs: composed.paragraphs,
-        acknowledgment: composed.acknowledgment, signatoryName: f.signatory.trim() || undefined, signatoryTitle: f.signatoryTitle.trim() || undefined,
+        acknowledgment: composed.acknowledgment, acknowledgmentText: composed.acknowledgmentText,
+        tables: composed.tables, closingParagraphs: composed.closingParagraphs, signatoryName: f.signatory.trim() || undefined, signatoryTitle: f.signatoryTitle.trim() || undefined,
         filename: `${composed.subject.replace(/\s+/g, '_')}_${person.name.replace(/\s+/g, '_')}`,
       });
-      const ok = await runSave(() => logC.save({ id: newId('lt'), refNo, type: composed.subject, employeeId: empId, employeeName: person.name, issuedBy: user || 'HR', issuedAt: new Date().toISOString() }), `Letter ${refNo} generated`);
+      const ok = await runSave(() => logC.save({ id: newId('lt'), refNo, type: composed.subject, employeeId: empId || '', employeeName: person.name, issuedBy: user || 'HR', issuedAt: new Date().toISOString() }), `Letter ${refNo} generated`);
       if (ok) logAudit(user, 'Letters', `Issued ${composed.subject} (${refNo})`, person.name);
     } finally { setBusy(false); }
   };
@@ -91,9 +135,33 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Employee *"><EmployeeSelect employees={employees} value={empId} onChange={setEmpId} /></Field>
+            <Field label={kind === 'Offer Letter' ? 'Employee (optional — or type a new candidate below)' : 'Employee *'}><EmployeeSelect employees={employees} value={empId} onChange={setEmpId} /></Field>
             <Field label="Letter date"><input type="date" className={inputCls} value={f.date} onChange={e => setF(p => ({ ...p, date: e.target.value }))} /></Field>
             <Field label="Addressed to (optional)"><input className={inputCls} value={f.addressedTo} onChange={e => setF(p => ({ ...p, addressedTo: e.target.value }))} placeholder="To Whom It May Concern" /></Field>
+            {isContract && (<>
+              {kind === 'Offer Letter' && !empId && (<>
+                <Field label="Candidate name *"><input className={inputCls} value={cand.name} onChange={e => setCand(p => ({ ...p, name: e.target.value }))} /></Field>
+                <Field label="Nationality"><input className={inputCls} value={cand.nationality} onChange={e => setCand(p => ({ ...p, nationality: e.target.value }))} /></Field>
+                <Field label="Passport number"><input className={inputCls} value={cand.passport} onChange={e => setCand(p => ({ ...p, passport: e.target.value }))} /></Field>
+              </>)}
+              <Field label="Position / job title *"><input className={inputCls} value={t.position} onChange={e => setT(p => ({ ...p, position: e.target.value }))} /></Field>
+              <Field label="Department"><input className={inputCls} value={t.department} onChange={e => setT(p => ({ ...p, department: e.target.value }))} /></Field>
+              <Field label="Reporting to"><input className={inputCls} value={t.reportingTo} onChange={e => setT(p => ({ ...p, reportingTo: e.target.value }))} /></Field>
+              <Field label="Place of work"><input className={inputCls} value={t.workLocation} onChange={e => setT(p => ({ ...p, workLocation: e.target.value }))} /></Field>
+              <Field label="Contract type"><select className={inputCls} value={t.contractType} onChange={e => setT(p => ({ ...p, contractType: e.target.value }))}><option>Limited (fixed-term)</option><option>Unlimited</option><option>Part-time</option><option>Temporary</option></select></Field>
+              <Field label={kind === 'Offer Letter' ? 'Expected joining date *' : 'Joining date *'}><input type="date" className={inputCls} value={t.joiningDate} onChange={e => setT(p => ({ ...p, joiningDate: e.target.value }))} /></Field>
+              <Field label="Probation (months, 0 = none)"><input type="number" min="0" max="6" className={inputCls} value={t.probationMonths} onChange={e => setT(p => ({ ...p, probationMonths: e.target.value }))} /></Field>
+              {kind === 'Offer Letter' && <Field label="Offer valid until"><input type="date" className={inputCls} value={t.validUntil} onChange={e => setT(p => ({ ...p, validUntil: e.target.value }))} /></Field>}
+              {kind === 'Appointment Letter' && <Field label="Offer letter date (optional)"><input type="date" className={inputCls} value={t.offerDate} onChange={e => setT(p => ({ ...p, offerDate: e.target.value }))} /></Field>}
+              <Field label="Basic salary (AED) *"><input type="number" className={inputCls} value={t.basic} onChange={e => setT(p => ({ ...p, basic: e.target.value }))} /></Field>
+              <Field label="Housing allowance (AED)"><input type="number" className={inputCls} value={t.housing} onChange={e => setT(p => ({ ...p, housing: e.target.value }))} /></Field>
+              <Field label="Transport allowance (AED)"><input type="number" className={inputCls} value={t.transport} onChange={e => setT(p => ({ ...p, transport: e.target.value }))} /></Field>
+              <Field label="Other allowance (AED)"><input type="number" className={inputCls} value={t.other} onChange={e => setT(p => ({ ...p, other: e.target.value }))} /></Field>
+              <Field label="Working hours" className="sm:col-span-2"><input className={inputCls} value={t.workHours} onChange={e => setT(p => ({ ...p, workHours: e.target.value }))} /></Field>
+              <Field label="Annual leave (days)"><input type="number" className={inputCls} value={t.annualLeave} onChange={e => setT(p => ({ ...p, annualLeave: e.target.value }))} /></Field>
+              <Field label="Notice period (days)"><input type="number" className={inputCls} value={t.noticeDays} onChange={e => setT(p => ({ ...p, noticeDays: e.target.value }))} /></Field>
+              {kind === 'Offer Letter' && <Field label="Other benefits (optional)" className="sm:col-span-2"><input className={inputCls} value={t.benefits} onChange={e => setT(p => ({ ...p, benefits: e.target.value }))} placeholder="Employment visa, medical insurance, annual air ticket …" /></Field>}
+            </>)}
             {kind === 'Salary Certificate' && (<>
               <Field label="Basic salary (AED) *"><input type="number" className={inputCls} value={f.basic} onChange={e => setF(p => ({ ...p, basic: e.target.value }))} /></Field>
               <Field label="Allowances (AED)"><input type="number" className={inputCls} value={f.allowances} onChange={e => setF(p => ({ ...p, allowances: e.target.value }))} /></Field>
@@ -116,12 +184,23 @@ export const LettersCenter: React.FC<Props> = ({ employees, user, payroll }) => 
         </SectionCard>
 
         <SectionCard title="Preview" right={<button className={btnPrimary} disabled={busy || !composed} onClick={generate}><Printer className="h-4 w-4" />Generate PDF</button>}>
-          {!composed ? <Empty text="Choose an employee to see the letter." /> : (
+          {!composed ? <Empty text={kind === 'Offer Letter' ? 'Choose an employee or enter the candidate name to see the letter.' : 'Choose an employee to see the letter.'} /> : (
             <div className="bg-white border border-slate-200 rounded-lg p-6 text-sm text-slate-700 leading-relaxed space-y-3 max-w-2xl mx-auto shadow-sm">
               <div className="flex justify-between text-xs font-bold"><span>Ref: (assigned on generate)</span><span>Date: {fmtD(f.date)}</span></div>
               <div className="font-bold">{composed.addressedTo}</div>
               <div className="text-center font-black underline tracking-wide uppercase">{composed.subject}</div>
               {composed.paragraphs.map((p, i) => <p key={i}>{p}</p>)}
+              {composed.tables?.map(tb => (
+                <div key={tb.title} className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="bg-teal-700 text-white text-[11px] font-bold px-3 py-1.5">{tb.title}</div>
+                  {tb.rows.map(([k, v], i) => (
+                    <div key={i} className={`flex justify-between gap-3 px-3 py-1.5 text-xs border-t border-slate-100 ${tb.amount && i === tb.rows.length - 1 ? 'font-bold bg-teal-50' : ''}`}>
+                      <span className="font-semibold text-slate-500">{k}</span><span className="text-right">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {composed.closingParagraphs?.map((p, i) => <p key={`c${i}`}>{p}</p>)}
               <div className="pt-4 text-xs text-slate-500">Yours sincerely,<br /><b className="text-slate-700">{f.signatory || '____________'}</b><br />{f.signatoryTitle}</div>
             </div>
           )}
