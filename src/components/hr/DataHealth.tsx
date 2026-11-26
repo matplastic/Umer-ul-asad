@@ -5,6 +5,7 @@ import { useHRCollection, HRProfile } from '../../lib/hrStore';
 import { downloadSheet } from '../../lib/excelImport';
 import { IMPORT_TYPES } from './importTypes';
 import { FIELDS, FieldDef, getValue, isFilled, isActive } from './employeeFields';
+import { OrgFilters, matchOrg, orgLabel } from './OrgManager';
 import { ImportButton } from './ExcelImport';
 import { StatCard, SectionCard, Empty, SearchBox, inputCls, btnGhost, btnPrimary, Badge, hrToast } from './hrUi';
 
@@ -25,13 +26,13 @@ export const DataHealth: React.FC<Props> = ({ employees, user, saveEmployees, on
   const profC = useHRCollection<HRProfile>('hrProfiles');
   const [q, setQ] = useState('');
   const [dept, setDept] = useState('All');
+  const [company, setCompany] = useState('All');
   const [fieldF, setFieldF] = useState('');
   const [onlyMissing, setOnlyMissing] = useState(true);
 
   const pmap = useMemo(() => new Map(profC.items.map(p => [p.id, p])), [profC.items]);
   const active = useMemo(() => employees.filter(e => isActive(e, pmap)), [employees, pmap]);
   const health = useMemo(() => FIELDS.filter(f => f.health), []);
-  const depts = useMemo(() => ['All', ...Array.from(new Set(active.map(e => e.department).filter(Boolean))).sort()], [active]);
 
   const rows = useMemo(() => active.map(e => {
     const prof = pmap.get(e.id);
@@ -52,17 +53,17 @@ export const DataHealth: React.FC<Props> = ({ employees, user, saveEmployees, on
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
     return rows
-      .filter(r => dept === 'All' || r.e.department === dept)
+      .filter(r => matchOrg(r.e, company, dept))
       .filter(r => !fieldF || r.missing.some(f => f.key === fieldF))
       .filter(r => !onlyMissing || r.missing.length > 0)
       .filter(r => !s || r.e.name.toLowerCase().includes(s) || r.e.id.toLowerCase().includes(s))
       .sort((a, b) => a.pct - b.pct || a.e.name.localeCompare(b.e.name));
-  }, [rows, q, dept, fieldF, onlyMissing]);
+  }, [rows, q, dept, company, fieldF, onlyMissing]);
 
   const prefilled = (type: 'passport' | 'profile', onlyThoseMissing: boolean) => {
     const t = IMPORT_TYPES[type];
     const fkeys = Object.values(COLMAP[type]);
-    const list = rows.filter(r => (dept === 'All' || r.e.department === dept) && (!onlyThoseMissing || r.missing.some(f => fkeys.includes(f.key))));
+    const list = rows.filter(r => matchOrg(r.e, company, dept) && (!onlyThoseMissing || r.missing.some(f => fkeys.includes(f.key))));
     if (!list.length) { hrToast('Nobody is missing details in this group — nothing to download', 'err'); return; }
     const fdef = (k: string): FieldDef | undefined => FIELDS.find(x => x.key === k);
     const out = list.map(r => t.cols.map(c => {
@@ -71,7 +72,7 @@ export const DataHealth: React.FC<Props> = ({ employees, user, saveEmployees, on
       const fk = COLMAP[type][c.key]; const f = fk ? fdef(fk) : undefined;
       return f ? getValue(f, r.e, r.prof) : '';
     }));
-    downloadSheet(`Fill_${type}_details${dept !== 'All' ? `_${dept.replace(/\W+/g, '_')}` : ''}.xlsx`, t.cols.map(c => c.label), out, 'To fill');
+    downloadSheet(`Fill_${type}_details${dept !== 'All' ? `_${dept.replace(/\W+/g, '_')}` : ''}${company !== 'All' ? `_${company.replace(/\W+/g, '_')}` : ''}.xlsx`, t.cols.map(c => c.label), out, 'To fill');
     hrToast(`Sheet for ${list.length} employee(s) downloaded — fill the blanks, then use "Import filled sheet"`);
   };
 
@@ -118,7 +119,7 @@ export const DataHealth: React.FC<Props> = ({ employees, user, saveEmployees, on
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <SearchBox value={q} onChange={setQ} placeholder="Employee or badge…" />
-          <select className={inputCls + ' !w-auto'} value={dept} onChange={e => setDept(e.target.value)}>{depts.map(d => <option key={d}>{d}</option>)}</select>
+          <OrgFilters employees={active} company={company} dept={dept} onCompany={setCompany} onDept={setDept} />
           <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><input type="checkbox" className="accent-violet-600" checked={onlyMissing} onChange={e => setOnlyMissing(e.target.checked)} />Only incomplete</label>
           {fieldF && <button className="text-xs" onClick={() => setFieldF('')}><Badge tone="violet">{FIELDS.find(f => f.key === fieldF)?.label} ✕</Badge></button>}
         </div>
@@ -132,7 +133,7 @@ export const DataHealth: React.FC<Props> = ({ employees, user, saveEmployees, on
             <tbody className="divide-y divide-slate-50">
               {shown.slice(0, 400).map(r => (
                 <tr key={r.e.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2"><div className="font-semibold text-slate-800">{r.e.name}</div><div className="text-[11px] text-slate-400">Badge {r.e.id}{r.e.department ? ` · ${r.e.department}` : ''}</div></td>
+                  <td className="px-4 py-2"><div className="font-semibold text-slate-800">{r.e.name}</div><div className="text-[11px] text-slate-400">Badge {r.e.id}{orgLabel(r.e) ? ` · ${orgLabel(r.e)}` : ''}</div></td>
                   <td className="px-4 py-2"><div className="flex items-center gap-2"><span className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"><span className={`block h-full ${tone(r.pct)}`} style={{ width: `${r.pct}%` }} /></span><span className="text-xs font-bold text-slate-600 w-9 text-right">{r.pct}%</span></div></td>
                   <td className="px-4 py-2"><div className="flex flex-wrap gap-1">{r.missing.slice(0, 7).map(f => <span key={f.key} className="text-[11px] bg-amber-50 text-amber-800 border border-amber-200 rounded px-1.5 py-0.5">{f.label}</span>)}{r.missing.length > 7 && <span className="text-[11px] text-slate-400">+{r.missing.length - 7} more</span>}{r.missing.length === 0 && <Badge tone="emerald">Complete</Badge>}</div></td>
                 </tr>

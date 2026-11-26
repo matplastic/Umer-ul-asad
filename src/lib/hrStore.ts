@@ -429,6 +429,40 @@ export async function saveReminderSettings(s: Pick<HRReminderSettings, 'enabled'
   await setDoc(reminderRef(), clean(s), { merge: true });   // merge: the server's last-run fields are kept
 }
 
+// ─── Company & department lists (HR-managed) ────────────────
+// Companies live in App (synced as 'companies'); departments are kept here so HR can add
+// "Factory", "Office", "PMO", "Dubai Office"… without any code change. One small settings doc.
+export const DEPARTMENT_SUGGESTIONS = ['Factory', 'Office', 'PMO', 'Dubai Office', 'Umm Al Quwain Office'];
+const orgRef = () => doc(clientDb, 'system_state', 'hrOrgLists');
+export function subscribeOrgLists(cb: (departments: string[]) => void): Unsubscribe {
+  return onSnapshot(orgRef(), snap => {
+    const d = (snap.exists() ? snap.data() : {}) as { departments?: unknown };
+    cb(Array.isArray(d.departments) ? (d.departments as unknown[]).map(x => String(x)).filter(Boolean) : []);
+  }, err => console.warn('[hrStore] org lists listener failed:', err));
+}
+export async function saveOrgLists(departments: string[]): Promise<void> {
+  if (SANDBOX_ON) return;
+  await setDoc(orgRef(), clean({ departments }), { merge: true });
+}
+/** Saved list first (in HR's order), then any value already used on an employee — so nothing is ever hidden. */
+export function mergeOptions(saved: string[], used: (string | null | undefined)[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (v?: string | null) => { const t = (v || '').trim(); if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); out.push(t); } };
+  saved.forEach(push);
+  Array.from(new Set(used.map(u => (u || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)).forEach(push);
+  return out;
+}
+export function useOrgLists(): { departments: string[]; saveDepartments: (list: string[]) => Promise<void> } {
+  const [departments, setDepartments] = useState<string[]>([]);
+  useEffect(() => { const un = subscribeOrgLists(setDepartments); return () => un(); }, []);
+  const saveDepartments = useCallback(async (list: string[]) => {
+    setDepartments(list);                 // show it straight away; the listener confirms it
+    await saveOrgLists(list);
+  }, []);
+  return { departments, saveDepartments };
+}
+
 // ─── Payroll / WPS employer settings (one record) ───────────
 export interface HRPayrollSettings {
   id: string;                    // always 'settings'

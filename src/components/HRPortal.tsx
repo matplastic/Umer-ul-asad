@@ -58,12 +58,13 @@ import { ExpiryReminders } from './hr/ExpiryReminders';
 import { PayrollCompliance } from './hr/PayrollCompliance';
 import { Expenses } from './hr/Expenses';
 import { DataHealth } from './hr/DataHealth';
+import { OrgManagerModal } from './hr/OrgManager';
 import { QuickEntryGrid } from './hr/QuickEntryGrid';
 import { CommandPalette } from './hr/CommandPalette';
 import { HRToastHost } from './hr/hrUi';
 import { EmployeeSearchSelect } from './hr/EmployeeSearchSelect';
 import { HRSandboxProvider, DemoRecords } from './hr/HRDemo';
-import { useHRCollection, HRRequest, loanDueIn, migrateHRSuiteIfNeeded } from '../lib/hrStore';
+import { useHRCollection, HRRequest, loanDueIn, migrateHRSuiteIfNeeded, useOrgLists, mergeOptions } from '../lib/hrStore';
 import {
   listUserAccounts, createUserAccount, updateUserAccount,
   resetUserPassword, deactivateUserAccount, resetAllPasswords, getAllowedRoles, type AuthUser
@@ -1008,6 +1009,8 @@ export const HRPortal: React.FC<HRPortalProps> = ({
 }) => {
   const isAdmin = mode === 'admin';
   const [activeTab, setActiveTab] = useState<'wps' | 'expenses' | 'balance' | 'holidays' | 'reminders' | 'health' | 'grid' | 'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
+  // HR-managed department list (companies come from App via companyList)
+  const { departments: savedDepartments, saveDepartments } = useOrgLists();
   useFavoriteNav(isAdmin ? 'hr_admin' : 'hr_portal', activeTab, setActiveTab);
   const { select: selectTab, resetKey: tabResetKey } = useTabReset(activeTab, setActiveTab);
   useEffect(() => { try { sessionStorage.setItem(tabStorageKey(mode), activeTab); } catch { /* ignore */ } }, [activeTab, mode]);
@@ -1188,13 +1191,14 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     const [showForm, setShowForm] = useState(false);
     const [showManageCompanies, setShowManageCompanies] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
-    const [newCompanyName, setNewCompanyName] = useState('');
 
     // Base list = whatever HR has saved (starts from the built-in COMPANIES
     // the first time, then grows/shrinks as HR edits it from this tab).
     const baseCompanyList = companyList && companyList.length > 0 ? companyList : [...COMPANIES];
 
-    const departments = useMemo(() => ['All', ...Array.from(new Set(employees.map(e => e.department)))], []);
+    const departments = useMemo(() => ['All', ...mergeOptions(savedDepartments, employees.map(e => e.department))], [employees, savedDepartments]);
+    const deptOptions = useMemo(() => mergeOptions(savedDepartments, employees.map(e => e.department)), [employees, savedDepartments]);
+    const [orgTab, setOrgTab] = useState<'company' | 'department'>('department');
     // Company list = the editable baseCompanyList plus any custom/legacy
     // values already saved on employees (so nothing gets hidden by the filter,
     // even if it was later removed from the managed list).
@@ -1203,32 +1207,13 @@ export const HRPortal: React.FC<HRPortalProps> = ({
       ...Array.from(new Set([...baseCompanyList, ...employees.map(e => e.companyName).filter(Boolean) as string[]])),
     ], [baseCompanyList, employees]);
 
-    const handleAddCompany = () => {
-      const name = newCompanyName.trim();
-      if (!name) return;
-      if (baseCompanyList.some(c => c.toLowerCase() === name.toLowerCase())) {
-        setNewCompanyName('');
-        return;
-      }
-      onSaveCompanies?.([...baseCompanyList, name]);
-      setNewCompanyName('');
-    };
-
-    const handleRemoveCompany = (name: string) => {
-      const inUse = employees.some(e => e.companyName === name);
-      if (inUse && !window.confirm(`"${name}" is still assigned to one or more employees. Remove it from the list anyway? (Existing employees keep it, it just won't be selectable for new ones.)`)) {
-        return;
-      }
-      onSaveCompanies?.(baseCompanyList.filter(c => c !== name));
-    };
-
     const filtered = useMemo(() => employees.filter(e => {
       const matchSearch = e.name.toLowerCase().includes(search.toLowerCase()) ||
         (e.role || '').toLowerCase().includes(search.toLowerCase());
       const matchDept = deptFilter === 'All' || e.department === deptFilter;
       const matchCompany = companyFilter === 'All' || e.companyName === companyFilter;
       return matchSearch && matchDept && matchCompany;
-    }), [search, deptFilter, companyFilter]);
+    }), [search, deptFilter, companyFilter, employees]);
 
     // Visa status helper: flags employees whose visa has expired or is
     // expiring within 61 days, so it's visible at a glance in the directory.
@@ -1359,10 +1344,10 @@ export const HRPortal: React.FC<HRPortalProps> = ({
               <UploadCloud className="h-4 w-4" /> Import Excel
             </button>
             <button
-              onClick={() => setShowManageCompanies(true)}
+              onClick={() => { setOrgTab('department'); setShowManageCompanies(true); }}
               className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm font-bold px-4 py-2 rounded-lg transition-colors"
             >
-              <Building2 className="h-4 w-4" /> Manage Companies
+              <Building2 className="h-4 w-4" /> Companies &amp; Departments
             </button>
             <button
               onClick={() => { setEditEmp({}); setShowForm(true); }}
@@ -1381,65 +1366,18 @@ export const HRPortal: React.FC<HRPortalProps> = ({
           />
         )}
 
-        {/* Manage Companies Modal */}
+        {/* Companies & Departments manager */}
         {showManageCompanies && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-black text-slate-800">Manage Companies</h3>
-                <button onClick={() => setShowManageCompanies(false)}>
-                  <X className="h-5 w-5 text-slate-400 hover:text-slate-600" />
-                </button>
-              </div>
-              <p className="text-xs text-slate-500">
-                Add or remove companies (visa sponsors) here — no code changes needed. Updates sync to every device automatically.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newCompanyName}
-                  onChange={e => setNewCompanyName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleAddCompany(); }}
-                  placeholder="e.g. MAT Fiber Solutions LLC"
-                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-                />
-                <button
-                  onClick={handleAddCompany}
-                  className="bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-1"
-                >
-                  <Plus className="h-4 w-4" /> Add
-                </button>
-              </div>
-              <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg">
-                {baseCompanyList.length === 0 ? (
-                  <p className="text-center py-8 text-slate-400 text-sm">No companies yet — add one above.</p>
-                ) : baseCompanyList.map(c => {
-                  const count = employees.filter(e => e.companyName === c).length;
-                  return (
-                    <div key={c} className="flex items-center justify-between px-3 py-2.5">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-700">{c}</p>
-                        <p className="text-[11px] text-slate-400">{count} employee{count === 1 ? '' : 's'}</p>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveCompany(c)}
-                        className="text-slate-300 hover:text-rose-600 transition-colors"
-                        title="Remove company"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <button
-                onClick={() => setShowManageCompanies(false)}
-                className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
-              >
-                Done
-              </button>
-            </div>
-          </div>
+          <OrgManagerModal
+            employees={employees}
+            companies={baseCompanyList}
+            departments={savedDepartments}
+            onSaveCompanies={onSaveCompanies}
+            onSaveDepartments={saveDepartments}
+            saveEmployees={onAddEmployeesBulk}
+            initialTab={orgTab}
+            onClose={() => setShowManageCompanies(false)}
+          />
         )}
 
         {/* Employee Form Modal */}
@@ -1475,24 +1413,43 @@ export const HRPortal: React.FC<HRPortalProps> = ({
                   { label: 'Phone', key: 'phone', type: 'tel' },
                 ].map(f => (
                   <div key={f.key} className={f.key === 'name' ? 'col-span-2' : ''}>
-                    <label className="text-xs font-semibold text-slate-500 block mb-1">{f.label}</label>
-                    <input
-                      type={f.type}
-                      value={(editEmp as any)?.[f.key] || ''}
-                      onChange={e => setEditEmp(prev => ({ ...prev, [f.key]: e.target.value }))}
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    />
+                    <label className="text-xs font-semibold text-slate-500 block mb-1">
+                      {f.label}
+                      {f.key === 'department' && (
+                        <button type="button" onClick={() => { setOrgTab('department'); setShowManageCompanies(true); }} className="ml-2 text-violet-600 hover:underline font-bold">+ New / manage</button>
+                      )}
+                    </label>
+                    {f.key === 'department' ? (
+                      <select
+                        value={editEmp?.department || ''}
+                        onChange={e => setEditEmp(prev => ({ ...prev, department: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                      >
+                        <option value="">Select Department</option>
+                        {mergeOptions(deptOptions, [editEmp?.department]).map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type={f.type}
+                        value={(editEmp as any)?.[f.key] || ''}
+                        onChange={e => setEditEmp(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      />
+                    )}
                   </div>
                 ))}
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 block mb-1">Company (Visa Sponsor)</label>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">
+                    Company
+                    <button type="button" onClick={() => { setOrgTab('company'); setShowManageCompanies(true); }} className="ml-2 text-violet-600 hover:underline font-bold">+ New / manage</button>
+                  </label>
                   <select
                     value={editEmp?.companyName || ''}
                     onChange={e => setEditEmp(prev => ({ ...prev, companyName: e.target.value }))}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
                   >
                     <option value="">Select Company</option>
-                    {baseCompanyList.map(c => <option key={c} value={c}>{c}</option>)}
+                    {mergeOptions(baseCompanyList, [editEmp?.companyName]).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
@@ -4953,7 +4910,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             {activeTab === 'reviews' && <PerformanceReviews employees={employees} user={currentUserName} />}
             {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={demo ? [] : payroll} />}
             {activeTab === 'health' && <DataHealth employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} onNavigate={(t) => setActiveTab(t as any)} />}
-            {activeTab === 'grid' && <QuickEntryGrid employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}
+            {activeTab === 'grid' && <QuickEntryGrid employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} companies={companyList && companyList.length > 0 ? companyList : [...COMPANIES]} departments={savedDepartments} />}
             {activeTab === 'wps' && <PayrollCompliance employees={employees} payroll={demo ? [] : payroll} leaves={leaves} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} onNavigate={(t) => setActiveTab(t as any)} />}
             {activeTab === 'expenses' && <Expenses employees={employees} user={currentUserName} />}
             {activeTab === 'balance' && <LeaveBalance employees={employees} leaves={leaves} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}

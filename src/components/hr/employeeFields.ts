@@ -34,6 +34,9 @@ export const FIELDS: FieldDef[] = [
   { key: 'passportExpiryDate', label: 'Passport Expiry', source: 'emp', kind: 'date', group: 'passport', health: true, importType: 'passport', width: 120 },
   { key: 'visaExpiryDate', label: 'Visa Expiry', source: 'emp', kind: 'date', group: 'passport', health: true, importType: 'passport', width: 120 },
 
+  // options for these two are filled in at run time from the company / department lists (see QuickEntryGrid)
+  { key: 'companyName', label: 'Company', source: 'emp', kind: 'select', options: [], group: 'profile', health: true, width: 210 },
+  { key: 'department', label: 'Department', source: 'emp', kind: 'select', options: [], group: 'profile', health: true, width: 160 },
   { key: 'designation', label: 'Designation', source: 'prof', kind: 'text', group: 'profile', health: true, importType: 'profile', width: 160 },
   { key: 'employmentType', label: 'Employment Type', source: 'prof', kind: 'select', options: ['Permanent', 'Contract', 'Probation', 'Daily Wage'], group: 'profile', importType: 'profile', width: 130 },
   { key: 'joiningDate', label: 'Joining Date', source: 'prof', kind: 'date', group: 'profile', health: true, importType: 'profile', width: 120 },

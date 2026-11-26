@@ -14,6 +14,7 @@ import {
 import { ImportButton } from './ExcelImport';
 import { LeaveBalanceCard } from './LeaveBalance';
 import { AddDocumentModal, DocFilesModal, DocRowActions, buildDocRows } from './DocumentsVault';
+import { OrgFilters, matchOrg, orgLabel } from './OrgManager';
 
 interface Props {
   employees: Employee[];
@@ -44,9 +45,11 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
   const fineC = useHRCollection<HRVehicleFine>('hrVehicleFines');
 
   const [selId, setSelId] = useState<string | null>(initialEmployeeId || null);
-  useEffect(() => { if (focusNonce && initialEmployeeId) { setSelId(initialEmployeeId); setTab('overview'); setStatusF('All'); setQ(''); } }, [focusNonce, initialEmployeeId]);
+  useEffect(() => { if (focusNonce && initialEmployeeId) { setSelId(initialEmployeeId); setTab('overview'); setStatusF('All'); setQ(''); setCompanyF('All'); setDeptF('All'); } }, [focusNonce, initialEmployeeId]);
   const [q, setQ] = useState('');
   const [statusF, setStatusF] = useState<'Active' | 'Former' | 'All'>('Active');
+  const [companyF, setCompanyF] = useState('All');
+  const [deptF, setDeptF] = useState('All');
   const [tab, setTab] = useState('overview');
   const [addDoc, setAddDoc] = useState<null | { type?: string; number?: string; expiry?: string | null }>(null);
   const [filesDoc, setFilesDoc] = useState<HRDocument | null>(null);
@@ -60,9 +63,10 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
         const st = profMap.get(e.id)?.status || 'Active';
         return statusF === 'All' || (statusF === 'Active' ? st === 'Active' : st !== 'Active');
       })
-      .filter(e => !s || e.name.toLowerCase().includes(s) || (e.department || '').toLowerCase().includes(s) || e.id.toLowerCase().includes(s))
+      .filter(e => matchOrg(e, companyF, deptF))
+      .filter(e => !s || e.name.toLowerCase().includes(s) || (e.department || '').toLowerCase().includes(s) || (e.companyName || '').toLowerCase().includes(s) || e.id.toLowerCase().includes(s))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [employees, q, statusF, profMap]);
+  }, [employees, q, statusF, profMap, companyF, deptF]);
 
   const emp = employees.find(e => e.id === selId) || null;
   const prof = emp ? profMap.get(emp.id) : undefined;
@@ -72,7 +76,10 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
       {node}
       {/* ── Employee list ── */}
       <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 lg:max-h-[78vh] flex flex-col">
-        <SearchBox value={q} onChange={setQ} placeholder="Name, dept or ID…" />
+        <SearchBox value={q} onChange={setQ} placeholder="Name, company, dept or ID…" />
+        <div className="grid grid-cols-2 gap-1.5">
+          <OrgFilters employees={employees} company={companyF} dept={deptF} onCompany={setCompanyF} onDept={setDeptF} className={inputCls + ' !text-xs !py-1.5'} />
+        </div>
         <ImportButton employees={employees} user={user} saveEmployees={saveEmployees} types={['profile', 'passport', 'documents']} initialType="profile" label="Import profiles from Excel" />
         <div className="flex gap-1">
           {(['Active', 'Former', 'All'] as const).map(s => (
@@ -86,7 +93,7 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
             <button key={e.id} onClick={() => { setSelId(e.id); setTab('overview'); }}
               className={`w-full text-left px-3 py-2 rounded-lg ${selId === e.id ? 'bg-violet-50' : 'hover:bg-slate-50'}`}>
               <div className="text-sm font-semibold text-slate-800 truncate">{e.name}</div>
-              <div className="text-[11px] text-slate-400 truncate">{e.department}{profMap.get(e.id)?.designation ? ` · ${profMap.get(e.id)!.designation}` : ''}</div>
+              <div className="text-[11px] text-slate-400 truncate">{orgLabel(e) || 'No company / department'}{profMap.get(e.id)?.designation ? ` · ${profMap.get(e.id)!.designation}` : ''}</div>
             </button>
           ))}
         </div>
@@ -105,11 +112,12 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
               </div>
               <div>
                 <div className="font-black text-slate-800 text-lg leading-tight">{emp.name}</div>
-                <div className="text-xs text-slate-500">{prof?.designation || emp.role || 'Employee'} · {emp.department} · ID {emp.id}</div>
+                <div className="text-xs text-slate-500">{prof?.designation || emp.role || 'Employee'} · ID {emp.id}</div>
                 <div className="mt-1 flex gap-1.5 flex-wrap">
                   <Badge tone={statusTone(prof?.status)}>{prof?.status || 'Active'}</Badge>
                   {prof?.employmentType && <Badge tone="violet">{prof.employmentType}</Badge>}
-                  {emp.companyName && <Badge>{emp.companyName}</Badge>}
+                  <Badge tone={emp.companyName ? 'sky' : 'amber'}>{emp.companyName || 'No company set'}</Badge>
+                  <Badge tone={emp.department ? 'slate' : 'amber'}>{emp.department || 'No department set'}</Badge>
                 </div>
               </div>
             </div>
@@ -117,7 +125,7 @@ export const Employee360: React.FC<Props> = ({ employees, user, leaves, warnings
               name: emp.name,
               basics: [
                 ['Employee ID', emp.id], ['Department', emp.department], ['Designation', prof?.designation || emp.role || ''],
-                ['Company (visa)', emp.companyName || ''], ['Employment type', prof?.employmentType || ''], ['Joining date', fmtD(prof?.joiningDate)],
+                ['Company', emp.companyName || ''], ['Employment type', prof?.employmentType || ''], ['Joining date', fmtD(prof?.joiningDate)],
                 ['Date of birth', fmtD(prof?.dob)], ['Gender', prof?.gender || ''], ['Marital status', prof?.maritalStatus || ''],
                 ['Nationality', emp.passportCountry || ''], ['Phone', emp.phone || ''], ['Email', emp.email || ''],
                 ['Emergency contact', [prof?.emergencyName, prof?.emergencyRelation, prof?.emergencyPhone].filter(Boolean).join(' · ')],

@@ -7,6 +7,7 @@ import {
 import { computeBalance, requestDays, leaveYearOf, leaveYearLabel, leaveYearRange, Balance } from '../../lib/leaveBalance';
 import { downloadSheet } from '../../lib/excelImport';
 import { ImportButton } from './ExcelImport';
+import { OrgFilters, matchOrg, orgLabel } from './OrgManager';
 import {
   Modal, Field, inputCls, btnPrimary, btnGhost, StatCard, Badge, Empty, SearchBox, SectionCard, runSave, useConfirm, hrToast,
 } from './hrUi';
@@ -28,13 +29,13 @@ export const LeaveBalance: React.FC<Props> = ({ employees, leaves, user, saveEmp
   const [year, setYear] = useState(() => leaveYearOf(today, DEFAULT_LEAVE_POLICY.leaveYearStartMonth));
   const [q, setQ] = useState('');
   const [dept, setDept] = useState('All');
+  const [company, setCompany] = useState('All');
   const [lowOnly, setLowOnly] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showPolicy, setShowPolicy] = useState(false);
 
   const pmap = useMemo(() => new Map(profC.items.map(p => [p.id, p])), [profC.items]);
   const active = useMemo(() => employees.filter(e => { const s = pmap.get(e.id)?.status; return !s || s === 'Active'; }), [employees, pmap]);
-  const depts = useMemo(() => ['All', ...Array.from(new Set(active.map(e => e.department).filter(Boolean))).sort()], [active]);
   const years = useMemo(() => { const cur = leaveYearOf(today, policy.leaveYearStartMonth); return [cur + 1, cur, cur - 1, cur - 2]; }, [today, policy.leaveYearStartMonth]);
 
   const rows = useMemo(() => active.map(e => ({
@@ -43,11 +44,11 @@ export const LeaveBalance: React.FC<Props> = ({ employees, leaves, user, saveEmp
 
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return rows.filter(r => dept === 'All' || r.e.department === dept)
+    return rows.filter(r => matchOrg(r.e, company, dept))
       .filter(r => !s || r.e.name.toLowerCase().includes(s) || r.e.id.toLowerCase().includes(s))
       .filter(r => !lowOnly || r.b.balance < 5)
       .sort((a, b) => a.b.balance - b.b.balance || a.e.name.localeCompare(b.e.name));
-  }, [rows, q, dept, lowOnly]);
+  }, [rows, q, dept, company, lowOnly]);
 
   const stats = useMemo(() => ({
     taken: rows.reduce((s, r) => s + r.b.taken, 0),
@@ -60,8 +61,8 @@ export const LeaveBalance: React.FC<Props> = ({ employees, leaves, user, saveEmp
   const open = rows.find(r => r.e.id === openId);
 
   const exportXlsx = () => {
-    const head = ['Badge No', 'Employee', 'Department', 'Joined', 'Entitlement', 'Earned so far', 'Carried forward', 'Taken before ERP', 'Adjustment', 'Annual taken', 'Annual pending', 'Balance now', 'Balance (full year)', 'Sick used', 'Emergency used', 'Unpaid days'];
-    const data = shown.map(({ e, b }) => [e.id, e.name, e.department || '', pmap.get(e.id)?.joiningDate || '', b.entitledFull, b.accrued, b.carryForward, b.takenBeforeErp, b.adjustment, b.taken, b.pending, b.balance, b.balanceFullYear, b.sickUsed, b.emergencyUsed, b.unpaidUsed]);
+    const head = ['Badge No', 'Employee', 'Company', 'Department', 'Joined', 'Entitlement', 'Earned so far', 'Carried forward', 'Taken before ERP', 'Adjustment', 'Annual taken', 'Annual pending', 'Balance now', 'Balance (full year)', 'Sick used', 'Emergency used', 'Unpaid days'];
+    const data = shown.map(({ e, b }) => [e.id, e.name, e.companyName || '', e.department || '', pmap.get(e.id)?.joiningDate || '', b.entitledFull, b.accrued, b.carryForward, b.takenBeforeErp, b.adjustment, b.taken, b.pending, b.balance, b.balanceFullYear, b.sickUsed, b.emergencyUsed, b.unpaidUsed]);
     if (!data.length) { hrToast('Nothing to export', 'err'); return; }
     downloadSheet(`Leave_balances_${leaveYearLabel(year, policy.leaveYearStartMonth).replace('/', '-')}.xlsx`, head, data, 'Leave balances');
   };
@@ -80,7 +81,7 @@ export const LeaveBalance: React.FC<Props> = ({ employees, leaves, user, saveEmp
         <div className="flex flex-wrap items-center gap-2">
           <select className={inputCls + ' !w-auto'} value={year} onChange={e => setYear(Number(e.target.value))}>{years.map(y => <option key={y} value={y}>Leave year {leaveYearLabel(y, policy.leaveYearStartMonth)}</option>)}</select>
           <SearchBox value={q} onChange={setQ} placeholder="Employee or badge…" />
-          <select className={inputCls + ' !w-auto'} value={dept} onChange={e => setDept(e.target.value)}>{depts.map(d => <option key={d}>{d}</option>)}</select>
+          <OrgFilters employees={active} company={company} dept={dept} onCompany={setCompany} onDept={setDept} />
           <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><input type="checkbox" className="accent-violet-600" checked={lowOnly} onChange={e => setLowOnly(e.target.checked)} />Low / over-drawn only</label>
         </div>
         <div className="flex gap-2">
@@ -102,7 +103,7 @@ export const LeaveBalance: React.FC<Props> = ({ employees, leaves, user, saveEmp
             <tbody className="divide-y divide-slate-50">
               {shown.slice(0, 500).map(({ e, b }) => (
                 <tr key={e.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setOpenId(e.id)}>
-                  <td className="px-3 py-2"><div className="font-semibold text-slate-800">{e.name}</div><div className="text-[11px] text-slate-400">Badge {e.id}{e.department ? ` · ${e.department}` : ''}</div></td>
+                  <td className="px-3 py-2"><div className="font-semibold text-slate-800">{e.name}</div><div className="text-[11px] text-slate-400">Badge {e.id}{orgLabel(e) ? ` · ${orgLabel(e)}` : ''}</div></td>
                   <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{b.joiningMissing ? <Badge tone="amber">missing</Badge> : fmtD(pmap.get(e.id)?.joiningDate)}</td>
                   <td className={cell}>{b.entitledFull}</td><td className={cell}>{b.accrued}</td>
                   <td className={cell}>{Math.round((b.carryForward + b.adjustment - b.takenBeforeErp) * 10) / 10}</td>

@@ -9,6 +9,7 @@ import { exportPayslipsPdf, PayslipData } from '../../lib/payslipPdf';
 import { downloadSheet } from '../../lib/excelImport';
 import { ImportButton } from './ExcelImport';
 import { Field, inputCls, btnPrimary, btnGhost, StatCard, Badge, Empty, SearchBox, SubTabs, SectionCard, runSave, useConfirm, hrToast } from './hrUi';
+import { OrgFilters, matchOrg, orgLabel } from './OrgManager';
 
 interface Props {
   employees: Employee[];
@@ -35,6 +36,8 @@ export const PayrollCompliance: React.FC<Props> = ({ employees, payroll, leaves,
   const [month, setMonth] = useState(() => months[0] || monthStr());
   const [tab, setTab] = useState('payslips');
   const [q, setQ] = useState('');
+  const [company, setCompany] = useState('All');
+  const [dept, setDept] = useState('All');
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [excluded, setExcluded] = useState<Record<string, boolean>>({});
 
@@ -42,7 +45,7 @@ export const PayrollCompliance: React.FC<Props> = ({ employees, payroll, leaves,
   const emap = useMemo(() => new Map(employees.map(e => [e.id, e])), [employees]);
   const records = useMemo(() => payroll.filter(p => p.month === month).map(p => ({ ...p, employeeName: emap.get(p.employeeId)?.name || p.employeeName || 'Unknown' }))
     .sort((a, b) => (a.employeeName || '').localeCompare(b.employeeName || '')), [payroll, month, emap]);
-  const shown = records.filter(r => !q.trim() || (r.employeeName || '').toLowerCase().includes(q.trim().toLowerCase()) || r.employeeId.toLowerCase().includes(q.trim().toLowerCase()));
+  const shown = records.filter(r => { const e = emap.get(r.employeeId); return !e || matchOrg(e, company, dept); }).filter(r => !q.trim() || (r.employeeName || '').toLowerCase().includes(q.trim().toLowerCase()) || r.employeeId.toLowerCase().includes(q.trim().toLowerCase()));
   const total = records.reduce((s, r) => s + (r.netSalary || 0), 0);
 
   const slip = (r: PayrollLite): PayslipData => {
@@ -82,9 +85,9 @@ export const PayrollCompliance: React.FC<Props> = ({ employees, payroll, leaves,
     downloadSheet(`Salary_transfer_list_${month}.xlsx`, ['Badge No', 'Employee', 'Paid by', 'IBAN', 'Routing code', 'Net salary (AED)'], rows, 'Salaries');
   };
   const register = () => {
-    const rows = shown.map(r => [r.employeeId, r.employeeName, r.baseSalary, r.allowances, r.normalOtHours || 0, r.sundayOtHours || 0, r.deductions || 0, r.netSalary, r.status]);
+    const rows = shown.map(r => [r.employeeId, r.employeeName, emap.get(r.employeeId)?.companyName || '', emap.get(r.employeeId)?.department || '', r.baseSalary, r.allowances, r.normalOtHours || 0, r.sundayOtHours || 0, r.deductions || 0, r.netSalary, r.status]);
     if (!rows.length) { hrToast('Nothing to export', 'err'); return; }
-    downloadSheet(`Salary_register_${month}.xlsx`, ['Badge No', 'Employee', 'Basic', 'Allowances', 'Normal OT h', 'Sunday OT h', 'Deductions', 'Net', 'Status'], rows, 'Register');
+    downloadSheet(`Salary_register_${month}.xlsx`, ['Badge No', 'Employee', 'Company', 'Department', 'Basic', 'Allowances', 'Normal OT h', 'Sunday OT h', 'Deductions', 'Net', 'Status'], rows, 'Register');
   };
 
   return (
@@ -108,7 +111,10 @@ export const PayrollCompliance: React.FC<Props> = ({ employees, payroll, leaves,
 
       {tab === 'payslips' && records.length > 0 && (<>
         <div className="flex flex-wrap items-center gap-2 justify-between">
-          <SearchBox value={q} onChange={setQ} placeholder="Employee or badge…" />
+          <div className="flex flex-wrap items-center gap-2">
+            <SearchBox value={q} onChange={setQ} placeholder="Employee or badge…" />
+            <OrgFilters employees={employees} company={company} dept={dept} onCompany={setCompany} onDept={setDept} />
+          </div>
           <div className="flex flex-wrap gap-2">
             <button className={btnGhost} onClick={register}><Download className="h-3.5 w-3.5" />Salary register (Excel)</button>
             <button className={btnGhost} disabled={!chosen.length} onClick={() => exportPayslipsPdf(slipsFor(chosen), `Payslips_selected_${month}`)}><FileText className="h-3.5 w-3.5" />Selected ({chosen.length})</button>
@@ -125,7 +131,7 @@ export const PayrollCompliance: React.FC<Props> = ({ employees, payroll, leaves,
               {shown.map(r => (
                 <tr key={r.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2"><input type="checkbox" className="accent-violet-600" checked={!!picked[r.id]} onChange={e => setPicked(p => ({ ...p, [r.id]: e.target.checked }))} /></td>
-                  <td className="px-3 py-2"><div className="font-semibold text-slate-800">{r.employeeName}</div><div className="text-[11px] text-slate-400">Badge {r.employeeId}</div></td>
+                  <td className="px-3 py-2"><div className="font-semibold text-slate-800">{r.employeeName}</div><div className="text-[11px] text-slate-400">Badge {r.employeeId}{(() => { const e = emap.get(r.employeeId); return e && orgLabel(e) ? ` · ${orgLabel(e)}` : ''; })()}</div></td>
                   <td className="px-3 py-2 text-right">{fmtAED((r.baseSalary || 0) + (r.allowances || 0))}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{(r.normalOtHours || 0) + (r.sundayOtHours || 0) || '—'}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{r.deductions ? fmtAED(r.deductions) : '—'}</td>

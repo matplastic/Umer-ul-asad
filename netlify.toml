@@ -32,6 +32,11 @@
 [functions."daily-backup-scheduled"]
   schedule = "0 20 * * *"
 
+# HR expiry reminder e-mails (passports, visas, Emirates ID, labour cards…): every day at
+# 04:00 UTC = 08:00 UAE time. Production deploy only.
+[functions."hr-expiry-scheduled"]
+  schedule = "0 4 * * *"
+
 [[redirects]]
   # Redirect all routes to index.html for React Single Page App (SPA) client-side routing
   from = "/*"

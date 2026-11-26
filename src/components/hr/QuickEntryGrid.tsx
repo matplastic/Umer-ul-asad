@@ -1,15 +1,19 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Save, Undo2 } from 'lucide-react';
 import { Employee } from '../../types';
-import { useHRCollection, HRProfile, bulkUpsertHR, logAudit } from '../../lib/hrStore';
+import { useHRCollection, HRProfile, bulkUpsertHR, logAudit, mergeOptions } from '../../lib/hrStore';
 import { parseDate, parseNum } from '../../lib/excelImport';
 import { FIELDS, GROUPS, FieldDef, FieldGroup, getValue, isActive, isoToDisplay } from './employeeFields';
 import { SearchBox, SubTabs, Empty, inputCls, btnPrimary, btnGhost, hrToast, runSave } from './hrUi';
+import { OrgFilters, matchOrg } from './OrgManager';
 
 interface Props {
   employees: Employee[];
   user?: string;
   saveEmployees?: (list: Employee[]) => void | Promise<void>;
+  /** HR's saved company / department lists — the dropdown choices for those two columns */
+  companies?: string[];
+  departments?: string[];
 }
 
 type Edits = Record<string, Record<string, string>>;   // employeeId → fieldKey → typed text
@@ -27,28 +31,34 @@ function normalise(f: FieldDef, typed: string): { ok: boolean; value: string } {
   return { ok: true, value: f.upper ? t.toUpperCase() : t };
 }
 
-export const QuickEntryGrid: React.FC<Props> = ({ employees, user, saveEmployees }) => {
+export const QuickEntryGrid: React.FC<Props> = ({ employees, user, saveEmployees, companies = [], departments = [] }) => {
   const profC = useHRCollection<HRProfile>('hrProfiles');
   const [group, setGroup] = useState<FieldGroup>('passport');
   const [q, setQ] = useState('');
   const [dept, setDept] = useState('All');
+  const [company, setCompany] = useState('All');
   const [onlyBlank, setOnlyBlank] = useState(false);
   const [edits, setEdits] = useState<Edits>({});
   const [saving, setSaving] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const pmap = useMemo(() => new Map(profC.items.map(p => [p.id, p])), [profC.items]);
-  const cols = useMemo(() => FIELDS.filter(f => f.group === group), [group]);
-  const depts = useMemo(() => ['All', ...Array.from(new Set(employees.map(e => e.department).filter(Boolean))).sort()], [employees]);
+  // Company & Department are pick-lists: HR's saved list plus anything already on an employee
+  const fields = useMemo(() => {
+    const co = mergeOptions(companies, employees.map(e => e.companyName));
+    const de = mergeOptions(departments, employees.map(e => e.department));
+    return FIELDS.map(f => f.key === 'companyName' ? { ...f, options: co } : f.key === 'department' ? { ...f, options: de } : f);
+  }, [employees, companies, departments]);
+  const cols = useMemo(() => fields.filter(f => f.group === group), [fields, group]);
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     return employees.filter(e => isActive(e, pmap))
-      .filter(e => dept === 'All' || e.department === dept)
+      .filter(e => matchOrg(e, company, dept))
       .filter(e => !s || e.name.toLowerCase().includes(s) || e.id.toLowerCase().includes(s))
       .filter(e => !onlyBlank || cols.some(c => getValue(c, e, pmap.get(e.id)).trim() === ''))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [employees, pmap, q, dept, onlyBlank, cols]);
+  }, [employees, pmap, q, dept, company, onlyBlank, cols]);
 
   // A cell is "dirty" when what was typed differs from what is stored; invalid when it cannot be understood.
   const cellState = (e: Employee, f: FieldDef) => {
@@ -62,13 +72,13 @@ export const QuickEntryGrid: React.FC<Props> = ({ employees, user, saveEmployees
 
   const summary = useMemo(() => {
     let cells = 0, bad = 0; const emps = new Set<string>();
-    for (const e of employees) for (const f of FIELDS) {
+    for (const e of employees) for (const f of fields) {
       const typed = edits[e.id]?.[f.key]; if (typed === undefined) continue;
       const st = cellState(e, f); if (st.invalid) bad++; if (st.dirty) { cells++; emps.add(e.id); }
     }
     return { cells, bad, emps: emps.size };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edits, employees, pmap]);
+  }, [edits, employees, pmap, fields]);
 
   const setCell = (id: string, key: string, val: string) => setEdits(p => ({ ...p, [id]: { ...(p[id] || {}), [key]: val } }));
 
@@ -86,11 +96,11 @@ export const QuickEntryGrid: React.FC<Props> = ({ employees, user, saveEmployees
     for (const e of employees) {
       const ed = edits[e.id]; if (!ed) continue;
       let nextE: Employee | null = null; let nextP: HRProfile | null = null;
-      for (const f of FIELDS) {
+      for (const f of fields) {
         if (ed[f.key] === undefined) continue;
         const stored = getValue(f, e, pmap.get(e.id)); const n = normalise(f, ed[f.key]);
         if (!n.ok || n.value === stored) continue;
-        if (f.source === 'emp') { nextE = nextE || { ...e }; (nextE as any)[f.key] = n.value === '' ? null : n.value; }
+        if (f.source === 'emp') { nextE = nextE || { ...e }; (nextE as any)[f.key] = n.value === '' ? (f.key === 'department' ? '' : null) : n.value; }
         else {
           nextP = nextP || { ...(pmap.get(e.id) || { id: e.id }), id: e.id };
           (nextP as any)[f.key] = n.value === '' ? undefined : (f.kind === 'number' ? Number(n.value) : n.value);
@@ -118,7 +128,7 @@ export const QuickEntryGrid: React.FC<Props> = ({ employees, user, saveEmployees
       <SubTabs active={group} onChange={g => setGroup(g as FieldGroup)} tabs={GROUPS.map(g => ({ id: g.id, label: g.label }))} />
       <div className="flex flex-wrap items-center gap-2">
         <SearchBox value={q} onChange={setQ} placeholder="Employee or badge…" />
-        <select className={inputCls + ' !w-auto'} value={dept} onChange={e => setDept(e.target.value)}>{depts.map(d => <option key={d}>{d}</option>)}</select>
+        <OrgFilters employees={employees} company={company} dept={dept} onCompany={setCompany} onDept={setDept} />
         <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><input type="checkbox" className="accent-violet-600" checked={onlyBlank} onChange={e => setOnlyBlank(e.target.checked)} />Only people with blanks here</label>
         <span className="text-xs text-slate-400 ml-auto">Type in a cell · <b>Enter</b> or <b>↓</b> goes to the next person · dates as dd/mm/yyyy</span>
       </div>

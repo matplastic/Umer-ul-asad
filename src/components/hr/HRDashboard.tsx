@@ -80,6 +80,10 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
     const byDept = new Map<string, number>();
     active.forEach(e => byDept.set(e.department || 'Unassigned', (byDept.get(e.department || 'Unassigned') || 0) + 1));
     const deptData = Array.from(byDept.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 12);
+    // Headcount by company
+    const byCompany = new Map<string, number>();
+    active.forEach(e => byCompany.set(e.companyName || 'No company set', (byCompany.get(e.companyName || 'No company set') || 0) + 1));
+    const companyData = Array.from(byCompany.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 12);
 
     // Needs attention
     const alerts: Alert[] = [];
@@ -123,7 +127,7 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
     celebrations.sort((x, y) => x.days - y.days);
 
     return { celebrations, activeCount: active.length, presentToday, punchingCount: punching.length, trend, onLeave, pendingLeave, pendingReq, joined30, exited90,
-      docExpired, docSoon, openCases, unsigned, warn30, daysSinceAcc, openAcc, deptData, alerts };
+      docExpired, docSoon, openCases, unsigned, warn30, daysSinceAcc, openAcc, deptData, companyData, alerts };
   }, [employees, employeePunches, leaves, warnings, accidents, profC.items, docsC.items, casesC.items, reqC.items, trainC.items, ppeC.items, accC.items, vehC.items, fineC.items]);
 
   const rate = d.punchingCount ? Math.round((d.presentToday / d.punchingCount) * 100) : 0;
@@ -152,6 +156,21 @@ export const HRDashboard: React.FC<Props> = ({ employees, employeePunches, leave
                     <CartesianGrid stroke={chartAxisDefaults.gridStroke} horizontal={false} />
                     <XAxis type="number" allowDecimals={false} stroke={chartAxisDefaults.axisStroke} fontSize={11} />
                     <YAxis type="category" dataKey="name" width={96} stroke={chartAxisDefaults.axisStroke} fontSize={11} />
+                    <RTooltip />
+                    <Bar dataKey="count" name="Employees" fill={chartTokens.primary[500]} radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </SectionCard>
+          <SectionCard title="Headcount by company">
+            {d.companyData.length === 0 ? <p className="text-sm text-slate-400 py-8 text-center">No employees yet.</p> : (
+              <div className="h-60">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={d.companyData} layout="vertical" margin={{ left: 10, right: 16 }}>
+                    <CartesianGrid stroke={chartAxisDefaults.gridStroke} horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} stroke={chartAxisDefaults.axisStroke} fontSize={11} />
+                    <YAxis type="category" dataKey="name" width={130} stroke={chartAxisDefaults.axisStroke} fontSize={11} />
                     <RTooltip />
                     <Bar dataKey="count" name="Employees" fill={chartTokens.primary[500]} radius={[0, 4, 4, 0]} />
                   </BarChart>
