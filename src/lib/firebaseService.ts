@@ -3,7 +3,7 @@ import { doc, getDoc, setDoc, runTransaction, onSnapshot, Unsubscribe } from 'fi
 import { applySupplierSave, applySupplierBulk, type BulkSupplierItem } from './suppliers';
 import { APPROVAL_THRESHOLD, nextDocNo, poTotals } from './procurement';
 import { addDays, tfAmounts, tfPosition } from './tradeFinance';
-import { QUEUE_BOARD, QUEUE_FINISHED, defaultProcurementSettings, sameName, stfPermissions } from './stf';
+import { QUEUE_BOARD, QUEUE_FINISHED, defaultProcurementSettings, normalizeRoute, routeNext, sameName, stfPermissions } from './stf';
 import type { PurchaseOrder, PoLine, Rfq, RfqQuote, SupplierInvoice, SupplierPayment, TradeFinance, TfRepayment, ProcAttachment, Stf, StfLine, StfStatus, ProcurementSettings } from '../types';
 import { shardCountFor, shardDocNamesFor, splitIntoShards, mergeLegacy } from './shardConfig';
 import { BACKUP_DOC_IDS, runRestore, chunkByBytes, RestoreMode, RestoreReportRow } from './backupSets';
@@ -4031,7 +4031,7 @@ export async function dbSaveRfq(input: Partial<Rfq> & { title: string }, byName:
     if (customNo && arr.some((x: Rfq) => (x.rfqNo || '').trim().toLowerCase() === customNo.toLowerCase())) { error = `RFQ number ${customNo} is already used.`; return arr; }
     const rfq: Rfq = {
       id: newId('rfq'), rfqNo: customNo || nextDocNo(arr.map((x: Rfq) => x.rfqNo), 'QTN'),
-      title: input.title.trim(), neededBy: input.neededBy ?? null, projectName: input.projectName ?? null, notes: input.notes ?? null,
+      title: input.title.trim(), rfqDate: input.rfqDate || now.slice(0, 10), neededBy: input.neededBy ?? null, projectName: input.projectName ?? null, notes: input.notes ?? null,
       lines: input.lines || [], quotes: input.quotes || [], status: 'draft', createdByName: byName, createdAt: now,
     };
     saved = rfq;
@@ -4050,7 +4050,7 @@ export async function dbSaveRfq(input: Partial<Rfq> & { title: string }, byName:
 export async function dbAwardRfq(
   rfqId: string,
   winningQuoteId: string,
-  opts: { awardNotes?: string | null; stfNo?: string | null; projectType?: string | null; projectName?: string | null },
+  opts: { awardNotes?: string | null; stfNo?: string | null; stfDate?: string | null; approvalRoute?: string[]; projectType?: string | null; projectName?: string | null },
   byName: string,
 ): Promise<{ rfq: Rfq; stf: Stf }> {
   procurementOnly();
@@ -4091,7 +4091,7 @@ export async function dbAwardRfq(
     stf = dup;   // finish the half-done award instead of duplicating
   } else {
     stf = await dbSaveStf({
-      stfNo: typedNo || undefined, autoNumber: !typedNo, date: new Date().toISOString().slice(0, 10), description: rfq.title,
+      stfNo: typedNo || undefined, autoNumber: !typedNo, date: opts.stfDate || new Date().toISOString().slice(0, 10), description: rfq.title, approvalRoute: opts.approvalRoute,
       supplierId: q.supplierId ?? null, supplierName: q.supplierName,
       projectType: opts.projectType || 'SALES', projectName: (opts.projectName ?? rfq.projectName ?? '').trim(),
       currency: cur, fxRate: fx || 1, paymentTerms: q.paymentTerms ?? null, lines: stfLines,
@@ -4220,7 +4220,7 @@ function checkStfLines(lines: StfLine[] | undefined): string | null {
 }
 
 const STF_EDITABLE = ['date', 'description', 'supplierId', 'supplierName', 'projectType', 'projectName', 'currency', 'fxRate', 'vatRate',
-  'paymentTerms', 'lines', 'rfqId', 'rfqNo', 'winningQuoteId', 'attachments', 'notes'] as const;
+  'paymentTerms', 'lines', 'rfqId', 'rfqNo', 'winningQuoteId', 'attachments', 'notes', 'approvalRoute'] as const;
 
 // Create (no id) or edit (id, while still PENDING) an STF.
 export async function dbSaveStf(input: Partial<Stf> & { description: string; supplierName: string; lines: StfLine[]; autoNumber?: boolean }, byName: string): Promise<Stf> {
@@ -4237,20 +4237,25 @@ export async function dbSaveStf(input: Partial<Stf> & { description: string; sup
   if (customNo && /\s/.test(customNo)) throw new ProcurementError('The STF number can’t contain spaces.');
   let saved: Stf | undefined;
   let error: string | undefined;
+  // approvers picked on the form → checked against Settings; above the budget tier the route must end with a final approver
+  const routeIn = (input as any).approvalRoute as string[] | undefined;
+  const route = routeIn !== undefined ? normalizeRoute(routeIn, settings, { lines: input.lines as any, vatRate: (input.vatRate ?? 5) as number, fxRate: (Number(input.fxRate) || 1) as number }) : undefined;
   await updateFirestoreDocArray('procurementStfs', (arr) => {
     saved = undefined; error = undefined;
     const now = new Date().toISOString();
     const patch: any = {};
     for (const k of STF_EDITABLE) if ((input as any)[k] !== undefined) patch[k] = (input as any)[k];
+    if (route !== undefined) patch.approvalRoute = route;
     if (input.id) {
       const cur = arr.find((x: Stf) => x.id === input.id);
       if (!cur) { error = 'This STF no longer exists.'; return arr; }
       if (cur.status !== 'pending') { error = 'Only a pending STF can be edited.'; return arr; }
-      saved = { ...cur, ...patch, updatedAt: now };
+      const keepQueue = route && route.length && !route.some((n) => sameName(n, cur.queue)) ? route[0] : cur.queue;   // the old holder is no longer on the route
+      saved = { ...cur, ...patch, queue: keepQueue, updatedAt: now };
       return arr.map((x: Stf) => (x.id === input.id ? saved! : x));
     }
     if (customNo && arr.some((x: Stf) => x.stfNo.trim().toLowerCase() === customNo.toLowerCase())) { error = `STF number ${customNo} is already used.`; return arr; }
-    const queue = input.queue && settings.approvers.some((a) => sameName(a.name, input.queue)) ? input.queue : settings.approvers[0].name;
+    const queue = route && route.length ? route[0] : input.queue && settings.approvers.some((a) => sameName(a.name, input.queue)) ? input.queue : settings.approvers[0].name;
     const stf: Stf = {
       id: newId('stf'),
       stfNo: customNo || nextDocNo(arr.map((x: Stf) => x.stfNo), 'STF', new Date(), { seq: settings.lastStfSeq, year: settings.seqYear }),
@@ -4258,7 +4263,7 @@ export async function dbSaveStf(input: Partial<Stf> & { description: string; sup
       supplierId: patch.supplierId ?? null, supplierName: String(patch.supplierName).trim(),
       projectType: patch.projectType || 'SALES', projectName: patch.projectName || '',
       currency: patch.currency || 'AED', fxRate: Number(patch.fxRate) || 1, vatRate: patch.vatRate ?? 5, paymentTerms: patch.paymentTerms ?? null,
-      lines: patch.lines, status: 'pending', queue, statusDate: now.slice(0, 10),
+      lines: patch.lines, status: 'pending', queue, approvalRoute: route || [], statusDate: now.slice(0, 10),
       rfqId: patch.rfqId ?? null, rfqNo: patch.rfqNo ?? null, winningQuoteId: patch.winningQuoteId ?? null, attachments: patch.attachments || [], poId: null, poNo: null,
       history: [{ at: now, byName, action: 'created', toQueue: queue }], notes: patch.notes ?? null, createdByName: byName, createdAt: now,
     };
@@ -4300,10 +4305,15 @@ export async function dbStfAction(id: string, action: StfAction, byName: string,
         if (!opts.toQueue || !settings.approvers.some((a) => sameName(a.name, opts.toQueue))) { error = 'Choose who to send it to.'; break; }
         next = move('pending', settings.approvers.find((a) => sameName(a.name, opts.toQueue))!.name, 'forwarded');
         break;
-      case 'approve':
+      case 'approve': {
         if (!perm.canApprove) { error = perm.approveBlockedReason || 'You can’t approve this STF.'; break; }
-        next = move('approved', QUEUE_FINISHED, 'approved');
+        // approval route: the current approver passes it to the next person on the route; the last one (or a management
+        // account acting for someone else) gives the final approval
+        const nextName = routeNext(cur);
+        if (nextName && sameName(cur.queue, byName)) next = move('pending', nextName, 'step_approved');
+        else next = move('approved', QUEUE_FINISHED, 'approved');
         break;
+      }
       case 'to_board':
         if (!perm.canToBoard) { error = 'You can’t send this STF to the board.'; break; }
         next = move('board', QUEUE_BOARD, 'to_board');

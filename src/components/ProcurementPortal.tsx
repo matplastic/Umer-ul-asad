@@ -391,7 +391,7 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
                     return (
                       <tr key={s.id} onClick={() => setRfqEditor({ initial: s })} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer">
                         <td className="px-3 py-2.5 font-mono font-bold">{s.rfqNo}</td>
-                        <td className="px-3 py-2.5 font-semibold text-slate-800">{s.title}<div className="text-[10px] font-normal text-slate-500">{s.projectName ? `${s.projectName} · ` : ''}{dateFmt(s.createdAt)} · {s.createdByName}{s.neededBy ? ` · needed ${dateFmt(s.neededBy)}` : ''}</div></td>
+                        <td className="px-3 py-2.5 font-semibold text-slate-800">{s.title}<div className="text-[10px] font-normal text-slate-500">{s.projectName ? `${s.projectName} · ` : ''}{dateFmt(s.rfqDate || s.createdAt)} · {s.createdByName}{s.neededBy ? ` · needed ${dateFmt(s.neededBy)}` : ''}</div></td>
                         <td className="px-3 py-2.5 text-right">{s.lines.length}</td>
                         <td className="px-3 py-2.5" data-testid="rfq-row-suppliers"><span className="font-bold">{ds.requested} requested</span><div className="text-[10px] text-slate-500">{ds.quoted} quoted{ds.waiting ? ` · ${ds.waiting} waiting` : ''}{ds.declined ? ` · ${ds.declined} declined` : ''}</div></td>
                         <td className="px-3 py-2.5 text-right">{(() => { const n = s.quotes.reduce((t, q) => t + (q.attachments?.length || 0), 0); return n ? <span className="inline-flex items-center gap-1 text-primary-700 font-bold"><Paperclip className="h-3 w-3" />{n}</span> : <span className="text-slate-300">—</span>; })()}</td>
@@ -468,7 +468,7 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
       )}
       {rfqEditor && (
         <RfqEditor
-          suppliers={suppliers} materials={materials} initial={rfqEditor.initial} seed={rfqEditor.seed} currentUserName={currentUserName}
+          suppliers={suppliers} materials={materials} approvers={settings.approvers} initial={rfqEditor.initial} seed={rfqEditor.seed} currentUserName={currentUserName}
           onClose={() => setRfqEditor(null)}
           onSaved={async () => { await load(); }}
           onAwarded={afterAward}

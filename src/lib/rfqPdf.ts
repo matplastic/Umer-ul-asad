@@ -10,6 +10,7 @@ export interface RfqPdfInput {
   rfqNo: string;
   title: string;
   projectName?: string | null;
+  rfqDate?: string | null;
   neededBy?: string | null;
   notes?: string | null;
   lines: RfqLine[];
@@ -23,7 +24,7 @@ export async function exportRfqRequestPdf(rfq: RfqPdfInput | Rfq, supplierName: 
   const mx = PDF_LAYOUT.marginX;
   const C = PDF_COLORS;
   const dept = 'Procurement Department';
-  const today = new Date().toISOString();
+  const today = ((rfq as any).rfqDate || new Date().toISOString().slice(0, 10)) as string;
 
   const header = (first: boolean) => drawLetterhead(doc, {
     logo, dept, title: `Request for Quotation  ${rfq.rfqNo}`,

@@ -26,7 +26,7 @@ interface Props {
 type Dialog = { kind: 'forward' } | { kind: 'reason'; action: 'reject' | 'cancel'; label: string };
 
 const ACTION_TEXT: Record<string, string> = {
-  created: 'created the STF', forwarded: 'sent it to', approved: 'approved it', to_board: 'sent it to the Board', board_approved: 'recorded the Board’s approval',
+  created: 'created the STF', forwarded: 'sent it to', approved: 'approved it', step_approved: 'approved their step, passed it to', to_board: 'sent it to the Board', board_approved: 'recorded the Board’s approval',
   rejected: 'rejected it', cancelled: 'cancelled it', reopened: 'reopened it', po_issued: 'issued the PO',
 };
 const DOC_KINDS = [{ id: 'quotation', label: 'Supplier quotation' }, { id: 'approval', label: 'Approval / e-mail' }, { id: 'other', label: 'Other' }];
@@ -64,6 +64,17 @@ export const StfPanel: React.FC<Props> = ({ stf, settings, currentUserName, mana
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${tier.above ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-700'}`}>{tier.label}</span>
                 <span>Que: <strong className={mine ? 'text-primary-700' : 'text-slate-800'} data-testid="stf-queue-now">{stf.queue}</strong>{mine && ' (you)'}</span>
               </div>
+              {(stf.approvalRoute?.length || 0) > 1 && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11px]" data-testid="stf-route">
+                  <span className="text-slate-500 font-semibold">Approval route:</span>
+                  {stf.approvalRoute!.map((n, i) => {
+                    const at = stf.approvalRoute!.findIndex(x => sameName(x, stf.queue));
+                    const done = stf.status === 'approved' || (stf.status === 'pending' && at > i) || (stf.status === 'approved');
+                    const now = stf.status === 'pending' && at === i;
+                    return <React.Fragment key={n}>{i > 0 && <span className="text-slate-300">→</span>}<span className={`px-1.5 py-0.5 rounded-full border font-bold ${done ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : now ? 'bg-primary-50 border-primary-400 text-primary-800' : 'bg-slate-50 border-slate-300 text-slate-600'}`}>{done ? '✓ ' : ''}{n}</span></React.Fragment>;
+                  })}
+                </div>
+              )}
             </div>
             <button onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer" title="Close"><X className="h-4 w-4" /></button>
           </div>
@@ -152,7 +163,7 @@ export const StfPanel: React.FC<Props> = ({ stf, settings, currentUserName, mana
               <div className="text-[10px] uppercase font-bold text-slate-500 mb-1 flex items-center gap-1"><History className="h-3 w-3" /> History</div>
               <ol className="space-y-1">
                 {stf.history.map((h, i) => (
-                  <li key={i}><span className="text-slate-400">{dateFmt(h.at)}</span> · <strong>{h.byName}</strong> {ACTION_TEXT[h.action] || h.action}{h.action === 'forwarded' && h.toQueue ? ` ${h.toQueue}` : ''}{h.action === 'created' && h.toQueue ? ` → ${h.toQueue}` : ''}{h.notes ? <span className="text-slate-600"> — {h.notes}</span> : null}</li>
+                  <li key={i}><span className="text-slate-400">{dateFmt(h.at)}</span> · <strong>{h.byName}</strong> {ACTION_TEXT[h.action] || h.action}{(h.action === 'forwarded' || h.action === 'step_approved') && h.toQueue ? ` ${h.toQueue}` : ''}{h.action === 'created' && h.toQueue ? ` → ${h.toQueue}` : ''}{h.notes ? <span className="text-slate-600"> — {h.notes}</span> : null}</li>
                 ))}
               </ol>
             </div>

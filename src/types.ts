@@ -980,6 +980,7 @@ export interface Rfq {
   id: string;
   rfqNo: string;                    // MAT-QTN-2026-0001 (or typed by the buyer)
   title: string;
+  rfqDate?: string | null;          // date of the request (typed by the buyer; today by default)
   neededBy?: string | null;         // target delivery date
   projectName?: string | null;      // department / project the purchase is for
   notes?: string | null;            // remarks
@@ -1134,7 +1135,7 @@ export interface StfLine {
 export interface StfHistoryEntry {
   at: string;
   byName: string;
-  action: 'created' | 'forwarded' | 'approved' | 'to_board' | 'board_approved' | 'rejected' | 'cancelled' | 'reopened' | 'po_issued';
+  action: 'created' | 'forwarded' | 'approved' | 'step_approved' | 'to_board' | 'board_approved' | 'rejected' | 'cancelled' | 'reopened' | 'po_issued';
   toQueue?: string | null;
   notes?: string | null;
 }
@@ -1155,6 +1156,7 @@ export interface Stf {
   lines: StfLine[];
   status: StfStatus;
   queue: string;                    // who it is waiting for now, or FINISHED
+  approvalRoute?: string[];         // approvers chosen on the form, in order — each one approves their step, the last gives the final approval
   statusDate: string;               // last status date
   rfqId?: string | null;
   rfqNo?: string | null;

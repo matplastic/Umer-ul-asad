@@ -55,6 +55,32 @@ export function budgetTier(stf: Pick<Stf, 'lines' | 'vatRate' | 'fxRate'>, s: Pr
   return { eur, above, label: `${s.tierEur} EUR ${above ? '+' : '-'}` };
 }
 
+// The approval route picked on the STF form. `queue` is the approver whose turn it is; routeNext is the one after them
+// (null when the current approver is the last one — or the STF was forwarded outside the route — so approving finishes it).
+export function routeNext(stf: Pick<Stf, 'queue' | 'approvalRoute'>): string | null {
+  const r = stf.approvalRoute || [];
+  const i = r.findIndex(n => sameName(n, stf.queue));
+  return i >= 0 && i < r.length - 1 ? r[i + 1] : null;
+}
+
+// Keeps only names that exist in Settings, drops duplicates, and — when the STF is above the budget tier — makes sure the
+// route ENDS with a final approver (the rule from the company sheet), adding one if the buyer did not.
+export function normalizeRoute(route: string[] | null | undefined, s: ProcurementSettings, stf: Pick<Stf, 'lines' | 'vatRate' | 'fxRate'>): string[] {
+  let out: string[] = [];
+  for (const n of route || []) {
+    const a = s.approvers.find(x => sameName(x.name, n));
+    if (a && !out.some(o => sameName(o, a.name))) out.push(a.name);
+  }
+  if (out.length && budgetTier(stf, s).above) {
+    const last = s.approvers.find(a => sameName(a.name, out[out.length - 1]));
+    if (!last?.finalForAbove) {
+      const fin = s.approvers.find(a => a.finalForAbove && out.some(o => sameName(o, a.name))) || s.approvers.find(a => a.finalForAbove);
+      if (fin) out = out.filter(n => !sameName(n, fin.name)).concat(fin.name);
+    }
+  }
+  return out;
+}
+
 export interface StfPermissions {
   canEdit: boolean;
   canForward: boolean;
@@ -74,10 +100,11 @@ export function stfPermissions(stf: Stf, s: ProcurementSettings, user: { name: s
   const isFinal = s.approvers.some(a => a.finalForAbove && sameName(a.name, user.name));
   const above = budgetTier(stf, s).above;
   const open = stf.status === 'pending';
+  const hasNext = !!routeNext(stf);   // a route step in between: this approval only passes it on
   let blocked: string | null = null;
   if (open && !user.manager) {
     if (!holder) blocked = `It is waiting for ${stf.queue}.`;
-    else if (above && !isFinal) {
+    else if (above && !isFinal && !hasNext) {
       const who = s.approvers.filter(a => a.finalForAbove).map(a => a.name).join(' or ');
       blocked = `This STF is above ${s.tierEur} EUR — final approval must come from ${who || 'management'}. Forward it.`;
     }

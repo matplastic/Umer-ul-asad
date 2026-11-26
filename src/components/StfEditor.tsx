@@ -3,6 +3,7 @@ import { Plus, Trash2, Save, Loader2, AlertTriangle } from 'lucide-react';
 import type { Material, ProcAttachment, ProcurementSettings, Rfq, Stf, Supplier } from '../types';
 import { MaterialPicker } from './MaterialPicker';
 import { AttachmentList } from './AttachmentList';
+import { ApprovalRoutePicker } from './ApprovalRoutePicker';
 import { Field, Modal, btn, inputCls, todayStr } from './ProcurementUi';
 import { dbSaveStf } from '../lib/firebaseService';
 import { CURRENCIES } from '../lib/tradeFinance';
@@ -48,7 +49,8 @@ export const StfEditor: React.FC<Props> = ({ suppliers, materials, stfs, setting
   const [currency, setCurrency] = useState(initial?.currency || 'AED');
   const [fxRate, setFxRate] = useState(String(initial?.fxRate ?? 1));
   const [terms, setTerms] = useState(initial?.paymentTerms || seed?.paymentTerms || '');
-  const [queue, setQueue] = useState(initial?.queue || settings.approvers[0]?.name || '');
+  // who approves this purchase, in order (different STFs can go to different people)
+  const [route, setRoute] = useState<string[]>(() => initial ? (initial.approvalRoute?.length ? initial.approvalRoute : (initial.queue && initial.queue !== 'FINISHED' && initial.queue !== 'BOARD' ? [initial.queue] : [])) : (settings.approvers[0] ? [settings.approvers[0].name] : []));
   const [customNo, setCustomNo] = useState('');
   const [notes, setNotes] = useState(initial?.notes || '');
   const [attachments, setAttachments] = useState<ProcAttachment[]>(initial?.attachments || seed?.attachments || []);
@@ -92,6 +94,7 @@ export const StfEditor: React.FC<Props> = ({ suppliers, materials, stfs, setting
     setError(null);
     if (!initial && !customNo.trim()) { setError('Type the STF number — it is required.'); return; }
     if (!initial && stfs.some(x => x.stfNo.trim().toLowerCase() === customNo.trim().toLowerCase())) { setError(`STF number ${customNo.trim()} is already used.`); return; }
+    if (route.length === 0) { setError('Choose who must approve this STF.'); return; }
     if (!(Number(fxRate) > 0)) { setError('Enter the exchange rate to AED.'); return; }
     if (lines.some(l => l.materialId && l.unitPrice === '')) { setError('Enter a price on every line.'); return; }
     setBusy(true);
@@ -99,7 +102,7 @@ export const StfEditor: React.FC<Props> = ({ suppliers, materials, stfs, setting
       const stf = await dbSaveStf({
         id: initial?.id, stfNo: initial ? undefined : customNo.trim(), date, description: description.trim(), supplierId: supplier?.id || null, supplierName: supplierName.trim(),
         projectType, projectName: projectName.trim(), currency, fxRate: Number(fxRate), vatRate: Number(built[0]?.vatRate) || 0, paymentTerms: terms.trim() || null,
-        lines: built.filter(l => l.materialId) as any, queue, attachments, notes: notes.trim() || null,
+        lines: built.filter(l => l.materialId) as any, queue: route[0], approvalRoute: route, attachments, notes: notes.trim() || null,
         rfqId: seed?.rfq?.id ?? initial?.rfqId ?? null, rfqNo: seed?.rfq?.rfqNo ?? initial?.rfqNo ?? null,
         winningQuoteId: seed?.rfq?.awardedQuoteId ?? initial?.winningQuoteId ?? null,
       } as any, currentUserName);
@@ -144,11 +147,9 @@ export const StfEditor: React.FC<Props> = ({ suppliers, materials, stfs, setting
             <input value={terms} onChange={e => setTerms(e.target.value)} list="stf-terms" placeholder="PDC - 30 Days" className={inputCls} data-testid="stf-terms" />
             <datalist id="stf-terms">{PAYMENT_TERM_PRESETS.map(p => <option key={p} value={p} />)}</datalist>
           </Field>
-          {!initial && (
-            <Field label="Send to (Que)" className="md:col-span-2">
-              <select value={queue} onChange={e => setQueue(e.target.value)} className={inputCls} data-testid="stf-queue">{settings.approvers.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}</select>
-            </Field>
-          )}
+          <Field label="Approval — who must approve this STF *" className="md:col-span-4">
+            <ApprovalRoutePicker approvers={settings.approvers} value={route} onChange={setRoute} aboveTier={budgetTier({ lines: built.filter(l => l.materialId) as any, vatRate: Number(built[0]?.vatRate) || 0, fxRate: Number(fxRate) || 1 }, settings).above} />
+          </Field>
           {!initial && <Field label="STF number — type it yourself *" className="md:col-span-2"><input value={customNo} onChange={e => setCustomNo(e.target.value.toUpperCase())} placeholder="e.g. STF.P2026110027" className={`${inputCls} font-mono ${customNo.trim() ? '' : 'border-amber-400'}`} data-testid="stf-no-input" autoFocus /></Field>}
         </div>
 

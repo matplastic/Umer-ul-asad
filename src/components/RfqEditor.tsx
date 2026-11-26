@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, Save, Award, Loader2, AlertTriangle, Crown, Send, FileDown, FileText, Check } from 'lucide-react';
-import type { Material, ProcAttachment, Rfq, RfqLine, RfqQuote, Stf, Supplier } from '../types';
+import type { Material, ProcAttachment, Rfq, RfqLine, RfqQuote, Stf, StfApprover, Supplier } from '../types';
+import { ApprovalRoutePicker } from './ApprovalRoutePicker';
 import { MaterialPicker } from './MaterialPicker';
-import { Field, Modal, btn, inputCls } from './ProcurementUi';
+import { Field, Modal, btn, inputCls, todayStr } from './ProcurementUi';
 import { dbAwardRfq, dbSaveRfq } from '../lib/firebaseService';
 import { AttachmentList } from './AttachmentList';
 import { deleteProcFile } from '../lib/procurementFiles';
@@ -30,6 +31,7 @@ export interface RfqSeed {
 interface Props {
   suppliers: Supplier[];
   materials: Material[];
+  approvers: StfApprover[];
   initial?: Rfq | null;
   seed?: RfqSeed | null;
   currentUserName: string;
@@ -47,12 +49,13 @@ const STATE_META: Record<QuoteDispatchState, { label: string; cls: string }> = {
 
 type Step = 'request' | 'quotes' | 'compare';
 
-export const RfqEditor: React.FC<Props> = ({ suppliers, materials, initial, seed, currentUserName, onClose, onSaved, onAwarded }) => {
+export const RfqEditor: React.FC<Props> = ({ suppliers, materials, approvers, initial, seed, currentUserName, onClose, onSaved, onAwarded }) => {
   // the sheet as last saved (a new sheet becomes "saved" after the first Save, so a second Save updates it instead of duplicating it)
   const [saved, setSaved] = useState<Rfq | null>(initial || null);
   const locked = saved ? saved.status !== 'draft' : false;   // awarded / STF raised: read-only
   const [step, setStep] = useState<Step>(locked ? 'compare' : (initial?.quotes.length ? 'quotes' : 'request'));
   const [rfqNo, setRfqNo] = useState('');
+  const [rfqDate, setRfqDate] = useState((initial?.rfqDate || initial?.createdAt || todayStr()).slice(0, 10));
   const [title, setTitle] = useState(initial?.title || seed?.title || '');
   const [projectName, setProjectName] = useState(initial?.projectName || '');
   const [neededBy, setNeededBy] = useState((initial?.neededBy || '').slice(0, 10));
@@ -74,7 +77,7 @@ export const RfqEditor: React.FC<Props> = ({ suppliers, materials, initial, seed
   const [flash, setFlash] = useState<string | null>(null);
   const [addSupplier, setAddSupplier] = useState('');
   const [customSupplier, setCustomSupplier] = useState('');
-  const [confirmAward, setConfirmAward] = useState<{ stfNo: string; projectType: string; projectName: string } | null>(null);
+  const [confirmAward, setConfirmAward] = useState<{ stfNo: string; stfDate: string; approvalRoute: string[]; projectType: string; projectName: string } | null>(null);
   const [ownerKey] = useState(() => initial?.id || `new_${Date.now().toString(36)}`);   // storage folder for the supplier PDFs
   const [removedFiles, setRemovedFiles] = useState<ProcAttachment[]>([]);
 
@@ -130,7 +133,7 @@ export const RfqEditor: React.FC<Props> = ({ suppliers, materials, initial, seed
   const saveSheet = async (): Promise<Rfq> => {
     const rec = await dbSaveRfq({
       id: saved?.id, rfqNo: saved ? undefined : rfqNo.trim() || undefined,
-      title: title.trim(), projectName: projectName.trim() || null, neededBy: neededBy || null, notes: notes.trim() || null, lines: cleanLines(), quotes,
+      title: title.trim(), rfqDate: rfqDate || null, projectName: projectName.trim() || null, neededBy: neededBy || null, notes: notes.trim() || null, lines: cleanLines(), quotes,
     }, currentUserName);
     removedFiles.forEach(f => { deleteProcFile(f); });
     setRemovedFiles([]);
@@ -178,15 +181,16 @@ export const RfqEditor: React.FC<Props> = ({ suppliers, materials, initial, seed
     setError(null);
     const bad = validateAward();
     if (bad) { setError(bad); return; }
-    setConfirmAward({ stfNo: '', projectType: 'SALES', projectName: projectName.trim() });
+    setConfirmAward({ stfNo: '', stfDate: todayStr(), approvalRoute: approvers[0] ? [approvers[0].name] : [], projectType: 'SALES', projectName: projectName.trim() });
   };
   const award = async () => {
     if (!confirmAward || !winner) return;
+    if (confirmAward.approvalRoute.length === 0) { setError('Choose who must approve the STF.'); setConfirmAward(null); return; }
     setError(null); setBusy('award');
     try {
       const rec = await saveSheet();                         // every quotation is stored before the award
       const { rfq, stf } = await dbAwardRfq(rec.id, winner.id, {
-        awardNotes: awardNotes.trim() || null, stfNo: confirmAward.stfNo.trim() || null,
+        awardNotes: awardNotes.trim() || null, stfNo: confirmAward.stfNo.trim() || null, stfDate: confirmAward.stfDate || null, approvalRoute: confirmAward.approvalRoute,
         projectType: confirmAward.projectType, projectName: confirmAward.projectName.trim(),
       }, currentUserName);
       setConfirmAward(null);
@@ -236,6 +240,7 @@ export const RfqEditor: React.FC<Props> = ({ suppliers, materials, initial, seed
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
               {!saved && <Field label="RFQ number" className="md:col-span-2"><input value={rfqNo} onChange={e => setRfqNo(e.target.value)} placeholder="Leave empty to auto-generate" className={`${inputCls} font-mono`} data-testid="rfq-no" /></Field>}
               <Field label="Title *" className={saved ? 'md:col-span-2' : 'md:col-span-4'}><input value={title} onChange={e => setTitle(e.target.value)} disabled={locked} className={inputCls} data-testid="rfq-title" /></Field>
+              <Field label="RFQ date" className="md:col-span-2"><input type="date" value={rfqDate} onChange={e => setRfqDate(e.target.value)} disabled={locked} className={inputCls} data-testid="rfq-date" /></Field>
               <Field label="Department / project" className="md:col-span-2"><input value={projectName} onChange={e => setProjectName(e.target.value)} disabled={locked} placeholder="e.g. TIGER, Factory maintenance" className={inputCls} data-testid="rfq-project" /></Field>
               <Field label="Target delivery date" className="md:col-span-2"><input type="date" value={neededBy} onChange={e => setNeededBy(e.target.value)} disabled={locked} className={inputCls} /></Field>
               <Field label="Remarks (printed on the PDF)" className={saved ? 'md:col-span-2' : 'md:col-span-4'}><input value={notes} onChange={e => setNotes(e.target.value)} disabled={locked} className={inputCls} /></Field>
@@ -463,7 +468,9 @@ export const RfqEditor: React.FC<Props> = ({ suppliers, materials, initial, seed
         <div className="space-y-3">
           <div className="text-xs text-slate-600">The STF is created from the winning quotation — items, prices, currency, payment terms and the supplier’s PDF — and linked to this RFQ. It then goes through the normal approval queue; the PO is issued from it once approved.</div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="STF number" className="col-span-2"><input value={confirmAward.stfNo} onChange={e => setConfirmAward(c => c && ({ ...c, stfNo: e.target.value }))} placeholder="Leave empty — the next number is generated" className={`${inputCls} font-mono`} data-testid="rfq-award-stfno" /></Field>
+            <Field label="STF date"><input type="date" value={confirmAward.stfDate} onChange={e => setConfirmAward(c => c && ({ ...c, stfDate: e.target.value }))} className={inputCls} data-testid="rfq-award-stfdate" /></Field>
+            <Field label="STF number"><input value={confirmAward.stfNo} onChange={e => setConfirmAward(c => c && ({ ...c, stfNo: e.target.value }))} placeholder="Empty = generated" className={`${inputCls} font-mono`} data-testid="rfq-award-stfno" /></Field>
+            <Field label="Who must approve this STF *" className="col-span-2"><ApprovalRoutePicker approvers={approvers} value={confirmAward.approvalRoute} onChange={r => setConfirmAward(c => c && ({ ...c, approvalRoute: r }))} /></Field>
             <Field label="Project type"><select value={confirmAward.projectType} onChange={e => setConfirmAward(c => c && ({ ...c, projectType: e.target.value }))} className={inputCls}>{PROJECT_TYPES.map(p => <option key={p}>{p}</option>)}</select></Field>
             <Field label="Project name"><input value={confirmAward.projectName} onChange={e => setConfirmAward(c => c && ({ ...c, projectName: e.target.value }))} className={inputCls} /></Field>
           </div>
