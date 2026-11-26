@@ -221,7 +221,7 @@ export const FactorySupervisorPortal: React.FC<FactorySupervisorPortalProps> = (
       )}
 
       {activeTab === 'scrap' && (
-        <ScrapManagement currentUserName={currentUserName} canManage={false} />
+        <ScrapManagement currentUserName={currentUserName} canManage={false} entryOnly />
       )}
       </React.Fragment>
     </div>

@@ -82,6 +82,7 @@ interface ScrapSale {
 interface Props {
   currentUserName?: string;
   canManage?: boolean; // can edit materials / delete records (manager roles)
+  entryOnly?: boolean; // show only the Daily Entry tab (supervisor portals)
 }
 
 type Tab = 'overview' | 'entry' | 'history' | 'sales' | 'materials';
@@ -171,8 +172,8 @@ function downloadCSV(filename: string, rows: (string | number)[][]) {
 
 /* ───────────────────────── Component ───────────────────────── */
 
-export default function ScrapManagement({ currentUserName = '', canManage = true }: Props) {
-  const [tab, setTab] = useState<Tab>('overview');
+export default function ScrapManagement({ currentUserName = '', canManage = true, entryOnly = false }: Props) {
+  const [tab, setTab] = useState<Tab>(entryOnly ? 'entry' : 'overview');
   const { select: selectTab, resetKey: tabResetKey } = useTabReset(tab, setTab);
   const [materials, setMaterials] = useState<ScrapMaterial[]>([]);
   const [entries, setEntries] = useState<ScrapEntry[]>([]);
@@ -294,13 +295,15 @@ export default function ScrapManagement({ currentUserName = '', canManage = true
 
   const loading = !(loaded.m && loaded.e && loaded.s);
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Overview', icon: <Boxes size={16} /> },
-    { id: 'entry', label: 'Daily Entry', icon: <Plus size={16} /> },
-    { id: 'history', label: 'Date-wise Report', icon: <CalendarDays size={16} /> },
-    { id: 'sales', label: 'Scrap Sales', icon: <HandCoins size={16} /> },
-    ...(canManage ? [{ id: 'materials' as Tab, label: 'Materials & Cost', icon: <Settings2 size={16} /> }] : []),
-  ];
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = entryOnly
+    ? [{ id: 'entry', label: 'Daily Entry', icon: <Plus size={16} /> }]
+    : [
+        { id: 'overview', label: 'Overview', icon: <Boxes size={16} /> },
+        { id: 'entry', label: 'Daily Entry', icon: <Plus size={16} /> },
+        { id: 'history', label: 'Date-wise Report', icon: <CalendarDays size={16} /> },
+        { id: 'sales', label: 'Scrap Sales', icon: <HandCoins size={16} /> },
+        ...(canManage ? [{ id: 'materials' as Tab, label: 'Materials & Cost', icon: <Settings2 size={16} /> }] : []),
+      ];
 
   return (
     <div className="sm-root">
@@ -316,14 +319,14 @@ export default function ScrapManagement({ currentUserName = '', canManage = true
         </div>
       </header>
 
-      <nav className="sm-tabs">
+      {!entryOnly && <nav className="sm-tabs">
         {tabs.map((t) => (
           <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => selectTab(t.id)}>
             {t.icon}
             <span>{t.label}</span>
           </button>
         ))}
-      </nav>
+      </nav>}
 
       {toast && <div className={`sm-toast ${toast.type}`}>{toast.msg}</div>}
 

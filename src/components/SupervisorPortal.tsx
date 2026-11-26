@@ -1223,10 +1223,10 @@ export const SupervisorPortal: React.FC<SupervisorPortalProps> = ({ currentUserN
       )}
 
       {/* HISTORY / TODAY COMPARISON TAB */}
-      {/* SCRAP TAB — same module as Management; supervisors can enter/view
-          scrap and sales but cannot edit materials/cost or delete records. */}
+      {/* SCRAP TAB — same module as Management; supervisors only get Daily Entry
+          (no reports, sales, materials or deletes). */}
       {tab === 'scrap' && (
-        <ScrapManagement currentUserName={currentUserName} canManage={false} />
+        <ScrapManagement currentUserName={currentUserName} canManage={false} entryOnly />
       )}
 
       {tab === 'history' && (
