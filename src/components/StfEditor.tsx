@@ -101,6 +101,7 @@ export const StfEditor: React.FC<Props> = ({ suppliers, materials, stfs, setting
         projectType, projectName: projectName.trim(), currency, fxRate: Number(fxRate), vatRate: Number(built[0]?.vatRate) || 0, paymentTerms: terms.trim() || null,
         lines: built.filter(l => l.materialId) as any, queue, attachments, notes: notes.trim() || null,
         rfqId: seed?.rfq?.id ?? initial?.rfqId ?? null, rfqNo: seed?.rfq?.rfqNo ?? initial?.rfqNo ?? null,
+        winningQuoteId: seed?.rfq?.awardedQuoteId ?? initial?.winningQuoteId ?? null,
       } as any, currentUserName);
       removed.forEach(a => { import('../lib/procurementFiles').then(m => m.deleteProcFile(a)); });
       onSaved(stf);

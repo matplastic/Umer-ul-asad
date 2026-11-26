@@ -248,6 +248,15 @@ export function nextDocNo(existing: string[], kind: 'PO' | 'STF' | 'QTN' | 'TF',
 }
 
 // ── Quotation comparison ───────────────────────────────────────────────────────────
+// A supplier may quote in its own currency (`q.currency`, `q.fxRate` = AED per 1 unit). To compare fairly
+// everything is also worked out in AED. "Landed" cost = goods + the supplier's delivery charge (before VAT).
+export const quoteFx = (q: Pick<RfqQuote, 'fxRate' | 'currency'>): number => {
+  const fx = Number(q.fxRate);
+  return (q.currency && q.currency.toUpperCase() !== 'AED' && fx > 0) ? fx : 1;
+};
+export const quoteCurrency = (q: Pick<RfqQuote, 'currency'>): string => (q.currency || 'AED').toUpperCase();
+
+// goods only, in the quote's own currency
 export function quoteTotal(rfq: Pick<Rfq, 'lines'>, q: RfqQuote): number | null {
   let t = 0;
   for (const l of rfq.lines) {
@@ -257,13 +266,47 @@ export function quoteTotal(rfq: Pick<Rfq, 'lines'>, q: RfqQuote): number | null 
   }
   return round2(t);
 }
+// goods + delivery, in the quote's own currency
+export function quoteLanded(rfq: Pick<Rfq, 'lines'>, q: RfqQuote): number | null {
+  const goods = quoteTotal(rfq, q);
+  return goods == null ? null : round2(goods + (Number(q.deliveryCost) || 0));
+}
+// goods + delivery, converted to AED — the number quotes are ranked by
+export function quoteLandedAed(rfq: Pick<Rfq, 'lines'>, q: RfqQuote): number | null {
+  const landed = quoteLanded(rfq, q);
+  return landed == null ? null : round2(landed * quoteFx(q));
+}
+// a line's unit price in AED (null when the supplier left it empty)
+export function unitPriceAed(q: RfqQuote, lineId: string): number | null {
+  const p = q.unitPrices[lineId];
+  return p == null || Number.isNaN(Number(p)) ? null : Number(p) * quoteFx(q);
+}
+// lowest overall landed cost (AED) among COMPLETE quotes
 export function cheapestQuoteId(rfq: Pick<Rfq, 'lines' | 'quotes'>): string | null {
   let best: { id: string; t: number } | null = null;
   for (const q of rfq.quotes) {
-    const t = quoteTotal(rfq, q);
+    if (q.declined) continue;
+    const t = quoteLandedAed(rfq, q);
     if (t != null && (!best || t < best.t)) best = { id: q.id, t };
   }
   return best ? best.id : null;
+}
+// Where a supplier is in the request: asked → quoted (every item priced) → or declined
+export type QuoteDispatchState = 'requested' | 'quoted' | 'partial' | 'declined';
+export function quoteState(rfq: Pick<Rfq, 'lines'>, q: RfqQuote): QuoteDispatchState {
+  if (q.declined) return 'declined';
+  const priced = rfq.lines.filter(l => q.unitPrices[l.id] != null && !Number.isNaN(Number(q.unitPrices[l.id]))).length;
+  if (rfq.lines.length > 0 && priced === rfq.lines.length) return 'quoted';
+  return priced > 0 ? 'partial' : 'requested';
+}
+export function dispatchSummary(rfq: Pick<Rfq, 'lines' | 'quotes'>): { requested: number; quoted: number; declined: number; waiting: number } {
+  const st = rfq.quotes.map(q => quoteState(rfq, q));
+  return {
+    requested: rfq.quotes.length,
+    quoted: st.filter(x => x === 'quoted').length,
+    declined: st.filter(x => x === 'declined').length,
+    waiting: st.filter(x => x === 'requested' || x === 'partial').length,
+  };
 }
 
 // Approved Supervisor / HR purchase requests that no PO line covers yet

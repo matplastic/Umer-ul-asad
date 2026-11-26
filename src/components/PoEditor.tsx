@@ -121,7 +121,8 @@ export const PoEditor: React.FC<Props> = ({ suppliers, materials, pos, initial, 
         poNo: initial ? undefined : customNo.trim() || undefined, currency, fxRate: Number(fxRate) || 1, projectType: projectType.trim() || null, projectName: projectName.trim() || null,
         stfId: seed?.stf?.id ?? initial?.stfId ?? null, stfNo: seed?.stf?.stfNo ?? initial?.stfNo ?? null, orderDate, expectedDate: expectedDate || null, deliveryLocation: location.trim() || null,
         paymentTerms: terms.trim() || null, notes: notes.trim() || null, discount: Number(discount) || 0, vatRate: Number(built[0]?.vatRate ?? vatRate) || 0,
-        lines: built, rfqId: seed?.rfq?.id ?? initial?.rfqId ?? null, rfqNo: seed?.rfq?.rfqNo ?? initial?.rfqNo ?? null,
+        lines: built, rfqId: seed?.rfq?.id ?? seed?.stf?.rfqId ?? initial?.rfqId ?? null, rfqNo: seed?.rfq?.rfqNo ?? seed?.stf?.rfqNo ?? initial?.rfqNo ?? null,
+        quoteId: seed?.stf?.winningQuoteId ?? initial?.quoteId ?? null,
       }, currentUserName);
       if (submit) po = await dbPoAction(po.id, 'submit', currentUserName);
       onSaved(po, submit);

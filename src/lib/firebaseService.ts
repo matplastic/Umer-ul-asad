@@ -4,7 +4,7 @@ import { applySupplierSave, applySupplierBulk, type BulkSupplierItem } from './s
 import { APPROVAL_THRESHOLD, nextDocNo, poTotals } from './procurement';
 import { addDays, tfAmounts, tfPosition } from './tradeFinance';
 import { QUEUE_BOARD, QUEUE_FINISHED, defaultProcurementSettings, sameName, stfPermissions } from './stf';
-import type { PurchaseOrder, PoLine, Rfq, SupplierInvoice, SupplierPayment, TradeFinance, TfRepayment, ProcAttachment, Stf, StfLine, StfStatus, ProcurementSettings } from '../types';
+import type { PurchaseOrder, PoLine, Rfq, RfqQuote, SupplierInvoice, SupplierPayment, TradeFinance, TfRepayment, ProcAttachment, Stf, StfLine, StfStatus, ProcurementSettings } from '../types';
 import { shardCountFor, shardDocNamesFor, splitIntoShards, mergeLegacy } from './shardConfig';
 import { BACKUP_DOC_IDS, runRestore, chunkByBytes, RestoreMode, RestoreReportRow } from './backupSets';
 import { Pool, Team, ActivityLog, PlannedPool, ProjectSummary, MonthlyTarget, Employee, TrolleyProduction, RecycleBinItem, EmployeePunch, Material, BOMItem, MaterialRequest, FloorStock, StockAdjustment, Supplier, SECTION_DEFINITIONS, SUPERVISOR_SECTIONS, MaterialReturn, CompanyAsset, InventoryDeletionLog, ChecklistTemplate } from '../types';
@@ -3883,7 +3883,7 @@ function checkPoLines(lines: PoLine[] | undefined): string | null {
 }
 
 const PO_EDITABLE = ['supplierId', 'supplierName', 'supplierCode', 'supplierTaxNo', 'currency', 'fxRate', 'orderDate', 'expectedDate',
-  'deliveryLocation', 'paymentTerms', 'notes', 'discount', 'vatRate', 'lines', 'rfqId', 'rfqNo', 'stfId', 'stfNo', 'projectType', 'projectName'] as const;
+  'deliveryLocation', 'paymentTerms', 'notes', 'discount', 'vatRate', 'lines', 'rfqId', 'rfqNo', 'quoteId', 'stfId', 'stfNo', 'projectType', 'projectName'] as const;
 
 // Create (no id) or edit (id) a DRAFT purchase order.
 export async function dbSavePurchaseOrder(input: Partial<PurchaseOrder> & { supplierName: string; lines: PoLine[] }, byName: string): Promise<PurchaseOrder> {
@@ -3921,7 +3921,7 @@ export async function dbSavePurchaseOrder(input: Partial<PurchaseOrder> & { supp
     const po: PurchaseOrder = {
       id: newId('po'),
       poNo: customNo || nextDocNo(arr.map((p: PurchaseOrder) => p.poNo), 'PO', new Date(), { seq: settings.lastPoSeq, year: settings.seqYear }),
-      rfqId: input.rfqId ?? null, rfqNo: input.rfqNo ?? null,
+      rfqId: input.rfqId ?? null, rfqNo: input.rfqNo ?? null, quoteId: input.quoteId ?? null,
       stfId: input.stfId ?? null, stfNo: input.stfNo ?? null, projectType: input.projectType ?? null, projectName: input.projectName ?? null, fxRate: input.fxRate ?? 1,
       supplierId: input.supplierId ?? null, supplierName: input.supplierName.trim(),
       supplierCode: input.supplierCode ?? null, supplierTaxNo: input.supplierTaxNo ?? null,
@@ -4011,10 +4011,13 @@ export async function dbPoAction(
 }
 
 // Quotation sheet (RFQ) — create (no id) or update.
+// The number is generated (MAT-QTN-2026-0001) unless the buyer types their own (`rfqNo`, checked for duplicates).
 export async function dbSaveRfq(input: Partial<Rfq> & { title: string }, byName: string): Promise<Rfq> {
   procurementOnly();
   let saved: Rfq | undefined;
   let error: string | undefined;
+  const customNo = (input.rfqNo || '').trim();
+  if (customNo && /\s/.test(customNo)) throw new ProcurementError('The RFQ number can’t contain spaces.');
   await updateFirestoreDocArray('procurementRfqs', (arr) => {
     saved = undefined; error = undefined;
     if (!input.title?.trim()) { error = 'Give the quotation sheet a title.'; return arr; }
@@ -4025,9 +4028,10 @@ export async function dbSaveRfq(input: Partial<Rfq> & { title: string }, byName:
       saved = { ...cur, ...input, id: cur.id, rfqNo: cur.rfqNo, createdAt: cur.createdAt, createdByName: cur.createdByName, updatedAt: now } as Rfq;
       return arr.map((x: Rfq) => (x.id === input.id ? saved! : x));
     }
+    if (customNo && arr.some((x: Rfq) => (x.rfqNo || '').trim().toLowerCase() === customNo.toLowerCase())) { error = `RFQ number ${customNo} is already used.`; return arr; }
     const rfq: Rfq = {
-      id: newId('rfq'), rfqNo: nextDocNo(arr.map((x: Rfq) => x.rfqNo), 'QTN'),
-      title: input.title.trim(), neededBy: input.neededBy ?? null, notes: input.notes ?? null,
+      id: newId('rfq'), rfqNo: customNo || nextDocNo(arr.map((x: Rfq) => x.rfqNo), 'QTN'),
+      title: input.title.trim(), neededBy: input.neededBy ?? null, projectName: input.projectName ?? null, notes: input.notes ?? null,
       lines: input.lines || [], quotes: input.quotes || [], status: 'draft', createdByName: byName, createdAt: now,
     };
     saved = rfq;
@@ -4035,6 +4039,77 @@ export async function dbSaveRfq(input: Partial<Rfq> & { title: string }, byName:
   });
   if (error || !saved) throw new ProcurementError(error || 'Could not save the quotation sheet.');
   return saved;
+}
+
+// Award a quotation and raise the STF from it in one step.
+//   1. the RFQ must be a draft, the winner must have priced every item, and a winner that is not the cheapest needs a reason
+//   2. the STF is created PENDING (it still goes through the approval queue) carrying rfqNo + winningQuoteId, the winner's
+//      prices, currency, payment terms and the supplier's quotation PDF(s)
+//   3. the RFQ is marked awarded and stores stfId / stfNo
+// STF number: typed by the buyer, otherwise generated in the company format (STF.P + yyyymm + running number).
+export async function dbAwardRfq(
+  rfqId: string,
+  winningQuoteId: string,
+  opts: { awardNotes?: string | null; stfNo?: string | null; projectType?: string | null; projectName?: string | null },
+  byName: string,
+): Promise<{ rfq: Rfq; stf: Stf }> {
+  procurementOnly();
+  const rfqs = (await getFirestoreDocArray('procurementRfqs')) as Rfq[];
+  const rfq = rfqs.find((x) => x.id === rfqId);
+  if (!rfq) throw new ProcurementError('This quotation sheet no longer exists.');
+  if (rfq.status !== 'draft') throw new ProcurementError(`${rfq.rfqNo} has already been awarded${rfq.stfNo ? ` (${rfq.stfNo})` : ''}.`);
+  const q = rfq.quotes.find((x) => x.id === winningQuoteId);
+  if (!q) throw new ProcurementError('Pick the winning supplier.');
+  if (q.declined) throw new ProcurementError(`${q.supplierName} declined to quote.`);
+  const missing = rfq.lines.filter((l) => q.unitPrices[l.id] == null || Number.isNaN(Number(q.unitPrices[l.id])));
+  if (missing.length) throw new ProcurementError(`${q.supplierName} has not quoted: ${missing.map((l) => l.itemName).join(', ')}.`);
+  const landed = (qq: RfqQuote) => {
+    let t = 0;
+    for (const l of rfq.lines) { const p = qq.unitPrices[l.id]; if (p == null || Number.isNaN(Number(p))) return null; t += l.qty * Number(p); }
+    const fx = qq.currency && qq.currency.toUpperCase() !== 'AED' && Number(qq.fxRate) > 0 ? Number(qq.fxRate) : 1;
+    return (t + (Number(qq.deliveryCost) || 0)) * fx;
+  };
+  const lows = rfq.quotes.filter((x) => !x.declined).map(landed).filter((x): x is number => x != null);
+  const mine = landed(q) as number;
+  const notCheapest = lows.length > 1 && mine > Math.min(...lows) + 0.005;
+  if (notCheapest && !opts.awardNotes?.trim()) throw new ProcurementError('The winner is not the lowest landed cost — write why (quality, lead time, terms…).');
+  // never raise a second live STF for the same sheet (a retry after a half-finished award)
+  const stfs0 = (await getFirestoreDocArray('procurementStfs')) as Stf[];
+  const dup = stfs0.find((x) => x.rfqId === rfq.id && x.status !== 'cancelled' && x.status !== 'rejected');
+  const cur = q.currency && q.currency.toUpperCase() !== 'AED' ? q.currency.toUpperCase() : 'AED';
+  const fx = cur === 'AED' ? 1 : Number(q.fxRate) || 0;
+  if (cur !== 'AED' && !(fx > 0)) throw new ProcurementError(`Enter the AED exchange rate for ${q.supplierName}’s ${cur} quotation.`);
+  const stfLines: StfLine[] = rfq.lines.map((l) => ({
+    id: newId('sl'), materialId: l.materialId, itemName: l.itemName, erpCode: l.erpCode ?? null, unit: l.unit, qty: l.qty,
+    unitPrice: Number(q.unitPrices[l.id]), sourceRequestId: l.sourceRequestId ?? null, sourceKind: l.sourceKind ?? null,
+  }));
+  const deliveryNote = Number(q.deliveryCost) > 0 ? `Supplier delivery charge ${Number(q.deliveryCost).toLocaleString('en-AE', { minimumFractionDigits: 2 })} ${cur} is NOT in the item lines — add it to the invoice check.` : null;
+  const notes = [rfq.notes, q.notes, deliveryNote, q.leadTimeDays != null ? `Lead time ${q.leadTimeDays} days` : null, q.quoteRef ? `Supplier quotation ${q.quoteRef}` : null].filter(Boolean).join(' · ') || null;
+  const typedNo = opts.stfNo?.trim() || '';
+  let stf: Stf;
+  if (dup) {
+    stf = dup;   // finish the half-done award instead of duplicating
+  } else {
+    stf = await dbSaveStf({
+      stfNo: typedNo || undefined, autoNumber: !typedNo, date: new Date().toISOString().slice(0, 10), description: rfq.title,
+      supplierId: q.supplierId ?? null, supplierName: q.supplierName,
+      projectType: opts.projectType || 'SALES', projectName: (opts.projectName ?? rfq.projectName ?? '').trim(),
+      currency: cur, fxRate: fx || 1, paymentTerms: q.paymentTerms ?? null, lines: stfLines,
+      attachments: (q.attachments || []).map((a) => ({ ...a, kind: 'quotation', shared: true })),
+      rfqId: rfq.id, rfqNo: rfq.rfqNo, winningQuoteId: q.id, notes,
+    } as any, byName);
+  }
+  let savedRfq: Rfq | undefined;
+  await updateFirestoreDocArray('procurementRfqs', (arr) => {
+    savedRfq = undefined;
+    const now = new Date().toISOString();
+    const c = arr.find((x: Rfq) => x.id === rfqId);
+    if (!c) return arr;
+    savedRfq = { ...c, status: 'po_created', awardedQuoteId: q.id, awardNotes: opts.awardNotes?.trim() || null, awardedByName: byName, awardedAt: now, stfId: stf.id, stfNo: stf.stfNo, updatedAt: now } as Rfq;
+    return arr.map((x: Rfq) => (x.id === rfqId ? savedRfq! : x));
+  });
+  if (!savedRfq) throw new ProcurementError('The STF was created, but the quotation sheet could not be marked as awarded. Open it and award again.');
+  return { rfq: savedRfq, stf };
 }
 
 // Supplier invoice against a PO. The 3-way match is worked out by the portal from the receipts and passed in.
@@ -4145,10 +4220,10 @@ function checkStfLines(lines: StfLine[] | undefined): string | null {
 }
 
 const STF_EDITABLE = ['date', 'description', 'supplierId', 'supplierName', 'projectType', 'projectName', 'currency', 'fxRate', 'vatRate',
-  'paymentTerms', 'lines', 'rfqId', 'rfqNo', 'attachments', 'notes'] as const;
+  'paymentTerms', 'lines', 'rfqId', 'rfqNo', 'winningQuoteId', 'attachments', 'notes'] as const;
 
 // Create (no id) or edit (id, while still PENDING) an STF.
-export async function dbSaveStf(input: Partial<Stf> & { description: string; supplierName: string; lines: StfLine[] }, byName: string): Promise<Stf> {
+export async function dbSaveStf(input: Partial<Stf> & { description: string; supplierName: string; lines: StfLine[]; autoNumber?: boolean }, byName: string): Promise<Stf> {
   procurementOnly();
   if (!input.description?.trim()) throw new ProcurementError('Describe what is being bought.');
   if (!input.supplierName?.trim()) throw new ProcurementError('Choose the supplier.');
@@ -4156,8 +4231,9 @@ export async function dbSaveStf(input: Partial<Stf> & { description: string; sup
   if (bad) throw new ProcurementError(bad);
   const settings = await dbFetchProcurementSettings();
   const customNo = input.stfNo?.trim();
-  // The STF number is always typed by the user (it comes from the company's own numbering) — never generated.
-  if (!input.id && !customNo) throw new ProcurementError('Type the STF number.');
+  // The STF number is typed by the user (it comes from the company's own numbering). The only exception is an STF
+  // raised automatically from an awarded quotation (`autoNumber`), which takes the next number in the company format.
+  if (!input.id && !customNo && !input.autoNumber) throw new ProcurementError('Type the STF number.');
   if (customNo && /\s/.test(customNo)) throw new ProcurementError('The STF number can’t contain spaces.');
   let saved: Stf | undefined;
   let error: string | undefined;
@@ -4183,7 +4259,7 @@ export async function dbSaveStf(input: Partial<Stf> & { description: string; sup
       projectType: patch.projectType || 'SALES', projectName: patch.projectName || '',
       currency: patch.currency || 'AED', fxRate: Number(patch.fxRate) || 1, vatRate: patch.vatRate ?? 5, paymentTerms: patch.paymentTerms ?? null,
       lines: patch.lines, status: 'pending', queue, statusDate: now.slice(0, 10),
-      rfqId: patch.rfqId ?? null, rfqNo: patch.rfqNo ?? null, attachments: patch.attachments || [], poId: null, poNo: null,
+      rfqId: patch.rfqId ?? null, rfqNo: patch.rfqNo ?? null, winningQuoteId: patch.winningQuoteId ?? null, attachments: patch.attachments || [], poId: null, poNo: null,
       history: [{ at: now, byName, action: 'created', toQueue: queue }], notes: patch.notes ?? null, createdByName: byName, createdAt: now,
     };
     saved = stf;
@@ -4264,8 +4340,18 @@ export async function dbStfAction(id: string, action: StfAction, byName: string,
 // The PO that was issued from this STF
 export async function dbLinkStfPo(stfId: string, po: { id: string; poNo: string }, byName: string): Promise<void> {
   procurementOnly();
-  await updateFirestoreDocArray('procurementStfs', (arr) => arr.map((x: Stf) => (x.id === stfId
-    ? { ...x, poId: po.id, poNo: po.poNo, updatedAt: new Date().toISOString(), history: [...x.history, { at: new Date().toISOString(), byName, action: 'po_issued' as const, notes: po.poNo }] } : x)));
+  let rfqId: string | null = null;
+  await updateFirestoreDocArray('procurementStfs', (arr) => arr.map((x: Stf) => {
+    if (x.id !== stfId) return x;
+    rfqId = x.rfqId ?? null;
+    return { ...x, poId: po.id, poNo: po.poNo, updatedAt: new Date().toISOString(), history: [...x.history, { at: new Date().toISOString(), byName, action: 'po_issued' as const, notes: po.poNo }] };
+  }));
+  // traceability: the quotation sheet also remembers the PO that came out of it
+  if (rfqId) {
+    try {
+      await updateFirestoreDocArray('procurementRfqs', (arr) => arr.map((x: Rfq) => (x.id === rfqId ? { ...x, poId: po.id, poNo: po.poNo, updatedAt: new Date().toISOString() } : x)));
+    } catch { /* the PO and STF are linked; the RFQ link is only a convenience */ }
+  }
 }
 
 // ── Structured Trade Finance (bank facilities) ────────────────────────────────────────────

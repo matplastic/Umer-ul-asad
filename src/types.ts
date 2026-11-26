@@ -888,6 +888,7 @@ export interface PurchaseOrder {
   poNo: string;                     // MAT-PO-2026-0001
   rfqId?: string | null;
   rfqNo?: string | null;
+  quoteId?: string | null;          // the winning supplier quotation (RfqQuote.id) this PO is priced from
   // The STF (purchase approval form) this PO was issued from, and the project it is bought for.
   stfId?: string | null;
   stfNo?: string | null;
@@ -963,24 +964,36 @@ export interface RfqQuote {
   quoteDate?: string | null;
   attachments?: ProcAttachment[];  // the supplier's quotation as PDF / photo
   notes?: string | null;
+  // ── RFQ dispatch + landed cost ──
+  currency?: string | null;        // currency of this supplier's prices (AED when empty)
+  fxRate?: number | null;          // AED per 1 unit of `currency` (1 / empty = AED)
+  deliveryCost?: number | null;    // supplier's delivery / freight charge, in `currency`
+  requestedAt?: string | null;     // when the request for quotation was sent to this supplier
+  requestedByName?: string | null;
+  declined?: boolean;              // the supplier replied that they will not quote
+  custom?: boolean;                // supplier typed in on the fly (not in the Store's supplier master)
 }
 
 // Quotation sheet (RFQ): what we need, who we asked, what each supplier quoted,
 // and who was chosen (with the reason). It feeds the PO.
 export interface Rfq {
   id: string;
-  rfqNo: string;                    // MAT-QTN-2026-0001
+  rfqNo: string;                    // MAT-QTN-2026-0001 (or typed by the buyer)
   title: string;
-  neededBy?: string | null;
-  notes?: string | null;
+  neededBy?: string | null;         // target delivery date
+  projectName?: string | null;      // department / project the purchase is for
+  notes?: string | null;            // remarks
   lines: RfqLine[];
   quotes: RfqQuote[];
-  status: 'draft' | 'awarded' | 'po_created' | 'cancelled';
+  status: 'draft' | 'awarded' | 'po_created' | 'cancelled';   // po_created = the STF has been raised from the award
   awardedQuoteId?: string | null;
+  stfId?: string | null;            // the STF raised automatically when the quote was awarded
+  stfNo?: string | null;
+  poId?: string | null;             // (kept) the PO issued from that STF
   awardNotes?: string | null;       // required when the winner is not the cheapest
   awardedByName?: string | null;
   awardedAt?: string | null;
-  poId?: string | null;
+  poNo?: string | null;
   createdByName: string;
   createdAt: string;
   updatedAt?: string | null;
@@ -1145,6 +1158,7 @@ export interface Stf {
   statusDate: string;               // last status date
   rfqId?: string | null;
   rfqNo?: string | null;
+  winningQuoteId?: string | null;   // the RfqQuote that won — traceability back to the supplier's quotation
   attachments: ProcAttachment[];    // supplier quotation(s), approvals
   poId?: string | null;
   poNo?: string | null;

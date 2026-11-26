@@ -11,11 +11,12 @@ import {
 } from '../lib/firebaseService';
 import {
   STAGE_META, canAutoClose, cheapestQuoteId, dateFmt, daysUntil, money, openRequisitions, poFinance, poProgress, poStage, poTotals, qtyFmt,
-  quoteTotal, type PoStage,
+  dispatchSummary, quoteLandedAed, type PoStage,
 } from '../lib/procurement';
 import { PoEditor, type PoSeed } from './PoEditor';
 import { PoDetailPanel } from './PoDetailPanel';
 import { RfqEditor, type RfqSeed } from './RfqEditor';
+import { ProcurementTrace } from './ProcurementTrace';
 import { StfEditor, type StfSeed } from './StfEditor';
 import { StfPanel } from './StfPanel';
 import { ConvertStfDialog } from './ConvertStfDialog';
@@ -180,18 +181,12 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
     });
   };
 
-  // The quotation sheet is decided → start the STF with the winner's prices and the quotation PDF(s)
-  const createStfFromRfq = (rfq: Rfq) => {
-    const q = rfq.quotes.find(x => x.id === rfq.awardedQuoteId);
-    if (!q) return;
+  // The RFQ was awarded → its STF already exists (created with the award); open it in the approval board
+  const afterAward = async (_rfq: Rfq, stf: Stf) => {
     setRfqEditor(null);
-    setStfEditor({
-      seed: {
-        rfq, description: rfq.title, supplierName: q.supplierName, paymentTerms: q.paymentTerms || null,
-        attachments: (q.attachments || []).map(a => ({ ...a, kind: 'quotation', shared: true })),
-        lines: rfq.lines.map(l => ({ materialId: l.materialId, itemName: l.itemName, qty: l.qty, unitPrice: q.unitPrices[l.id] ?? null, sourceRequestId: l.sourceRequestId, sourceKind: l.sourceKind })),
-      },
-    });
+    await load();
+    setSelectedStfId(stf.id);
+    setTab('stf');
   };
 
   // ---- exports ----
@@ -265,8 +260,10 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
       {/* ───────── content ───────── */}
       <main className="flex-1 min-w-0 w-full space-y-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-black text-slate-900">{title}</h1>
-          <div className="lg:hidden ml-auto flex gap-2">
+          <h1 className="text-xl font-black text-slate-900 shrink-0">{title}</h1>
+          <ProcurementTrace rfqs={rfqs} stfs={stfs} pos={pos}
+            onOpenRfq={r => setRfqEditor({ initial: r })} onOpenStf={x => setSelectedStfId(x.id)} onOpenPo={p => setSelectedPoId(p.id)} />
+          <div className="lg:hidden flex gap-2">
             <button onClick={load} className={btn.soft}><RefreshCw className="h-3.5 w-3.5" /></button>
             <button onClick={() => setShowSettings(true)} className={btn.soft}><Settings className="h-3.5 w-3.5" /></button>
           </div>
@@ -375,30 +372,33 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
         {tab === 'rfq' && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <div className="text-xs text-slate-500">Compare supplier quotations first. Awarding one pre-fills a new STF for approval.</div>
-              <button onClick={() => setRfqEditor({})} className={`${btn.primary} ml-auto shrink-0`} data-testid="rfq-new"><Plus className="h-3.5 w-3.5" /> Record quotations</button>
+              <div className="text-xs text-slate-500">One RFQ number, several suppliers. Compare the quotations side by side, then award — the STF is raised for you and the PO follows once it is approved.</div>
+              <button onClick={() => setRfqEditor({})} className={`${btn.primary} ml-auto shrink-0`} data-testid="rfq-new"><Plus className="h-3.5 w-3.5" /> New RFQ</button>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto">
-              <table className="w-full min-w-[640px] text-xs">
+              <table className="w-full min-w-[820px] text-xs">
                 <thead><tr className="bg-slate-50 text-slate-500 uppercase text-[10px]">
-                  <th className="text-left px-3 py-2">Quotation</th><th className="text-left px-3 py-2">Title</th><th className="text-right px-3 py-2">Items</th>
-                  <th className="text-right px-3 py-2">Quotes</th><th className="text-right px-3 py-2">PDFs</th><th className="text-right px-3 py-2">Lowest</th><th className="text-left px-3 py-2">Awarded to</th><th className="text-left px-3 py-2">Status</th>
+                  <th className="text-left px-3 py-2">RFQ</th><th className="text-left px-3 py-2">Title</th><th className="text-right px-3 py-2">Items</th>
+                  <th className="text-left px-3 py-2">Suppliers</th><th className="text-right px-3 py-2">PDFs</th><th className="text-right px-3 py-2">Lowest landed</th><th className="text-left px-3 py-2">Awarded to</th><th className="text-left px-3 py-2">STF / PO</th><th className="text-left px-3 py-2">Status</th>
                 </tr></thead>
                 <tbody>
                   {[...rfqs].sort((a, b) => b.rfqNo.localeCompare(a.rfqNo)).map(s => {
                     const cheap = cheapestQuoteId(s);
                     const cq = s.quotes.find(q => q.id === cheap);
                     const win = s.quotes.find(q => q.id === s.awardedQuoteId);
+                    const ds = dispatchSummary(s);
+                    const aed = cq ? quoteLandedAed(s, cq) : null;
                     return (
                       <tr key={s.id} onClick={() => setRfqEditor({ initial: s })} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer">
                         <td className="px-3 py-2.5 font-mono font-bold">{s.rfqNo}</td>
-                        <td className="px-3 py-2.5 font-semibold text-slate-800">{s.title}<div className="text-[10px] font-normal text-slate-500">{dateFmt(s.createdAt)} · {s.createdByName}</div></td>
+                        <td className="px-3 py-2.5 font-semibold text-slate-800">{s.title}<div className="text-[10px] font-normal text-slate-500">{s.projectName ? `${s.projectName} · ` : ''}{dateFmt(s.createdAt)} · {s.createdByName}{s.neededBy ? ` · needed ${dateFmt(s.neededBy)}` : ''}</div></td>
                         <td className="px-3 py-2.5 text-right">{s.lines.length}</td>
-                        <td className="px-3 py-2.5 text-right">{s.quotes.length}</td>
+                        <td className="px-3 py-2.5" data-testid="rfq-row-suppliers"><span className="font-bold">{ds.requested} requested</span><div className="text-[10px] text-slate-500">{ds.quoted} quoted{ds.waiting ? ` · ${ds.waiting} waiting` : ''}{ds.declined ? ` · ${ds.declined} declined` : ''}</div></td>
                         <td className="px-3 py-2.5 text-right">{(() => { const n = s.quotes.reduce((t, q) => t + (q.attachments?.length || 0), 0); return n ? <span className="inline-flex items-center gap-1 text-primary-700 font-bold"><Paperclip className="h-3 w-3" />{n}</span> : <span className="text-slate-300">—</span>; })()}</td>
-                        <td className="px-3 py-2.5 text-right font-mono">{cq ? `${money(quoteTotal(s, cq) || 0)}` : '—'}<div className="text-[10px] text-slate-500 font-sans">{cq?.supplierName}</div></td>
+                        <td className="px-3 py-2.5 text-right font-mono">{aed != null ? `AED ${money(aed)}` : '—'}<div className="text-[10px] text-slate-500 font-sans">{cq?.supplierName}</div></td>
                         <td className="px-3 py-2.5">{win?.supplierName || '—'}</td>
-                        <td className="px-3 py-2.5"><span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${s.status === 'draft' ? 'bg-slate-100 text-slate-700 border-slate-300' : s.status === 'awarded' ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-emerald-50 text-emerald-800 border-emerald-300'}`}>{s.status === 'po_created' ? 'STF / PO made' : s.status}</span></td>
+                        <td className="px-3 py-2.5 font-mono text-[11px]">{s.stfNo || '—'}{s.poNo && <div className="text-slate-500">{s.poNo}</div>}</td>
+                        <td className="px-3 py-2.5"><span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${s.status === 'draft' ? 'bg-slate-100 text-slate-700 border-slate-300' : s.status === 'awarded' ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-emerald-50 text-emerald-800 border-emerald-300'}`}>{s.poNo ? 'PO issued' : s.status === 'po_created' ? 'STF raised' : s.status}</span></td>
                       </tr>
                     );
                   })}
@@ -471,7 +471,7 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
           suppliers={suppliers} materials={materials} initial={rfqEditor.initial} seed={rfqEditor.seed} currentUserName={currentUserName}
           onClose={() => setRfqEditor(null)}
           onSaved={async () => { await load(); }}
-          onCreatePo={createStfFromRfq}
+          onAwarded={afterAward}
         />
       )}
     </div>
