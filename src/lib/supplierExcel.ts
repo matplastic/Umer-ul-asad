@@ -8,10 +8,11 @@
 // ───────────────────────────────────────────────────────────
 import type { Supplier, SupplierStatus } from '../types';
 import { mapColumns, cellText, parseNum, downloadTemplate, type Cell, type ImportCol } from './excelImport';
-import { normName } from './suppliers';
+import { normName, normCode, cleanCode } from './suppliers';
 
 export const SUPPLIER_COLS: ImportCol[] = [
   { key: 'name', label: 'Supplier Name', aliases: ['supplier', 'name', 'vendor', 'vendor name', 'company', 'company name'], kind: 'text', required: true, example: 'ABC Chemicals LLC' },
+  { key: 'code', label: 'Supplier Code', aliases: ['code', 'supplier no', 'supplier number', 'supplier id', 'vendor code', 'vendor no', 'sup code'], kind: 'text', example: 'SUP-0105' },
   { key: 'status', label: 'Status', aliases: [], kind: 'text', example: 'Active' },
   { key: 'category', label: 'Category', aliases: ['supplies', 'material category'], kind: 'text', example: 'Resin' },
   { key: 'contactPerson', label: 'Contact Person', aliases: ['contact', 'contact name'], kind: 'text', example: 'Ahmed Khan' },
@@ -33,10 +34,11 @@ export const SUPPLIER_COLS: ImportCol[] = [
 
 export function downloadSupplierTemplate() {
   downloadTemplate('Supplier_Import_Template.xlsx', SUPPLIER_COLS, [
-    'Fill one supplier per row, starting under the header row. Only "Supplier Name" is required.',
+    'Fill one supplier per row, starting under the header row. "Supplier Name" is always required.',
+    '"Supplier Code" is required for NEW suppliers — type your own code. Every code must be unique (upper/lower case does not matter).',
     'Status can be Active, On hold or Blocked (blank = Active for new suppliers).',
     'A supplier that already exists (same name, or same Tax / TRN) is UPDATED with the cells you filled in — blank cells never erase existing data.',
-    'New suppliers get the next code (SUP-0001, SUP-0002 …) automatically. Do not put codes in this file.',
+    'For an existing supplier you can leave the code blank (it keeps its code) or type a new code to change it.',
     'Delete the grey example row before uploading.',
   ]);
 }
@@ -90,6 +92,9 @@ export function parseSupplierRows(sheet: Cell[][], existing: Supplier[]): Parsed
   }
 
   const get = (row: Cell[], key: string): string => (index[key] === undefined ? '' : cellText(row[index[key]]));
+  const byCode = new Map<string, Supplier>();
+  for (const s of existing) { const k = normCode(s.code); if (k && !byCode.has(k)) byCode.set(k, s); }
+  const seenCodes = new Map<string, number>();         // normalised code → first row it appeared on
   const seenNames = new Map<string, number>();         // normalised name → first row it appeared on
   const seenTargets = new Map<string, number>();       // existing supplier id → first row that updates it
   const out: ImportRow[] = [];
@@ -110,6 +115,9 @@ export function parseSupplierRows(sheet: Cell[][], existing: Supplier[]): Parsed
       if (v) (input as any)[k] = v;
     }
     if (input.currency) input.currency = input.currency.toUpperCase();
+
+    const typedCode = cleanCode(get(row, 'code'));
+    if (typedCode) input.code = typedCode;
 
     const email = get(row, 'email');
     if (email) {
@@ -156,6 +164,20 @@ export function parseSupplierRows(sheet: Cell[][], existing: Supplier[]): Parsed
       const firstTarget = seenTargets.get(target.id);
       if (firstTarget !== undefined && !errors.length) errors.push(`Updates the same supplier (${target.code}) as row ${firstTarget}`);
       else if (firstTarget === undefined) seenTargets.set(target.id, rowNo);
+    }
+
+    // Supplier code: required for a new supplier, must be unique
+    if (typedCode) {
+      const owner = byCode.get(normCode(typedCode));
+      if (owner && (!target || owner.id !== target.id)) errors.push(`Code "${typedCode}" is already used by "${owner.name}"`);
+      const firstCode = seenCodes.get(normCode(typedCode));
+      if (firstCode !== undefined) errors.push(`Code "${typedCode}" is also used on row ${firstCode}`);
+      else seenCodes.set(normCode(typedCode), rowNo);
+      if (target && !errors.length && normCode(target.code) !== normCode(typedCode)) warnings.push(`Code changes from ${target.code} to ${typedCode}`);
+    } else if (!target && name) {
+      errors.push(index.code === undefined
+        ? 'Supplier code is required for a new supplier — add a "Supplier Code" column'
+        : 'Supplier code is required for a new supplier');
     }
 
     if (target) {

@@ -30,19 +30,19 @@ const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 type FormState = {
-  id?: string; name: string; status: SupplierStatus; category: string;
+  id?: string; code: string; name: string; status: SupplierStatus; category: string;
   contactPerson: string; phone: string; email: string; website: string;
   address: string; city: string; country: string;
   taxNo: string; paymentTerms: string; currency: string; creditLimit: string; leadTimeDays: string;
   bankName: string; iban: string; notes: string;
 };
 const emptyForm = (name = ''): FormState => ({
-  name, status: 'active', category: '', contactPerson: '', phone: '', email: '', website: '',
+  code: '', name, status: 'active', category: '', contactPerson: '', phone: '', email: '', website: '',
   address: '', city: '', country: 'UAE', taxNo: '', paymentTerms: '', currency: 'AED', creditLimit: '', leadTimeDays: '',
   bankName: '', iban: '', notes: '',
 });
 const toForm = (s: Supplier): FormState => ({
-  id: s.id, name: s.name, status: s.status || 'active', category: s.category || '',
+  id: s.id, code: s.code || '', name: s.name, status: s.status || 'active', category: s.category || '',
   contactPerson: s.contactPerson || '', phone: s.phone || '', email: s.email || '', website: s.website || '',
   address: s.address || '', city: s.city || '', country: s.country || '',
   taxNo: s.taxNo || '', paymentTerms: s.paymentTerms || '', currency: s.currency || '',
@@ -59,7 +59,6 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
   const [saving, setSaving] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'overview' | 'materials' | 'receipts'>('overview');
-  const [importing, setImporting] = useState(false);
   const [showExcelImport, setShowExcelImport] = useState(false);
 
   const { stats, unregistered } = useMemo(
@@ -87,6 +86,7 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
 
   const save = async () => {
     if (!form) return;
+    if (!form.code.trim()) { setFormError('Supplier code is required — type the code for this supplier.'); return; }
     if (!form.name.trim()) { setFormError('Supplier name is required.'); return; }
     if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) { setFormError('That email address does not look right.'); return; }
     const credit = form.creditLimit.trim() === '' ? null : Number(form.creditLimit);
@@ -97,7 +97,7 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
     setSaving(true); setFormError(null);
     try {
       await dbSaveSupplier({
-        id: form.id, name: form.name, status: form.status,
+        id: form.id, code: form.code, name: form.name, status: form.status,
         category: orNull(form.category), contactPerson: orNull(form.contactPerson), phone: orNull(form.phone),
         email: orNull(form.email), website: orNull(form.website), address: orNull(form.address),
         city: orNull(form.city), country: orNull(form.country), taxNo: orNull(form.taxNo),
@@ -121,17 +121,6 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
     await dbDeleteSupplier(st.supplier.id);
     if (detailId === st.supplier.id) setDetailId(null);
     onChanged();
-  };
-
-  const addAllUnregistered = async () => {
-    if (!window.confirm(`Create ${unregistered.length} supplier record(s) from the names already used on your receipts and materials? You can fill in their details afterwards.`)) return;
-    setImporting(true);
-    try {
-      for (const u of unregistered) await dbSaveSupplier({ name: u.name, status: 'active' }, currentUserName); // one at a time so codes stay unique
-    } finally {
-      setImporting(false);
-      onChanged();
-    }
   };
 
   const exportList = () => {
@@ -216,13 +205,11 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
             <div className="flex items-center gap-2 text-xs font-bold text-amber-700">
               <AlertTriangle className="h-4 w-4" /> {unregistered.length} supplier name{unregistered.length > 1 ? 's are' : ' is'} used on receipts or materials but not in your supplier list
             </div>
-            <button onClick={addAllUnregistered} disabled={importing} data-testid="suppliers-add-all" className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-[11px] font-bold cursor-pointer">
-              {importing ? 'Adding…' : `Add all ${unregistered.length}`}
-            </button>
+            <span className="text-[11px] text-amber-700">Click a name to add it — you will type its supplier code.</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {unregistered.slice(0, 30).map((u) => (
-              <button key={u.name} onClick={() => openNew(u.name)} title="Add this supplier and fill in their details" className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[11px] text-slate-800 cursor-pointer">
+              <button key={u.name} onClick={() => openNew(u.name)} title="Add this supplier — type its code and fill in the details" className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 border border-slate-300 text-[11px] text-slate-800 cursor-pointer">
                 + {u.name} <span className="text-slate-500">· {u.receipts} receipt{u.receipts === 1 ? '' : 's'}</span>
               </button>
             ))}
@@ -446,7 +433,8 @@ export const SuppliersPage: React.FC<Props> = ({ suppliers, incoming, materials,
               <div>
                 <div className="text-[10px] uppercase font-black text-primary-700 mb-2">General</div>
                 <div className="grid md:grid-cols-3 gap-3">
-                  <div className="md:col-span-2"><label className={label}>Supplier name *</label><input data-testid="sf-name" value={form.name} onChange={(e) => set('name', e.target.value)} className={input} autoFocus /></div>
+                  <div><label className={label}>Supplier code *</label><input data-testid="sf-code" value={form.code} onChange={(e) => set('code', e.target.value)} className={input} placeholder="Type the code" autoFocus /></div>
+                  <div className="md:col-span-2"><label className={label}>Supplier name *</label><input data-testid="sf-name" value={form.name} onChange={(e) => set('name', e.target.value)} className={input} /></div>
                   <div><label className={label}>Status</label>
                     <select data-testid="sf-status" value={form.status} onChange={(e) => set('status', e.target.value)} className={input}>
                       <option value="active">Active</option><option value="on_hold">On hold</option><option value="blocked">Blocked</option>

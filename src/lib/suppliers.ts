@@ -122,6 +122,11 @@ export function buildSupplierStats(
   return { stats, unregistered };
 }
 
+// Supplier codes are typed by hand. Two codes are "the same" ignoring case and extra spaces.
+export const cleanCode = (s: unknown) => String(s ?? '').trim().replace(/\s+/g, ' ');
+export const normCode = (s: unknown) => cleanCode(s).toUpperCase();
+
+// (No longer used when saving — codes are typed manually — kept as a helper.)
 // Next supplier code, from the codes already on file: SUP-0001, SUP-0002 …
 export function nextSupplierCode(existing: { code?: string | null }[]): string {
   let max = 0;
@@ -149,16 +154,25 @@ export function applySupplierSave(
   if (!name) return { arr, error: 'Supplier name is required.' };
   const clash = arr.find((s) => normName(s.name) === normName(name) && s.id !== input.id);
   if (clash) return { arr, error: `A supplier named "${clash.name}" already exists (${clash.code}).` };
+  // The code is typed by the user. New suppliers must have one; on an edit, leaving it out keeps the old code,
+  // but it can never be blanked. It must be unique (ignoring case / extra spaces).
+  const hasCode = input.code !== undefined && input.code !== null;
+  const code = cleanCode(input.code);
+  if ((!input.id || hasCode) && !code) return { arr, error: 'Supplier code is required — type the code for this supplier.' };
+  if (code) {
+    const codeClash = arr.find((s) => normCode(s.code) === normCode(code) && s.id !== input.id);
+    if (codeClash) return { arr, error: `The code "${code}" is already used by "${codeClash.name}". Codes must be unique.` };
+  }
   const next = [...arr];
   if (input.id) {
     const idx = next.findIndex((s) => s.id === input.id);
     if (idx === -1) return { arr, error: 'Supplier not found — it may have been deleted.' };
-    const saved = { ...next[idx], ...input, name, updatedAt: nowIso } as Supplier;
+    const saved = { ...next[idx], ...input, ...(hasCode ? { code } : {}), name, updatedAt: nowIso } as Supplier;
     next[idx] = saved;
     return { arr: next, saved };
   }
   const saved = {
-    status: 'active', ...input, id: makeId(), code: nextSupplierCode(arr), name,
+    status: 'active', ...input, id: makeId(), code, name,
     createdAt: nowIso, createdByName: byName, updatedAt: nowIso,
   } as Supplier;
   next.push(saved);
@@ -167,7 +181,7 @@ export function applySupplierSave(
 
 // ── Bulk save (Excel upload) ─────────────────────────────────────────────────
 // Applies many supplier rows in ONE pass over the list, using the same rules as
-// a single save (unique names, next SUP-code). A row either updates the
+// a single save (unique names, unique typed codes). A row either updates the
 // supplier it points at (matchId, or the same name) or creates a new one.
 // Only the fields present on `input` are written, so blank Excel cells never
 // erase what is already on file.

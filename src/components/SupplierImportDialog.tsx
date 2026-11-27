@@ -180,7 +180,7 @@ export const SupplierImportDialog: React.FC<Props> = ({ suppliers, currentUserNa
                       {shown.map((r) => (
                         <tr key={r.rowNo} className="border-t border-slate-200 hover:bg-slate-50 align-top">
                           <td className="py-2 px-3 font-mono text-slate-500">{r.rowNo}</td>
-                          <td className="py-2 px-3 font-semibold text-slate-900">{r.name}{r.matchCode && <div className="text-[10px] font-mono text-slate-500">{r.matchCode}</div>}</td>
+                          <td className="py-2 px-3 font-semibold text-slate-900">{r.name}{(r.input.code || r.matchCode) && <div className="text-[10px] font-mono text-slate-500">{r.input.code || r.matchCode}</div>}</td>
                           <td className="py-2 px-3">{pill(r.action)}</td>
                           <td className="py-2 px-3 text-slate-700">{r.input.contactPerson || '—'}{r.input.phone && <div className="text-[10px] font-mono text-slate-500">{r.input.phone}</div>}{r.input.email && <div className="text-[10px] text-slate-500">{r.input.email}</div>}</td>
                           <td className="py-2 px-3 font-mono text-slate-700">{r.input.taxNo || '—'}</td>
