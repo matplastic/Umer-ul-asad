@@ -1,4 +1,5 @@
 # MAT Plastic ERP System
+Created by Syed Muhammad Umer ul Asad 
 
 An internal web-based Manufacturing ERP application for MAT Plastic Industries LLC (UAE swimming pool manufacturer — steel fabrication, steel coating, GRP/fibreglass, mosaic, and acrylic production).
 
