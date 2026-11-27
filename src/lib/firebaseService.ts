@@ -266,8 +266,17 @@ async function collectionGetAll(name: string): Promise<any[]> {
 // documents that actually changed — this is what keeps per-edit write cost
 // down to ~1 document instead of rewriting everything, and is what removes
 // the race condition (unrelated documents are never read or rewritten).
-async function collectionDiffWrite(name: string, newArray: any[]): Promise<void> {
-  const current = await collectionGetAll(name);
+// RACE FIX (v13): `baseCurrent` is the snapshot the update function was given.
+// Diffing against it (instead of re-reading the whole collection a second time)
+// means a record another device changed between our two reads is NOT written
+// back with its older value, and a record another device just ADDED is not
+// deleted by us. Only what the update function actually changed is written.
+function cloneRecords(arr: any[]): any[] {
+  return arr.map((x) => JSON.parse(JSON.stringify(x)));
+}
+
+async function collectionDiffWrite(name: string, newArray: any[], baseCurrent?: any[]): Promise<void> {
+  const current = baseCurrent ?? await collectionGetAll(name);
   const currentById = new Map(current.map(item => [item.id, item]));
   const newById = new Map(newArray.map(item => [item.id, item]));
 
@@ -800,13 +809,14 @@ async function updateFirestoreDocArraysCore(
   // the same way the old whole-array pattern did.
   for (const name of collectionBackedNames) {
     const current = await collectionGetAll(name);
+    const baseForDiff = cloneRecords(current);
     const updated = updates[name]([...current]);
     if (!allowEmpty[name] && updated.length === 0 && current.length > 0) {
       console.warn(`[updateFirestoreDocArrays] Refusing to write empty array to '${name}' (current has ${current.length} items). Skipping this doc's write.`);
       results[name] = current;
       continue;
     }
-    await collectionDiffWrite(name, updated);
+    await collectionDiffWrite(name, updated, baseForDiff);
     results[name] = updated;
   }
 
@@ -876,12 +886,13 @@ async function updateFirestoreDocArrayCore(docName: string, updateFn: (arr: any[
     // same moment now literally cannot conflict, because they're different
     // documents — that's the whole point of this restructure.
     const current = await collectionGetAll(docName);
+    const baseForDiff = cloneRecords(current);
     const updatedArr = updateFn([...current]);
     if (!allowEmpty && updatedArr.length === 0 && current.length > 0) {
       console.warn(`[updateFirestoreDocArray] Refusing to write empty array to '${docName}' (current has ${current.length} items). Skipping write.`);
       return current;
     }
-    await collectionDiffWrite(docName, updatedArr);
+    await collectionDiffWrite(docName, updatedArr, baseForDiff);
     return updatedArr;
   }
 
@@ -1340,21 +1351,198 @@ function queuePendingWrite(docName: string, data: any[], ids?: string[]) {
   savePendingWrites(queue);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STALE-OVERWRITE GUARD (v13) — fixes "a pool that already moved on comes back
+// to an earlier stage (Steel, unclaimed / started)".
+//
+// ROOT CAUSE: when a pool save failed on a weak connection (typical on phones),
+// the whole old `pools` array was parked in localStorage and retried every 20 s
+// — for hours or days. When it finally got through, it replaced the pool's
+// CURRENT cloud record with that old copy, because nothing compared the two.
+// A phone that had been in the background had the same problem with its stale
+// in-memory copy.
+//
+// THE FIX: every pool carries a revision number (`_rev`).
+//   • App.saveState stamps each changed pool with `_rev = baseRev + 1`, where
+//     baseRev is the revision that device's copy was built on.
+//   • The write runs in a Firestore TRANSACTION that reads the live record and
+//     only writes when the cloud `_rev` still equals baseRev. Otherwise the
+//     record is returned as a CONFLICT and NOT written — the device then shows
+//     the latest cloud version and tells the user.
+//   • Failed (offline) saves wait in a per-record queue that keeps the NEWEST
+//     record but the OLDEST baseRev, so a retry hours later is simply refused if
+//     anybody changed that pool in the meantime. Old queue entries can no longer
+//     rewind a pool.
+// ─────────────────────────────────────────────────────────────────────────────
+const GUARDED_COLLECTIONS = new Set(['pools']);
+const GUARDED_QUEUE_KEY = 'apex_pending_guarded_writes_v2';
+
+type GuardedEntry = { record: any; baseRev: number | null; queuedAt: number };
+type GuardedQueue = Record<string, Record<string, GuardedEntry>>;
+export type RecordConflicts = Record<string, any | null>; // id -> live cloud record (null = deleted in cloud)
+export type SaveCollectionsResult = {
+  success: boolean;
+  queued?: boolean;
+  conflicts?: Record<string, RecordConflicts>;
+};
+
+function loadGuardedQueue(): GuardedQueue {
+  try {
+    return JSON.parse(localStorage.getItem(GUARDED_QUEUE_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function persistGuardedQueue(q: GuardedQueue) {
+  try {
+    localStorage.setItem(GUARDED_QUEUE_KEY, JSON.stringify(q));
+  } catch (e) {
+    console.warn('[guardedQueue] could not persist the retry queue (storage full?)', e);
+  }
+}
+
+function guardedQueueSize(q: GuardedQueue = loadGuardedQueue()): number {
+  return Object.values(q).reduce((n, bucket) => n + Object.keys(bucket).length, 0);
+}
+
+// One guarded operation at a time on this device, so two quick taps on the same
+// pool are applied in order and can never conflict with each other.
+let guardedChain: Promise<unknown> = Promise.resolve();
+function runGuardedSerial<T>(fn: () => Promise<T>): Promise<T> {
+  const run = guardedChain.then(fn, fn);
+  guardedChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function stableStringify(v: any): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  return '{' + Object.keys(v).sort().filter((k) => v[k] !== undefined)
+    .map((k) => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+}
+
+function sameRecord(a: any, b: any): boolean {
+  return stableStringify(a) === stableStringify(b);
+}
+
+// Writes the given records, each one only if its live revision still matches
+// the revision the caller built it on. Returns the records that were refused.
+async function saveRecordsGuarded(
+  name: string,
+  records: any[],
+  baseRevs: Record<string, number | null>
+): Promise<RecordConflicts> {
+  const conflicts: RecordConflicts = {};
+  const CHUNK = 100; // far below Firestore's 500-writes-per-transaction limit
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const part = records.slice(i, i + CHUNK);
+    const found: RecordConflicts = {};
+    await runTransaction(clientDb, async (tx) => {
+      for (const k of Object.keys(found)) delete found[k]; // transaction callbacks can be retried
+      const refs = part.map((r) => doc(clientDb, name, String(r.id)));
+      const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+      part.forEach((rec, idx) => {
+        const id = String(rec.id);
+        const snap = snaps[idx];
+        const cloud = snap.exists() ? { ...snap.data(), id: snap.data()?.id ?? snap.id } : null;
+        const clean = removeUndefined(rec);
+        // Already there (e.g. an earlier attempt really reached the server but the answer got lost).
+        if (cloud && sameRecord(removeUndefined(cloud), clean)) return;
+        const expected = baseRevs[id];
+        const matches = expected === null || expected === undefined
+          ? cloud === null
+          : cloud !== null && ((cloud as any)._rev ?? 0) === expected;
+        if (!matches) {
+          found[id] = cloud;
+          return;
+        }
+        tx.set(refs[idx], clean);
+      });
+    });
+    Object.assign(conflicts, found);
+  }
+  return conflicts;
+}
+
+// Moves everything waiting in the guarded queue to Firestore (safe to call any time).
+async function processGuardedQueue(): Promise<{
+  flushed: number;
+  remaining: number;
+  conflicts: Record<string, RecordConflicts>;
+}> {
+  const q = loadGuardedQueue();
+  const conflicts: Record<string, RecordConflicts> = {};
+  let flushed = 0;
+  for (const name of Object.keys(q)) {
+    const entries = Object.entries(q[name]);
+    if (entries.length === 0) {
+      delete q[name];
+      continue;
+    }
+    const records = entries.map(([, e]) => e.record);
+    const baseRevs: Record<string, number | null> = {};
+    entries.forEach(([id, e]) => { baseRevs[id] = e.baseRev; });
+    try {
+      const c = await saveRecordsGuarded(name, records, baseRevs);
+      if (Object.keys(c).length > 0) conflicts[name] = c;
+      flushed += entries.length;
+      delete q[name]; // written, or refused as stale — either way it must not be retried again
+    } catch (err) {
+      console.warn(`[guardedQueue] '${name}' not saved yet (likely weak/lost connection) — kept for retry.`, err);
+    }
+  }
+  persistGuardedQueue(q);
+  return { flushed, remaining: guardedQueueSize(q), conflicts };
+}
+
+function guardedSave(name: string, records: any[], baseRevs: Record<string, number | null>) {
+  return runGuardedSerial(async () => {
+    const q = loadGuardedQueue();
+    const bucket = q[name] || (q[name] = {});
+    const now = Date.now();
+    for (const rec of records) {
+      const id = String(rec.id);
+      const waiting = bucket[id];
+      const incomingBase = baseRevs[id] === undefined ? 0 : baseRevs[id];
+      bucket[id] = {
+        record: rec,                                        // newest content
+        baseRev: waiting ? waiting.baseRev : incomingBase,  // oldest base revision
+        queuedAt: now,
+      };
+    }
+    persistGuardedQueue(q); // on disk BEFORE the network attempt, so nothing is lost if the page closes
+    return processGuardedQueue();
+  });
+}
+
 export function getPendingWriteCount(): number {
-  return loadPendingWrites().length;
+  return loadPendingWrites().length + guardedQueueSize();
 }
 
 // Retries every queued write. Safe to call repeatedly (e.g. on a timer or
 // on the 'online' event) — entries that still fail simply stay queued for
 // the next attempt, entries that succeed are removed.
-export async function flushPendingWrites(): Promise<{ flushed: number; remaining: number }> {
-  const queue = loadPendingWrites();
-  if (queue.length === 0) return { flushed: 0, remaining: 0 };
+export async function flushPendingWrites(): Promise<{
+  flushed: number;
+  remaining: number;
+  conflicts: Record<string, RecordConflicts>;
+}> {
+  const legacy = loadPendingWrites();
+  if (legacy.length === 0 && guardedQueueSize() === 0) return { flushed: 0, remaining: 0, conflicts: {} };
+
+  const guarded = await runGuardedSerial(processGuardedQueue);
 
   const stillPending: PendingWrite[] = [];
-  let flushed = 0;
+  let flushed = guarded.flushed;
 
-  for (const pw of queue) {
+  for (const pw of legacy) {
+    // Old-format pool entries hold a FULL OLD COPY of the pools array with no revision to
+    // check against — replaying one is exactly what rewound pools to earlier stages. Discard.
+    if (GUARDED_COLLECTIONS.has(pw.docName)) {
+      console.warn(`[flushPendingWrites] Discarded an old-format queued '${pw.docName}' write from ${new Date(pw.queuedAt).toISOString()} (cannot be verified against the live data).`);
+      continue;
+    }
     try {
       if (pw.docName === 'logs') {
         await updateFirestoreDocArray('logs', () => pw.data);
@@ -1368,17 +1556,35 @@ export async function flushPendingWrites(): Promise<{ flushed: number; remaining
   }
 
   savePendingWrites(stillPending);
-  return { flushed, remaining: stillPending.length };
+  return { flushed, remaining: guarded.remaining + stillPending.length, conflicts: guarded.conflicts };
 }
 
 export async function saveChangedCollectionsToFirestore(
   changed: Record<string, any[]>,
-  changedIds: Record<string, string[]> = {}
-) {
+  changedIds: Record<string, string[]> = {},
+  baseRevs: Record<string, Record<string, number | null>> = {}
+): Promise<SaveCollectionsResult> {
   const entries = Object.entries(changed);
   if (entries.length === 0) return { success: true };
 
+  const guardedConflicts: Record<string, RecordConflicts> = {};
+  let guardedQueued = false;
+
   const results = await Promise.allSettled(entries.map(([name, arr]) => {
+    // Revision-guarded collections (pools): only the changed records are written, each one
+    // only if nobody changed it in the cloud since this device last saw it.
+    if (GUARDED_COLLECTIONS.has(name) && changedIds[name] && baseRevs[name]) {
+      const idSet = new Set(changedIds[name].map(String));
+      const records = arr.filter((r: any) => idSet.has(String(r?.id)));
+      if (records.length === 0) return Promise.resolve();
+      return guardedSave(name, records, baseRevs[name]).then((res) => {
+        for (const [n, c] of Object.entries(res.conflicts)) {
+          guardedConflicts[n] = { ...(guardedConflicts[n] || {}), ...c };
+        }
+        if (res.remaining > 0) guardedQueued = true;
+      });
+    }
+
     let data = arr;
     if (name === 'projectsSummary' && !arr.some((p: any) => p.id === 'SENTINEL_DB_INITIALIZED')) {
       data = [...arr, makeSentinel()];
@@ -1409,10 +1615,11 @@ export async function saveChangedCollectionsToFirestore(
     }
   });
 
-  if (anyQueued) {
-    return { success: false, queued: true };
+  const conflicts = Object.keys(guardedConflicts).length > 0 ? guardedConflicts : undefined;
+  if (anyQueued || guardedQueued) {
+    return { success: false, queued: true, conflicts };
   }
-  return { success: true };
+  return { success: true, conflicts };
 }
 
 // Intentional full wipe — ONLY used by the Management "Purge All Data" button
@@ -1489,8 +1696,9 @@ export async function dbSavePool(pool: Pool) {
   if (!base) {
     await updateFirestoreDocArray('pools', (arr) => {
       const idx = arr.findIndex(item => item.id === pool.id);
-      if (idx !== -1) arr[idx] = pool;
-      else arr.push(pool);
+      // keep the stale-overwrite guard's revision counter moving
+      if (idx !== -1) arr[idx] = { ...pool, _rev: ((arr[idx] as any)._rev ?? 0) + 1 };
+      else arr.push({ ...pool, _rev: ((pool as any)._rev ?? 0) + 1 });
       return arr;
     });
     return { success: true, pool };
@@ -2103,7 +2311,7 @@ export async function dbApplyStageMerge(
   }
 
   const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
-  changedPools.forEach(p => ops.push(b => b.set(doc(clientDb, 'pools', String(p.id)), removeUndefined(p))));
+  changedPools.forEach(p => ops.push(b => b.set(doc(clientDb, 'pools', String(p.id)), removeUndefined({ ...p, _rev: (p._rev ?? 0) + 1 }))));
   changedTeams.forEach(t => ops.push(b => b.set(doc(clientDb, 'teams', String(t.id)), removeUndefined(t))));
   if (ops.length > 0) await commitInChunks(ops);
   return { firestoreBackup };

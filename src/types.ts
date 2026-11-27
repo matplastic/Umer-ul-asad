@@ -138,6 +138,10 @@ export interface ChecklistResult {
 
 export interface Pool {
   id: string;
+  // Revision counter used by the stale-overwrite guard (see firebaseService.ts,
+  // "STALE-OVERWRITE GUARD"). Raised by 1 on every save. A save is refused when the
+  // cloud copy has a different revision than the one this device last saw.
+  _rev?: number;
   projectName: string;
   poolNo: string;
   orientation: PoolOrientation;

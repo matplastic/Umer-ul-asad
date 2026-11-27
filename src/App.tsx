@@ -148,6 +148,8 @@ export default function App() {
   const poolsRef = useRef<Pool[]>(pools);
   const teamsRef = useRef<Team[]>(teams);
   useEffect(() => { poolsRef.current = pools; }, [pools]);
+  // Latest revision this device stamped on each pool (stale-overwrite guard, see saveState).
+  const lastStampedPoolRev = useRef<Record<string, number>>({});
   useEffect(() => { teamsRef.current = teams; }, [teams]);
 
   const [inspectors, setInspectors] = useState<{ id: string; name: string; title: string }[]>([]);
@@ -609,6 +611,30 @@ export default function App() {
   // when it holds the generic fallback skeleton.
   const teamsVerifiedRef = useRef(false);
 
+  // STALE-OVERWRITE GUARD (v13): the cloud refused a pool save because somebody else changed
+  // that pool first (or it was deleted). Show the LIVE version and tell the user — the old
+  // behaviour was to silently write this device's older copy over the newer one.
+  const applyPoolConflicts = (conflicts?: Record<string, any | null>) => {
+    const ids = conflicts ? Object.keys(conflicts) : [];
+    if (!conflicts || ids.length === 0) return;
+    const labels = ids.map((id) => {
+      const p: any = conflicts[id] || poolsRef.current.find((x) => x.id === id);
+      return p ? `${p.projectName ? p.projectName + ' ' : ''}#${p.poolNo}` : id;
+    });
+    ids.forEach((id) => { delete lastStampedPoolRev.current[id]; });
+    setPools((prev) => {
+      const next = prev
+        .filter((p) => !(p.id in conflicts && conflicts[p.id] === null))
+        .map((p) => (p.id in conflicts && conflicts[p.id] ? conflicts[p.id] : p));
+      poolsRef.current = next;
+      return next;
+    });
+    alert(
+      `Pool ${labels.join(', ')} was changed by someone else before your change could be saved.\n\n` +
+      `Your change was NOT saved. The screen now shows the latest version - please check the pool and repeat your action if it is still needed.`
+    );
+  };
+
   // DATA-LOSS FIX (v11): drain the pending-write retry queue whenever the
   // browser reports it's back online, and also on a periodic timer as a
   // fallback (the 'online' event is unreliable on some tablets/kiosks —
@@ -619,7 +645,10 @@ export default function App() {
   useEffect(() => {
     const attemptFlush = () => {
       flushPendingWrites()
-        .then(({ remaining }) => setPendingWriteCount(remaining))
+        .then(({ remaining, conflicts }) => {
+          setPendingWriteCount(remaining);
+          applyPoolConflicts(conflicts?.pools);
+        })
         .catch(() => {
           // still offline / still failing — leave the queue as-is, we'll
           // try again on the next tick or the next 'online' event
@@ -1192,7 +1221,40 @@ export default function App() {
     const safeTargets = updatedMonthlyTargets.length > 0 ? updatedMonthlyTargets : (monthlyTargets.length > 0 ? monthlyTargets : updatedMonthlyTargets);
     const safeTeams = updatedTeams.length > 0 ? updatedTeams : (teams.length > 0 ? teams : updatedTeams);
 
-    localStorage.setItem('apex_pools', JSON.stringify(safePools));
+    // ─────────────────────────────────────────────────────────────────────────
+    // STALE-OVERWRITE GUARD (v13): stamp every changed pool with a new revision
+    // (`_rev = baseRev + 1`) and remember which revision it was built on. The cloud
+    // write refuses a pool whose live revision is different (see firebaseService.ts),
+    // so a phone that was in the background, or a save that sat in the retry queue
+    // for hours, can never push an old stage back over a newer one.
+    // ─────────────────────────────────────────────────────────────────────────
+    const poolChangedIds = updatedPools !== pools ? findChangedIds(pools, safePools) : [];
+    const poolBaseRevs: Record<string, number | null> = {};
+    let poolsToSave = safePools;
+    if (poolChangedIds.length > 0) {
+      const knownIds = new Set<string>([
+        ...pools.map((p) => p.id),
+        ...poolsRef.current.map((p) => p.id),
+        ...Object.keys(lastStampedPoolRev.current),
+      ]);
+      const changedSet = new Set(poolChangedIds);
+      const newRevs: Record<string, number> = {};
+      poolsToSave = safePools.map((p) => {
+        if (!changedSet.has(p.id)) return p;
+        const baseRev = knownIds.has(p.id)
+          ? Math.max(p._rev ?? 0, lastStampedPoolRev.current[p.id] ?? 0)
+          : null; // a brand-new pool: the cloud must not have it yet
+        const rev = (baseRev ?? 0) + 1;
+        poolBaseRevs[p.id] = baseRev;
+        newRevs[p.id] = rev;
+        lastStampedPoolRev.current[p.id] = rev;
+        return { ...p, _rev: rev };
+      });
+      // the handler already set the new pools; put the new revision numbers on them too
+      setPools((prev) => prev.map((p) => (newRevs[p.id] !== undefined ? { ...p, _rev: newRevs[p.id] } : p)));
+    }
+
+    localStorage.setItem('apex_pools', JSON.stringify(poolsToSave));
     localStorage.setItem('apex_teams', JSON.stringify(safeTeams));
     localStorage.setItem('apex_logs', JSON.stringify(safeLogs));
     localStorage.setItem('apex_inspectors', JSON.stringify(safeInspectors));
@@ -1215,7 +1277,7 @@ export default function App() {
     // everything else. Unchanged references are skipped entirely.
     // ─────────────────────────────────────────────────────────────────────────
     const changed: Record<string, any[]> = {};
-    if (updatedPools !== pools) changed.pools = safePools;
+    if (updatedPools !== pools) changed.pools = poolsToSave;
     if (updatedTeams !== teams) changed.teams = safeTeams;
     if (updatedLogs !== logs) changed.logs = safeLogs;
     if (updatedInspectors !== inspectors) changed.inspectors = safeInspectors;
@@ -1245,7 +1307,7 @@ export default function App() {
 
     const changedIds: Record<string, string[]> = {};
     if (changed.teams) changedIds.teams = findChangedIds(teams, safeTeams);
-    if (changed.pools) changedIds.pools = findChangedIds(pools, safePools);
+    if (changed.pools) changedIds.pools = poolChangedIds;
     // DUPLICATE-POOL FIX: without this, plannedPools fell back to the broad
     // merge where THIS tab's whole local copy wins for every record. A tab
     // still showing a pool as PLANNED (stale snapshot, second device, a
@@ -1257,8 +1319,9 @@ export default function App() {
     // the server's live value.
     if (changed.plannedPools) changedIds.plannedPools = findChangedIds(plannedPools, safePlanned);
 
-    saveChangedCollectionsToFirestore(changed, changedIds)
+    saveChangedCollectionsToFirestore(changed, changedIds, { pools: poolBaseRevs })
       .then((result) => {
+        applyPoolConflicts(result?.conflicts?.pools);
         if (result?.queued) {
           // One or more collections (e.g. this team update) couldn't reach
           // Firestore right now and were queued for automatic retry — this
