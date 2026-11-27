@@ -38,7 +38,7 @@
   schedule = "0 4 * * *"
 
 # Daily Store Report e-mail (consumption, incoming material, QC waiting list, current stock):
-# every day at 17:27 UTC = 21:27 UAE time, covering yesterday. Production deploy only.
+# every day at 03:00 UTC = 07:00 UAE time, covering yesterday. Production deploy only.
 [functions."daily-report-scheduled"]
   schedule = "0 3 * * *"
 
