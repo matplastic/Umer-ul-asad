@@ -13,6 +13,7 @@ import {
   poTotals, qtyFmt, daysUntil, type PoStage,
 } from '../lib/procurement';
 import { exportPurchaseOrderPdf } from '../lib/procurementPdf';
+import { PoDeliveryDocs } from './PoDocsUi';
 
 // Everything about ONE purchase order in one place: where it stands, what has arrived (and when),
 // what is still owed, the supplier's invoices (3-way matched) and the payments made.
@@ -202,6 +203,12 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
                 </tbody>
               </table>
             </div>
+            {progress.receipts.length > 0 && (
+              <div className="mt-4">
+                <div className="text-[11px] font-bold uppercase text-slate-500 mb-1">Supplier DO / invoice per delivery</div>
+                <PoDeliveryDocs po={po} incoming={incoming} currentUserName={currentUserName} onChanged={onChanged} />
+              </div>
+            )}
             <div className="mt-3 text-[11px] font-bold uppercase text-slate-500">Delivery history</div>
             {progress.receipts.length === 0 ? (
               <div className="text-xs text-slate-500 mt-1">Nothing received yet.{po.status === 'approved' ? ` Tell the Store to use PO number ${po.poNo} under Incoming.` : ''}</div>

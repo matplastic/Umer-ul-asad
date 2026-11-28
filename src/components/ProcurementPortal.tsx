@@ -29,6 +29,8 @@ import { TradeFinancePanel } from './TradeFinancePanel';
 import { TF_STATUS_META, tfPosition, tfTypeLabel } from '../lib/tradeFinance';
 import { SuppliersPage } from './SuppliersPage';
 import { ProgressBar, Stat, StageBadge, btn, inputCls } from './ProcurementUi';
+import { PoDocsBadge } from './PoDocsUi';
+import { poDocStatus, type PoDocStatus } from '../lib/poDocs';
 import { useTabReset } from '../hooks/useTabReset';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +52,7 @@ const NAV: { group: string; items: { id: Tab; label: string; icon: React.Element
 
 const norm = (s: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-interface Row { po: PurchaseOrder; progress: ReturnType<typeof poProgress>; fin: ReturnType<typeof poFinance>; stage: PoStage; total: number }
+interface Row { po: PurchaseOrder; progress: ReturnType<typeof poProgress>; fin: ReturnType<typeof poFinance>; stage: PoStage; total: number; docs: PoDocStatus }
 
 interface Props { currentUserName: string; canApprove: boolean }
 
@@ -108,7 +110,7 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
   const rows: Row[] = useMemo(() => pos.map(po => {
     const progress = poProgress(po, incoming);
     const fin = poFinance(po, invoices, payments);
-    return { po, progress, fin, stage: poStage(po, progress, fin), total: poTotals(po).total };
+    return { po, progress, fin, stage: poStage(po, progress, fin), total: poTotals(po).total, docs: poDocStatus(po, incoming, progress) };
   }).sort((a, b) => b.po.poNo.localeCompare(a.po.poNo)), [pos, incoming, invoices, payments]);
 
   const requisitions = useMemo(() => openRequisitions(supReqs, hrReqs, pos, stfs), [supReqs, hrReqs, pos, stfs]);
@@ -559,10 +561,10 @@ const PoList: React.FC<{ rows: Row[]; readyForPo: Stf[]; onOpen: (id: string) =>
         {chips.map(c => <button key={c.id} onClick={() => setFilter(c.id)} className={`px-3 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${filter === c.id ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'}`}>{c.label}</button>)}
       </div>
       <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
-        <table className="w-full min-w-[900px] text-xs">
+        <table className="w-full min-w-[1000px] text-xs">
           <thead><tr className="bg-slate-50 text-slate-500 uppercase text-[10px]">
             <th className="text-left px-3 py-2">PO</th><th className="text-left px-2 py-2">STF</th><th className="text-left px-2 py-2">Supplier</th><th className="text-right px-2 py-2">Total</th>
-            <th className="px-2 py-2 w-36">Received</th><th className="text-left px-2 py-2">Delivery due</th><th className="text-right px-2 py-2">Outstanding</th><th className="text-left px-2 py-2">Stage</th><th className="w-6" />
+            <th className="px-2 py-2 w-36">Received</th><th className="text-left px-2 py-2">DO / invoice</th><th className="text-left px-2 py-2">Delivery due</th><th className="text-right px-2 py-2">Outstanding</th><th className="text-left px-2 py-2">Stage</th><th className="w-6" />
           </tr></thead>
           <tbody>
             {shown.map(r => {
@@ -579,6 +581,7 @@ const PoList: React.FC<{ rows: Row[]; readyForPo: Stf[]; onOpen: (id: string) =>
                       <div className="text-[10px] text-slate-500 mt-0.5">{Math.round(r.progress.pct)}% · {r.progress.linesComplete}/{r.progress.lines.length} items</div>
                     </> : <span className="text-slate-300">—</span>}
                   </td>
+                  <td className="px-2 py-2.5">{r.po.status === 'approved' || r.po.status === 'closed' ? <PoDocsBadge status={r.docs} /> : <span className="text-slate-300">—</span>}</td>
                   <td className={`px-2 py-2.5 whitespace-nowrap ${late ? 'text-rose-700 font-bold' : ''}`}>{dateFmt(r.po.expectedDate)}{late ? ' · late' : ''}</td>
                   <td className={`px-2 py-2.5 text-right font-mono ${r.fin.outstanding > 0 ? 'text-rose-700 font-bold' : 'text-slate-300'}`}>{r.fin.outstanding > 0 ? money(r.fin.outstanding) : '—'}</td>
                   <td className="px-2 py-2.5"><StageBadge stage={r.stage} /></td>

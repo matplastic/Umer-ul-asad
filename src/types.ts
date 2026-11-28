@@ -640,6 +640,10 @@ export interface IncomingMaterial {
   poId?: string | null;
   poNo?: string | null;
   poLineId?: string | null;
+  // One truck / delivery against a PO books one receipt per item; all of them share this id so the
+  // PO can count deliveries and show whether each one has its DO / invoice uploaded. Older receipts
+  // have none (they are grouped by PO + day + DO number instead).
+  deliveryId?: string | null;
   // Scanned supplier DO / invoice files — see GrnAttachment.
   attachments?: GrnAttachment[] | null;
   notes?: string | null;
