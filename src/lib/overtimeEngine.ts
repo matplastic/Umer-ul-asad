@@ -111,6 +111,13 @@ export function parseAttendanceSheet(rows: Cell[][], opts: { month: string }): P
   hdr.forEach((c, i) => { const n = typeof c === 'number' ? c : Number(String(c ?? '').trim()); if (Number.isInteger(n) && n >= 1 && n <= 31) dayCols.push({ col: i, day: n }); });
   const isGrid = dayCols.length >= 5 && !(has('in') && has('out'));
 
+  // raw device punch log: a single "Date" column that holds date AND time (e.g. 2026-10-26 19:12:04)
+  const hasTime = (v: Cell) => (v instanceof Date && (v.getHours() + v.getMinutes() + v.getSeconds() > 0))
+    || (typeof v === 'number' && v > 20000 && v % 1 > 0)
+    || (typeof v === 'string' && /\d{1,2}[:.]\d{2}/.test(v));
+  const sample = rows.slice(headerRow + 1, headerRow + 41).map(r => (has('date') && r ? r[index['date']] : null)).filter(v => v !== null && v !== undefined && v !== '');
+  const dateIsStamp = has('date') && !has('stamp') && !has('in') && !has('out') && !has('hours') && sample.length > 0 && sample.filter(hasTime).length >= Math.ceil(sample.length / 2);
+
   const out: DayInput[] = [];
   const get = (cells: Cell[], k: string) => (has(k) ? cells[index[k]] : '');
   let layout: ParsedSheet['layout'] = 'unknown';
@@ -141,14 +148,15 @@ export function parseAttendanceSheet(rows: Cell[][], opts: { month: string }): P
       if (d === '') { issues.push(`Row ${r + 1}: no date`); continue; }
       out.push({ badge, name, dept: cellText(get(cells, 'dept')), date: d, inMin: parseTime(get(cells, 'in')), outMin: parseTime(get(cells, 'out')), hours: has('hours') ? parseHours(get(cells, 'hours')) : null, row: r + 1 });
     }
-  } else if (has('stamp') || (has('date') && has('in'))) {
+  } else if (has('stamp') || dateIsStamp || (has('date') && has('in'))) {
     layout = 'punches';
+    const stampKey = has('stamp') ? 'stamp' : 'date';
     const groups = new Map<string, DayInput & { mins: number[] }>();
     for (let r = headerRow + 1; r < rows.length; r++) {
       const cells = rows[r] || []; const badge = cellText(get(cells, 'badge')), name = cellText(get(cells, 'name'));
       if (!badge && !name) continue;
       let date = '', min: number | null = null;
-      if (has('stamp')) { const s = splitStamp(get(cells, 'stamp')); date = s.date; min = s.min; if (!date && has('date')) date = parseDate(get(cells, 'date') as Cell) || ''; }
+      if (has('stamp') || dateIsStamp) { const s = splitStamp(get(cells, stampKey)); date = s.date; min = s.min; if (!date && has('date')) date = parseDate(get(cells, 'date') as Cell) || ''; }
       else { date = parseDate(get(cells, 'date') as Cell) || ''; min = parseTime(get(cells, 'in')); }
       if (!date || min === null) { issues.push(`Row ${r + 1}: could not read the punch date/time`); continue; }
       const k = `${badge}|${normName(name)}|${date}`;
