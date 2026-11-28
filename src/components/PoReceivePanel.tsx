@@ -4,6 +4,7 @@ import type { GrnAttachment, IncomingMaterial, PurchaseOrder, Supplier } from '.
 import { dbCreateIncomingMaterial, dbUpdateIncomingMaterialDocs } from '../lib/firebaseService';
 import { GRN_ACCEPT, uploadGrnFile, validateGrnFile } from '../lib/grnAttachments';
 import { PoDeliveryDocs } from './PoDocsUi';
+import { todayLocal, isFutureDay, receivedAtFromDate } from '../lib/receiptDate';
 import { OVER_RECEIPT_TOLERANCE, dateFmt, isReceivable, maxReceivable, poProgress, qtyFmt } from '../lib/procurement';
 
 // Store → Incoming: type a PO number and the whole order appears — what was ordered, what has
@@ -31,6 +32,7 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [doNo, setDoNo] = useState('');
   const [invoiceNo, setInvoiceNo] = useState('');
+  const [receivedDate, setReceivedDate] = useState('');   // day the delivery arrived ('' = today)
   const [doFiles, setDoFiles] = useState<File[]>([]);
   const [invFiles, setInvFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
@@ -43,7 +45,7 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
   const progress = useMemo(() => (po ? poProgress(po, incoming) : null), [po, incoming]);
   const ready = !!po && isReceivable(po);
 
-  const reset = () => { setPoNo(''); setQtys({}); setDoNo(''); setInvoiceNo(''); setDoFiles([]); setInvFiles([]); setError(null); };
+  const reset = () => { setPoNo(''); setQtys({}); setDoNo(''); setInvoiceNo(''); setReceivedDate(''); setDoFiles([]); setInvFiles([]); setError(null); };
 
   const submit = async () => {
     if (!po || !progress || busy) return;
@@ -56,6 +58,7 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
       .map(lp => ({ lp, qty: Number(qtys[lp.line.id]) || 0 }))
       .filter(e => e.qty > 0);
     if (entries.length === 0) { setError('Enter the quantity that arrived for at least one item.'); return; }
+    if (isFutureDay(receivedDate)) { setError('The received date cannot be in the future.'); return; }
 
     for (const { lp, qty } of entries) {
       if (qty > maxReceivable(lp) + 1e-9) {
@@ -81,7 +84,7 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
         const created: any = await dbCreateIncomingMaterial({
           materialId: lp.line.materialId, materialName: '', unit: '', qty,
           supplier: po.supplierName, invoiceNo: invoiceNo.trim() || null, doNo: doNo.trim() || null, notes: `Against ${po.poNo}`,
-          receivedByName: currentUserName, receivedAt: new Date().toISOString(),
+          receivedByName: currentUserName, receivedAt: receivedAtFromDate(receivedDate),
           poId: po.id, poNo: po.poNo, poLineId: lp.line.id, deliveryId,
         } as any);
         if (!firstId) firstId = created?.item?.id;
@@ -179,6 +182,10 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
             </table>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">Date received
+              <input type="date" value={receivedDate || todayLocal()} max={todayLocal()} onChange={e => setReceivedDate(e.target.value)} data-testid="receive-date"
+                className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs font-normal text-slate-900" />
+            </label>
             <input value={doNo} onChange={e => setDoNo(e.target.value)} placeholder="Supplier DO # (delivery note)" data-testid="receive-do"
               className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900 w-64" />
             <input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="Supplier invoice #" data-testid="receive-invoice-no"

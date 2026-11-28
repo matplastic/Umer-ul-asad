@@ -35,6 +35,7 @@ import type { PurchaseOrder } from '../types';
 import { SuppliersPage } from './SuppliersPage';
 import { normName } from '../lib/suppliers';
 import { uploadGrnFile, deleteGrnFile, validateGrnFile, GRN_ACCEPT, KIND_LABEL, type GrnDocKind } from '../lib/grnAttachments';
+import { todayLocal, isFutureDay, receivedAtFromDate } from '../lib/receiptDate';
 import { useTabReset } from '../hooks/useTabReset';
 
 type Tab = 'requests' | 'bom' | 'inventory' | 'incoming' | 'quality' | 'traceability' | 'reports' | 'ledger' | 'suppliers' | 'key' | 'assets' | 'reorder';
@@ -64,7 +65,7 @@ const isMaterialCritical = (m: Material): boolean => {
   return CRITICAL_MATERIAL_KEYWORDS.some(k => haystack.includes(k));
 };
 const emptyBom = { projectName: '', poolType: '', materialId: '', qtyPerPool: '' };
-const emptyIncoming = { materialId: '', qty: '', supplier: '', invoiceNo: '', doNo: '', notes: '' };
+const emptyIncoming = { materialId: '', qty: '', supplier: '', invoiceNo: '', doNo: '', notes: '', receivedDate: '' };
 const emptyAsset = { name: '', assetNumber: '', erpNo: '', issuedTo: '', value: '', notes: '' };
 
 export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, projectNames, poolTypesByProject }) => {
@@ -972,6 +973,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
   // --- Incoming ---
   const saveIncoming = async () => {
     if (!newIncoming.materialId || !newIncoming.qty || incomingSaving) return;
+    if (isFutureDay(newIncoming.receivedDate)) { alert('The received date cannot be in the future.'); return; }
     const sup = suppliers.find(sp => normName(sp.name) === normName(newIncoming.supplier));
     if (sup?.status === 'blocked') {
       alert(`${sup.name} is BLOCKED in the supplier list, so material can't be received from them. Change their status under Suppliers first if this is correct.`);
@@ -1002,7 +1004,7 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
         doNo: newIncoming.doNo || null,
         notes: newIncoming.notes || null,
         receivedByName: currentUserName,
-        receivedAt: new Date().toISOString(),
+        receivedAt: receivedAtFromDate(newIncoming.receivedDate),
       } as any);
 
       const newId: string | undefined = created?.item?.id;
@@ -1640,7 +1642,10 @@ export const StoreModule: React.FC<StoreModuleProps> = ({ currentUserName, proje
               {incomingSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} {incomingSaving ? 'Saving…' : 'Send to Quality'}
             </button>
             {/* second row: supplier DO number + scans of the supplier's DO and invoice */}
-            <div className="md:col-span-6 grid grid-cols-1 md:grid-cols-4 gap-2 items-start">
+            <div className="md:col-span-6 grid grid-cols-1 md:grid-cols-5 gap-2 items-start">
+              <label className="flex flex-col gap-0.5 text-[10px] font-bold uppercase text-slate-500">Date received
+                <input type="date" data-testid="new-incoming-date" value={newIncoming.receivedDate || todayLocal()} max={todayLocal()} onChange={e => setNewIncoming((p: any) => ({ ...p, receivedDate: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs font-normal normal-case text-slate-900" />
+              </label>
               <input placeholder="Supplier DO #" data-testid="new-incoming-do" value={newIncoming.doNo} onChange={e => setNewIncoming((p: any) => ({ ...p, doNo: e.target.value }))} className="bg-slate-100 border border-slate-300 rounded-lg px-2 py-2 text-xs text-slate-900" />
               {([['do', 'Attach DO (photo / PDF)'], ['invoice', 'Attach invoice (photo / PDF)']] as const).map(([kind, label]) => (
                 <div key={kind} className="min-w-0">

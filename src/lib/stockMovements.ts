@@ -44,13 +44,13 @@ export function buildMovements(
     const decisions = (rec.qcDecisions || []).filter((d) => d.decision === 'passed' && num(d.qty) > 0);
     if (decisions.length > 0) {
       decisions.forEach((d, i) => rows.push({
-        id: `in-${rec.id}-${i}`, at: d.at || rec.qcAt || rec.receivedAt, type: 'IN', qty: num(d.qty),
+        id: `in-${rec.id}-${i}`, at: rec.receivedAt || d.at || rec.qcAt || rec.createdAt, type: 'IN', qty: num(d.qty),
         ref: grn, isDo: false, details, by: d.byName || rec.receivedByName || '',
       }));
     } else {
       const passed = rec.qtyPassed != null ? num(rec.qtyPassed) : (rec.qcStatus === 'passed' ? num(rec.qty) : 0);
       if (passed > 0) rows.push({
-        id: `in-${rec.id}`, at: rec.qcAt || rec.receivedAt || rec.createdAt, type: 'IN', qty: passed,
+        id: `in-${rec.id}`, at: rec.receivedAt || rec.qcAt || rec.createdAt, type: 'IN', qty: passed,
         ref: grn, isDo: false, details, by: rec.qcByName || rec.receivedByName || '',
       });
     }
