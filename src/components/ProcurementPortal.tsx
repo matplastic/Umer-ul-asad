@@ -4,7 +4,7 @@ import {
   RefreshCw, Plus, Search, ClipboardList, Scale, ShoppingCart, Wallet, Building2, LayoutDashboard, Download,
   AlertTriangle, ChevronRight, Loader2, FileText, Landmark, Paperclip, ClipboardCheck, Settings, Table, ArrowRight, Clock, Inbox,
 } from 'lucide-react';
-import type { IncomingMaterial, Material, ProcurementSettings, PurchaseOrder, Rfq, Stf, Supplier, SupplierInvoice, SupplierPayment, TradeFinance } from '../types';
+import type { IncomingMaterial, Material, MaterialRequest, StockAdjustment, ProcurementSettings, PurchaseOrder, Rfq, Stf, Supplier, SupplierInvoice, SupplierPayment, TradeFinance } from '../types';
 import {
   dbFetchHRPurchaseRequests, dbFetchIncomingMaterials, dbFetchMaterials, dbFetchPurchaseOrders, dbFetchRfqs,
   dbFetchSupervisorPurchaseRequests, dbFetchProcurementSettings, dbFetchStfs, dbFetchSupplierInvoices, dbFetchSupplierPayments, dbFetchSuppliers, dbFetchTradeFinances, dbLinkStfPo, dbPoAction, dbSaveRfq, dbSetPaymentClearing,
@@ -15,6 +15,9 @@ import {
 } from '../lib/procurement';
 import { PoEditor, type PoSeed } from './PoEditor';
 import { PoDetailPanel } from './PoDetailPanel';
+import { MaterialDetailPanel } from './MaterialDetailPanel';
+import { StockLedgerModal } from './StockLedgerModal';
+import { dbFetchMaterialRequests, dbFetchStockAdjustments } from '../lib/firebaseService';
 import { RfqEditor, type RfqSeed } from './RfqEditor';
 import { ProcurementTrace } from './ProcurementTrace';
 import { StfEditor, type StfSeed } from './StfEditor';
@@ -75,6 +78,10 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
   const [hrReqs, setHrReqs] = useState<any[]>([]);
 
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
+  // product details popup opened by clicking an item on a PO (view-only, same panel as Store → Inventory)
+  const [detailMaterialId, setDetailMaterialId] = useState<string | null>(null);
+  const [ledgerMaterialId, setLedgerMaterialId] = useState<string | null>(null);
+  const [ledgerData, setLedgerData] = useState<{ requests: MaterialRequest[]; adjustments: StockAdjustment[] } | null>(null);
   const [poEditor, setPoEditor] = useState<{ initial?: PurchaseOrder | null; seed?: PoSeed | null } | null>(null);
   const [selectedStfId, setSelectedStfId] = useState<string | null>(null);
   const [stfEditor, setStfEditor] = useState<{ initial?: Stf | null; seed?: StfSeed | null } | null>(null);
@@ -115,6 +122,24 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
 
   const requisitions = useMemo(() => openRequisitions(supReqs, hrReqs, pos, stfs), [supReqs, hrReqs, pos, stfs]);
   const selectedRow = rows.find(r => r.po.id === selectedPoId) || null;
+  const detailMaterial = materials.find(m => m.id === detailMaterialId) || null;
+  const ledgerMaterial = materials.find(m => m.id === ledgerMaterialId) || null;
+  const openPoItem = (it: { materialId?: string | null; itemName: string; erpCode?: string | null }) => {
+    const m = materials.find(x => it.materialId && x.id === it.materialId) || matchMaterial({ erpCode: it.erpCode, itemName: it.itemName });
+    if (!m) { alert(`"${it.itemName}" is not in the Store inventory list any more, so there is no product page to open.`); return; }
+    setDetailMaterialId(m.id);
+  };
+  const openMaterialLedger = async (id: string) => {
+    setLedgerMaterialId(id);
+    if (ledgerData) return;
+    try {
+      const [req, adj] = await Promise.all([dbFetchMaterialRequests(), dbFetchStockAdjustments()]);
+      setLedgerData({
+        requests: Array.isArray(req) ? req.map((x: any) => ({ ...x, qtyRequested: Number(x.qtyRequested) })) : [],
+        adjustments: Array.isArray(adj) ? adj.map((x: any) => ({ ...x, delta: Number(x.delta) })) : [],
+      });
+    } catch { setLedgerMaterialId(null); alert('Could not load the stock ledger. Please try again.'); }
+  };
   const selectedTf = tfs.find(t => t.id === selectedTfId) || null;
   const selectedStf = stfs.find(x => x.id === selectedStfId) || null;
 
@@ -430,6 +455,34 @@ const ProcurementPortal: React.FC<Props> = ({ currentUserName, canApprove }) => 
           onNewTf={po => setTfEditor({ forPoId: po.id })} onOpenTf={id => setSelectedTfId(id)}
           onClose={() => setSelectedPoId(null)} onChanged={load}
           onEdit={po => setPoEditor({ initial: po })}
+          onOpenMaterial={openPoItem}
+        />
+      )}
+      {detailMaterial && (
+        <MaterialDetailPanel
+          key={detailMaterial.id}
+          material={detailMaterial}
+          readOnly
+          isCritical={detailMaterial.isCritical === true}
+          periodIncoming={0}
+          periodConsumed={0}
+          onClose={() => setDetailMaterialId(null)}
+          onSaveFields={async () => {}}
+          onAdjustStock={async () => null}
+          onSaveUnits={async () => {}}
+          onToggleCritical={() => {}}
+          onOpenLedger={() => openMaterialLedger(detailMaterial.id)}
+          onMoveToAsset={() => {}}
+          onDelete={() => {}}
+        />
+      )}
+      {ledgerMaterial && ledgerData && (
+        <StockLedgerModal
+          material={ledgerMaterial}
+          requests={ledgerData.requests}
+          incoming={incoming}
+          adjustments={ledgerData.adjustments}
+          onClose={() => setLedgerMaterialId(null)}
         />
       )}
       {selectedTf && (

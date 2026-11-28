@@ -42,6 +42,8 @@ interface Props {
   onOpenLedger: () => void;
   onMoveToAsset: () => void;
   onDelete: () => void;
+  /** View-only: every field is locked and the save / adjust / delete actions are hidden (used from the PO screen). */
+  readOnly?: boolean;
 }
 
 const inputCls = 'w-full bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500/40';
@@ -63,7 +65,7 @@ const toDraft = (m: Material) => ({
 
 export const MaterialDetailPanel: React.FC<Props> = ({
   material, initialTab = 'details', isCritical, periodIncoming, periodConsumed,
-  onClose, onSaveFields, onAdjustStock, onSaveUnits, onToggleCritical, onOpenLedger, onMoveToAsset, onDelete,
+  onClose, onSaveFields, onAdjustStock, onSaveUnits, onToggleCritical, onOpenLedger, onMoveToAsset, onDelete, readOnly = false,
 }) => {
   const [tab, setTab] = useState<PanelTab>(initialTab);
   const [flash, setFlash] = useState<string | null>(null);
@@ -223,6 +225,7 @@ export const MaterialDetailPanel: React.FC<Props> = ({
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              {!readOnly && (
               <button
                 onClick={onToggleCritical}
                 data-testid="panel-key-toggle"
@@ -231,6 +234,7 @@ export const MaterialDetailPanel: React.FC<Props> = ({
               >
                 <Star className={`h-4 w-4 ${isCritical ? 'text-amber-700 fill-amber-400' : 'text-slate-400'}`} />
               </button>
+              )}
               <button onClick={onClose} data-testid="panel-close" className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer" title="Close (Esc)">
                 <X className="h-4 w-4" />
               </button>
@@ -261,6 +265,10 @@ export const MaterialDetailPanel: React.FC<Props> = ({
 
         {/* ---------- Body ---------- */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {readOnly && (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] text-sky-800" data-testid="panel-readonly-note">View only — to change this material, open it in Store → Inventory.</div>
+          )}
+          <fieldset disabled={readOnly} className="contents">
           {flash && (
             <div className="rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold px-3 py-2" data-testid="panel-flash">{flash}</div>
           )}
@@ -322,6 +330,7 @@ export const MaterialDetailPanel: React.FC<Props> = ({
               </div>
 
               {/* Danger zone */}
+              {!readOnly && (
               <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3 mt-2">
                 <div className="text-[10px] font-black uppercase text-rose-700 mb-2">Danger zone</div>
                 <div className="flex flex-wrap gap-2">
@@ -333,6 +342,7 @@ export const MaterialDetailPanel: React.FC<Props> = ({
                   </button>
                 </div>
               </div>
+              )}
             </>
           )}
 
@@ -370,9 +380,9 @@ export const MaterialDetailPanel: React.FC<Props> = ({
                   </div>
                 </div>
                 {adjustError && <div className="text-[11px] text-rose-700 font-semibold">{adjustError}</div>}
-                <button onClick={applyAdjust} disabled={adjusting} data-testid="panel-adjust-apply" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold cursor-pointer">
+                {!readOnly && (<button onClick={applyAdjust} disabled={adjusting} data-testid="panel-adjust-apply" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold cursor-pointer">
                   {adjusting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Apply adjustment
-                </button>
+                </button>)}
               </div>
 
               <div className="rounded-xl border border-slate-200 p-4 space-y-3">
@@ -394,9 +404,9 @@ export const MaterialDetailPanel: React.FC<Props> = ({
                 </label>
                 <div className="text-[11px] text-slate-500">A level of 0 switches that level off. Urgent must be equal to or lower than Reorder.</div>
                 {alertError && <div className="text-[11px] text-rose-700 font-semibold">{alertError}</div>}
-                <button onClick={saveAlerts} disabled={!!alertError || !alertsDirty || savingAlerts} data-testid="panel-alerts-save" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
+                {!readOnly && (<button onClick={saveAlerts} disabled={!!alertError || !alertsDirty || savingAlerts} data-testid="panel-alerts-save" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer">
                   {savingAlerts ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save alert settings
-                </button>
+                </button>)}
               </div>
             </>
           )}
@@ -414,15 +424,16 @@ export const MaterialDetailPanel: React.FC<Props> = ({
                 previewQty={Number(material.currentStock) || 0}
                 testIdPrefix="panel-extra"
               />
-              <button onClick={saveUnits} disabled={savingUnits} data-testid="panel-units-save" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white text-xs font-bold cursor-pointer">
+              {!readOnly && (<button onClick={saveUnits} disabled={savingUnits} data-testid="panel-units-save" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white text-xs font-bold cursor-pointer">
                 {savingUnits ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save units
-              </button>
+              </button>)}
             </>
           )}
+          </fieldset>
         </div>
 
         {/* ---------- Sticky footer (Details tab only) ---------- */}
-        {tab === 'details' && (
+        {tab === 'details' && !readOnly && (
           <div className="px-5 py-3 border-t border-slate-200 bg-white flex items-center justify-between gap-2">
             <div className="text-[11px] text-slate-500">{dirty ? 'You have unsaved changes.' : 'All changes saved.'}</div>
             <div className="flex gap-2">

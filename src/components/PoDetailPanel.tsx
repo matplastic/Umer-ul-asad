@@ -33,6 +33,8 @@ interface Props {
   onClose: () => void;
   onChanged: () => Promise<void> | void;
   onEdit: (po: PurchaseOrder) => void;
+  /** Click an item → open its product details (same popup as Store → Inventory). */
+  onOpenMaterial?: (item: { materialId?: string | null; itemName: string; erpCode?: string | null }) => void;
 }
 
 type Dialog =
@@ -60,7 +62,7 @@ const METHODS: { v: PaymentMethod; label: string }[] = [
 // trade_finance payments are created by a trade-finance drawdown, never typed in by hand
 const PICKABLE_METHODS = METHODS.filter(m => m.v !== 'trade_finance');
 
-export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoices, payments, rfqs, tradeFinances, currentUserName, canApprove, onNewTf, onOpenTf, onClose, onChanged, onEdit }) => {
+export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoices, payments, rfqs, tradeFinances, currentUserName, canApprove, onNewTf, onOpenTf, onClose, onChanged, onEdit, onOpenMaterial }) => {
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +194,7 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
                 <tbody>
                   {progress.lines.map(lp => (
                     <tr key={lp.line.id} className="border-t border-slate-200">
-                      <td className="px-2 py-2 font-semibold text-slate-800">{lp.line.itemName}<div className="text-[10px] font-normal text-slate-500">@ {money(lp.line.unitPrice)} / {lp.line.unit}</div></td>
+                      <td className="px-2 py-2 font-semibold text-slate-800">{onOpenMaterial ? <button type="button" onClick={() => onOpenMaterial({ materialId: lp.line.materialId, itemName: lp.line.itemName, erpCode: lp.line.erpCode })} data-testid={`po-line-item-${lp.line.id}`} title="Open product details" className="text-left font-semibold text-primary-700 hover:text-primary-800 hover:underline cursor-pointer">{lp.line.itemName}</button> : lp.line.itemName}<div className="text-[10px] font-normal text-slate-500">@ {money(lp.line.unitPrice)} / {lp.line.unit}</div></td>
                       <td className="px-2 py-2 text-right font-mono">{qtyFmt(lp.ordered)} {lp.line.unit}</td>
                       <td className="px-2 py-2 text-right font-mono text-emerald-700">{qtyFmt(lp.received)}</td>
                       <td className={`px-2 py-2 text-right font-mono ${lp.rejected ? 'text-rose-700 font-bold' : 'text-slate-400'}`}>{qtyFmt(lp.rejected)}</td>
@@ -225,7 +227,7 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
                       return (
                         <tr key={r.id} className="border-t border-slate-100">
                           <td className="px-2 py-1.5 whitespace-nowrap">{dateFmt(r.receivedAt || r.createdAt)}</td>
-                          <td className="px-2 py-1.5">{r.materialName}</td>
+                          <td className="px-2 py-1.5">{onOpenMaterial ? <button type="button" onClick={() => onOpenMaterial({ materialId: r.materialId, itemName: r.materialName, erpCode: null })} data-testid={`po-receipt-item-${r.id}`} title="Open product details" className="text-left font-semibold text-primary-700 hover:text-primary-800 hover:underline cursor-pointer">{r.materialName}</button> : r.materialName}</td>
                           <td className="px-2 py-1.5 text-right font-mono">{qtyFmt(r.qty)} {r.unit}</td>
                           <td className="px-2 py-1.5 font-mono">{r.doNo || '—'}</td>
                           <td className={`px-2 py-1.5 font-bold ${q.cls}`}>{q.label}{(r.qtyFailed || 0) > 0 ? ` (${qtyFmt(r.qtyFailed || 0)} rejected)` : ''}</td>
