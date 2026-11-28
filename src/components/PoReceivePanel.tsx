@@ -18,6 +18,8 @@ interface Props {
   suppliers: Supplier[];
   currentUserName: string;
   onReceived: () => void;
+  /** When set, the panel is locked to this PO number (no PO box) — used from the PO screen. */
+  lockedPoNo?: string;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -27,8 +29,8 @@ const STATUS_TEXT: Record<string, string> = {
   cancelled: 'was cancelled.',
 };
 
-export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, currentUserName, onReceived }) => {
-  const [poNo, setPoNo] = useState('');
+export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, currentUserName, onReceived, lockedPoNo }) => {
+  const [poNo, setPoNo] = useState(lockedPoNo || '');
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [doNo, setDoNo] = useState('');
   const [invoiceNo, setInvoiceNo] = useState('');
@@ -45,7 +47,7 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
   const progress = useMemo(() => (po ? poProgress(po, incoming) : null), [po, incoming]);
   const ready = !!po && isReceivable(po);
 
-  const reset = () => { setPoNo(''); setQtys({}); setDoNo(''); setInvoiceNo(''); setReceivedDate(''); setDoFiles([]); setInvFiles([]); setError(null); };
+  const reset = () => { setPoNo(lockedPoNo || ''); setQtys({}); setDoNo(''); setInvoiceNo(''); setReceivedDate(''); setDoFiles([]); setInvFiles([]); setError(null); };
 
   const submit = async () => {
     if (!po || !progress || busy) return;
@@ -119,7 +121,9 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
   };
 
   return (
-    <div className="bg-white border border-primary-200 rounded-xl p-4 mb-5" data-testid="po-receive-panel">
+    <div className={lockedPoNo ? '' : 'bg-white border border-primary-200 rounded-xl p-4 mb-5'} data-testid="po-receive-panel">
+      {!lockedPoNo && (
+      <>
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <ShoppingCart className="h-4 w-4 text-primary-600" />
         <div className="text-xs font-extrabold text-slate-900">Receive against a Purchase Order</div>
@@ -138,6 +142,8 @@ export const PoReceivePanel: React.FC<Props> = ({ pos, incoming, suppliers, curr
         {receivable.length > 0 && !poNo && <span className="text-[11px] text-slate-500">{receivable.length} open PO(s) — start typing or pick from the list.</span>}
       </div>
 
+      </>
+      )}
       {done && <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold px-3 py-2 flex items-center gap-2" data-testid="receive-done"><CheckCircle2 className="h-4 w-4" />{done}</div>}
 
       {typed && !po && <div className="mt-3 text-xs text-amber-700" data-testid="receive-notfound">No purchase order with that number. Check the PO number or ask Procurement.</div>}

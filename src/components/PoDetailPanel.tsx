@@ -10,10 +10,11 @@ import {
 } from '../lib/firebaseService';
 import {
   APPROVAL_THRESHOLD, canAutoClose, dateFmt, dueDateFor, parseTerms, expectedInvoiceAmount, invoiceMatch, money, poFinance, poProgress, poStage,
-  poTotals, qtyFmt, daysUntil, type PoStage,
+  poTotals, qtyFmt, daysUntil, isReceivable, type PoStage,
 } from '../lib/procurement';
 import { exportPurchaseOrderPdf } from '../lib/procurementPdf';
 import { PoDeliveryDocs } from './PoDocsUi';
+import { PoReceivePanel } from './PoReceivePanel';
 
 // Everything about ONE purchase order in one place: where it stands, what has arrived (and when),
 // what is still owed, the supplier's invoices (3-way matched) and the payments made.
@@ -45,7 +46,7 @@ type Dialog =
 const NEXT_STEP: Record<PoStage, string> = {
   draft: 'Check the items and prices, then submit. POs above the approval limit go to management first.',
   awaiting_approval: 'Waiting for management to approve.',
-  issued: 'Send the PO PDF to the supplier. The Store books the delivery by entering this PO number under Incoming.',
+  issued: 'Send the PO PDF to the supplier. When the material arrives, book it with “Receive material” above (or the Store can enter this PO number under Incoming).',
   partially_received: 'Still active — the supplier owes more. Stays open until everything ordered is received (or you close it short).',
   received: 'Everything ordered has arrived. Record the supplier’s invoice below, then pay it.',
   part_paid: 'Received in full. Keep paying until the invoice balance is zero.',
@@ -64,6 +65,7 @@ const PICKABLE_METHODS = METHODS.filter(m => m.v !== 'trade_finance');
 
 export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoices, payments, rfqs, tradeFinances, currentUserName, canApprove, onNewTf, onOpenTf, onClose, onChanged, onEdit, onOpenMaterial }) => {
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [receiving, setReceiving] = useState(false);   // "Receive material" popup
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -116,6 +118,9 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              {isReceivable(po) && !progress.complete && (
+                <button onClick={() => setReceiving(true)} className={btn.green} data-testid="po-receive-btn" title="Book the material that arrived against this PO"><PackageCheck className="h-3.5 w-3.5" /> Receive material</button>
+              )}
               <button onClick={() => exportPurchaseOrderPdf(po, supplier, stage)} className={btn.soft} data-testid="po-pdf" title="Download the PO as a PDF"><FileDown className="h-3.5 w-3.5" /> PDF</button>
               <button onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer" title="Close"><X className="h-4 w-4" /></button>
             </div>
@@ -364,6 +369,12 @@ export const PoDetailPanel: React.FC<Props> = ({ po, suppliers, incoming, invoic
           </section>
         </div>
       </aside>
+
+      {receiving && (
+        <Modal title="Receive material" subtitle={`${po.poNo} · ${po.supplierName}`} onClose={() => setReceiving(false)} width="max-w-4xl">
+          <PoReceivePanel pos={[po]} incoming={incoming} suppliers={suppliers} currentUserName={currentUserName} lockedPoNo={po.poNo} onReceived={() => { void onChanged(); }} />
+        </Modal>
+      )}
 
       {dialog?.kind === 'invoice' && (
         <InvoiceDialog
