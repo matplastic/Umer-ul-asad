@@ -95,6 +95,7 @@ export const BACKUP_DOCS: BackupDocDef[] = [
   { id: 'hrExpenses', label: 'Office & pantry expenses', group: 'hr' },
   { id: 'hrPettyCash', label: 'Petty cash ledger', group: 'hr' },
   { id: 'hrExpenseBudgets', label: 'Expense budgets', group: 'hr' },
+  { id: 'hrOvertimeRules', label: 'Overtime rules', group: 'hr' },
 ];
 
 export const BACKUP_DOC_IDS: string[] = BACKUP_DOCS.map(d => d.id);

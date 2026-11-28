@@ -28,7 +28,7 @@ export type HRDocName =
   | 'hrVacancies' | 'hrCandidates' | 'hrSettlements' | 'hrNotices' | 'hrGrievances'
   | 'hrVehicles' | 'hrFuelLogs' | 'hrVehicleService' | 'hrVehicleFines'
   | 'hrHolidays' | 'hrLeavePolicy' | 'hrLeaveAdjust'
-  | 'hrPayrollSettings' | 'hrExpenses' | 'hrPettyCash' | 'hrExpenseBudgets';
+  | 'hrPayrollSettings' | 'hrExpenses' | 'hrPettyCash' | 'hrExpenseBudgets' | 'hrOvertimeRules';
 
 /** Every list the HR Suite owns — also registered for backup/restore. */
 export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
@@ -59,6 +59,7 @@ export const HR_SUITE_DOCS: { id: HRDocName; label: string }[] = [
   { id: 'hrExpenses', label: 'Office & pantry expenses' },
   { id: 'hrPettyCash', label: 'Petty cash ledger' },
   { id: 'hrExpenseBudgets', label: 'Expense budgets' },
+  { id: 'hrOvertimeRules', label: 'Overtime rules' },
 ];
 
 // ─── Record types ───────────────────────────────────────────

@@ -189,6 +189,17 @@ export function downloadRows(fileName: string, rows: Record<string, unknown>[], 
   XLSX.writeFile(wb, fileName);
 }
 
+/** One workbook with several sheets (header row + data rows each). */
+export function downloadWorkbook(fileName: string, sheets: { name: string; headers: string[]; rows: unknown[][]; widths?: number[] }[]) {
+  const wb = XLSX.utils.book_new();
+  for (const s of sheets) {
+    const ws = XLSX.utils.aoa_to_sheet([s.headers, ...s.rows]);
+    ws['!cols'] = s.headers.map((h, i) => ({ wch: s.widths?.[i] ?? Math.max(12, Math.min(40, h.length + 4)) }));
+    XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+  }
+  XLSX.writeFile(wb, fileName);
+}
+
 /** A sheet with the given header row and data rows (used for pre-filled import sheets). */
 export function downloadSheet(fileName: string, headers: string[], rows: unknown[][], sheet = 'Sheet1') {
   const wb = XLSX.utils.book_new();

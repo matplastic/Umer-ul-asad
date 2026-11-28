@@ -57,6 +57,7 @@ import { HolidayCalendar } from './hr/HolidayCalendar';
 import { ExpiryReminders } from './hr/ExpiryReminders';
 import { PayrollCompliance } from './hr/PayrollCompliance';
 import { Expenses } from './hr/Expenses';
+import { OvertimeSalary } from './hr/OvertimeSalary';
 import { DataHealth } from './hr/DataHealth';
 import { OrgManagerModal } from './hr/OrgManager';
 import { QuickEntryGrid } from './hr/QuickEntryGrid';
@@ -223,7 +224,7 @@ interface HRPortalProps {
 // The only tabs the HR Administration portal shows.
 const HR_ADMIN_TABS = ['directory', 'attendance', 'leave', 'warnings', 'accidents', 'medical'] as const;
 // Everything else is shown to HR Administration as a DEMO (sample data, nothing saved).
-const HR_SUITE_TAB_IDS = ['wps', 'expenses', 'balance', 'holidays', 'reminders', 'health', 'grid', 'import', 'fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
+const HR_SUITE_TAB_IDS = ['otcalc', 'wps', 'expenses', 'balance', 'holidays', 'reminders', 'health', 'grid', 'import', 'fleet', 'hrdash', 'emp360', 'docs', 'cases', 'requests', 'safety', 'reviews', 'letters', 'recruit', 'relations', 'settle', 'audit'];
 const HR_DEMO_RECORD_TABS = ['passports', 'payroll', 'purchases', 'reports', 'accounts'];
 const HR_RECORD_TAB_IDS = ['directory', 'passports', 'attendance', 'payroll', 'leave', 'warnings', 'accidents', 'medical', 'purchases', 'reports', 'accounts'];
 
@@ -1008,7 +1009,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
   mode = 'executive',
 }) => {
   const isAdmin = mode === 'admin';
-  const [activeTab, setActiveTab] = useState<'wps' | 'expenses' | 'balance' | 'holidays' | 'reminders' | 'health' | 'grid' | 'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
+  const [activeTab, setActiveTab] = useState<'otcalc' | 'wps' | 'expenses' | 'balance' | 'holidays' | 'reminders' | 'health' | 'grid' | 'import' | 'fleet' | 'recruit' | 'settle' | 'relations' | 'hrdash' | 'emp360' | 'docs' | 'cases' | 'requests' | 'safety' | 'reviews' | 'letters' | 'audit' | 'directory' | 'passports' | 'attendance' | 'payroll' | 'leave' | 'warnings' | 'accidents' | 'medical' | 'purchases' | 'reports' | 'accounts'>(() => readSavedTab(mode) as any);
   // HR-managed department list (companies come from App via companyList)
   const { departments: savedDepartments, saveDepartments } = useOrgLists();
   useFavoriteNav(isAdmin ? 'hr_admin' : 'hr_portal', activeTab, setActiveTab);
@@ -4732,6 +4733,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
     { id: 'reviews', label: 'Performance', icon: <Star className="h-4 w-4" /> },
     { id: 'health', label: 'Data Health', icon: <ClipboardCheck className="h-4 w-4" /> },
     { id: 'grid', label: 'Quick Entry', icon: <Table2 className="h-4 w-4" /> },
+    { id: 'otcalc', label: 'Overtime & Salary Sheet', icon: <Clock className="h-4 w-4" /> },
     { id: 'wps', label: 'Payslips & WPS', icon: <Banknote className="h-4 w-4" /> },
     { id: 'expenses', label: 'Office Expenses', icon: <Wallet className="h-4 w-4" /> },
     { id: 'balance', label: 'Leave Balance', icon: <CalendarCheck className="h-4 w-4" /> },
@@ -4911,6 +4913,7 @@ export const HRPortal: React.FC<HRPortalProps> = ({
             {activeTab === 'letters' && <LettersCenter employees={employees} user={currentUserName} payroll={demo ? [] : payroll} />}
             {activeTab === 'health' && <DataHealth employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} onNavigate={(t) => setActiveTab(t as any)} />}
             {activeTab === 'grid' && <QuickEntryGrid employees={employees} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} companies={companyList && companyList.length > 0 ? companyList : [...COMPANIES]} departments={savedDepartments} />}
+            {activeTab === 'otcalc' && <OvertimeSalary employees={employees} payroll={demo ? [] : payroll} leaves={leaves} user={currentUserName} />}
             {activeTab === 'wps' && <PayrollCompliance employees={employees} payroll={demo ? [] : payroll} leaves={leaves} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} onNavigate={(t) => setActiveTab(t as any)} />}
             {activeTab === 'expenses' && <Expenses employees={employees} user={currentUserName} />}
             {activeTab === 'balance' && <LeaveBalance employees={employees} leaves={leaves} user={currentUserName} saveEmployees={demo ? async () => {} : onAddEmployeesBulk} />}

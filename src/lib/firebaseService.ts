@@ -152,6 +152,7 @@ const COLLECTION_BACKED: Record<string, boolean> = {
   hrExpenses: true,
   hrPettyCash: true,
   hrExpenseBudgets: true,
+  hrOvertimeRules: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
